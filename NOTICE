@@ -1,0 +1,37 @@
+claude-obsidian / Claude Companion
+==================================
+
+This project builds on and is inspired by prior work. We are grateful to the
+authors below.
+
+-------------------------------------------------------------------------------
+"The unreasonable effectiveness of HTML" — examples gallery
+(vendored unmodified as a submodule, under its own Apache-2.0 license)
+Author:  Thariq Shihipar
+Source:  https://github.com/ThariqS/html-effectiveness
+License: Apache-2.0 (at the pinned commit 0e8d447)
+-------------------------------------------------------------------------------
+
+How we use it
+-------------
+- Thariq's original HTML gallery is included **only** as a pinned git submodule
+  at `upstream/html-effectiveness/`. It is never modified in place; it stays
+  verbatim and remains clearly his work, attributable through its own git
+  history. Clone with `--recurse-submodules` to fetch it.
+- The artifact *design system* in this repo (color palette, typography, layout
+  conventions, and the "single self-contained HTML document" approach) takes
+  aesthetic inspiration from that gallery, but our implementation
+  (`obsidian-plugin/src/artifacts/designSystem.ts` and the `claude-plugin`
+  note-to-artifact skill) is an **original reformulation** — it expresses a
+  similar sensibility in our own prompt and code, and is NOT a copy of the
+  original HTML files.
+- Project-specific variations live in
+  `claude-plugin/design-system/extensions/` as additive layers, so the original
+  set is never altered.
+
+If you are Thariq and would like attribution changed or removed, please open an
+issue on the repository.
+
+-------------------------------------------------------------------------------
+Everything authored in this repository (the Obsidian plugin, the Claude Code
+plugin, and their skills) is licensed under the MIT License — see ./LICENSE.

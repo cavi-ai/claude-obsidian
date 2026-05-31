@@ -1,9 +1,22 @@
+# Dependencies
 node_modules/
+pnpm-store/
+
+# Build output (attached to the GitHub release, not committed)
+main.js
+*.js.map
+
+# Env & editor/local
 .env
 .DS_Store
 .vscode
+.cursor
 .cursorrules
 .cursorignore
-.cursor
 .code-review-graph/
-pnpm-store/
+
+# Claude Code working state & plans — never ship in the open-source repo
+.claude/
+.remember/
+.quarantine/
+docs/

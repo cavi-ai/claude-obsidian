@@ -1,0 +1,12 @@
+{
+  "name": "claude-obsidian",
+  "description": "Cowork with Claude inside your Obsidian vault: turn notes into beautiful self-contained HTML artifacts and drive spec-based builds, all over the Claude Companion MCP bridge.",
+  "version": "0.1.0",
+  "author": {
+    "name": "cavi-ai",
+    "url": "https://github.com/cavi-ai"
+  },
+  "homepage": "https://github.com/cavi-ai/claude-obsidian",
+  "license": "MIT",
+  "keywords": ["obsidian", "artifacts", "html", "mcp", "notes", "cowork"]
+}

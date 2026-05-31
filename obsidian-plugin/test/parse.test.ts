@@ -1,0 +1,55 @@
+import { describe, it, expect } from "vitest";
+import { extractArtifact, titleFromHtml, sanitizeFileName } from "../src/artifacts/parse";
+
+describe("extractArtifact", () => {
+  it("extracts a claude-html block and reads its <title>", () => {
+    const md = "Here you go:\n\n```claude-html\n<!DOCTYPE html><html><head><title>My Plan</title></head><body>hi</body></html>\n```\n";
+    const a = extractArtifact(md);
+    expect(a).not.toBeNull();
+    expect(a!.title).toBe("My Plan");
+    expect(a!.html).toContain("<!DOCTYPE html>");
+  });
+
+  it("accepts a claude-html block with a height directive on the fence", () => {
+    const md = "```claude-html height=720\n<h1>Inline</h1>\n```";
+    const a = extractArtifact(md);
+    expect(a!.title).toBe("Inline");
+  });
+
+  it("falls back to a plain html block only when it is a full document", () => {
+    const fullDoc = "```html\n<!DOCTYPE html><html><body><h1>Doc</h1></body></html>\n```";
+    expect(extractArtifact(fullDoc)!.title).toBe("Doc");
+
+    const snippet = "```html\n<span>just a snippet</span>\n```";
+    expect(extractArtifact(snippet)).toBeNull();
+  });
+
+  it("returns null when there is no artifact", () => {
+    expect(extractArtifact("plain prose, no code block")).toBeNull();
+  });
+
+  it("returns null for an empty block", () => {
+    expect(extractArtifact("```claude-html\n\n```")).toBeNull();
+  });
+});
+
+describe("titleFromHtml", () => {
+  it("prefers <title>, then <h1>, then a default", () => {
+    expect(titleFromHtml("<title> Spaced </title>")).toBe("Spaced");
+    expect(titleFromHtml("<h1>Heading <em>x</em></h1>")).toBe("Heading x");
+    expect(titleFromHtml("<p>nothing</p>")).toBe("Claude artifact");
+  });
+});
+
+describe("sanitizeFileName", () => {
+  it("strips path-hostile characters and collapses whitespace", () => {
+    expect(sanitizeFileName('a/b:c*?"<>|#^[]d')).toBe("a b c d");
+  });
+  it("never yields an empty name", () => {
+    expect(sanitizeFileName("///")).toBe("Untitled");
+    expect(sanitizeFileName("   ")).toBe("Untitled");
+  });
+  it("caps length at 80 chars", () => {
+    expect(sanitizeFileName("x".repeat(200)).length).toBe(80);
+  });
+});

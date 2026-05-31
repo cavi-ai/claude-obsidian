@@ -1,0 +1,62 @@
+name: Obsidian plugin CI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "obsidian-plugin/**"
+      - ".github/workflows/obsidian-plugin-ci.yml"
+  pull_request:
+    paths:
+      - "obsidian-plugin/**"
+      - ".github/workflows/obsidian-plugin-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: obsidian-plugin-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: obsidian-plugin
+
+jobs:
+  verify:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20.x", "22.x"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: obsidian-plugin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Audit production release floor
+        run: npm run audit
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify build output exists
+        run: test -f main.js

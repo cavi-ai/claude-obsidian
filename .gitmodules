@@ -1,0 +1,3 @@
+[submodule "upstream/html-effectiveness"]
+	path = upstream/html-effectiveness
+	url = https://github.com/ThariqS/html-effectiveness.git

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "obsidian-vault": {
+      "type": "http",
+      "url": "http://127.0.0.1:${OBSIDIAN_MCP_PORT:-3030}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OBSIDIAN_MCP_TOKEN}"
+      }
+    }
+  }
+}
