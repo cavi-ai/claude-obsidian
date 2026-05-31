@@ -1,0 +1,9 @@
+node_modules/
+.env
+.DS_Store
+.vscode
+.cursorrules
+.cursorignore
+.cursor
+.code-review-graph/
+pnpm-store/
