@@ -79,6 +79,18 @@ export class VaultTools {
           required: ["path"],
         },
       },
+      {
+        name: "frontmatter_query",
+        description: "List notes whose YAML frontmatter has a given field, optionally matching a value (scalar equality, or membership when the field is a list like tags).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            field: { type: "string", description: "Frontmatter key to match (e.g. 'type', 'status', 'tags')." },
+            value: { type: "string", description: "Optional value the field must equal (or contain, for list fields)." },
+          },
+          required: ["field"],
+        },
+      },
     ];
 
     if (this.opts.allowWrites) {
@@ -135,6 +147,18 @@ export class VaultTools {
             required: ["path"],
           },
         },
+        {
+          name: "note_move",
+          description: "Move or rename a note to a new vault path. Backlinks to it are rewritten automatically. Provide the full destination path (including filename).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Current vault-relative path of the note." },
+              to: { type: "string", description: "Destination vault-relative path (folder and filename)." },
+            },
+            required: ["path", "to"],
+          },
+        },
       );
     }
     return defs;
@@ -156,6 +180,8 @@ export class VaultTools {
         return this.backlinks(str(args.path));
       case "get_outgoing_links":
         return this.outgoingLinks(str(args.path));
+      case "frontmatter_query":
+        return this.frontmatterQuery(str(args.field), optStr(args.value));
       case "note_create":
         this.assertWrites();
         return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags));
@@ -168,6 +194,9 @@ export class VaultTools {
       case "update_frontmatter":
         this.assertWrites();
         return this.updateFrontmatter(str(args.path), strArray(args.tags), args.fields);
+      case "note_move":
+        this.assertWrites();
+        return this.move(str(args.path), str(args.to));
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -308,6 +337,30 @@ export class VaultTools {
       for (const [k, v] of Object.entries(scalars)) fm[k] = v;
     });
     return `Updated frontmatter of ${file.path}`;
+  }
+
+  private async frontmatterQuery(field: string, value: string | undefined): Promise<string> {
+    const hits: string[] = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      if (!fm || !(field in fm)) continue;
+      if (value === undefined) {
+        hits.push(file.path);
+        continue;
+      }
+      const v = fm[field];
+      if (Array.isArray(v) ? v.map(String).includes(value) : String(v) === value) hits.push(file.path);
+    }
+    hits.sort();
+    if (hits.length === 0) return value === undefined ? `No notes have frontmatter field "${field}".` : `No notes where ${field} = "${value}".`;
+    return hits.map((p) => `- ${p}`).join("\n");
+  }
+
+  private async move(path: string, to: string): Promise<string> {
+    const file = this.resolveFile(path);
+    const dest = normalizePath(to);
+    await this.app.fileManager.renameFile(file, dest);
+    return `Moved ${path} → ${dest} (backlinks updated)`;
   }
 
   // ---- helpers ----

@@ -58,13 +58,16 @@ class FakeVault {
   private folders = new Set<string>();
   /** path -> tag strings (without #), used to build the metadata cache */
   tags = new Map<string, string[]>();
+  /** path -> frontmatter object */
+  frontmatters = new Map<string, Record<string, unknown>>();
 
   /** Test helper: seed a note. */
-  seed(path: string, content: string, opts: { mtime?: number; tags?: string[] } = {}): TFile {
+  seed(path: string, content: string, opts: { mtime?: number; tags?: string[]; frontmatter?: Record<string, unknown> } = {}): TFile {
     const p = normalizePath(path);
     const file = new TFile(p, content, opts.mtime ?? Date.now());
     this.files.set(p, file);
     if (opts.tags?.length) this.tags.set(p, opts.tags);
+    if (opts.frontmatter) this.frontmatters.set(p, opts.frontmatter);
     const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
     if (dir) this.folders.add(dir);
     return file;
@@ -110,6 +113,18 @@ class FakeVault {
     file.stat.size = content.length;
     return Promise.resolve();
   }
+
+  /** Test helper used by FakeFileManager.renameFile. */
+  _moveFile(file: TFile, newPath: string): void {
+    this.files.delete(file.path);
+    file.path = newPath;
+    const name = newPath.split("/").pop() ?? newPath;
+    const dot = name.lastIndexOf(".");
+    file.basename = dot > 0 ? name.slice(0, dot) : name;
+    this.files.set(newPath, file);
+    const dir = newPath.includes("/") ? newPath.slice(0, newPath.lastIndexOf("/")) : "";
+    if (dir) this.folders.add(dir);
+  }
 }
 
 class FakeMetadataCache {
@@ -117,8 +132,12 @@ class FakeMetadataCache {
   constructor(private vault: FakeVault) {}
   getFileCache(file: TFile): FileCache | null {
     const tags = this.vault.tags.get(file.path);
-    if (!tags) return null;
-    return { tags: tags.map((t) => ({ tag: t.startsWith("#") ? t : `#${t}` })) };
+    const frontmatter = this.vault.frontmatters.get(file.path);
+    if (!tags && !frontmatter) return null;
+    const cache: FileCache = {};
+    if (tags) cache.tags = tags.map((t) => ({ tag: t.startsWith("#") ? t : `#${t}` }));
+    if (frontmatter) cache.frontmatter = frontmatter;
+    return cache;
   }
 }
 
@@ -130,6 +149,14 @@ class FakeMetadataCache {
  * re-serializes via the production `buildFrontmatter` and rejoins with the body.
  */
 class FakeFileManager {
+  constructor(private vault: FakeVault) {}
+
+  renameFile(file: TFile, newPath: string): Promise<void> {
+    const p = normalizePath(newPath);
+    this.vault._moveFile(file, p);
+    return Promise.resolve();
+  }
+
   async processFrontMatter(file: TFile, fn: (frontmatter: Record<string, unknown>) => void): Promise<void> {
     const m = /^---\n([\s\S]*?)\n---\n?/.exec(file._content);
     const obj: Record<string, unknown> = {};
@@ -163,7 +190,7 @@ class FakeFileManager {
 export class App {
   vault = new FakeVault();
   metadataCache = new FakeMetadataCache(this.vault);
-  fileManager = new FakeFileManager();
+  fileManager = new FakeFileManager(this.vault);
 }
 
 // Value stubs for modules that import these names (not exercised in tests).
