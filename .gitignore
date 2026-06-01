@@ -19,3 +19,6 @@ pnpm-store/
 .remember/
 .quarantine/
 docs/
+
+# Maintainer-only release tooling — not part of the published plugin
+scripts/
