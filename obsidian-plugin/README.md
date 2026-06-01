@@ -8,7 +8,9 @@ The artifact design system takes its aesthetic cues from Thariq Shihipar's
 [“unreasonable effectiveness of HTML”](https://github.com/ThariqS/html-effectiveness)
 gallery (vendored as a pinned submodule at the monorepo root) — an original
 reformulation, not a copy — so the plans, reports, and dashboards Claude
-generates look gallery-grade. See [`../NOTICE`](../NOTICE) for full attribution.
+generates look gallery-grade. See the
+[`NOTICE`](https://github.com/cavi-ai/claude-obsidian/blob/main/NOTICE) for full
+attribution.
 
 > **Bring your own credential.** Companion for Claude talks to the Anthropic
 > Messages API with *your* credential — nothing is sent anywhere else. Desktop
@@ -93,8 +95,8 @@ npm test            # vitest (unit tests in test/)
 npm run build       # typecheck + production bundle
 ```
 
-CI runs all four on every push/PR (Node 20 & 22) via
-[`.github/workflows/obsidian-plugin-ci.yml`](../.github/workflows/obsidian-plugin-ci.yml).
+CI runs all four on every push/PR (Node 20 & 22) in the
+[monorepo](https://github.com/cavi-ai/claude-obsidian).
 
 ### Manual test checklist (needs a real vault + API key)
 
