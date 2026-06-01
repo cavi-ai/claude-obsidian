@@ -3,7 +3,10 @@ import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage } from "../types";
 import type { Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
-import { modelLabel } from "../claude/models";
+import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
+import { capabilitiesFor, effortLevels } from "../claude/capabilities";
+import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
+import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import { gatherContext } from "../context/vaultContext";
 import { extractArtifact, saveArtifactNote, saveChatNote } from "../artifacts/artifactStore";
 import { errorHint } from "../providers/errorHints";
@@ -17,11 +20,17 @@ export class ChatView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private modelLabelEl!: HTMLElement;
+  private backendPillEl!: HTMLElement;
   private usageEl!: HTMLElement;
   private gaugeFillEl!: HTMLElement;
   private streaming = false;
   private abort: AbortController | null = null;
   private session: SessionUsage = { ...EMPTY_SESSION };
+  /** Per-session chat controls (model, thinking, effort, temp, max). */
+  private controls!: ChatControls;
+  private controlsEl!: HTMLElement;
+  /** Latest streamed text of the in-flight turn (for clean abort handling). */
+  private _lastBuffer = "";
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -45,11 +54,17 @@ export class ChatView extends ItemView {
     root.empty();
     root.addClass("cc-root");
 
+    // Initialize per-session controls from the settings default model.
+    if (!this.controls) {
+      this.controls = defaultChatControls(resolveModelId(this.plugin.settings.model, this.plugin.settings.customModel));
+    }
+
     // ---- header ----
     const header = root.createDiv({ cls: "cc-header" });
     const title = header.createDiv({ cls: "cc-title" });
     title.createSpan({ cls: "cc-eyebrow", text: "CLAUDE COMPANION" });
     this.modelLabelEl = title.createSpan({ cls: "cc-model" });
+    this.backendPillEl = title.createSpan({ cls: "cc-backend-pill", attr: { "aria-label": "Chat backend / connectivity" } });
     const actions = header.createDiv({ cls: "cc-header-actions" });
     this.iconButton(actions, "plus", "New chat", () => this.clearChat());
     this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
@@ -62,6 +77,10 @@ export class ChatView extends ItemView {
     this.contextChip(chips, "Selection", "selection");
     this.contextChip(chips, "Links", "linkedNotes");
     this.contextChip(chips, "Search vault", "searchVault");
+
+    // ---- chat controls (model switcher, thinking, effort, temp, max) ----
+    this.controlsEl = root.createDiv({ cls: "cc-controls" });
+    this.renderControls();
 
     // ---- messages ----
     this.messagesEl = root.createDiv({ cls: "cc-messages" });
@@ -91,6 +110,7 @@ export class ChatView extends ItemView {
     this.sendBtn.addEventListener("click", () => this.onSend());
 
     this.refreshModelLabel();
+    void this.refreshBackendPill();
     // Resume the last active conversation if one was persisted; else empty state.
     const active = this.plugin.getActiveConversation();
     if (active && active.messages.length > 0) {
@@ -158,8 +178,9 @@ export class ChatView extends ItemView {
    * after each response, and when the model changes.
    */
   private updateUsageBar(): void {
-    const { provider, model } = this.plugin.router().chatProvider();
-    const reserved = this.plugin.settings.maxTokens;
+    const { provider } = this.plugin.router().chatProvider();
+    const model = provider.id === "ollama" ? this.plugin.settings.ollamaModel : this.controls?.model ?? this.plugin.settings.model;
+    const reserved = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
 
     // Estimate input tokens: system + conversation so far + the draft + a
     // rough allowance for the vault context that will be attached.
@@ -178,8 +199,12 @@ export class ChatView extends ItemView {
       parts.push(`~${formatTokens(estIn)} ctx · local (no metered cost)`);
     } else {
       parts.push(`~${formatTokens(estIn)} / ${formatTokens(g.window)} ctx`);
+      // OAuth subscription tokens don't bill per-token, so show token totals
+      // without a dollar estimate; API-key usage shows the estimated cost.
+      const oauth = "isOAuth" in provider && (provider as { isOAuth(): boolean }).isOAuth();
       if (this.session.requests > 0) {
-        parts.push(`session ${formatTokens(this.session.inputTokens)}↑ ${formatTokens(this.session.outputTokens)}↓ ≈ ${formatCost(sessionCost(this.session, model))}`);
+        const totals = `session ${formatTokens(this.session.inputTokens)}↑ ${formatTokens(this.session.outputTokens)}↓`;
+        parts.push(oauth ? `${totals} · subscription` : `${totals} ≈ ${formatCost(sessionCost(this.session, model))}`);
       }
     }
     this.usageEl.setText(parts.join("  ·  "));
@@ -195,7 +220,8 @@ export class ChatView extends ItemView {
   }
 
   refreshModelLabel(): void {
-    const { provider, model } = this.plugin.router().chatProvider();
+    const { provider } = this.plugin.router().chatProvider();
+    const model = provider.id === "ollama" ? this.plugin.settings.ollamaModel : this.controls?.model ?? this.plugin.settings.model;
     const label = provider.id === "ollama" ? `${model} · local` : modelLabel(model);
     this.modelLabelEl.setText(label);
     if (this.usageEl) this.updateUsageBar();
@@ -225,6 +251,108 @@ export class ChatView extends ItemView {
       this.plugin.settings.context[key] = !this.plugin.settings.context[key];
       await this.plugin.saveSettings();
       sync();
+    });
+  }
+
+  /**
+   * Render the per-message control row. The visible knobs adapt to the selected
+   * model's capabilities, so a control that the model would 400 on is hidden
+   * rather than shown-and-broken. Ollama (local) sessions show no Claude knobs.
+   */
+  private renderControls(): void {
+    this.controlsEl.empty();
+    const onOllama = this.plugin.router().chatProvider().provider.id === "ollama";
+
+    // --- model switcher ---
+    const modelWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-model" });
+    const select = modelWrap.createEl("select", { cls: "cc-ctl-select", attr: { "aria-label": "Model" } });
+    const ids = new Set(CLAUDE_MODELS.map((m) => m.id));
+    for (const m of CLAUDE_MODELS) select.createEl("option", { value: m.id, text: m.label });
+    // Keep a custom / settings model selectable even if not in the curated list.
+    if (!ids.has(this.controls.model)) select.createEl("option", { value: this.controls.model, text: this.controls.model });
+    select.value = this.controls.model;
+    select.addEventListener("change", () => {
+      this.controls.model = select.value;
+      this.renderControls(); // capabilities changed → re-render the knobs
+      this.refreshModelLabel();
+      this.updateUsageBar();
+    });
+
+    if (onOllama) {
+      this.controlsEl.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
+      return;
+    }
+
+    const caps = capabilitiesFor(this.controls.model);
+
+    // --- thinking toggle ---
+    if (caps.thinking !== "none") {
+      const think = this.controlsEl.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Think" });
+      think.toggleClass("is-active", this.controls.thinking);
+      think.setAttribute("aria-label", "Extended thinking");
+      think.addEventListener("click", () => {
+        this.controls.thinking = !this.controls.thinking;
+        this.renderControls(); // effort/show-thinking visibility depends on this
+        this.updateUsageBar();
+      });
+
+      // --- effort dial (only when supported AND thinking is on) ---
+      if (caps.effort && this.controls.thinking) {
+        const eff = this.controlsEl.createEl("select", { cls: "cc-ctl cc-ctl-select", attr: { "aria-label": "Effort" } });
+        for (const level of effortLevels(caps)) eff.createEl("option", { value: level, text: `effort: ${level}` });
+        if (!effortLevels(caps).includes(this.controls.effort)) this.controls.effort = "high";
+        eff.value = this.controls.effort;
+        eff.addEventListener("change", () => {
+          this.controls.effort = eff.value;
+        });
+      }
+
+      // --- show-thinking toggle (adaptive models, when thinking is on) ---
+      if (caps.thinking === "adaptive" && this.controls.thinking) {
+        const show = this.controlsEl.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Show reasoning" });
+        show.toggleClass("is-active", this.controls.showThinking);
+        show.addEventListener("click", () => {
+          this.controls.showThinking = !this.controls.showThinking;
+          show.toggleClass("is-active", this.controls.showThinking);
+        });
+      }
+    }
+
+    // --- temperature (only when the model accepts it and thinking is off) ---
+    if (caps.temperature && !this.controls.thinking) {
+      const tempWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-temp" });
+      tempWrap.createSpan({ cls: "cc-ctl-label", text: "temp" });
+      const temp = tempWrap.createEl("input", {
+        cls: "cc-ctl-range",
+        attr: { type: "range", min: "0", max: "1", step: "0.1", "aria-label": "Temperature" },
+      });
+      const out = tempWrap.createSpan({ cls: "cc-ctl-val" });
+      const sync = () => out.setText(this.controls.temperature === null ? "auto" : this.controls.temperature.toFixed(1));
+      temp.value = String(this.controls.temperature ?? 0.7);
+      sync();
+      temp.addEventListener("input", () => {
+        this.controls.temperature = parseFloat(temp.value);
+        sync();
+      });
+      // Double-click resets to model default ("auto").
+      tempWrap.addEventListener("dblclick", () => {
+        this.controls.temperature = null;
+        sync();
+      });
+    }
+
+    // --- per-message max tokens ---
+    const maxWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-max" });
+    maxWrap.createSpan({ cls: "cc-ctl-label", text: "max" });
+    const maxIn = maxWrap.createEl("input", {
+      cls: "cc-ctl-num",
+      attr: { type: "number", min: "1", placeholder: String(this.plugin.settings.maxTokens), "aria-label": "Max output tokens" },
+    });
+    if (this.controls.maxTokens) maxIn.value = String(this.controls.maxTokens);
+    maxIn.addEventListener("change", () => {
+      const n = parseInt(maxIn.value, 10);
+      this.controls.maxTokens = Number.isFinite(n) && n > 0 ? n : null;
+      this.updateUsageBar();
     });
   }
 
@@ -280,9 +408,11 @@ export class ChatView extends ItemView {
   }
 
   private async run(userText: string): Promise<void> {
-    const { provider, model } = this.plugin.router().chatProvider();
-    if (!provider.hasCredentials()) {
-      const where = provider.id === "ollama" ? "Start Ollama (`ollama serve`) or set the host in settings." : "Add your Anthropic API key in Claude Companion settings first.";
+    const router = this.plugin.router();
+    const { provider } = router.chatProvider();
+    const backend = router.chatBackend;
+    if (!provider.hasCredentials() && backend !== "auto") {
+      const where = provider.id === "ollama" ? "Start Ollama (`ollama serve`) or set the host in settings." : "Add your Anthropic credential in Claude Companion settings first.";
       new Notice(where);
       return;
     }
@@ -299,12 +429,57 @@ export class ChatView extends ItemView {
       this.annotateContext(ctx.sources);
     }
 
-    // Prepare the assistant bubble.
     const { bubble, body } = this.createAssistantBubble();
     this.setSending(true);
     this.abort = new AbortController();
 
+    // Attempt #1 on the primary backend (Claude unless backend is "local").
+    const startedOnLocal = provider.id === "ollama";
+    const err1 = await this.streamTurn(startedOnLocal ? "local" : "claude", apiMessages, bubble, body);
+
+    // Fallback: if Claude failed with an offline/usage error and a local model is
+    // available, retry transparently so you keep working with no internet/tokens.
+    if (err1) {
+      const localOk = await router.localAvailable();
+      const doFallback = shouldFallbackToLocal({ backend, localAvailable: localOk, error: err1 });
+      if (doFallback) {
+        this.annotateFallback(bubble, fallbackReason(err1));
+        const err2 = await this.streamTurn("local", apiMessages, bubble, body);
+        if (err2) {
+          this.renderError(body, err2.message ?? String(err2));
+          this.finishAssistant(null, bubble);
+        }
+      } else {
+        this.renderError(body, err1.message ?? String(err1));
+        this.finishAssistant(null, bubble);
+      }
+    }
+
+    // If a stream ended without onDone (aborted), still close out.
+    if (this.streaming) this.finishAssistant(this._lastBuffer || null, bubble);
+  }
+
+  /**
+   * Run one streaming attempt on a backend. Resolves to the error if it failed
+   * (for the fallback decision), or null on success (onDone fired). The answer
+   * and reasoning render into the passed bubble/body.
+   */
+  private streamTurn(
+    target: "claude" | "local",
+    apiMessages: ChatMessage[],
+    bubble: HTMLElement,
+    body: HTMLElement,
+  ): Promise<{ message?: string; status?: number } | null> {
+    const router = this.plugin.router();
+    const onClaude = target === "claude";
+    const provider = onClaude ? router.anthropic : router.ollama;
+    const model = onClaude ? this.controls.model : this.plugin.settings.ollamaModel;
+    const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.plugin.settings.maxTokens);
+    const wantThinking = onClaude && this.controls.thinking && this.controls.showThinking;
+    let thinkingBody: HTMLElement | null = wantThinking ? this.createThinkingPanel(bubble) : null;
+
     let buffer = "";
+    let thinkBuf = "";
     let scheduled = false;
     const flush = () => {
       scheduled = false;
@@ -312,38 +487,60 @@ export class ChatView extends ItemView {
       this.scrollToBottom();
     };
 
-    await provider.stream(
-      {
-        system: this.plugin.composeSystemPrompt(),
-        messages: apiMessages,
-        model,
-        maxTokens: this.plugin.settings.maxTokens,
-        signal: this.abort.signal,
-      },
-      {
-        onText: (delta) => {
-          buffer += delta;
-          if (!scheduled) {
-            scheduled = true;
-            window.requestAnimationFrame(flush);
-          }
+    return new Promise((resolve) => {
+      let settled = false;
+      void provider.stream(
+        {
+          system: this.plugin.composeSystemPrompt(),
+          messages: apiMessages,
+          model,
+          maxTokens: shape.maxTokens,
+          temperature: onClaude ? shape.temperature : undefined,
+          thinking: onClaude ? shape.thinking : undefined,
+          thinkingDisplay: onClaude ? shape.thinkingDisplay : undefined,
+          outputConfig: onClaude ? shape.outputConfig : undefined,
+          signal: this.abort?.signal,
         },
-        onError: (err) => {
-          this.renderError(body, err.message);
-          this.finishAssistant(null, bubble);
+        {
+          onThinking: (delta) => {
+            if (!thinkingBody) thinkingBody = this.createThinkingPanel(bubble);
+            thinkBuf += delta;
+            thinkingBody.setText(thinkBuf);
+            this.scrollToBottom();
+          },
+          onText: (delta) => {
+            buffer += delta;
+            this._lastBuffer = buffer;
+            if (!scheduled) {
+              scheduled = true;
+              window.requestAnimationFrame(flush);
+            }
+          },
+          onError: (err) => {
+            if (settled) return;
+            settled = true;
+            resolve({ message: err.message, status: (err as { status?: number }).status });
+          },
+          onUsage: (usage) => {
+            this.session = addUsage(this.session, usage);
+          },
+          onDone: (full) => {
+            if (settled) return;
+            settled = true;
+            buffer = full;
+            this._lastBuffer = full;
+            void this.renderMarkdownInto(body, full).then(() => this.finishAssistant(full, bubble));
+            resolve(null);
+          },
         },
-        onUsage: (usage) => {
-          this.session = addUsage(this.session, usage);
-        },
-        onDone: (full) => {
-          buffer = full;
-          void this.renderMarkdownInto(body, full).then(() => this.finishAssistant(full, bubble));
-        },
-      },
-    );
-
-    // If the stream ended without onDone (aborted), still close out.
-    if (this.streaming) this.finishAssistant(buffer || null, bubble);
+      ).then(() => {
+        // stream() resolved without onError/onDone (e.g. aborted) — not an error.
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      });
+    });
   }
 
   private finishAssistant(full: string | null, bubble: HTMLElement): void {
@@ -370,6 +567,21 @@ export class ChatView extends ItemView {
     return { bubble, body };
   }
 
+  /**
+   * Insert a collapsible reasoning panel before the answer body. Returns the
+   * element that thinking text is streamed into. Inserted once per turn.
+   */
+  private createThinkingPanel(bubble: HTMLElement): HTMLElement {
+    const details = bubble.createEl("details", { cls: "cc-thinking" });
+    details.setAttr("open", "");
+    details.createEl("summary", { cls: "cc-thinking-summary", text: "Reasoning" });
+    const pre = details.createEl("pre", { cls: "cc-thinking-body" });
+    // Place the panel right after the role label, above the answer body.
+    const body = bubble.querySelector(".cc-body");
+    if (body) bubble.insertBefore(details, body);
+    return pre;
+  }
+
   private renderMessage(role: "user" | "assistant", text: string): void {
     if (this.messages.length === 1) this.messagesEl.empty();
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}` });
@@ -393,6 +605,43 @@ export class ChatView extends ItemView {
     const last = this.messagesEl.lastElementChild;
     if (!last) return;
     last.createDiv({ cls: "cc-context-note", text: `+ context: ${sources.join(", ")}` });
+  }
+
+  /**
+   * Update the header backend pill: shows the active mode and, for auto/local,
+   * whether a local model is reachable (so you can see your offline safety net
+   * at a glance). Best-effort and never throws.
+   */
+  async refreshBackendPill(): Promise<void> {
+    if (!this.backendPillEl) return;
+    const router = this.plugin.router();
+    const backend = router.chatBackend;
+    const el = this.backendPillEl;
+    el.removeClass("is-ok", "is-warn");
+    if (backend === "claude") {
+      el.setText("");
+      el.toggleClass("is-ok", false);
+      return;
+    }
+    const localOk = await router.localAvailable();
+    if (backend === "local") {
+      el.setText(localOk ? "● local" : "● local offline");
+      el.toggleClass("is-ok", localOk);
+      el.toggleClass("is-warn", !localOk);
+    } else {
+      // auto
+      el.setText(localOk ? "● auto · local ready" : "● auto · no local");
+      el.toggleClass("is-ok", localOk);
+      el.toggleClass("is-warn", !localOk);
+    }
+  }
+
+  /** Note in the assistant bubble that we fell back to the local model. */
+  private annotateFallback(bubble: HTMLElement, reason: string): void {
+    bubble.createDiv({
+      cls: "cc-fallback-note",
+      text: `${reason} — answered locally with ${this.plugin.settings.ollamaModel}.`,
+    });
   }
 
   private async renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void> {

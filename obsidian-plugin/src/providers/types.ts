@@ -18,6 +18,12 @@ export interface CompletionRequest {
   signal?: AbortSignal;
   /** Lower = more deterministic. Used for utility tasks like tagging. */
   temperature?: number;
+  /** Extended-thinking config for the request body (model-aware; built by chatControls). */
+  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens: number } | { type: "disabled" };
+  /** Whether to request summarized reasoning text (adaptive models). */
+  thinkingDisplay?: "summarized" | "omitted";
+  /** `output_config` (currently just `effort`) for models that support it. */
+  outputConfig?: { effort: string };
 }
 
 export interface ProviderStatus {

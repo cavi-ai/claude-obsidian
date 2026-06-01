@@ -21,8 +21,16 @@ export interface ClaudeModel {
   hint?: string;
 }
 
+export type AuthMode = "apiKey" | "oauthToken" | "environment";
+
 export interface PluginSettings {
   apiKey: string;
+  /** How to authenticate to Anthropic: API key (default), long-term OAuth token, or the environment. */
+  authMode: AuthMode;
+  /** Long-term OAuth token from `claude setup-token` (sk-ant-oat…). Used when authMode is "oauthToken". */
+  oauthToken: string;
+  /** Override base URL for the Anthropic API (e.g. a gateway). Empty = api.anthropic.com. */
+  baseUrl: string;
   model: string;
   customModel: string;
   maxTokens: number;
@@ -46,6 +54,8 @@ export interface PluginSettings {
   ollamaModel: string;
   /** Route cheap "utility" work (summarize/tag/ingest) to Ollama. */
   localUtilityEnabled: boolean;
+  /** Chat backend: always Claude, always local, or auto (Claude with local fallback). */
+  chatBackend: "claude" | "local" | "auto";
 
   // ----- indexing -----
   /** Auto-add tags + summary frontmatter when saving artifacts/chats. */
@@ -70,6 +80,9 @@ export interface PluginSettings {
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   apiKey: "",
+  authMode: "apiKey",
+  oauthToken: "",
+  baseUrl: "",
   model: "claude-sonnet-4-6",
   customModel: "",
   maxTokens: 4096,
@@ -93,6 +106,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaHost: "http://localhost:11434",
   ollamaModel: "llama3.1",
   localUtilityEnabled: false,
+  chatBackend: "claude",
 
   autoTagOnSave: true,
   artifactBaseTags: ["claude", "artifact"],
@@ -112,4 +126,6 @@ export interface StreamHandlers {
   onError?: (err: Error) => void;
   /** Token usage reported by the provider (Anthropic only). */
   onUsage?: (usage: import("./claude/sse").TokenUsage) => void;
+  /** Incremental extended-thinking text (Anthropic, when thinking is on). */
+  onThinking?: (delta: string) => void;
 }

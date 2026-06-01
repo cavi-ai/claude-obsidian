@@ -3,7 +3,7 @@
 
 export interface SseEvent {
   type: string;
-  delta?: { type?: string; text?: string };
+  delta?: { type?: string; text?: string; thinking?: string };
   error?: { message?: string };
   // Usage appears on message_start (input/cache tokens) and message_delta (output).
   message?: { usage?: TokenUsage };
@@ -20,6 +20,8 @@ export interface TokenUsage {
 export interface SseParseResult {
   /** Concatenated text deltas found in the consumed lines. */
   text: string;
+  /** Concatenated extended-thinking deltas (thinking_delta) in the consumed lines. */
+  thinking: string;
   /** The unconsumed trailing remainder (an incomplete final line). */
   remainder: string;
   /** Set if an `error` event was encountered. */
@@ -35,6 +37,7 @@ export interface SseParseResult {
  */
 export function parseSseChunk(buffer: string): SseParseResult {
   let text = "";
+  let thinking = "";
   let error: string | undefined;
   let usage: TokenUsage | undefined;
   let nl: number;
@@ -52,6 +55,8 @@ export function parseSseChunk(buffer: string): SseParseResult {
     }
     if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta" && evt.delta.text) {
       text += evt.delta.text;
+    } else if (evt.type === "content_block_delta" && evt.delta?.type === "thinking_delta" && evt.delta.thinking) {
+      thinking += evt.delta.thinking;
     } else if (evt.type === "error") {
       error = evt.error?.message ?? "Streaming error from Anthropic API";
     }
@@ -59,7 +64,7 @@ export function parseSseChunk(buffer: string): SseParseResult {
     const u = evt.message?.usage ?? evt.usage;
     if (u) usage = mergeUsage(usage, u);
   }
-  return { text, remainder: buffer, error, usage };
+  return { text, thinking, remainder: buffer, error, usage };
 }
 
 /** Merge two partial usage records, preferring later non-undefined values. */

@@ -289,7 +289,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   refreshViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE)) {
       const v = leaf.view;
-      if (v instanceof ChatView) v.refreshModelLabel();
+      if (v instanceof ChatView) {
+        v.refreshModelLabel();
+        void v.refreshBackendPill();
+      }
     }
   }
 
