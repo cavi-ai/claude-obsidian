@@ -44,7 +44,7 @@ or takeaway.
   requests. Inline everything.
 - Escape any user/content text interpolated into HTML.
 - When saving into Obsidian, wrap the document in a ```` ```claude-html ````
-  fenced block so the Claude Companion plugin renders it inline.
+  fenced block so the Companion for Claude plugin renders it inline.
 
 ## Extending the style
 

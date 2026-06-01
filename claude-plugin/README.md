@@ -1,9 +1,9 @@
 # claude-obsidian (Claude Code plugin)
 
 Cowork with Claude **inside your Obsidian vault**. This Claude Code plugin pairs
-with the **Claude Companion** Obsidian plugin: Companion runs a local MCP bridge
-exposing your vault (search / read / create / append), and this plugin gives
-Claude Code the commands and skills to use it well.
+with the **Companion for Claude** Obsidian plugin: Companion runs a local MCP
+bridge exposing your vault (search / read / create / append), and this plugin
+gives Claude Code the commands and skills to use it well.
 
 ## What you get
 
@@ -42,7 +42,7 @@ update / frontmatter).
 
 ## Setup
 
-1. Install the **Claude Companion** Obsidian plugin and enable the MCP bridge in
+1. Install the **Companion for Claude** Obsidian plugin and enable the MCP bridge in
    its settings. Note the **port** (default `22360`) and copy the **bearer
    token**.
 2. Make them available to Claude Code (e.g. in your shell or project env):

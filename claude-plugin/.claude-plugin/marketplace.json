@@ -12,7 +12,7 @@
     {
       "name": "claude-obsidian",
       "source": ".",
-      "description": "Cowork with Claude in your Obsidian vault: synthesize notes, tag and link the graph, draft from outlines, capture sessions as notes, build HTML artifacts, run spec-based builds, and get manifest-* advisor roadmaps — all via the Claude Companion MCP bridge."
+      "description": "Cowork with Claude in your Obsidian vault: synthesize notes, tag and link the graph, draft from outlines, capture sessions as notes, build HTML artifacts, run spec-based builds, and get manifest-* advisor roadmaps — all via the Companion for Claude MCP bridge."
     }
   ]
 }
