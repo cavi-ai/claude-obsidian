@@ -426,9 +426,18 @@
   font-size: 11px;
   padding: 2px 6px;
   border-radius: 6px;
-  border: 1px solid var(--cc-gray-300, #d1cfc5);
-  background: #fff;
-  color: var(--cc-gray-700, #3d3d3a);
+  /* Theme-aware so it reads correctly in dark mode (was hardcoded white/grey,
+     which produced grey-on-grey on hover in dark themes). */
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.cc-ctl-select:hover {
+  border-color: var(--cc-clay);
+}
+.cc-ctl-select option {
+  background: var(--background-primary);
+  color: var(--text-normal);
 }
 .cc-ctl-num {
   width: 72px;
@@ -437,9 +446,10 @@
   font-size: 11px;
   padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid var(--cc-gray-300, #d1cfc5);
-  background: #fff;
-  color: var(--cc-gray-700, #3d3d3a);
+  /* Theme-aware default (was hardcoded white/grey → washed out in dark mode). */
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
   cursor: pointer;
 }
 .cc-ctl-toggle.is-active {

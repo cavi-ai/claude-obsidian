@@ -780,29 +780,17 @@ export class ChatView extends ItemView {
       new Notice("Copied to clipboard");
     });
     this.actionBtn(bar, "Insert", () => this.insertIntoNote(full));
-    this.actionBtn(bar, "Save as note", async () => {
-      const title = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
-      const extraTags = await this.maybeAutoTags(full);
-      await saveChatNote(this.app, this.plugin.settings.chatFolder, title, full, { baseTags: this.plugin.settings.chatBaseTags, extraTags });
-      new Notice("Saved chat to vault");
-    });
+    this.actionBtn(bar, "Save as note", () => void this.saveReplyAsNote(full));
     // Regenerate the last reply (only on the most recent assistant message).
     const isLast = this.messages.length > 0 && this.messages[this.messages.length - 1].role === "assistant";
     if (isLast && this.lastUserText) {
       this.actionBtn(bar, "Regenerate", () => void this.regenerate());
     }
-    const artifact = extractArtifact(full);
-    if (artifact) {
-      const btn = this.actionBtn(bar, "Save artifact", async () => {
-        const extraTags = await this.maybeAutoTags(`${artifact.title}\n\n${full}`);
-        const file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
-          height: this.plugin.settings.artifactHeight,
-          baseTags: this.plugin.settings.artifactBaseTags,
-          extraTags,
-        });
-        await this.app.workspace.getLeaf(true).openFile(file);
-        new Notice("Artifact saved");
-      });
+    // When the reply is an artifact, offer a one-click "Save artifact" accent
+    // button. Both this and "Save as note" route through saveReplyAsNote, which
+    // detects the artifact and indexes it (tags + summary) — no raw fenced dumps.
+    if (extractArtifact(full)) {
+      const btn = this.actionBtn(bar, "Save artifact", () => void this.saveReplyAsNote(full));
       btn.addClass("cc-accent");
     }
   }
@@ -838,16 +826,49 @@ export class ChatView extends ItemView {
     await this.run(this.lastUserText);
   }
 
-  /** Generate tags via the utility provider when auto-tagging is on. */
-  private async maybeAutoTags(content: string): Promise<string[]> {
-    if (!this.plugin.settings.autoTagOnSave) return [];
+  /**
+   * Index a document for durable storage: tags + a one-line summary, generated
+   * by the utility provider (local Ollama when available, else Claude — heavy
+   * lifting offloads automatically). Best-effort: never blocks a save.
+   */
+  private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string }> {
+    if (!this.plugin.settings.autoTagOnSave) return { tags: [] };
     try {
       const { summarizeAndTag, existingVaultTags } = await import("../indexing/autoTagger");
       const res = await summarizeAndTag(this.app, this.plugin.router(), content, existingVaultTags(this.app));
-      return res.tags;
+      return { tags: res.tags, summary: res.summary || undefined };
     } catch {
-      return []; // tagging is best-effort; never block a save
+      return { tags: [] };
     }
+  }
+
+  /**
+   * Save a reply as a durable, indexed note. If the reply contains a
+   * `claude-html` artifact, it's saved as an artifact note (renders inline) —
+   * not a raw fenced dump. Either way it gets auto-tags + a summary in
+   * frontmatter so semantic/query search and Dataview index it correctly.
+   */
+  private async saveReplyAsNote(full: string): Promise<void> {
+    const artifact = extractArtifact(full);
+    new Notice("Indexing & saving…");
+    if (artifact) {
+      const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
+      const file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
+        height: this.plugin.settings.artifactHeight,
+        baseTags: this.plugin.settings.artifactBaseTags,
+        extraTags: tags,
+        summary,
+      });
+      await this.app.workspace.getLeaf(true).openFile(file);
+      return;
+    }
+    const title = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
+    const { tags, summary } = await this.maybeIndex(full);
+    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, full, {
+      baseTags: this.plugin.settings.chatBaseTags,
+      extraTags: tags,
+      summary,
+    });
   }
 
   private actionBtn(bar: HTMLElement, label: string, onClick: () => void): HTMLButtonElement {
@@ -873,8 +894,9 @@ export class ChatView extends ItemView {
     }
     const md = this.messages.map((m) => `**${m.role === "user" ? "You" : "Claude"}:**\n\n${m.content}`).join("\n\n---\n\n");
     const title = this.messages[0].content.split("\n")[0].slice(0, 60) || "Claude chat";
-    const extraTags = await this.maybeAutoTags(md);
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags });
+    new Notice("Indexing & saving…");
+    const { tags, summary } = await this.maybeIndex(md);
+    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
   }
 
   private scrollToBottom(): void {

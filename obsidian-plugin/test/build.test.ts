@@ -56,16 +56,25 @@ describe("buildPrompt / claudeCodeBuildCommand", () => {
     expect(p).toContain(`obsidian read path="${input.specPath}"`);
     expect(p).not.toContain("vault=");
   });
-  it("escapes quotes for a shell-safe -p argument", () => {
+  it("single-quote wraps the prompt as a shell literal", () => {
     const cmd = claudeCodeBuildCommand(input);
-    expect(cmd.startsWith('claude -p "')).toBe(true);
-    expect(cmd.endsWith('"')).toBe(true);
-    // Strip the `claude -p "` wrapper and trailing `"`, then assert every inner
-    // double-quote is backslash-escaped (no bare `"` remains once `\"` is removed).
-    const inner = cmd.slice('claude -p "'.length, -1);
-    expect(inner.replace(/\\"/g, "")).not.toContain('"');
-    // And the prompt did contain quotes to begin with (so this is a real check).
-    expect(inner).toContain('\\"');
+    expect(cmd.startsWith("claude -p '")).toBe(true);
+    expect(cmd.endsWith("'")).toBe(true);
+    // The prompt contains backticks (around `obsidian`) and double quotes; inside
+    // single quotes those are inert, so they pass through verbatim (not escaped).
+    expect(cmd).toContain("`obsidian`");
+  });
+  it("neutralizes shell-injection chars in user-controlled fields", () => {
+    // Title flows from note content; a malicious name must not break out of the
+    // single-quoted literal. $(...), backticks, $VAR, and \ stay inert; only a
+    // literal single quote is rewritten via the POSIX '\'' idiom.
+    const evil = claudeCodeBuildCommand({ ...input, title: "x'; rm -rf ~ #$(whoami)`id`" });
+    // Every single quote in the body is the escaped form — no bare break-out quote.
+    const inner = evil.slice("claude -p '".length, -1);
+    expect(inner).toContain("'\\''"); // the injected ' became the escaped idiom
+    // The dangerous substrings survive only as inert literal text, never as an
+    // unescaped quote that would end the argument early.
+    expect(inner.split("'\\''").join("")).not.toContain("'");
   });
 });
 
