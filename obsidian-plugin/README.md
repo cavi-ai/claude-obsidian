@@ -30,36 +30,45 @@ generates look gallery-grade. See [`../NOTICE`](../NOTICE) for full attribution.
 ## Features
 
 - **Chat in a side panel** — streaming responses, Markdown-rendered, with
-  per-message **Copy / Insert / Save as note** actions.
+  per-message **Copy / Insert / Save as note / Regenerate** actions and
+  hover-to-copy on every code block.
 - **Vault-aware context** — toggle chips to attach your **active note**, the
   **current selection**, **linked & backlinked notes**, or a keyword
   **vault search** (lightweight RAG, no embeddings) to any message.
+- **In-chat model & reasoning controls** — switch model per message
+  (**Opus / Sonnet / Haiku**), toggle **extended thinking** with an **effort**
+  dial, stream the model's **reasoning** in a collapsible panel, and set
+  per-message **temperature / max tokens**. Controls are model-aware — anything
+  a model would reject is hidden, not broken.
+- **Slash commands** — type `/` in the composer for a fuzzy palette:
+  `/summarize`, `/ask`, `/improve`, `/artifact`, `/plan`, `/table`, `/explain`,
+  `/build`, `/new`, `/history`, `/save`.
+- **Flexible auth** — your Anthropic **API key** (default), a long-term
+  **OAuth subscription token**, or **import from the environment** — with an
+  optional base-URL override for gateways.
 - **Beautiful interactive artifacts** — Claude emits a `claude-html` block;
-  Companion renders it inline in a sandboxed iframe and can **save it as a
-  note** that stays interactive and portable.
-- **Local models (Ollama)** — route cheap, bulk work (summaries, auto-tagging,
-  ingestion) to a local model so Anthropic tokens are reserved for high-level
-  reasoning. Chat and plans can run locally too if you prefer. Settings can
-  **auto-detect** the models installed on your Ollama server.
-- **Live usage display** — the chat shows a context-window gauge (how full the
-  prompt is getting) plus running **session token totals and an estimated cost**
-  when using an API key, so there are no billing surprises.
+  Companion renders it inline in a sandboxed iframe, **opens it in your browser**,
+  or **saves it as a note** that stays interactive and portable.
+- **Conversation history** — chats persist across restarts; resume any past
+  conversation from a fuzzy picker.
+- **Never lose functionality (offline)** — an **Auto** backend transparently
+  falls back to a local **Ollama** model when Claude is offline or out of usage,
+  with a live connectivity indicator; or run **Local only** for full offline use.
+  Cheap utility work (summaries, auto-tagging) can route to Ollama too.
+- **Live usage display** — a context-window gauge plus running **session token
+  totals** (and an estimated cost on API-key auth, or a subscription marker on
+  OAuth), so there are no billing surprises.
 - **Spec → build handoff** — turn a plan note into a **build spec** + a live
-  **tracker** (a `claude-html` progress board), and hand it to **Claude Code**:
-  it reads the spec and updates the tracker through the **official Obsidian CLI**
-  (`obsidian read` / `obsidian append`) as it builds.
+  **tracker** (a `claude-html` progress board) and hand it to **Claude Code**.
 - **Indexing & tags** — saved artifacts and chats get YAML frontmatter
-  (`title`, `tags`, `summary`, `type`) so they show up correctly in the tag
-  pane, search, and Dataview. Optional **auto-tagging** uses the local model to
-  suggest topic tags, reusing your existing vault tags where they fit.
+  (`title`, `tags`, `summary`, `type`) so they index in the tag pane, search,
+  and Dataview, with optional local-model **auto-tagging**.
 - **Save & test connection** — one click confirms settings are saved and the
-  key actually works, with readable, actionable errors.
-- **Commands**
-  - *Open chat panel*
-  - *Generate implementation plan from current note*
-  - *Turn selection / note into a beautiful artifact*
-  - *Ask Claude about my vault (search-augmented)*
-  - *Hand off current note to Claude Code (build)*
+  credential works, with readable, actionable errors.
+- **Commands** — *Open chat panel*, *New chat*, *Resume a past conversation*,
+  *Generate implementation plan from current note*, *Turn selection / note into
+  an artifact*, *Ask Claude about my vault*, *Hand off current note to Claude
+  Code (build)*.
 
 ## Install (manual / for now)
 
