@@ -517,3 +517,168 @@
   color: var(--cc-clay, #d97757);
   margin: 2px 0 6px;
 }
+
+/* ============================================================
+   v0.5 "master touch" — clarity, motion, and a little wow
+   ============================================================ */
+
+/* Respect reduced-motion: disable all the springy bits. */
+@media (prefers-reduced-motion: reduce) {
+  .cc-root * { transition: none !important; animation: none !important; }
+}
+
+/* ---- context chips: label + clearer states + hover ---- */
+.cc-chips { align-items: center; }
+.cc-chips-label {
+  font-size: 10px;
+  font-family: var(--cc-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cc-gray-500);
+  margin-right: 2px;
+}
+.cc-chip {
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.08s ease;
+}
+.cc-chip:hover {
+  border-color: var(--cc-clay);
+  color: var(--text-normal);
+}
+.cc-chip:active { transform: scale(0.94); }
+.cc-chip.is-active {
+  box-shadow: 0 1px 6px rgba(217, 119, 87, 0.35);
+}
+
+/* ---- empty state: icon + clickable example cards ---- */
+.cc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin: auto;
+  padding: 24px 16px;
+  max-width: 460px;
+}
+.cc-empty-icon {
+  color: var(--cc-clay);
+  opacity: 0.9;
+  display: grid;
+  place-items: center;
+  animation: cc-float 4s ease-in-out infinite;
+}
+.cc-empty-icon svg { width: 32px; height: 32px; }
+@keyframes cc-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.cc-empty-title { font-family: var(--cc-serif); font-size: 22px; color: var(--text-normal); }
+.cc-empty-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.cc-empty-examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+  width: 100%;
+}
+.cc-example {
+  text-align: left;
+  font-size: 12.5px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.cc-example:hover {
+  border-color: var(--cc-clay);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08);
+}
+.cc-example:active { transform: translateY(0) scale(0.98); }
+@media (max-width: 360px) { .cc-empty-examples { grid-template-columns: 1fr; } }
+
+/* ---- knobs sub-container (flicker fix: model select stays put) ---- */
+.cc-knobs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cc-ctl-select,
+.cc-ctl-toggle,
+.cc-ctl-num {
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.08s ease;
+}
+.cc-ctl-toggle:hover { border-color: var(--cc-clay); }
+.cc-ctl-toggle:active { transform: scale(0.95); }
+.cc-ctl-toggle.is-active { box-shadow: 0 1px 6px rgba(217, 119, 87, 0.35); }
+
+/* ---- auto-grow composer ---- */
+.cc-input {
+  resize: none;
+  overflow-y: auto;
+  transition: height 0.08s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.cc-input:focus {
+  border-color: var(--cc-clay);
+  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.18);
+}
+
+/* ---- send button: alive while streaming ---- */
+.cc-send {
+  transition: transform 0.08s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.cc-send:hover { box-shadow: 0 2px 10px rgba(217, 119, 87, 0.3); }
+.cc-send:active { transform: scale(0.96); }
+.cc-send.is-stop {
+  background: var(--cc-slate);
+  border-color: var(--cc-slate);
+  color: #fff;
+  animation: cc-pulse 1.4s ease-in-out infinite;
+}
+@keyframes cc-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 20, 19, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(20, 20, 19, 0); }
+}
+
+/* ---- streaming cursor: soft blink ---- */
+.cc-cursor { animation: cc-blink 1s step-start infinite; color: var(--cc-clay); }
+@keyframes cc-blink { 50% { opacity: 0; } }
+
+/* ---- per-code-block copy button ---- */
+pre.cc-has-copy { position: relative; }
+.cc-code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 10px;
+  font-family: var(--cc-mono);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
+.cc-code-copy:hover { color: var(--cc-clay); border-color: var(--cc-clay); }
+
+/* ---- message actions: fade in, tidy spacing ---- */
+.cc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cc-action {
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+}
+.cc-action:hover { border-color: var(--cc-clay); color: var(--cc-clay); }
+.cc-action:active { transform: scale(0.95); }
+
+/* ---- assistant bubble: gentle entrance ---- */
+.cc-msg.cc-assistant { animation: cc-rise 0.18s ease-out; }
+@keyframes cc-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

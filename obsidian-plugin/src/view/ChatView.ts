@@ -29,6 +29,9 @@ export class ChatView extends ItemView {
   /** Per-session chat controls (model, thinking, effort, temp, max). */
   private controls!: ChatControls;
   private controlsEl!: HTMLElement;
+  private knobsEl!: HTMLElement;
+  /** The last user message text, for the Regenerate action. */
+  private lastUserText = "";
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private _lastBuffer = "";
 
@@ -73,10 +76,11 @@ export class ChatView extends ItemView {
 
     // ---- context chips ----
     const chips = root.createDiv({ cls: "cc-chips" });
-    this.contextChip(chips, "Note", "activeNote");
-    this.contextChip(chips, "Selection", "selection");
-    this.contextChip(chips, "Links", "linkedNotes");
-    this.contextChip(chips, "Search vault", "searchVault");
+    chips.createSpan({ cls: "cc-chips-label", text: "Context:" });
+    this.contextChip(chips, "Note", "activeNote", "Attach the full text of your active note to each message");
+    this.contextChip(chips, "Selection", "selection", "Attach the text you've selected in the editor");
+    this.contextChip(chips, "Links", "linkedNotes", "Attach notes linked to / from the active note");
+    this.contextChip(chips, "Search vault", "searchVault", "Keyword-search the whole vault and attach the best matches");
 
     // ---- chat controls (model switcher, thinking, effort, temp, max) ----
     this.controlsEl = root.createDiv({ cls: "cc-controls" });
@@ -97,7 +101,10 @@ export class ChatView extends ItemView {
         this.onSend();
       }
     });
-    this.inputEl.addEventListener("input", () => this.updateUsageBar());
+    this.inputEl.addEventListener("input", () => {
+      this.autosizeInput();
+      this.updateUsageBar();
+    });
 
     // ---- usage bar: context gauge + session totals ----
     const usageRow = composer.createDiv({ cls: "cc-usage" });
@@ -243,14 +250,19 @@ export class ChatView extends ItemView {
     btn.addEventListener("click", onClick);
   }
 
-  private contextChip(parent: HTMLElement, label: string, key: keyof typeof this.plugin.settings.context): void {
-    const chip = parent.createEl("button", { cls: "cc-chip", text: label });
-    const sync = () => chip.toggleClass("is-active", this.plugin.settings.context[key]);
+  private contextChip(parent: HTMLElement, label: string, key: keyof typeof this.plugin.settings.context, tip: string): void {
+    const chip = parent.createEl("button", { cls: "cc-chip", text: label, attr: { "aria-label": tip, title: tip } });
+    const sync = () => {
+      const on = this.plugin.settings.context[key];
+      chip.toggleClass("is-active", on);
+      chip.setAttr("aria-pressed", String(on));
+    };
     sync();
     chip.addEventListener("click", async () => {
       this.plugin.settings.context[key] = !this.plugin.settings.context[key];
       await this.plugin.saveSettings();
       sync();
+      this.updateUsageBar();
     });
   }
 
@@ -261,44 +273,50 @@ export class ChatView extends ItemView {
    */
   private renderControls(): void {
     this.controlsEl.empty();
-    const onOllama = this.plugin.router().chatProvider().provider.id === "ollama";
 
-    // --- model switcher ---
+    // The model switcher is built ONCE here and never destroyed on knob changes,
+    // so picking a model doesn't flicker or drop focus. Only `knobsEl` rebuilds.
     const modelWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-model" });
     const select = modelWrap.createEl("select", { cls: "cc-ctl-select", attr: { "aria-label": "Model" } });
     const ids = new Set(CLAUDE_MODELS.map((m) => m.id));
     for (const m of CLAUDE_MODELS) select.createEl("option", { value: m.id, text: m.label });
-    // Keep a custom / settings model selectable even if not in the curated list.
     if (!ids.has(this.controls.model)) select.createEl("option", { value: this.controls.model, text: this.controls.model });
     select.value = this.controls.model;
     select.addEventListener("change", () => {
       this.controls.model = select.value;
-      this.renderControls(); // capabilities changed → re-render the knobs
+      this.renderKnobs(); // capabilities changed → rebuild only the dependent knobs
       this.refreshModelLabel();
       this.updateUsageBar();
     });
 
-    if (onOllama) {
-      this.controlsEl.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
+    this.knobsEl = this.controlsEl.createDiv({ cls: "cc-knobs" });
+    this.renderKnobs();
+  }
+
+  /** Rebuild only the capability-dependent knobs (keeps the model select stable). */
+  private renderKnobs(): void {
+    if (!this.knobsEl) return;
+    this.knobsEl.empty();
+    const parent = this.knobsEl;
+
+    if (this.plugin.router().chatProvider().provider.id === "ollama") {
+      parent.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
       return;
     }
 
     const caps = capabilitiesFor(this.controls.model);
 
-    // --- thinking toggle ---
     if (caps.thinking !== "none") {
-      const think = this.controlsEl.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Think" });
+      const think = parent.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Think", attr: { "aria-label": "Extended thinking" } });
       think.toggleClass("is-active", this.controls.thinking);
-      think.setAttribute("aria-label", "Extended thinking");
       think.addEventListener("click", () => {
         this.controls.thinking = !this.controls.thinking;
-        this.renderControls(); // effort/show-thinking visibility depends on this
+        this.renderKnobs();
         this.updateUsageBar();
       });
 
-      // --- effort dial (only when supported AND thinking is on) ---
       if (caps.effort && this.controls.thinking) {
-        const eff = this.controlsEl.createEl("select", { cls: "cc-ctl cc-ctl-select", attr: { "aria-label": "Effort" } });
+        const eff = parent.createEl("select", { cls: "cc-ctl cc-ctl-select", attr: { "aria-label": "Effort" } });
         for (const level of effortLevels(caps)) eff.createEl("option", { value: level, text: `effort: ${level}` });
         if (!effortLevels(caps).includes(this.controls.effort)) this.controls.effort = "high";
         eff.value = this.controls.effort;
@@ -307,9 +325,8 @@ export class ChatView extends ItemView {
         });
       }
 
-      // --- show-thinking toggle (adaptive models, when thinking is on) ---
       if (caps.thinking === "adaptive" && this.controls.thinking) {
-        const show = this.controlsEl.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Show reasoning" });
+        const show = parent.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Show reasoning" });
         show.toggleClass("is-active", this.controls.showThinking);
         show.addEventListener("click", () => {
           this.controls.showThinking = !this.controls.showThinking;
@@ -318,9 +335,8 @@ export class ChatView extends ItemView {
       }
     }
 
-    // --- temperature (only when the model accepts it and thinking is off) ---
     if (caps.temperature && !this.controls.thinking) {
-      const tempWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-temp" });
+      const tempWrap = parent.createDiv({ cls: "cc-ctl cc-ctl-temp", attr: { "aria-label": "Temperature (double-click to reset)" } });
       tempWrap.createSpan({ cls: "cc-ctl-label", text: "temp" });
       const temp = tempWrap.createEl("input", {
         cls: "cc-ctl-range",
@@ -334,15 +350,13 @@ export class ChatView extends ItemView {
         this.controls.temperature = parseFloat(temp.value);
         sync();
       });
-      // Double-click resets to model default ("auto").
       tempWrap.addEventListener("dblclick", () => {
         this.controls.temperature = null;
         sync();
       });
     }
 
-    // --- per-message max tokens ---
-    const maxWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-max" });
+    const maxWrap = parent.createDiv({ cls: "cc-ctl cc-ctl-max" });
     maxWrap.createSpan({ cls: "cc-ctl-label", text: "max" });
     const maxIn = maxWrap.createEl("input", {
       cls: "cc-ctl-num",
@@ -360,11 +374,30 @@ export class ChatView extends ItemView {
     if (this.messages.length > 0) return;
     this.messagesEl.empty();
     const empty = this.messagesEl.createDiv({ cls: "cc-empty" });
+    setIcon(empty.createDiv({ cls: "cc-empty-icon" }), "sparkles");
     empty.createDiv({ cls: "cc-empty-title", text: "Claude, in your vault." });
     empty.createDiv({
       cls: "cc-empty-sub",
-      text: "Ask a question, plan a feature, or turn a note into a beautiful artifact. Toggle the chips above to give Claude context from your notes.",
+      text: "Toggle a Context chip above to bring your notes in, then try one of these — or just ask anything.",
     });
+    const examples: { label: string; prompt: string }[] = [
+      { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first." },
+      { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system." },
+      { label: "🗺️ Plan a feature", prompt: "Help me plan a feature. Ask me clarifying questions first, then produce an implementation plan." },
+      { label: "🔍 Ask across my vault", prompt: "Search my vault and answer: what have I written about " },
+    ];
+    const grid = empty.createDiv({ cls: "cc-empty-examples" });
+    for (const ex of examples) {
+      const card = grid.createEl("button", { cls: "cc-example", text: ex.label });
+      card.addEventListener("click", () => {
+        this.inputEl.value = ex.prompt;
+        this.inputEl.focus();
+        this.autosizeInput();
+        this.updateUsageBar();
+        // A trailing-space prompt (the vault-search one) waits for the user to type.
+        if (!ex.prompt.endsWith(" ")) void this.onSend();
+      });
+    }
   }
 
   clearChat(): void {
@@ -397,14 +430,26 @@ export class ChatView extends ItemView {
     }
     const text = this.inputEl.value.trim();
     if (!text) return;
+    this.lastUserText = text;
     this.inputEl.value = "";
+    this.autosizeInput();
     await this.run(text);
+  }
+
+  /** Grow the composer with its content (1→~8 rows), then stop and scroll. */
+  private autosizeInput(): void {
+    const el = this.inputEl;
+    if (!el) return;
+    el.style.height = "auto";
+    const max = 200; // px ceiling (~8 rows) before it scrolls internally
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   }
 
   private setSending(sending: boolean): void {
     this.streaming = sending;
     this.sendBtn.setText(sending ? "Stop" : "Send");
     this.sendBtn.toggleClass("is-stop", sending);
+    this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
   }
 
   private async run(userText: string): Promise<void> {
@@ -650,6 +695,9 @@ export class ChatView extends ItemView {
   }
 
   private addAssistantActions(bubble: HTMLElement, full: string): void {
+    // Per-code-block copy buttons inside the rendered markdown.
+    this.decorateCodeBlocks(bubble);
+
     const bar = bubble.createDiv({ cls: "cc-actions" });
     this.actionBtn(bar, "Copy", () => {
       void navigator.clipboard.writeText(full);
@@ -660,7 +708,13 @@ export class ChatView extends ItemView {
       const title = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
       const extraTags = await this.maybeAutoTags(full);
       await saveChatNote(this.app, this.plugin.settings.chatFolder, title, full, { baseTags: this.plugin.settings.chatBaseTags, extraTags });
+      new Notice("Saved chat to vault");
     });
+    // Regenerate the last reply (only on the most recent assistant message).
+    const isLast = this.messages.length > 0 && this.messages[this.messages.length - 1].role === "assistant";
+    if (isLast && this.lastUserText) {
+      this.actionBtn(bar, "Regenerate", () => void this.regenerate());
+    }
     const artifact = extractArtifact(full);
     if (artifact) {
       const btn = this.actionBtn(bar, "Save artifact", async () => {
@@ -671,9 +725,41 @@ export class ChatView extends ItemView {
           extraTags,
         });
         await this.app.workspace.getLeaf(true).openFile(file);
+        new Notice("Artifact saved");
       });
       btn.addClass("cc-accent");
     }
+  }
+
+  /** Add a hover "copy" button to each <pre><code> block in a rendered reply. */
+  private decorateCodeBlocks(bubble: HTMLElement): void {
+    bubble.querySelectorAll("pre").forEach((pre) => {
+      if (pre.querySelector(".cc-code-copy")) return; // already decorated
+      const el = pre as HTMLElement;
+      el.addClass("cc-has-copy");
+      const btn = el.createEl("button", { cls: "cc-code-copy", text: "Copy", attr: { "aria-label": "Copy code" } });
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const code = pre.querySelector("code")?.textContent ?? pre.textContent ?? "";
+        void navigator.clipboard.writeText(code);
+        btn.setText("Copied!");
+        setTimeout(() => btn.setText("Copy"), 1200);
+      });
+    });
+  }
+
+  /** Drop the last assistant reply and re-run the previous user turn. */
+  private async regenerate(): Promise<void> {
+    if (this.streaming || !this.lastUserText) return;
+    // Remove the trailing assistant message from state + DOM, plus the user msg
+    // (run() re-pushes it). Then re-run with the same text.
+    if (this.messages[this.messages.length - 1]?.role === "assistant") this.messages.pop();
+    if (this.messages[this.messages.length - 1]?.role === "user") this.messages.pop();
+    // Rebuild the transcript cleanly so we don't leave a stale bubble.
+    this.messagesEl.empty();
+    if (this.messages.length === 0) this.renderEmptyState();
+    else for (const m of this.messages) this.renderStoredMessage(m);
+    await this.run(this.lastUserText);
   }
 
   /** Generate tags via the utility provider when auto-tagging is on. */
