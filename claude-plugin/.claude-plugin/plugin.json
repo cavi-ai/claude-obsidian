@@ -1,6 +1,6 @@
 {
   "name": "claude-obsidian",
-  "description": "Cowork with Claude inside your Obsidian vault: turn notes into beautiful self-contained HTML artifacts and drive spec-based builds, all over the Claude Companion MCP bridge.",
+  "description": "Cowork with Claude inside your Obsidian vault: synthesize and link notes, keep tags clean, draft from outlines, capture sessions as knowledge, build self-contained HTML artifacts, drive spec-based builds, and get manifest-* advisor roadmaps — all over the Companion for Claude MCP bridge.",
   "version": "0.1.0",
   "author": {
     "name": "cavi-ai",

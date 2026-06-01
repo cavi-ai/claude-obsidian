@@ -1,25 +1,48 @@
 # claude-obsidian (Claude Code plugin)
 
 Cowork with Claude **inside your Obsidian vault**. This Claude Code plugin pairs
-with the **Claude Companion** Obsidian plugin: Companion runs a local MCP bridge
-exposing your vault (search / read / create / append), and this plugin gives
-Claude Code the commands and skills to use it well.
+with the **Companion for Claude** Obsidian plugin: Companion runs a local MCP
+bridge exposing your vault (search / read / create / append), and this plugin
+gives Claude Code the commands and skills to use it well.
 
 ## What you get
 
-- **`/claude-obsidian:note-to-artifact`** — turn a note (or topic) into a
-  beautiful, self-contained HTML artifact saved back into the vault as a
-  `claude-html` block.
-- **`/claude-obsidian:build-from-spec`** — read an Obsidian "build spec" note,
-  implement its task checklist, and report progress to a tracker note.
-- **`note-to-artifact` skill** — the design system Claude uses for artifacts
-  (model-invoked automatically when relevant).
-- **`obsidian-vault` MCP server** — pre-wired HTTP connection to the Companion
-  bridge.
+**Commands** (you invoke with `/claude-obsidian:<name>`):
+
+- **`note-to-artifact`** — turn a note (or topic) into a beautiful,
+  self-contained HTML artifact saved back into the vault as a `claude-html` block.
+- **`session-to-note`** — distill the current Claude session into one
+  consolidated, tagged, linked knowledge note (turns session memory into vault
+  knowledge).
+- **`daily-rollup`** — summarize recent vault activity into a skimmable review
+  (decisions, changes, open tasks).
+- **`manifest-vault`** — audit and optimize the vault: orphans, tag sprawl,
+  missing links, stale notes — then fix with your consent.
+- **`manifest-pm`** — a prioritized, client-facing product roadmap from your
+  project notes, routed into the build pipeline.
+- **`build-from-spec`** — read an Obsidian "build spec" note, implement its task
+  checklist, and report progress to a tracker note.
+
+**Skills** (Claude invokes automatically when relevant):
+
+- **Foundations** — `vault-grounding` (cite real notes, never fabricate,
+  write-safe) and `vault-routines` (offer editable scheduled routines).
+- **Knowledge** — `vault-synthesis` (grounded, cited "what do I know about X").
+- **Hygiene** — `consistent-tagging`, `wikilink-weaver`.
+- **Writing** — `outline-to-draft`, `daily-rollup`, `session-to-note`.
+- **Build** — `plan-to-spec` (planning note → build spec, feeding
+  `build-from-spec`).
+- **Advisor personas** — `manifest-vault`, `manifest-pm` (orchestrators that
+  survey the vault and delegate to the worker skills above).
+- **`note-to-artifact`** — the design system Claude uses for artifacts.
+
+**`obsidian-vault` MCP server** — pre-wired HTTP connection to the Companion
+bridge (search / read / list / tags / backlinks / titles / create / append /
+update / frontmatter).
 
 ## Setup
 
-1. Install the **Claude Companion** Obsidian plugin and enable the MCP bridge in
+1. Install the **Companion for Claude** Obsidian plugin and enable the MCP bridge in
    its settings. Note the **port** (default `22360`) and copy the **bearer
    token**.
 2. Make them available to Claude Code (e.g. in your shell or project env):

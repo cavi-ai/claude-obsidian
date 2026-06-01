@@ -5,14 +5,14 @@
     "url": "https://github.com/cavi-ai"
   },
   "metadata": {
-    "description": "Claude + Obsidian coworking: artifact generation and spec-driven builds over a local MCP bridge.",
+    "description": "Claude + Obsidian coworking: vault-grounded synthesis, PKM hygiene, drafting, session capture, and advisor personas over a local MCP bridge.",
     "version": "0.1.0"
   },
   "plugins": [
     {
       "name": "claude-obsidian",
       "source": ".",
-      "description": "Turn notes into beautiful HTML artifacts and run spec-based builds against your vault via the Claude Companion MCP bridge."
+      "description": "Cowork with Claude in your Obsidian vault: synthesize notes, tag and link the graph, draft from outlines, capture sessions as notes, build HTML artifacts, run spec-based builds, and get manifest-* advisor roadmaps — all via the Companion for Claude MCP bridge."
     }
   ]
 }
