@@ -1,4 +1,4 @@
-# Claude Companion for Obsidian
+# Companion for Claude (Obsidian plugin)
 
 Bring Claude *into* your vault. Chat with your notes as context, generate
 gallery-grade interactive artifacts, and sync everything Claude produces back
@@ -10,16 +10,22 @@ gallery (vendored as a pinned submodule at the monorepo root) — an original
 reformulation, not a copy — so the plans, reports, and dashboards Claude
 generates look gallery-grade. See [`../NOTICE`](../NOTICE) for full attribution.
 
-> **Bring your own key.** Claude Companion talks to the Anthropic Messages API
-> with *your* API key. Nothing is sent anywhere else. Desktop only (it needs
-> direct network access).
+> **Bring your own credential.** Companion for Claude talks to the Anthropic
+> Messages API with *your* credential — nothing is sent anywhere else. Desktop
+> only (it needs direct network access). Three auth modes:
 >
-> **Why not “log in with Claude.ai”?** As of 2026 Anthropic prohibits using
-> Free/Pro/Max OAuth tokens in third-party tools (the policy behind the OpenClaw
-> ban). Using them would risk your account and disqualify the plugin from the
-> community store, so Companion uses a standard API key. For a *unified* setup
-> with your Claude Code / claude.ai work, the intended path is a **Claude Code
-> / MCP bridge** (on the roadmap) rather than subscription OAuth.
+> - **API key** (default, recommended) — a standard `sk-ant-api…` key from
+>   console.anthropic.com. This is the mode used for community-store builds.
+> - **Long-term OAuth token** (power users) — paste a token from
+>   `claude setup-token` (`sk-ant-oat…`) to authenticate as your Claude
+>   subscription; usage draws on your plan rather than pay-as-you-go API credit.
+> - **Import from environment** — read `ANTHROPIC_API_KEY` /
+>   `ANTHROPIC_AUTH_TOKEN` (+ `ANTHROPIC_BASE_URL`) from the environment, the way
+>   the CLI does.
+>
+> An optional **base URL** override points any mode at a gateway/proxy. The key
+> stays the default so the plugin remains community-store eligible; the token and
+> environment modes are clearly marked as power-user options.
 
 ## Features
 
@@ -60,8 +66,8 @@ generates look gallery-grade. See [`../NOTICE`](../NOTICE) for full attribution.
 1. `cd obsidian-plugin && npm install && npm run build`
 2. Copy `main.js`, `manifest.json`, and `styles.css` into
    `<your-vault>/.obsidian/plugins/claude-companion/`.
-3. Enable **Claude Companion** in *Settings → Community plugins*.
-4. Open *Settings → Claude Companion* and paste your Anthropic API key.
+3. Enable **Companion for Claude** in *Settings → Community plugins*.
+4. Open *Settings → Companion for Claude* and paste your Anthropic API key.
 
 For active development use `npm run dev` (esbuild watch) and symlink the plugin
 folder into a test vault.
@@ -99,7 +105,7 @@ Companion can expose your vault as a local **MCP server**, so **Claude Code** an
 **Claude Desktop** work against the *same* knowledge base you chat with here —
 the compliant way to unify all three without subscription OAuth.
 
-Enable it in *Settings → Claude Companion → Unified bridge (MCP server)*. It:
+Enable it in *Settings → Companion for Claude → Unified bridge (MCP server)*. It:
 
 - binds to **127.0.0.1 only** (never the network) and requires a **bearer token**;
 - exposes read tools always (`vault_search`, `note_read`, `list_recent`,

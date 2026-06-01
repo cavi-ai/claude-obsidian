@@ -3,50 +3,65 @@ import type { ChatMessage, StreamHandlers } from "../types";
 import { parseSseChunk, extractApiError } from "../claude/sse";
 import { PING_MODEL } from "../claude/models";
 import { type CompletionRequest, type Provider, type ProviderStatus, ProviderError, isAbort } from "./types";
-
-const API_URL = "https://api.anthropic.com/v1/messages";
-const API_VERSION = "2023-06-01";
+import { type AuthInputs, type ResolvedAuth, resolveAuth, authHeaders, messagesUrl, buildSystem } from "./auth";
 
 export class AnthropicProvider implements Provider {
   readonly id = "anthropic" as const;
   readonly label = "Claude (Anthropic API)";
 
-  constructor(private apiKey: string) {}
+  constructor(private authInputs: AuthInputs) {}
+
+  /** Resolve the active credential/headers/URL, or null if none is configured. */
+  private auth(): ResolvedAuth | null {
+    return resolveAuth(this.authInputs);
+  }
 
   hasCredentials(): boolean {
-    return this.apiKey.trim().length > 0;
+    return this.auth() !== null;
   }
 
-  private headers(): Record<string, string> {
-    return {
-      "content-type": "application/json",
-      "x-api-key": this.apiKey,
-      "anthropic-version": API_VERSION,
-      "anthropic-dangerous-direct-browser-access": "true",
-    };
+  /** True when the active credential is a subscription OAuth token (metered usage). */
+  isOAuth(): boolean {
+    return this.auth()?.isOAuth ?? false;
   }
 
-  private body(req: CompletionRequest, stream: boolean): string {
-    return JSON.stringify({
+  private headers(auth: ResolvedAuth): Record<string, string> {
+    return authHeaders(auth);
+  }
+
+  private body(req: CompletionRequest, stream: boolean, auth: ResolvedAuth): string {
+    const payload: Record<string, unknown> = {
       model: req.model,
       max_tokens: req.maxTokens,
-      system: req.system || undefined,
-      temperature: req.temperature,
+      // OAuth tokens require the Claude Code identity as the first system block.
+      system: buildSystem(auth, req.system),
       stream,
       messages: req.messages.map((m: ChatMessage) => ({ role: m.role, content: m.content })),
-    });
+    };
+    // Model-aware fields (set by chatControls.shapeRequest); omit when absent so
+    // we never send a parameter the active model would 400 on.
+    if (req.temperature !== undefined) payload.temperature = req.temperature;
+    if (req.thinking) {
+      payload.thinking =
+        req.thinkingDisplay && req.thinking.type === "adaptive"
+          ? { ...req.thinking, display: req.thinkingDisplay }
+          : req.thinking;
+    }
+    if (req.outputConfig) payload.output_config = req.outputConfig;
+    return JSON.stringify(payload);
   }
 
   async stream(req: CompletionRequest, handlers: StreamHandlers): Promise<void> {
-    if (!this.hasCredentials()) {
-      handlers.onError?.(new ProviderError("No Anthropic API key set. Add one in Claude Companion settings."));
+    const auth = this.auth();
+    if (!auth) {
+      handlers.onError?.(new ProviderError("No Anthropic credential set. Add an API key or OAuth token in Companion for Claude settings."));
       return;
     }
     try {
-      const res = await fetch(API_URL, {
+      const res = await fetch(messagesUrl(auth), {
         method: "POST",
-        headers: this.headers(),
-        body: this.body(req, true),
+        headers: this.headers(auth),
+        body: this.body(req, true, auth),
         signal: req.signal,
       });
       if (!res.ok || !res.body) {
@@ -61,9 +76,10 @@ export class AnthropicProvider implements Provider {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const { text, remainder, error, usage } = parseSseChunk(buffer);
+        const { text, thinking, remainder, error, usage } = parseSseChunk(buffer);
         buffer = remainder;
         if (error) throw new ProviderError(error);
+        if (thinking) handlers.onThinking?.(thinking);
         if (text) {
           full += text;
           handlers.onText(text);
@@ -84,7 +100,9 @@ export class AnthropicProvider implements Provider {
   }
 
   async complete(req: CompletionRequest): Promise<string> {
-    const res = await requestUrl({ url: API_URL, method: "POST", headers: this.headers(), body: this.body(req, false), throw: false });
+    const auth = this.auth();
+    if (!auth) throw new ProviderError("No Anthropic credential set.");
+    const res = await requestUrl({ url: messagesUrl(auth), method: "POST", headers: this.headers(auth), body: this.body(req, false, auth), throw: false });
     if (res.status < 200 || res.status >= 300) {
       throw new ProviderError(extractApiError(res.text, res.status), res.status);
     }
@@ -96,17 +114,19 @@ export class AnthropicProvider implements Provider {
   }
 
   async test(): Promise<ProviderStatus> {
-    if (!this.hasCredentials()) return { ok: false, detail: "No API key set." };
+    const auth = this.auth();
+    if (!auth) return { ok: false, detail: "No credential set — add an API key or OAuth token." };
     try {
       // Minimal 1-token ping using the cheapest path.
       const res = await requestUrl({
-        url: API_URL,
+        url: messagesUrl(auth),
         method: "POST",
-        headers: this.headers(),
+        headers: this.headers(auth),
         body: JSON.stringify({ model: PING_MODEL, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
         throw: false,
       });
-      if (res.status >= 200 && res.status < 300) return { ok: true, detail: "Connected — API key works." };
+      const how = auth.isOAuth ? "OAuth token" : "API key";
+      if (res.status >= 200 && res.status < 300) return { ok: true, detail: `Connected — ${how} works${auth.isOAuth ? " (usage bills to your subscription)" : ""}.` };
       return { ok: false, detail: extractApiError(res.text, res.status) };
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : String(err) };

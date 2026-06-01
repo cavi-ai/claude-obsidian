@@ -2,6 +2,7 @@ import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
+import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig } from "./mcp/clientConfig";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
@@ -21,27 +22,89 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
     new Setting(containerEl).setName("Connection").setHeading();
 
+    const s = this.plugin.settings;
+
     new Setting(containerEl)
-      .setName("Anthropic API key")
-      .setDesc("Bring your own key from console.anthropic.com. Stored locally in this vault's plugin data.")
+      .setName("Authentication")
+      .setDesc("How Companion for Claude authenticates to Anthropic. API key is the standard, store-safe option.")
+      .addDropdown((dd) => {
+        dd.addOption("apiKey", "API key (recommended)");
+        dd.addOption("oauthToken", "Long-term OAuth token (subscription)");
+        dd.addOption("environment", "Import from environment");
+        dd.setValue(s.authMode).onChange(async (v) => {
+          s.authMode = v as typeof s.authMode;
+          await this.plugin.saveSettings();
+          this.display(); // re-render to show the matching field
+        });
+      });
+
+    if (s.authMode === "apiKey") {
+      new Setting(containerEl)
+        .setName("Anthropic API key")
+        .setDesc("Bring your own key from console.anthropic.com. Stored locally in this vault's plugin data.")
+        .addText((text) => {
+          text.inputEl.type = "password";
+          text.inputEl.style.width = "320px";
+          text
+            .setPlaceholder("sk-ant-api…")
+            .setValue(s.apiKey)
+            .onChange(async (v) => {
+              s.apiKey = v.trim();
+              await this.plugin.saveSettings();
+            });
+        });
+    } else if (s.authMode === "oauthToken") {
+      const note = containerEl.createEl("p", { cls: "setting-item-description" });
+      note.setText(
+        "Paste a long-term token from `claude setup-token` (starts with sk-ant-oat). " +
+          "Requests authenticate as your Claude subscription, so usage draws on your plan's limits rather than pay-as-you-go API credit. " +
+          "This is a power-user option; the API-key mode above is the one used for community-store builds.",
+      );
+      new Setting(containerEl)
+        .setName("OAuth token")
+        .setDesc("Stored locally in this vault's plugin data. Sent as a bearer token.")
+        .addText((text) => {
+          text.inputEl.type = "password";
+          text.inputEl.style.width = "320px";
+          text
+            .setPlaceholder("sk-ant-oat…")
+            .setValue(s.oauthToken)
+            .onChange(async (v) => {
+              s.oauthToken = v.trim();
+              await this.plugin.saveSettings();
+            });
+        });
+    } else {
+      const env = readAnthropicEnv();
+      const found = hasAnthropicEnvCredential(env);
+      const detail = found
+        ? `Using ${env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN"}` + (env.ANTHROPIC_BASE_URL ? ` + ANTHROPIC_BASE_URL` : "") + " from the environment."
+        : "No ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN found in this process's environment. Note: apps launched from the macOS Dock often don't inherit shell exports — launch Obsidian from a terminal, or use one of the other modes.";
+      const box = containerEl.createDiv({ cls: "cc-conn-status" });
+      box.toggleClass("is-ok", found);
+      box.toggleClass("is-err", !found);
+      box.setText((found ? "✓ " : "✗ ") + detail);
+    }
+
+    new Setting(containerEl)
+      .setName("API base URL")
+      .setDesc("Optional. Point at a gateway/proxy instead of api.anthropic.com. Leave blank for the default.")
       .addText((text) => {
-        text.inputEl.type = "password";
         text.inputEl.style.width = "320px";
         text
-          .setPlaceholder("sk-ant-…")
-          .setValue(this.plugin.settings.apiKey)
+          .setPlaceholder("https://api.anthropic.com")
+          .setValue(s.baseUrl)
           .onChange(async (v) => {
-            this.plugin.settings.apiKey = v.trim();
+            s.baseUrl = v.trim();
             await this.plugin.saveSettings();
           });
       });
 
-    // Save & Test connection — explicit confirmation that settings are saved
-    // and the key actually works.
+    // Save & Test connection — confirms settings saved and the credential works.
     const claudeStatus = containerEl.createDiv({ cls: "cc-conn-status" });
     new Setting(containerEl)
       .setName("Save & test connection")
-      .setDesc("Saves settings and sends a tiny request to verify your Anthropic key.")
+      .setDesc("Saves settings and sends a tiny request to verify your credential.")
       .addButton((btn) =>
         btn
           .setButtonText("Save & test")
@@ -186,6 +249,20 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: "Run cheap, bulk work — summarizing, tagging, ingestion — on a local model to save Anthropic tokens. Chat and plans still use Claude unless you route them here.",
     });
+
+    new Setting(containerEl)
+      .setName("Chat backend")
+      .setDesc("Where chat runs. Auto keeps using Claude but transparently falls back to your local model when Claude is offline or out of usage — so you never lose chat on a plane or when tokens run out.")
+      .addDropdown((dd) => {
+        dd.addOption("claude", "Claude only");
+        dd.addOption("auto", "Auto (Claude, fall back to local)");
+        dd.addOption("local", "Local only (offline)");
+        dd.setValue(this.plugin.settings.chatBackend).onChange(async (v) => {
+          this.plugin.settings.chatBackend = v as "claude" | "local" | "auto";
+          await this.plugin.saveSettings();
+          this.plugin.refreshViews();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Use local model for utility tasks")
