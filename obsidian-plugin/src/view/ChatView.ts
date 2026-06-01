@@ -665,6 +665,10 @@ export class ChatView extends ItemView {
   }
 
   private finishAssistant(full: string | null, bubble: HTMLElement): void {
+    // Idempotent per bubble: onDone and the abort-safety net can both reach here
+    // for the same turn — only the first call commits the message + action bar.
+    if (bubble.dataset.ccFinished === "1") return;
+    bubble.dataset.ccFinished = "1";
     this.setSending(false);
     this.abort = null;
     if (full && full.trim().length > 0) {
