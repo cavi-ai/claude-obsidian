@@ -6,6 +6,8 @@
 // Only the pieces the code under test actually touches are implemented; if a
 // new dependency on the Obsidian API appears, add it here.
 
+import { buildFrontmatter, type FrontmatterData } from "../../src/indexing/frontmatter";
+
 export function normalizePath(p: string): string {
   return p
     .replace(/\\/g, "/")
@@ -102,9 +104,16 @@ class FakeVault {
     file.stat.size = file._content.length;
     return Promise.resolve();
   }
+
+  modify(file: TFile, content: string): Promise<void> {
+    file._content = content;
+    file.stat.size = content.length;
+    return Promise.resolve();
+  }
 }
 
 class FakeMetadataCache {
+  resolvedLinks: Record<string, Record<string, number>> = {};
   constructor(private vault: FakeVault) {}
   getFileCache(file: TFile): FileCache | null {
     const tags = this.vault.tags.get(file.path);
@@ -113,9 +122,48 @@ class FakeMetadataCache {
   }
 }
 
+/**
+ * Minimal fake of Obsidian's FileManager. Only `processFrontMatter` is needed.
+ * Parses the leading `---...---` block of the file into a plain object (simple
+ * `key: value` scalars + `tags:` list shape — enough to exercise OUR callback
+ * logic, not Obsidian's full YAML engine), runs the callback to mutate it, then
+ * re-serializes via the production `buildFrontmatter` and rejoins with the body.
+ */
+class FakeFileManager {
+  async processFrontMatter(file: TFile, fn: (frontmatter: Record<string, unknown>) => void): Promise<void> {
+    const m = /^---\n([\s\S]*?)\n---\n?/.exec(file._content);
+    const obj: Record<string, unknown> = {};
+    let body = file._content;
+    if (m) {
+      const fmLines = m[1].split("\n");
+      for (let i = 0; i < fmLines.length; i++) {
+        const kv = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(fmLines[i]);
+        if (!kv) continue;
+        const key = kv[1];
+        const rest = kv[2].trim();
+        if (rest === "" || rest === "[]") {
+          const items: string[] = [];
+          while (i + 1 < fmLines.length && /^\s*-\s+/.test(fmLines[i + 1])) {
+            items.push(fmLines[++i].replace(/^\s*-\s+/, "").trim().replace(/^"(.*)"$/, "$1"));
+          }
+          obj[key] = items;
+        } else {
+          obj[key] = rest.replace(/^"(.*)"$/, "$1");
+        }
+      }
+      body = file._content.slice(m[0].length).replace(/^\n+/, "");
+    }
+    fn(obj);
+    file._content = `${buildFrontmatter(obj as FrontmatterData)}\n\n${body}`;
+    file.stat.size = file._content.length;
+    return Promise.resolve();
+  }
+}
+
 export class App {
   vault = new FakeVault();
   metadataCache = new FakeMetadataCache(this.vault);
+  fileManager = new FakeFileManager();
 }
 
 // Value stubs for modules that import these names (not exercised in tests).
