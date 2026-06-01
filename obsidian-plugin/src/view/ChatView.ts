@@ -7,6 +7,8 @@ import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
 import { capabilitiesFor, effortLevels } from "../claude/capabilities";
 import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
+import { SlashMenu } from "./SlashMenu";
+import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
 import { gatherContext } from "../context/vaultContext";
 import { extractArtifact, saveArtifactNote, saveChatNote } from "../artifacts/artifactStore";
 import { errorHint } from "../providers/errorHints";
@@ -32,6 +34,7 @@ export class ChatView extends ItemView {
   private knobsEl!: HTMLElement;
   /** The last user message text, for the Regenerate action. */
   private lastUserText = "";
+  private slashMenu!: SlashMenu;
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private _lastBuffer = "";
 
@@ -91,11 +94,23 @@ export class ChatView extends ItemView {
 
     // ---- composer ----
     const composer = root.createDiv({ cls: "cc-composer" });
+
+    // Slash-command palette, anchored above the input. Built before the textarea
+    // so it sits above it in the flow (CSS positions it absolutely).
+    this.slashMenu = new SlashMenu(composer, SLASH_COMMANDS, (cmd) => this.runSlashCommand(cmd));
+
     this.inputEl = composer.createEl("textarea", {
       cls: "cc-input",
-      attr: { placeholder: "Ask Claude…  (Enter to send, Shift+Enter for newline)", rows: "3" },
+      attr: { placeholder: "Ask Claude…  ( / for commands · Enter to send · Shift+Enter for newline )", rows: "3" },
     });
     this.inputEl.addEventListener("keydown", (e) => {
+      // Slash menu intercepts navigation keys while open.
+      if (this.slashMenu.isOpen()) {
+        if (e.key === "ArrowDown") { e.preventDefault(); this.slashMenu.move(1); return; }
+        if (e.key === "ArrowUp") { e.preventDefault(); this.slashMenu.move(-1); return; }
+        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.slashMenu.choose(); return; }
+        if (e.key === "Escape") { e.preventDefault(); this.slashMenu.hide(); return; }
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         this.onSend();
@@ -104,7 +119,10 @@ export class ChatView extends ItemView {
     this.inputEl.addEventListener("input", () => {
       this.autosizeInput();
       this.updateUsageBar();
+      this.syncSlashMenu();
     });
+    // Close the menu when focus leaves the composer.
+    this.inputEl.addEventListener("blur", () => window.setTimeout(() => this.slashMenu.hide(), 120));
 
     // ---- usage bar: context gauge + session totals ----
     const usageRow = composer.createDiv({ cls: "cc-usage" });
@@ -443,6 +461,64 @@ export class ChatView extends ItemView {
     el.style.height = "auto";
     const max = 200; // px ceiling (~8 rows) before it scrolls internally
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }
+
+  /** Open/refresh/close the slash palette based on the current input. */
+  private syncSlashMenu(): void {
+    const q = parseSlashQuery(this.inputEl.value);
+    if (q === null) this.slashMenu.hide();
+    else this.slashMenu.show(q);
+  }
+
+  /** Execute a chosen slash command — either send a prompt or run an action. */
+  private async runSlashCommand(cmd: SlashCommand): Promise<void> {
+    this.inputEl.value = "";
+    this.autosizeInput();
+
+    if (cmd.kind === "prompt" && cmd.prompt) {
+      if (cmd.awaitsInput) {
+        // Insert the template and let the user finish typing (e.g. "/explain ").
+        this.inputEl.value = cmd.prompt;
+        this.inputEl.focus();
+        this.autosizeInput();
+        this.updateUsageBar();
+        return;
+      }
+      await this.submitPrompt(cmd.prompt);
+      return;
+    }
+
+    // kind: "action" — dispatch to the matching behavior.
+    switch (cmd.action) {
+      case "new-chat":
+        this.clearChat();
+        break;
+      case "history":
+        this.openHistory();
+        break;
+      case "save":
+        await this.saveChat();
+        break;
+      case "ask-vault":
+        this.plugin.settings.context.searchVault = true;
+        await this.plugin.saveSettings();
+        this.inputEl.value = "";
+        this.inputEl.setAttr("placeholder", "Vault search on — ask your question…");
+        this.inputEl.focus();
+        new Notice("Vault search enabled for your next message.");
+        break;
+      case "artifact":
+        await this.plugin.generateArtifactFromContext();
+        break;
+      case "plan":
+        await this.plugin.generatePlanFromNote();
+        break;
+      case "build":
+        await this.plugin.handoffToBuild();
+        break;
+      default:
+        new Notice(`Unknown command: /${cmd.name}`);
+    }
   }
 
   private setSending(sending: boolean): void {

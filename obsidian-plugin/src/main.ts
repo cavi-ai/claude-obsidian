@@ -325,7 +325,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- command helpers ----------
 
-  private async generatePlanFromNote(): Promise<void> {
+  async generatePlanFromNote(): Promise<void> {
     this.settings.context.activeNote = true;
     await this.saveSettings();
     const view = await this.activateView();
@@ -338,7 +338,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * tracker note, then hand it to Claude Code. Claude Code reaches the vault
    * through the MCP bridge and updates the tracker as it builds.
    */
-  private async handoffToBuild(): Promise<void> {
+  async handoffToBuild(): Promise<void> {
     const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
     if (!(file instanceof TFile)) {
       new Notice("Open a plan note first.");
@@ -401,7 +401,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.app.vault.create(path, content);
   }
 
-  private async generateArtifactFromContext(): Promise<void> {
+  async generateArtifactFromContext(): Promise<void> {
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
     const hasSelection = !!mdView?.editor.getSelection().trim();
     this.settings.context.activeNote = true;
