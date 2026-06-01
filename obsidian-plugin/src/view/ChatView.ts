@@ -43,7 +43,7 @@ export class ChatView extends ItemView {
     return CHAT_VIEW_TYPE;
   }
   getDisplayText(): string {
-    return "Claude Companion";
+    return "Companion for Claude";
   }
   getIcon(): string {
     return "sparkles";
@@ -62,7 +62,7 @@ export class ChatView extends ItemView {
     // ---- header ----
     const header = root.createDiv({ cls: "cc-header" });
     const title = header.createDiv({ cls: "cc-title" });
-    title.createSpan({ cls: "cc-eyebrow", text: "CLAUDE COMPANION" });
+    title.createSpan({ cls: "cc-eyebrow", text: "COMPANION FOR CLAUDE" });
     this.modelLabelEl = title.createSpan({ cls: "cc-model" });
     this.backendPillEl = title.createSpan({ cls: "cc-backend-pill", attr: { "aria-label": "Chat backend / connectivity" } });
     const actions = header.createDiv({ cls: "cc-header-actions" });

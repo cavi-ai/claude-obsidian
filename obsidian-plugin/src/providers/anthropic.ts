@@ -54,7 +54,7 @@ export class AnthropicProvider implements Provider {
   async stream(req: CompletionRequest, handlers: StreamHandlers): Promise<void> {
     const auth = this.auth();
     if (!auth) {
-      handlers.onError?.(new ProviderError("No Anthropic credential set. Add an API key or OAuth token in Claude Companion settings."));
+      handlers.onError?.(new ProviderError("No Anthropic credential set. Add an API key or OAuth token in Companion for Claude settings."));
       return;
     }
     try {

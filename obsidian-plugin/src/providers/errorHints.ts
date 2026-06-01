@@ -3,7 +3,7 @@
 export function errorHint(message: string): string | null {
   const m = message.toLowerCase();
   if (m.includes("401") || m.includes("invalid api key") || m.includes("authentication")) {
-    return "Open Settings → Claude Companion and check your Anthropic API key. Keys start with “sk-ant-”.";
+    return "Open Settings → Companion for Claude and check your Anthropic API key. Keys start with “sk-ant-”.";
   }
   if (m.includes("not_found") || m.includes("404") || m.includes("model")) {
     return "That model id may be wrong. Pick one from the dropdown, or clear the custom-model field.";

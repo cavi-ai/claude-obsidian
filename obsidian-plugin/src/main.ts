@@ -60,7 +60,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       renderArtifactInline(el, source, height, title);
     });
 
-    this.addRibbonIcon("sparkles", "Open Claude Companion", () => void this.activateView());
+    this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
 
     this.addCommand({
       id: "open-chat",

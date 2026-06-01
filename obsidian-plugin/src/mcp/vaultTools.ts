@@ -174,7 +174,7 @@ export class VaultTools {
   }
 
   private assertWrites(): void {
-    if (!this.opts.allowWrites) throw new Error("Write tools are disabled. Enable 'Allow MCP writes' in Claude Companion settings.");
+    if (!this.opts.allowWrites) throw new Error("Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.");
   }
 
   private async search(query: string, limit: number): Promise<string> {

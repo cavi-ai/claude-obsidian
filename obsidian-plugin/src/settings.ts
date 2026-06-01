@@ -26,7 +26,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Authentication")
-      .setDesc("How Claude Companion authenticates to Anthropic. API key is the standard, store-safe option.")
+      .setDesc("How Companion for Claude authenticates to Anthropic. API key is the standard, store-safe option.")
       .addDropdown((dd) => {
         dd.addOption("apiKey", "API key (recommended)");
         dd.addOption("oauthToken", "Long-term OAuth token (subscription)");

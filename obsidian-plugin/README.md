@@ -1,4 +1,4 @@
-# Claude Companion for Obsidian
+# Companion for Claude (Obsidian plugin)
 
 Bring Claude *into* your vault. Chat with your notes as context, generate
 gallery-grade interactive artifacts, and sync everything Claude produces back
@@ -10,7 +10,7 @@ gallery (vendored as a pinned submodule at the monorepo root) — an original
 reformulation, not a copy — so the plans, reports, and dashboards Claude
 generates look gallery-grade. See [`../NOTICE`](../NOTICE) for full attribution.
 
-> **Bring your own credential.** Claude Companion talks to the Anthropic
+> **Bring your own credential.** Companion for Claude talks to the Anthropic
 > Messages API with *your* credential — nothing is sent anywhere else. Desktop
 > only (it needs direct network access). Three auth modes:
 >
@@ -66,8 +66,8 @@ generates look gallery-grade. See [`../NOTICE`](../NOTICE) for full attribution.
 1. `cd obsidian-plugin && npm install && npm run build`
 2. Copy `main.js`, `manifest.json`, and `styles.css` into
    `<your-vault>/.obsidian/plugins/claude-companion/`.
-3. Enable **Claude Companion** in *Settings → Community plugins*.
-4. Open *Settings → Claude Companion* and paste your Anthropic API key.
+3. Enable **Companion for Claude** in *Settings → Community plugins*.
+4. Open *Settings → Companion for Claude* and paste your Anthropic API key.
 
 For active development use `npm run dev` (esbuild watch) and symlink the plugin
 folder into a test vault.
@@ -105,7 +105,7 @@ Companion can expose your vault as a local **MCP server**, so **Claude Code** an
 **Claude Desktop** work against the *same* knowledge base you chat with here —
 the compliant way to unify all three without subscription OAuth.
 
-Enable it in *Settings → Claude Companion → Unified bridge (MCP server)*. It:
+Enable it in *Settings → Companion for Claude → Unified bridge (MCP server)*. It:
 
 - binds to **127.0.0.1 only** (never the network) and requires a **bearer token**;
 - exposes read tools always (`vault_search`, `note_read`, `list_recent`,

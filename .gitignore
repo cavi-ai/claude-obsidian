@@ -2,8 +2,7 @@
 node_modules/
 pnpm-store/
 
-# Build output (attached to the GitHub release, not committed)
-main.js
+# Build output — main.js is committed so the community store can serve it
 *.js.map
 
 # Env & editor/local
