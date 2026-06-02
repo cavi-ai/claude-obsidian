@@ -121,6 +121,16 @@ describe("MCP bridge — handshake & discovery", () => {
     const names = json.result.tools.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(["vault_search", "note_read", "list_recent", "vault_tags", "note_create", "note_append"]));
   });
+
+  it("tracks handled requests for the status UI", async () => {
+    const before = server.stats();
+    const res = await rpc({ jsonrpc: "2.0", id: 22, method: "tools/list" });
+    const json = (await res.json()) as { result: { tools: Array<{ name: string }> } };
+    expect(json.result.tools.length).toBeGreaterThan(0);
+    const after = server.stats();
+    expect(after.handledRequests).toBeGreaterThan(before.handledRequests);
+    expect(after.activeRequests).toBe(0);
+  });
 });
 
 describe("MCP bridge — vault tools over the wire", () => {

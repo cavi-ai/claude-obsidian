@@ -1,7 +1,7 @@
-import { ItemView, MarkdownRenderer, MarkdownView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage } from "../types";
-import type { Conversation } from "../conversations/store";
+import { compactMessages, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
 import { capabilitiesFor, effortLevels } from "../claude/capabilities";
@@ -9,6 +9,8 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import { SlashMenu } from "./SlashMenu";
 import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
+import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
+import { abbreviateNoteName, selectionLineLabel, selectionLineLabelFromText } from "./contextStatus";
 import { gatherContext } from "../context/vaultContext";
 import { extractArtifact, saveArtifactNote, saveChatNote } from "../artifacts/artifactStore";
 import { errorHint } from "../providers/errorHints";
@@ -32,11 +34,19 @@ export class ChatView extends ItemView {
   private controls!: ChatControls;
   private controlsEl!: HTMLElement;
   private knobsEl!: HTMLElement;
+  private noteStatusEl!: HTMLElement;
+  private selectionStatusEl!: HTMLElement;
+  private localStatusEl!: HTMLElement;
+  private mcpStatusEl!: HTMLButtonElement;
+  private contextStatusInterval: number | null = null;
+  private lastMarkdownView: MarkdownView | null = null;
+  private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
   private lastUserText = "";
   private slashMenu!: SlashMenu;
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private _lastBuffer = "";
+  private renderVersions = new WeakMap<HTMLElement, number>();
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -79,11 +89,18 @@ export class ChatView extends ItemView {
 
     // ---- context chips ----
     const chips = root.createDiv({ cls: "cc-chips" });
-    chips.createSpan({ cls: "cc-chips-label", text: "Context:" });
-    this.contextChip(chips, "Note", "activeNote", "Attach the full text of your active note to each message");
-    this.contextChip(chips, "Selection", "selection", "Attach the text you've selected in the editor");
-    this.contextChip(chips, "Links", "linkedNotes", "Attach notes linked to / from the active note");
-    this.contextChip(chips, "Search vault", "searchVault", "Keyword-search the whole vault and attach the best matches");
+    const contextControls = chips.createDiv({ cls: "cc-chip-controls" });
+    contextControls.createSpan({ cls: "cc-chips-label", text: "Context:" });
+    this.contextChip(contextControls, "Note", "activeNote", "Attach the full text of your active note to each message");
+    this.contextChip(contextControls, "Selection", "selection", "Attach the text you've selected in the editor");
+    this.contextChip(contextControls, "Links", "linkedNotes", "Attach notes linked to / from the active note");
+    this.contextChip(contextControls, "Search vault", "searchVault", "Keyword-search the whole vault and attach the best matches");
+    const contextStatus = chips.createDiv({ cls: "cc-context-status" });
+    this.noteStatusEl = contextStatus.createSpan({ cls: "cc-status-pill", attr: { title: "Open note" } });
+    this.selectionStatusEl = contextStatus.createSpan({ cls: "cc-status-pill", attr: { title: "Current selection line range" } });
+    this.localStatusEl = contextStatus.createSpan({ cls: "cc-status-pill", attr: { title: "Local LLM status" } });
+    this.mcpStatusEl = contextStatus.createEl("button", { cls: "cc-status-pill cc-status-button", attr: { title: "MCP bridge controls" } });
+    this.mcpStatusEl.addEventListener("click", (evt) => this.openMcpMenu(evt));
 
     // ---- chat controls (model switcher, thinking, effort, temp, max) ----
     this.controlsEl = root.createDiv({ cls: "cc-controls" });
@@ -136,6 +153,9 @@ export class ChatView extends ItemView {
 
     this.refreshModelLabel();
     void this.refreshBackendPill();
+    void this.refreshContextStatus();
+    if (this.contextStatusInterval !== null) window.clearInterval(this.contextStatusInterval);
+    this.contextStatusInterval = window.setInterval(() => void this.refreshContextStatus(), 2000);
     // Resume the last active conversation if one was persisted; else empty state.
     const active = this.plugin.getActiveConversation();
     if (active && active.messages.length > 0) {
@@ -152,7 +172,7 @@ export class ChatView extends ItemView {
     this.streaming = false;
     this.setSending(false);
     this.session = { ...EMPTY_SESSION };
-    this.messages = conversation.messages.map((m) => ({ ...m }));
+    this.messages = compactMessages(conversation.messages);
     this.messagesEl.empty();
     if (this.messages.length === 0) {
       this.renderEmptyState();
@@ -242,6 +262,10 @@ export class ChatView extends ItemView {
 
   async onClose(): Promise<void> {
     this.abort?.abort();
+    if (this.contextStatusInterval !== null) {
+      window.clearInterval(this.contextStatusInterval);
+      this.contextStatusInterval = null;
+    }
   }
 
   refreshModelLabel(): void {
@@ -493,11 +517,17 @@ export class ChatView extends ItemView {
       case "new-chat":
         this.clearChat();
         break;
+      case "open-chat":
+        this.inputEl.focus();
+        break;
       case "history":
         this.openHistory();
         break;
       case "save":
         await this.saveChat();
+        break;
+      case "delete-active":
+        await this.plugin.deleteActiveConversation();
         break;
       case "ask-vault":
         this.plugin.settings.context.searchVault = true;
@@ -576,8 +606,16 @@ export class ChatView extends ItemView {
       }
     }
 
-    // If a stream ended without onDone (aborted), still close out.
-    if (this.streaming) this.finishAssistant(this._lastBuffer || null, bubble);
+    // If a stream ended without onDone (usually an abort), keep ordinary text
+    // recoverable but never persist a half-generated HTML artifact fence.
+    if (this.streaming) {
+      if (this._lastBuffer && hasIncompleteHtmlArtifactFence(this._lastBuffer)) {
+        this.renderInterruptedArtifact(body);
+        this.finishAssistant(null, bubble);
+      } else {
+        this.finishAssistant(this._lastBuffer || null, bubble);
+      }
+    }
   }
 
   /**
@@ -602,9 +640,15 @@ export class ChatView extends ItemView {
     let buffer = "";
     let thinkBuf = "";
     let scheduled = false;
+    let finalizing = false;
     const flush = () => {
       scheduled = false;
-      void this.renderMarkdownInto(body, buffer);
+      if (finalizing) return;
+      if (shouldRenderMarkdownDuringStream(buffer)) {
+        void this.renderMarkdownInto(body, buffer);
+      } else {
+        this.renderStreamingTextInto(body, buffer);
+      }
       this.scrollToBottom();
     };
 
@@ -648,10 +692,13 @@ export class ChatView extends ItemView {
           onDone: (full) => {
             if (settled) return;
             settled = true;
+            finalizing = true;
             buffer = full;
             this._lastBuffer = full;
-            void this.renderMarkdownInto(body, full).then(() => this.finishAssistant(full, bubble));
-            resolve(null);
+            void this.renderMarkdownInto(body, full).then(() => {
+              this.finishAssistant(full, bubble);
+              resolve(null);
+            });
           },
         },
       ).then(() => {
@@ -721,6 +768,13 @@ export class ChatView extends ItemView {
     if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
   }
 
+  private renderInterruptedArtifact(body: HTMLElement): void {
+    body.empty();
+    const box = body.createDiv({ cls: "cc-error" });
+    box.createSpan({ cls: "cc-error-title", text: "Artifact generation stopped" });
+    box.createSpan({ text: "The HTML block did not finish, so it was not saved to the chat history." });
+  }
+
   private annotateContext(sources: string[]): void {
     if (sources.length === 0) return;
     const last = this.messagesEl.lastElementChild;
@@ -757,6 +811,112 @@ export class ChatView extends ItemView {
     }
   }
 
+  async refreshContextStatus(): Promise<void> {
+    if (!this.noteStatusEl || !this.selectionStatusEl || !this.localStatusEl || !this.mcpStatusEl) return;
+
+    const markdownView = this.resolveMarkdownContextView();
+    const activeFile = markdownView?.file ?? this.app.workspace.getActiveFile();
+    const noteLabel = abbreviateNoteName(activeFile?.basename, 30);
+    this.noteStatusEl.setText(`Note: ${noteLabel}`);
+    this.noteStatusEl.toggleClass("is-on", !!activeFile);
+
+    let selectionLabel = "No selection";
+    let hasSelection = false;
+    if (markdownView) {
+      const selected = markdownView.editor.getSelection();
+      hasSelection = selected.trim().length > 0;
+      if (hasSelection) {
+        const editor = markdownView.editor as {
+          getCursor?: (scope?: "from" | "to") => { line: number; ch: number };
+          listSelections?: () => Array<{ anchor: { line: number; ch: number }; head: { line: number; ch: number } }>;
+        };
+        if (editor.getCursor) {
+          selectionLabel = selectionLineLabel(editor.getCursor("from"), editor.getCursor("to"));
+        } else {
+          const range = editor.listSelections?.()[0];
+          selectionLabel = selectionLineLabel(range?.anchor, range?.head);
+        }
+      }
+    }
+    if (!hasSelection && activeFile) {
+      const visibleSelection = window.getSelection()?.toString().trim() ?? "";
+      if (visibleSelection) {
+        const label = selectionLineLabelFromText(await this.app.vault.cachedRead(activeFile), visibleSelection);
+        if (label) {
+          hasSelection = true;
+          selectionLabel = label;
+        }
+      }
+    }
+    this.selectionStatusEl.setText(`Sel: ${selectionLabel}`);
+    this.selectionStatusEl.toggleClass("is-on", hasSelection);
+
+    const backend = this.plugin.router().chatBackend;
+    let localLabel = "Local: off";
+    if (backend === "local") localLabel = "Local: chat";
+    else if (backend === "auto") localLabel = "Local: fallback";
+    else if (this.plugin.settings.localUtilityEnabled) localLabel = "Local: utility";
+    if (backend !== "claude" || this.plugin.settings.localUtilityEnabled) {
+      const localOk = await this.plugin.router().localAvailable();
+      localLabel = `${localLabel}${localOk ? " on" : " off"}`;
+      this.localStatusEl.toggleClass("is-on", localOk);
+      this.localStatusEl.toggleClass("is-warn", !localOk);
+    } else {
+      this.localStatusEl.toggleClass("is-on", false);
+      this.localStatusEl.toggleClass("is-warn", false);
+    }
+    this.localStatusEl.setText(localLabel);
+
+    const mcp = this.plugin.mcpStats();
+    const mcpLabel = mcp.running ? `MCP: on · ${mcp.activeRequests} active` : "MCP: off";
+    this.mcpStatusEl.setText(mcpLabel);
+    this.mcpStatusEl.toggleClass("is-on", mcp.running);
+    this.mcpStatusEl.toggleClass("is-warn", this.plugin.settings.mcpEnabled && !mcp.running);
+  }
+
+  private resolveMarkdownContextView(): MarkdownView | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active?.file) {
+      this.lastMarkdownView = active;
+      this.lastMarkdownFilePath = active.file.path;
+      return active;
+    }
+
+    const activeFile = this.app.workspace.getActiveFile();
+    const leaves = this.app.workspace.getLeavesOfType("markdown");
+    const views = leaves.map((leaf) => leaf.view).filter((view): view is MarkdownView => view instanceof MarkdownView && !!view.file);
+    const byActiveFile = activeFile ? views.find((view) => view.file?.path === activeFile.path) : null;
+    const byLastFile = this.lastMarkdownFilePath ? views.find((view) => view.file?.path === this.lastMarkdownFilePath) : null;
+    const fallback = byActiveFile ?? byLastFile ?? this.lastMarkdownView;
+    if (fallback?.file) {
+      this.lastMarkdownView = fallback;
+      this.lastMarkdownFilePath = fallback.file.path;
+      return fallback;
+    }
+    return null;
+  }
+
+  private openMcpMenu(evt: MouseEvent): void {
+    const stats = this.plugin.mcpStats();
+    const menu = new Menu();
+    menu.addItem((item) => {
+      item
+        .setTitle(stats.running ? "Disconnect MCP bridge" : "Connect MCP bridge")
+        .setIcon(stats.running ? "unlink" : "link")
+        .onClick(async () => {
+          await this.plugin.setMcpEnabled(!stats.running);
+          await this.refreshContextStatus();
+        });
+    });
+    menu.addItem((item) => {
+      item
+        .setTitle("Open MCP settings")
+        .setIcon("settings")
+        .onClick(() => this.openSettings());
+    });
+    menu.showAtMouseEvent(evt);
+  }
+
   /** Note in the assistant bubble that we fell back to the local model. */
   private annotateFallback(bubble: HTMLElement, reason: string): void {
     bubble.createDiv({
@@ -766,31 +926,48 @@ export class ChatView extends ItemView {
   }
 
   private async renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void> {
-    el.empty();
-    await MarkdownRenderer.render(this.app, markdown, el, this.app.workspace.getActiveFile()?.path ?? "", this);
+    const version = this.bumpRenderVersion(el);
+    el.removeClass("cc-streaming-raw");
+    const rendered = document.createElement("div");
+    await MarkdownRenderer.render(this.app, markdown, rendered, this.app.workspace.getActiveFile()?.path ?? "", this);
+    if (this.renderVersions.get(el) !== version) return;
+    el.replaceChildren(...Array.from(rendered.childNodes));
+  }
+
+  private renderStreamingTextInto(el: HTMLElement, text: string): void {
+    this.bumpRenderVersion(el);
+    el.addClass("cc-streaming-raw");
+    el.textContent = text;
+  }
+
+  private bumpRenderVersion(el: HTMLElement): number {
+    const version = (this.renderVersions.get(el) ?? 0) + 1;
+    this.renderVersions.set(el, version);
+    return version;
   }
 
   private addAssistantActions(bubble: HTMLElement, full: string): void {
+    bubble.querySelectorAll(":scope > .cc-actions").forEach((el) => el.remove());
     // Per-code-block copy buttons inside the rendered markdown.
     this.decorateCodeBlocks(bubble);
 
     const bar = bubble.createDiv({ cls: "cc-actions" });
-    this.actionBtn(bar, "Copy", () => {
+    this.actionBtn(bar, "Copy", "copy", () => {
       void navigator.clipboard.writeText(full);
       new Notice("Copied to clipboard");
     });
-    this.actionBtn(bar, "Insert", () => this.insertIntoNote(full));
-    this.actionBtn(bar, "Save as note", () => void this.saveReplyAsNote(full));
+    this.actionBtn(bar, "Insert", "text-cursor-input", () => this.insertIntoNote(full));
+    this.actionBtn(bar, "Save as note", "save", () => void this.saveReplyAsNote(full));
     // Regenerate the last reply (only on the most recent assistant message).
     const isLast = this.messages.length > 0 && this.messages[this.messages.length - 1].role === "assistant";
     if (isLast && this.lastUserText) {
-      this.actionBtn(bar, "Regenerate", () => void this.regenerate());
+      this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.regenerate());
     }
     // When the reply is an artifact, offer a one-click "Save artifact" accent
     // button. Both this and "Save as note" route through saveReplyAsNote, which
     // detects the artifact and indexes it (tags + summary) — no raw fenced dumps.
     if (extractArtifact(full)) {
-      const btn = this.actionBtn(bar, "Save artifact", () => void this.saveReplyAsNote(full));
+      const btn = this.actionBtn(bar, "Save artifact", "layout-dashboard", () => void this.saveReplyAsNote(full));
       btn.addClass("cc-accent");
     }
   }
@@ -871,8 +1048,9 @@ export class ChatView extends ItemView {
     });
   }
 
-  private actionBtn(bar: HTMLElement, label: string, onClick: () => void): HTMLButtonElement {
-    const btn = bar.createEl("button", { cls: "cc-action", text: label });
+  private actionBtn(bar: HTMLElement, label: string, icon: string, onClick: () => void): HTMLButtonElement {
+    const btn = bar.createEl("button", { cls: "cc-action", attr: { "aria-label": label, title: label } });
+    setIcon(btn, icon);
     btn.addEventListener("click", onClick);
     return btn;
   }

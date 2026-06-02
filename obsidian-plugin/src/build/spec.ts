@@ -83,11 +83,12 @@ export function buildPrompt(input: SpecInput): string {
 
 /** The `claude` CLI invocation that starts the build in a terminal. */
 export function claudeCodeBuildCommand(input: SpecInput): string {
-  // Wrap the prompt in single quotes so the shell treats it as a literal — no
-  // expansion of $, backticks, or backslashes (the prompt contains backticks
-  // around `obsidian`, and title/path/vault fields come from user-controlled
-  // note content). Only a literal single quote needs handling, via the POSIX
-  // '\'' idiom (close quote, escaped quote, reopen quote).
-  const prompt = buildPrompt(input).replace(/'/g, "'\\''");
-  return `claude -p '${prompt}'`;
+  // Escape backslashes before quotes so literal backslashes cannot interfere
+  // with the quote escaping for the shell's double-quoted -p argument.
+  const prompt = buildPrompt(input)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
+  return `claude -p "${prompt}"`;
 }

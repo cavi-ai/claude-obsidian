@@ -56,25 +56,25 @@ describe("buildPrompt / claudeCodeBuildCommand", () => {
     expect(p).toContain(`obsidian read path="${input.specPath}"`);
     expect(p).not.toContain("vault=");
   });
-  it("single-quote wraps the prompt as a shell literal", () => {
+  it("double-quote wraps and escapes the prompt for -p", () => {
     const cmd = claudeCodeBuildCommand(input);
-    expect(cmd.startsWith("claude -p '")).toBe(true);
-    expect(cmd.endsWith("'")).toBe(true);
-    // The prompt contains backticks (around `obsidian`) and double quotes; inside
-    // single quotes those are inert, so they pass through verbatim (not escaped).
-    expect(cmd).toContain("`obsidian`");
+    expect(cmd.startsWith('claude -p "')).toBe(true);
+    expect(cmd.endsWith('"')).toBe(true);
+    expect(cmd).toContain("\\`obsidian\\`");
+    expect(cmd).toContain('vault=\\"My Vault\\"');
+  });
+  it("escapes backslashes before double quotes in the -p argument", () => {
+    const cmd = claudeCodeBuildCommand({
+      ...input,
+      specPath: String.raw`Claude\Builds\bad\"path.md`,
+    });
+    expect(cmd).toContain(String.raw`path=\"Claude\\Builds\\bad\\\"path.md\"`);
   });
   it("neutralizes shell-injection chars in user-controlled fields", () => {
-    // Title flows from note content; a malicious name must not break out of the
-    // single-quoted literal. $(...), backticks, $VAR, and \ stay inert; only a
-    // literal single quote is rewritten via the POSIX '\'' idiom.
-    const evil = claudeCodeBuildCommand({ ...input, title: "x'; rm -rf ~ #$(whoami)`id`" });
-    // Every single quote in the body is the escaped form — no bare break-out quote.
-    const inner = evil.slice("claude -p '".length, -1);
-    expect(inner).toContain("'\\''"); // the injected ' became the escaped idiom
-    // The dangerous substrings survive only as inert literal text, never as an
-    // unescaped quote that would end the argument early.
-    expect(inner.split("'\\''").join("")).not.toContain("'");
+    const evil = claudeCodeBuildCommand({ ...input, title: 'x"; rm -rf ~ #$(whoami)`id`' });
+    const inner = evil.slice('claude -p "'.length, -1);
+    expect(inner).toContain('\\"; rm -rf ~ #\\$(whoami)\\`id\\`');
+    expect(inner).not.toMatch(/(^|[^\\])"; rm -rf/);
   });
 });
 
