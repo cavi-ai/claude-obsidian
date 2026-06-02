@@ -1,0 +1,106 @@
+name: Release Obsidian plugin
+
+# Publishes the Obsidian plugin to the store release repo (cavi-ai/companion-for-claude)
+# so it never drifts from this monorepo. Triggered by pushing a tag like
+# "obsidian-v0.5.0", or run manually. The tag's version must match
+# obsidian-plugin/manifest.json.
+#
+# Requires a repo secret RELEASE_REPO_TOKEN: a PAT (or fine-grained token) with
+# contents:write on cavi-ai/companion-for-claude.
+
+on:
+  push:
+    tags:
+      - "obsidian-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (must match manifest.json, e.g. 0.5.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: obsidian-plugin/package-lock.json
+
+      - name: Install, verify, build
+        working-directory: obsidian-plugin
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+          test -f main.js
+
+      - name: Resolve + check version
+        id: ver
+        run: |
+          MANIFEST_VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            INPUT="${{ github.event.inputs.version }}"
+          else
+            INPUT="${GITHUB_REF_NAME#obsidian-v}"
+          fi
+          if [ "$INPUT" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Tag/input version ($INPUT) != manifest version ($MANIFEST_VERSION)"
+            exit 1
+          fi
+          echo "version=$MANIFEST_VERSION" >> "$GITHUB_OUT"
+
+      - name: Mirror plugin into the release repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/cavi-ai/companion-for-claude.git" release-repo
+          cp obsidian-plugin/main.js        release-repo/main.js
+          cp obsidian-plugin/manifest.json  release-repo/manifest.json
+          cp obsidian-plugin/styles.css     release-repo/styles.css
+          cp obsidian-plugin/versions.json  release-repo/versions.json
+          cp obsidian-plugin/README.md      release-repo/README.md
+          cp LICENSE                        release-repo/LICENSE
+          printf 'node_modules/\n*.js.map\n.DS_Store\n' > release-repo/.gitignore
+          cd release-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to mirror."
+          else
+            git commit -m "release: v${VERSION}"
+          fi
+          git push origin HEAD:main
+
+      - name: Tag + GitHub Release on the release repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release-repo
+          if gh release view "$VERSION" --repo cavi-ai/companion-for-claude >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; uploading/refreshing assets."
+            gh release upload "$VERSION" main.js manifest.json styles.css \
+              --repo cavi-ai/companion-for-claude --clobber
+          else
+            git tag "$VERSION" || true
+            git push origin "refs/tags/$VERSION" || true
+            gh release create "$VERSION" main.js manifest.json styles.css \
+              --repo cavi-ai/companion-for-claude \
+              --title "$VERSION" \
+              --notes "Companion for Claude $VERSION. See the monorepo for full notes: https://github.com/cavi-ai/claude-obsidian"
+          fi
