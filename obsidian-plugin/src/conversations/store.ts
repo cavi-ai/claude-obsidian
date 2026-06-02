@@ -44,13 +44,23 @@ export function newConversation(id: string, now: number): Conversation {
   return { id, title: UNTITLED, createdAt: now, updatedAt: now, messages: [] };
 }
 
+export function compactMessages(messages: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const message of messages) {
+    const prev = out[out.length - 1];
+    if (prev?.role === "assistant" && message.role === "assistant") continue;
+    out.push({ ...message });
+  }
+  return out;
+}
+
 /**
  * Return a copy of `convo` updated with the given messages and timestamp.
  * Re-derives the title while it is still untitled so the first real exchange
  * names the session.
  */
 export function touch(convo: Conversation, messages: ChatMessage[], now: number): Conversation {
-  const cloned = messages.map((m) => ({ ...m }));
+  const cloned = compactMessages(messages);
   const title = convo.title === UNTITLED ? deriveTitle(cloned) : convo.title;
   return { ...convo, messages: cloned, title, updatedAt: now };
 }
@@ -97,7 +107,7 @@ export function fromPersisted(raw: unknown): ConversationState {
   if (!raw || typeof raw !== "object") return emptyState();
   const o = raw as { conversations?: unknown; activeId?: unknown };
   const conversations = Array.isArray(o.conversations)
-    ? o.conversations.filter(isConversation).map((c) => ({ ...c, messages: c.messages.map((m) => ({ ...m })) }))
+    ? o.conversations.filter(isConversation).map((c) => ({ ...c, messages: compactMessages(c.messages) }))
     : [];
   conversations.sort((a, b) => b.updatedAt - a.updatedAt);
   const activeId = typeof o.activeId === "string" && conversations.some((c) => c.id === o.activeId) ? o.activeId : conversations[0]?.id ?? null;

@@ -18,6 +18,8 @@ export type LogFn = (level: "info" | "error", message: string) => void;
  */
 export class McpHttpServer {
   private server: Server | null = null;
+  private activeRequests = 0;
+  private handledRequests = 0;
 
   constructor(
     private config: McpServerConfig,
@@ -37,6 +39,10 @@ export class McpHttpServer {
   address(): { port: number } | null {
     const a = this.server?.address();
     return a && typeof a === "object" ? { port: a.port } : null;
+  }
+
+  stats(): { activeRequests: number; handledRequests: number } {
+    return { activeRequests: this.activeRequests, handledRequests: this.handledRequests };
   }
 
   async start(): Promise<void> {
@@ -80,6 +86,17 @@ export class McpHttpServer {
   }
 
   private async onRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    this.activeRequests++;
+    this.handledRequests++;
+    let counted = true;
+    const release = () => {
+      if (!counted) return;
+      counted = false;
+      this.activeRequests = Math.max(0, this.activeRequests - 1);
+    };
+    res.once("finish", release);
+    res.once("close", release);
+
     this.setCors(res);
 
     if (req.method === "OPTIONS") {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSlashQuery, filterCommands, moveSelection, SLASH_COMMANDS } from "../src/view/slashCommands";
+import { parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS } from "../src/view/slashCommands";
 
 describe("parseSlashQuery", () => {
   it("returns the token after a leading slash", () => {
@@ -61,6 +61,18 @@ describe("catalog integrity", () => {
       expect(/^[a-z0-9-]+$/.test(c.name), c.name).toBe(true);
       expect(seen.has(c.name)).toBe(false);
       seen.add(c.name);
+    }
+  });
+  it("covers the plugin's registered command-palette actions", () => {
+    const slashNames = new Set(SLASH_COMMANDS.map((c) => c.name));
+    for (const slashName of Object.values(REGISTERED_ACTION_COMMANDS)) {
+      expect(slashNames.has(slashName), slashName).toBe(true);
+    }
+  });
+  it("includes the newer chat-surface commands", () => {
+    const slashNames = new Set(SLASH_COMMANDS.map((c) => c.name));
+    for (const name of ["brainstorm", "diagram", "links", "search", "daily", "outline", "compare", "extract"]) {
+      expect(slashNames.has(name), name).toBe(true);
     }
   });
 });

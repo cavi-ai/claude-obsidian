@@ -83,7 +83,12 @@ export function buildPrompt(input: SpecInput): string {
 
 /** The `claude` CLI invocation that starts the build in a terminal. */
 export function claudeCodeBuildCommand(input: SpecInput): string {
-  // Escape double quotes for a shell-safe -p argument.
-  const prompt = buildPrompt(input).replace(/"/g, '\\"');
+  // Escape backslashes before quotes so literal backslashes cannot interfere
+  // with the quote escaping for the shell's double-quoted -p argument.
+  const prompt = buildPrompt(input)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
   return `claude -p "${prompt}"`;
 }

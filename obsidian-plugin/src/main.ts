@@ -7,6 +7,7 @@ import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSy
 import { renderArtifactInline } from "./artifacts/renderInline";
 import { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
+import { generateToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
 import { trackerArtifact } from "./build/tracker";
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
@@ -236,7 +237,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     view?.openHistory();
   }
 
-  private async deleteActiveConversation(): Promise<void> {
+  async deleteActiveConversation(): Promise<void> {
     const active = this.getActiveConversation();
     if (!active) {
       new Notice("No active conversation to delete.");
@@ -286,12 +287,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.mcpServer?.isRunning() ?? false;
   }
 
+  mcpStats(): { running: boolean; port: number | null; activeRequests: number; handledRequests: number } {
+    const stats = this.mcpServer?.stats() ?? { activeRequests: 0, handledRequests: 0 };
+    return {
+      running: this.mcpRunning(),
+      port: this.mcpServer?.address()?.port ?? null,
+      activeRequests: stats.activeRequests,
+      handledRequests: stats.handledRequests,
+    };
+  }
+
+  async setMcpEnabled(enabled: boolean): Promise<void> {
+    this.settings.mcpEnabled = enabled;
+    if (enabled && !this.settings.mcpToken) {
+      this.settings.mcpToken = generateToken();
+    }
+    await this.saveSettings();
+  }
+
   refreshViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE)) {
       const v = leaf.view;
       if (v instanceof ChatView) {
         v.refreshModelLabel();
         void v.refreshBackendPill();
+        void v.refreshContextStatus();
       }
     }
   }

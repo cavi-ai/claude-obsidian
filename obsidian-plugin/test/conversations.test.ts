@@ -10,6 +10,7 @@ import {
   getActive,
   setActive,
   fromPersisted,
+  compactMessages,
   relativeTime,
   type Conversation,
 } from "../src/conversations/store";
@@ -54,6 +55,31 @@ describe("touch", () => {
     const t = touch(newConversation("c1", 1), msgs, 2);
     t.messages[0].content = "mutated";
     expect(msgs[0].content).toBe("hello");
+  });
+});
+
+describe("compactMessages", () => {
+  it("removes adjacent duplicate assistant messages left by a double-finish race", () => {
+    const first = a("```claude-html\n<div>artifact</div>\n```");
+    const dup = a("```claude-html\n<div>artifact</div>\n```");
+
+    expect(compactMessages([u("make an artifact"), first, dup])).toEqual([u("make an artifact"), first]);
+  });
+
+  it("removes adjacent duplicate artifacts with incidental markdown differences", () => {
+    const first = a("Here you go:\n\n```claude-html height=640\n<title>Dashboard</title><main>same</main>\n```");
+    const dup = a("```claude-html\n<title>Dashboard</title><main>same</main>\n```\n\n");
+
+    expect(compactMessages([u("make an artifact"), first, dup])).toEqual([u("make an artifact"), first]);
+  });
+
+  it("keeps repeated assistant messages when they are separated by a user turn", () => {
+    const reply = a("same text");
+    expect(compactMessages([u("one"), reply, u("again"), reply])).toEqual([u("one"), reply, u("again"), reply]);
+  });
+
+  it("removes any adjacent assistant-only continuation because chat turns should alternate", () => {
+    expect(compactMessages([u("one"), a("first"), a("second")])).toEqual([u("one"), a("first")]);
   });
 });
 

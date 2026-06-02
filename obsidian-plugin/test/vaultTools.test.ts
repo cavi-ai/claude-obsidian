@@ -98,3 +98,59 @@ describe("update_frontmatter", () => {
     await expect(vt.call("update_frontmatter", { path: "Notes/Tagged.md", tags: ["x"] })).rejects.toThrow(/disabled/);
   });
 });
+
+describe("frontmatter_query", () => {
+  function fmTools() {
+    const app = new App();
+    app.vault.seed("P/A.md", "# A", { frontmatter: { type: "project", status: "active" } });
+    app.vault.seed("P/B.md", "# B", { frontmatter: { type: "project", status: "done" } });
+    app.vault.seed("N/C.md", "# C", { frontmatter: { type: "note", tags: ["x", "y"] } });
+    return new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude" });
+  }
+
+  it("lists notes that have a frontmatter field", async () => {
+    const out = await fmTools().call("frontmatter_query", { field: "status" });
+    expect(out).toContain("P/A.md");
+    expect(out).toContain("P/B.md");
+    expect(out).not.toContain("N/C.md");
+  });
+
+  it("filters by scalar value", async () => {
+    const out = await fmTools().call("frontmatter_query", { field: "type", value: "project" });
+    expect(out).toContain("P/A.md");
+    expect(out).toContain("P/B.md");
+    expect(out).not.toContain("N/C.md");
+  });
+
+  it("matches membership when the field is an array", async () => {
+    const out = await fmTools().call("frontmatter_query", { field: "tags", value: "x" });
+    expect(out).toContain("N/C.md");
+    expect(out).not.toContain("P/A.md");
+  });
+
+  it("reports when nothing matches", async () => {
+    const out = await fmTools().call("frontmatter_query", { field: "missing" });
+    expect(out).toMatch(/No notes/);
+  });
+});
+
+describe("note_move", () => {
+  function moveTools(allowWrites = true) {
+    const app = new App();
+    app.vault.seed("Inbox/Draft.md", "# Draft\n");
+    return { app, vt: new VaultTools(app as never, { allowWrites, defaultFolder: "Claude" }) };
+  }
+
+  it("moves a note to a new path", async () => {
+    const { vt } = moveTools();
+    const msg = await vt.call("note_move", { path: "Inbox/Draft.md", to: "Notes/Final.md" });
+    expect(msg).toContain("Notes/Final.md");
+    expect(await vt.call("note_read", { path: "Notes/Final.md" })).toBe("# Draft\n");
+    await expect(vt.call("note_read", { path: "Inbox/Draft.md" })).rejects.toThrow(/not found/);
+  });
+
+  it("is rejected when writes are disabled", async () => {
+    const { vt } = moveTools(false);
+    await expect(vt.call("note_move", { path: "Inbox/Draft.md", to: "Notes/Final.md" })).rejects.toThrow(/disabled/);
+  });
+});

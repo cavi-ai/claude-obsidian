@@ -26,6 +26,17 @@ export interface SlashCommand {
   action?: string;
 }
 
+export const REGISTERED_ACTION_COMMANDS: Record<string, string> = {
+  "open-chat": "open",
+  "new-chat": "new",
+  "plan-from-note": "plan",
+  "artifact-from-selection": "artifact",
+  "ask-vault": "ask",
+  "browse-conversations": "history",
+  "delete-active-conversation": "delete",
+  "build-from-plan": "build",
+};
+
 /** A query like "/sum" → the part after the slash, lowercased. */
 export function parseSlashQuery(input: string): string | null {
   // Active only when the whole input is a single "/word" with no space yet —
@@ -63,6 +74,13 @@ export function moveSelection(current: number, delta: number, len: number): numb
 
 /** The built-in slash catalog. Prompt templates mirror the command-palette actions. */
 export const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    name: "open",
+    aliases: ["chat", "focus"],
+    description: "Focus the Companion chat panel",
+    kind: "action",
+    action: "open-chat",
+  },
   {
     name: "summarize",
     aliases: ["sum", "tldr"],
@@ -104,6 +122,65 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     prompt: "Turn the key information in my active note (or selection) into a clean, well-structured Markdown table.",
   },
   {
+    name: "brainstorm",
+    aliases: ["ideas", "ideate"],
+    description: "Brainstorm options from the active note or a typed topic",
+    kind: "prompt",
+    prompt: "Brainstorm strong, concrete ideas for: ",
+    awaitsInput: true,
+  },
+  {
+    name: "diagram",
+    aliases: ["map", "flow"],
+    description: "Create a clear visual diagram artifact",
+    kind: "prompt",
+    prompt: "Create a single self-contained ```claude-html artifact with a clear visual diagram for: ",
+    awaitsInput: true,
+  },
+  {
+    name: "links",
+    aliases: ["backlinks", "related"],
+    description: "Suggest useful internal links for the active note",
+    kind: "prompt",
+    prompt: "Suggest useful internal Obsidian links for my active note. Group them by why they are relevant and include concise link text.",
+  },
+  {
+    name: "search",
+    aliases: ["vault", "find"],
+    description: "Turn on vault search for the next question",
+    kind: "action",
+    action: "ask-vault",
+  },
+  {
+    name: "daily",
+    aliases: ["today", "journal"],
+    description: "Draft or improve today's daily note",
+    kind: "prompt",
+    prompt: "Draft today's daily note from my current context. Include priorities, open loops, decisions, and next actions.",
+  },
+  {
+    name: "outline",
+    aliases: ["structure"],
+    description: "Create a tight outline for the active note",
+    kind: "prompt",
+    prompt: "Create a clean outline of my active note with headings, key claims, missing sections, and suggested order.",
+  },
+  {
+    name: "compare",
+    aliases: ["contrast"],
+    description: "Compare the selection or active note against another topic",
+    kind: "prompt",
+    prompt: "Compare my active note or selection against: ",
+    awaitsInput: true,
+  },
+  {
+    name: "extract",
+    aliases: ["actions", "todos"],
+    description: "Extract decisions, tasks, risks, and follow-ups",
+    kind: "prompt",
+    prompt: "Extract decisions, tasks, risks, owners, dates, and follow-ups from my active note or selection. Return a compact action list.",
+  },
+  {
     name: "explain",
     description: "Explain a topic — type your topic after the command",
     kind: "prompt",
@@ -135,5 +212,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Save this chat to your vault",
     kind: "action",
     action: "save",
+  },
+  {
+    name: "delete",
+    aliases: ["delete-chat", "remove"],
+    description: "Delete the current conversation",
+    kind: "action",
+    action: "delete-active",
   },
 ];

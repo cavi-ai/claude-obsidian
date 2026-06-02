@@ -56,16 +56,25 @@ describe("buildPrompt / claudeCodeBuildCommand", () => {
     expect(p).toContain(`obsidian read path="${input.specPath}"`);
     expect(p).not.toContain("vault=");
   });
-  it("escapes quotes for a shell-safe -p argument", () => {
+  it("double-quote wraps and escapes the prompt for -p", () => {
     const cmd = claudeCodeBuildCommand(input);
     expect(cmd.startsWith('claude -p "')).toBe(true);
     expect(cmd.endsWith('"')).toBe(true);
-    // Strip the `claude -p "` wrapper and trailing `"`, then assert every inner
-    // double-quote is backslash-escaped (no bare `"` remains once `\"` is removed).
-    const inner = cmd.slice('claude -p "'.length, -1);
-    expect(inner.replace(/\\"/g, "")).not.toContain('"');
-    // And the prompt did contain quotes to begin with (so this is a real check).
-    expect(inner).toContain('\\"');
+    expect(cmd).toContain("\\`obsidian\\`");
+    expect(cmd).toContain('vault=\\"My Vault\\"');
+  });
+  it("escapes backslashes before double quotes in the -p argument", () => {
+    const cmd = claudeCodeBuildCommand({
+      ...input,
+      specPath: String.raw`Claude\Builds\bad\"path.md`,
+    });
+    expect(cmd).toContain(String.raw`path=\"Claude\\Builds\\bad\\\"path.md\"`);
+  });
+  it("neutralizes shell-injection chars in user-controlled fields", () => {
+    const evil = claudeCodeBuildCommand({ ...input, title: 'x"; rm -rf ~ #$(whoami)`id`' });
+    const inner = evil.slice('claude -p "'.length, -1);
+    expect(inner).toContain('\\"; rm -rf ~ #\\$(whoami)\\`id\\`');
+    expect(inner).not.toMatch(/(^|[^\\])"; rm -rf/);
   });
 });
 
