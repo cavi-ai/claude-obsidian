@@ -15,6 +15,22 @@ Two paired, complementary deliverables that meet at a local MCP bridge:
 
 ---
 
+<!-- ## See it in action
+     Screenshots pending — drop PNGs into assets/ (see assets/CAPTURE.md) and uncomment.
+
+| Chat with your vault | Interactive artifacts |
+|---|---|
+| ![Companion chat panel with vault context](assets/chat-panel.png) | ![A claude-html artifact rendered inline](assets/artifact-inline.png) |
+
+| Advisor roadmap (`manifest-*`) | Session → knowledge note |
+|---|---|
+| ![A manifest-pm roadmap artifact](assets/manifest-roadmap.png) | ![session-to-note distilling a session into the vault](assets/session-to-note.png) |
+
+> Capturing these is a two-minute job — see [`assets/CAPTURE.md`](assets/CAPTURE.md) for the exact shots and filenames.
+
+---
+-->
+
 ## Companion for Claude (the Obsidian plugin)
 
 A full Claude chat experience that lives in your vault and speaks its language.
@@ -50,36 +66,52 @@ A full Claude chat experience that lives in your vault and speaks its language.
 ## claude-obsidian (the Claude Code plugin)
 
 Commands and skills that let Claude Code operate on your vault through the
-Companion MCP bridge — turning a chat agent into a vault collaborator.
+Companion MCP bridge — turning a chat agent into a vault collaborator. **14
+commands and 24 skills** across six areas, all built on a shared grounding
+discipline (cite real notes, never fabricate, writes confirmed):
 
-- **Commands** — `/claude-obsidian:note-to-artifact`, `:session-to-note`,
-  `:daily-rollup`, `:manifest-vault`, `:manifest-pm`, `:build-from-spec`.
-- **Skills** (model-invoked when relevant) — vault synthesis, vault grounding,
-  consistent tagging, wikilink weaving, outline-to-draft, plan-to-spec,
-  session-to-note, vault routines, and the artifact design system.
+- **Knowledge** — `vault-synthesis` (grounded, cited "what do I know about X"),
+  `connection-finder`, `source-digest`.
+- **Hygiene** — `consistent-tagging`, `wikilink-weaver`, `moc-builder`,
+  `frontmatter-normalizer`, `note-splitter`, `dedup-merge`.
+- **Writing** — `outline-to-draft`, `daily-rollup`, `session-to-note`,
+  `meeting-cleanup`, `summarize-and-link`.
+- **Build** — `plan-to-spec`, `build-from-spec`, `tracker-driver`,
+  `build-retrospective`, `task-harvester`.
+- **Advisor personas (`manifest-*`)** — `vault`, `pm`, `infra`, `feature`,
+  `content`, `risk`, `research`: survey the vault, produce a prioritized
+  `claude-html` artifact, and route work into the build pipeline.
+- **Foundations** — `vault-grounding`, `vault-routines` (offer editable
+  scheduled routines), and the `note-to-artifact` design system.
 
-→ Full details: [`claude-plugin/README.md`](claude-plugin/README.md)
+Headline command: `/claude-obsidian:session-to-note` distills a whole Claude
+session into one consolidated, tagged, linked vault note — turning ephemeral
+session memory into persistent knowledge-graph points.
+
+→ Full details (all commands + skills): [`claude-plugin/README.md`](claude-plugin/README.md)
 
 ---
 
 ## How the two fit together
 
 ```
-┌─────────────────────────┐         loopback MCP (127.0.0.1, bearer token)
-│  Companion for Claude    │  ◀──────────────────────────────────────┐
-│  (Obsidian plugin)       │                                          │
-│  • chat + artifacts      │   exposes vault tools:                   │
-│  • runs the MCP server   │   vault_search · note_read · note_create │
-└─────────────────────────┘   note_append · note_update · list_titles│
-                               list_recent · vault_tags ·             │
-                               get_backlinks · get_outgoing_links ·   │
-                               update_frontmatter                     │
-                                                                      │
-┌─────────────────────────┐                                          │
-│  claude-obsidian         │  ────────────────────────────────────────┘
+┌─────────────────────────┐      loopback MCP (127.0.0.1, bearer token)
+│  Companion for Claude    │  ◀───────────────────────────────────────┐
+│  (Obsidian plugin)       │                                           │
+│  • chat + artifacts      │   exposes 13 vault tools                  │
+│  • runs the MCP server   │                                           │
+└─────────────────────────┘                                           │
+┌─────────────────────────┐                                           │
+│  claude-obsidian         │  ─────────────────────────────────────────┘
 │  (Claude Code plugin)    │   connects and drives the same vault
 └─────────────────────────┘
 ```
+
+**Vault tools exposed over the bridge** — read: `vault_search`, `note_read`,
+`list_recent`, `list_titles`, `vault_tags`, `get_backlinks`,
+`get_outgoing_links`, `frontmatter_query`; write (gated behind a setting):
+`note_create`, `note_append`, `note_update`, `update_frontmatter`, `note_move`
+(rename/move with automatic backlink rewrite).
 
 Companion runs a local MCP server (`obsidian-vault`, bound to `127.0.0.1`,
 bearer-token auth, default port **22360**). The Claude Code plugin connects to

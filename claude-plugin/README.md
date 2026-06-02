@@ -20,6 +20,22 @@ gives Claude Code the commands and skills to use it well.
   missing links, stale notes — then fix with your consent.
 - **`manifest-pm`** — a prioritized, client-facing product roadmap from your
   project notes, routed into the build pipeline.
+- **`manifest-infra`** — grounded infrastructure/system designs (with diagrams)
+  from your architecture notes, routed into the build pipeline.
+- **`manifest-feature`** — a prioritized, evidence-backed feature backlog from
+  your idea/feedback notes, routed into the build pipeline.
+- **`manifest-content`** — a prioritized content plan from your vault knowledge,
+  routed into grounded drafting.
+- **`manifest-risk`** — a grounded, ranked risk register (blockers,
+  contradictions, SPOFs) from your project notes.
+- **`manifest-research`** — vault coverage map, specific knowledge gaps, and a
+  prioritized research agenda.
+- **`moc-builder`** — build or refresh a Map of Content hub note that groups and
+  annotates the notes on a topic or folder.
+- **`source-digest`** — digest research source notes into a cited evidence /
+  comparison table artifact with conflicts and gaps.
+- **`task-harvester`** — collect open tasks scattered across the vault into one
+  consolidated, source-linked, prioritized action list.
 - **`build-from-spec`** — read an Obsidian "build spec" note, implement its task
   checklist, and report progress to a tracker note.
 
@@ -27,13 +43,21 @@ gives Claude Code the commands and skills to use it well.
 
 - **Foundations** — `vault-grounding` (cite real notes, never fabricate,
   write-safe) and `vault-routines` (offer editable scheduled routines).
-- **Knowledge** — `vault-synthesis` (grounded, cited "what do I know about X").
-- **Hygiene** — `consistent-tagging`, `wikilink-weaver`.
-- **Writing** — `outline-to-draft`, `daily-rollup`, `session-to-note`.
+- **Knowledge** — `vault-synthesis` (grounded, cited "what do I know about X"),
+  `connection-finder` (surface non-obvious, unlinked relationships),
+  `source-digest` (cited evidence table from source notes).
+- **Hygiene** — `consistent-tagging`, `wikilink-weaver`, `moc-builder`,
+  `frontmatter-normalizer` (consistent metadata schema), `note-splitter` (break
+  up bloated notes), `dedup-merge` (consolidate duplicates).
+- **Writing** — `outline-to-draft`, `daily-rollup`, `session-to-note`,
+  `meeting-cleanup`, `summarize-and-link`.
 - **Build** — `plan-to-spec` (planning note → build spec, feeding
-  `build-from-spec`).
-- **Advisor personas** — `manifest-vault`, `manifest-pm` (orchestrators that
-  survey the vault and delegate to the worker skills above).
+  `build-from-spec`), `task-harvester` (consolidate open tasks),
+  `tracker-driver` (honest live progress), and `build-retrospective` (close-out:
+  shipped / left / lessons).
+- **Advisor personas** — `manifest-vault`, `manifest-pm`, `manifest-infra`,
+  `manifest-feature`, `manifest-content`, `manifest-risk`, `manifest-research`
+  (orchestrators that survey the vault and delegate to the worker skills above).
 - **`note-to-artifact`** — the design system Claude uses for artifacts.
 
 **`obsidian-vault` MCP server** — pre-wired HTTP connection to the Companion
