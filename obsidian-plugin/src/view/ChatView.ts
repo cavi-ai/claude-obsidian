@@ -71,6 +71,7 @@ export class ChatView extends ItemView {
   async onOpen(): Promise<void> {
     const root = this.contentEl;
     root.empty();
+    root.addClass("cc-chat-root"); // establishes the container-query context (see styles.css)
     root.addClass("cc-root");
 
     // Initialize per-session controls from the settings default model.

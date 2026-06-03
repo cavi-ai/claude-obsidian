@@ -20,6 +20,13 @@ export class MemoryView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // Obsidian parses a new note's frontmatter on a debounce *after* the write,
+    // so an immediate refresh can miss the just-captured note. Re-render when the
+    // metadata cache resolves, and when notes are deleted/renamed. registerEvent
+    // ties these listeners to the view lifecycle (auto-removed on close).
+    this.registerEvent(this.app.metadataCache.on("changed", () => void this.render()));
+    this.registerEvent(this.app.vault.on("delete", () => void this.render()));
+    this.registerEvent(this.app.vault.on("rename", () => void this.render()));
     await this.render();
   }
 

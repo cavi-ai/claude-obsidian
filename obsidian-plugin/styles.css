@@ -815,3 +815,53 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ----- responsive (container queries: panel width, not viewport) ----- */
+/* These views can be docked in a narrow sidebar or a wide main pane and the
+   user drags the divider freely, so we query the panel's own inline size. */
+.cc-chat-root,
+.cc-memory-view {
+  container-type: inline-size;
+}
+
+/* Narrow panel: let the header/actions/chips/controls wrap instead of clipping. */
+@container (max-width: 380px) {
+  .cc-header {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .cc-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .cc-send-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* Very narrow: drop secondary text to keep controls tappable. */
+@container (max-width: 300px) {
+  .cc-eyebrow {
+    display: none;
+  }
+  .cc-ingest-toggle span {
+    display: none; /* keep the checkbox, drop the "ingest" label */
+  }
+  .cc-chips {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .cc-memory-view .cc-memory-row {
+    gap: 4px;
+  }
+}
+
+/* Wide panel (docked in the main editor area): cap line length for readability. */
+@container (min-width: 720px) {
+  .cc-messages,
+  .cc-composer {
+    max-width: 860px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
