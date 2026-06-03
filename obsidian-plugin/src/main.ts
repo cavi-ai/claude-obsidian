@@ -73,6 +73,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
+    if (this.settings.memoryEnabled) {
+      this.addRibbonIcon("brain", "Capture Claude session memory", () => void this.openSessionPicker());
+    }
 
     this.addCommand({
       id: "open-chat",
@@ -436,6 +439,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     const sessions = await this.listVaultSessions();
+    if (sessions.length === 0) {
+      new Notice(
+        "No Claude Code sessions found for this vault. Run the `claude` CLI from this vault's folder, then capture.",
+        8000,
+      );
+      return;
+    }
     new SessionPicker(this.app, sessions, (session) => {
       void this.captureSession(session);
     }).open();

@@ -89,6 +89,9 @@ export class ChatView extends ItemView {
     this.iconButton(actions, "plus", "New chat", () => this.clearChat());
     this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
     this.iconButton(actions, "save", "Save chat to vault", () => this.saveChat());
+    if (this.plugin.settings.memoryEnabled) {
+      this.iconButton(actions, "brain", "Capture a Claude Code session", () => void this.plugin.openSessionPicker());
+    }
     this.renderIngestToggle(actions);
     this.iconButton(actions, "settings", "Open settings", () => this.openSettings());
 
