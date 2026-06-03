@@ -613,6 +613,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .setName("Access token")
       .setDesc("Required by clients as a bearer token. Keep it secret.")
       .addText((text) => {
+        text.inputEl.type = "password"; // bearer token — don't render in plaintext
         text.inputEl.style.width = "260px";
         text.setValue(s.mcpToken).onChange(async (v) => {
           s.mcpToken = v.trim();
