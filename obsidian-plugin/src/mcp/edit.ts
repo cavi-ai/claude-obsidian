@@ -27,7 +27,7 @@ export function replaceSection(markdown: string, heading: string, newBody: strin
       continue;
     }
     if (inFence) continue;
-    const m = /^(#+)\s+(.*?)\s*$/.exec(lines[i]);
+    const m = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(lines[i]);
     if (m && m[2].trim().toLowerCase() === target) {
       start = i;
       level = m[1].length;

@@ -1,7 +1,7 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage } from "../types";
-import { compactMessages, type Conversation } from "../conversations/store";
+import { compactMessages, toApiMessages, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
 import { capabilitiesFor, effortLevels } from "../claude/capabilities";
@@ -15,6 +15,7 @@ import { gatherContext } from "../context/vaultContext";
 import { extractArtifact, saveArtifactNote, saveChatNote } from "../artifacts/artifactStore";
 import { errorHint } from "../providers/errorHints";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
+import { mergeUsage, type TokenUsage } from "../claude/sse";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
@@ -30,6 +31,8 @@ export class ChatView extends ItemView {
   private streaming = false;
   private abort: AbortController | null = null;
   private session: SessionUsage = { ...EMPTY_SESSION };
+  /** Usage for the in-flight turn; folded into the session once on completion. */
+  private _turnUsage: TokenUsage | null = null;
   /** Per-session chat controls (model, thinking, effort, temp, max). */
   private controls!: ChatControls;
   private controlsEl!: HTMLElement;
@@ -573,7 +576,7 @@ export class ChatView extends ItemView {
 
     // Build context-augmented copy of the message list for the API.
     const ctx = await gatherContext(this.app, this.plugin.settings, this.plugin.settings.context, userText);
-    const apiMessages: ChatMessage[] = this.messages.map((m) => ({ ...m }));
+    const apiMessages: ChatMessage[] = toApiMessages(this.messages);
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
       last.content = `${ctx.text}\n\n---\n\n${last.content}`;
@@ -583,6 +586,7 @@ export class ChatView extends ItemView {
     const { bubble, body } = this.createAssistantBubble();
     this.setSending(true);
     this.abort = new AbortController();
+    this._turnUsage = null;
 
     // Attempt #1 on the primary backend (Claude unless backend is "local").
     const startedOnLocal = provider.id === "ollama";
@@ -687,7 +691,7 @@ export class ChatView extends ItemView {
             resolve({ message: err.message, status: (err as { status?: number }).status });
           },
           onUsage: (usage) => {
-            this.session = addUsage(this.session, usage);
+            this._turnUsage = mergeUsage(this._turnUsage ?? undefined, usage);
           },
           onDone: (full) => {
             if (settled) return;
@@ -724,6 +728,13 @@ export class ChatView extends ItemView {
     }
     // Persist the turn so the conversation survives a restart (best-effort).
     void this.plugin.saveActiveConversation(this.messages);
+    // Fold this turn's usage into the session exactly once. The API emits usage
+    // on both message_start and message_delta; counting each event would double
+    // the request count and inflate output tokens.
+    if (this._turnUsage) {
+      this.session = addUsage(this.session, this._turnUsage);
+      this._turnUsage = null;
+    }
     this.updateUsageBar();
     this.scrollToBottom();
   }

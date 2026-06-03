@@ -55,6 +55,25 @@ export function compactMessages(messages: ChatMessage[]): ChatMessage[] {
 }
 
 /**
+ * Coalesce a message list into strictly alternating roles for the Anthropic
+ * Messages API, merging consecutive same-role messages (the API 400s on two in
+ * a row). Guards the case where a failed turn left a trailing `user` message and
+ * the next send appended another `user` message.
+ */
+export function toApiMessages(messages: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const m of messages) {
+    const prev = out[out.length - 1];
+    if (prev && prev.role === m.role) {
+      prev.content = `${prev.content}\n\n${m.content}`;
+    } else {
+      out.push({ ...m });
+    }
+  }
+  return out;
+}
+
+/**
  * Return a copy of `convo` updated with the given messages and timestamp.
  * Re-derives the title while it is still untitled so the first real exchange
  * names the session.

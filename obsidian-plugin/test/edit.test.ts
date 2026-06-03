@@ -45,4 +45,9 @@ describe("replaceSection", () => {
     // The real following section is preserved.
     expect(out).toContain("## Notes\nkeep");
   });
+
+  it("matches a closed-ATX heading (## Foo ##)", () => {
+    const closed = "## Foo ##\nbody\n";
+    expect(replaceSection(closed, "Foo", "new")).toBe("## Foo ##\n\nnew\n");
+  });
 });

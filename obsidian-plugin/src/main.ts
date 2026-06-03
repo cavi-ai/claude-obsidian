@@ -42,6 +42,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _router: ProviderRouter | null = null;
   private mcpServer: McpHttpServer | null = null;
   private vaultTools: VaultTools | null = null;
+  /** Serializes overlapping syncMcpServer() calls (settings fire it per keystroke). */
+  private mcpSyncChain: Promise<void> = Promise.resolve();
+  /** Signature of the currently-running MCP server, to skip needless restarts. */
+  private mcpSignature: string | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -268,19 +272,41 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- MCP bridge ----------
 
-  /** Start, stop, or restart the MCP server to match current settings. */
-  async syncMcpServer(): Promise<void> {
+  /**
+   * Start, stop, or restart the MCP server to match current settings. Serialized
+   * (the settings UI calls saveSettings → this on every keystroke, un-awaited)
+   * and idempotent (skips a restart when the running server already matches), so
+   * overlapping syncs can't EADDRINUSE the fixed port and silently drop the bridge.
+   */
+  syncMcpServer(): Promise<void> {
+    this.mcpSyncChain = this.mcpSyncChain.catch(() => {}).then(() => this.applyMcpServer());
+    return this.mcpSyncChain;
+  }
+
+  /** Desired server signature for the current settings, or null when it shouldn't run. */
+  private mcpDesiredSignature(): string | null {
     const s = this.settings;
-    // Always tear down so a port/token/writes change takes effect cleanly.
+    if (Platform.isMobile || !s.mcpEnabled) return null;
+    return JSON.stringify({ port: s.mcpPort, token: s.mcpToken, writes: s.mcpAllowWrites, folder: s.mcpWriteFolder });
+  }
+
+  private async applyMcpServer(): Promise<void> {
+    const desired = this.mcpDesiredSignature();
+    // Already running with the same config → nothing to do (avoids churning the
+    // port on unrelated settings changes).
+    if (desired !== null && this.mcpServer?.isRunning() && desired === this.mcpSignature) return;
+
     if (this.mcpServer) {
       await this.mcpServer.stop();
       this.mcpServer = null;
+      this.mcpSignature = null;
     }
     // The MCP bridge runs only on desktop — it needs a Node http server, which
     // Obsidian's mobile runtime lacks. The dynamic import below keeps that code
     // (and its `http` dependency) from ever loading on mobile.
-    if (Platform.isMobile || !s.mcpEnabled) return;
+    if (desired === null) return;
 
+    const s = this.settings;
     if (!this.vaultTools) {
       this.vaultTools = new VaultTools(this.app, { allowWrites: s.mcpAllowWrites, defaultFolder: s.mcpWriteFolder });
     } else {
@@ -296,6 +322,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     try {
       await server.start();
       this.mcpServer = server;
+      this.mcpSignature = desired;
     } catch (e) {
       new Notice(`MCP bridge failed to start on port ${s.mcpPort}: ${e instanceof Error ? e.message : String(e)}`);
     }
