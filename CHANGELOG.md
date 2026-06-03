@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   working command.
 - The Cloud / Replies / MCP settings sections are collapsed into accordions to reduce
   accidental exposure and clutter.
+- **Closed a CodeQL "incomplete multi-character sanitization" alert.** Tag-stripping in
+  the artifact title/plan parsers now iterates until stable (an `stripTags` helper),
+  so a crafted `<<b>script>`-style string can't reconstruct a tag in a single pass.
+
+### Changed
+- **Session-memory frontmatter** uses a snake_case schema (`session_id`, `source`,
+  `git_branch`, `started_at`, `input_tokens`, …). Notes captured by 0.6.0 are migrated
+  in place on re-capture (the writer still matches the legacy `claude-session` key).
 
 ## [0.6.0] — 2026-06-03
 
