@@ -88,6 +88,7 @@ export class ChatView extends ItemView {
     this.iconButton(actions, "plus", "New chat", () => this.clearChat());
     this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
     this.iconButton(actions, "save", "Save chat to vault", () => this.saveChat());
+    this.renderIngestToggle(actions);
     this.iconButton(actions, "settings", "Open settings", () => this.openSettings());
 
     // ---- context chips ----
@@ -293,6 +294,22 @@ export class ChatView extends ItemView {
     const btn = parent.createEl("button", { cls: "cc-icon-btn", attr: { "aria-label": tip } });
     setIcon(btn, icon);
     btn.addEventListener("click", onClick);
+  }
+
+  /** A compact "ingest on save" checkbox that mirrors the persisted setting. */
+  private renderIngestToggle(parent: HTMLElement): void {
+    if (!this.plugin.settings.memoryEnabled) return;
+    const wrap = parent.createEl("label", {
+      cls: "cc-ingest-toggle",
+      attr: { title: "Also capture the latest Claude Code session when saving" },
+    });
+    const box = wrap.createEl("input", { type: "checkbox" });
+    box.checked = this.plugin.settings.memoryIngestOnSave;
+    wrap.createSpan({ text: "ingest" });
+    box.addEventListener("change", async () => {
+      this.plugin.settings.memoryIngestOnSave = box.checked;
+      await this.plugin.saveSettings();
+    });
   }
 
   private contextChip(parent: HTMLElement, label: string, key: keyof typeof this.plugin.settings.context, tip: string): void {
@@ -1093,6 +1110,9 @@ export class ChatView extends ItemView {
     new Notice("Indexing & saving…");
     const { tags, summary } = await this.maybeIndex(md);
     await saveChatNote(this.app, this.plugin.settings.chatFolder, title, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
+    if (this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
+      await this.plugin.captureLatestSession(); // best-effort; never blocks the chat save
+    }
   }
 
   private scrollToBottom(): void {

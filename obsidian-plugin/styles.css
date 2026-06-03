@@ -787,3 +787,31 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ----- session memory ----- */
+.cc-ingest-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cc-memory-view .cc-memory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+.cc-memory-view .cc-memory-open {
+  background: none;
+  border: none;
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
