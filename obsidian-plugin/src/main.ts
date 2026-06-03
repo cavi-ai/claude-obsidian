@@ -11,6 +11,7 @@ import { generateToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
 import { trackerArtifact } from "./build/tracker";
 import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
+import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileResponse, isMarkdown, configError as repliesConfigError } from "./cloud/replies";
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import {
   type Conversation,
@@ -140,6 +141,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "dispatch-cloud-session",
       name: "Send to cloud Claude session (mobile-friendly)",
       callback: () => void this.dispatchCloudSession(),
+    });
+
+    this.addCommand({
+      id: "pull-cloud-replies",
+      name: "Pull cloud session replies into the vault",
+      callback: () => void this.pullCloudReplies(),
     });
 
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
@@ -479,6 +486,51 @@ export default class ClaudeCompanionPlugin extends Plugin {
     } catch (e) {
       pending.hide();
       new Notice(`Cloud dispatch failed: ${e instanceof Error ? e.message : String(e)}`, 10000);
+    }
+  }
+
+  private replyConfig(): RepliesConfig {
+    return {
+      repo: this.settings.cloudReplyRepo,
+      branch: this.settings.cloudReplyBranch,
+      folder: this.settings.cloudReplyFolder,
+      token: this.settings.cloudReplyToken,
+    };
+  }
+
+  /**
+   * Fetch reply notes a cloud session wrote into the vault's GitHub repo and
+   * land any new ones in the vault — over HTTPS, so it works on mobile. Existing
+   * notes are left untouched (never clobbers local edits).
+   */
+  async pullCloudReplies(): Promise<void> {
+    const cfg = this.replyConfig();
+    const cfgErr = repliesConfigError(cfg);
+    if (cfgErr) {
+      new Notice(`Cloud replies not configured: ${cfgErr}`, 9000);
+      return;
+    }
+    const pending = new Notice("Checking for cloud replies…", 0);
+    try {
+      const list = buildContentsRequest(cfg, cfg.folder);
+      const listRes = await requestUrl({ url: list.url, method: list.method, headers: list.headers, throw: false });
+      const files = parseDirListing(listRes.status, listRes.text).filter((f) => isMarkdown(f.name));
+      let pulled = 0;
+      for (const f of files) {
+        if (this.app.vault.getAbstractFileByPath(normalizePath(f.path))) continue; // don't clobber local notes
+        const fileReq = buildContentsRequest(cfg, f.path);
+        const fileRes = await requestUrl({ url: fileReq.url, method: fileReq.method, headers: fileReq.headers, throw: false });
+        const got = parseFileResponse(fileRes.status, fileRes.text);
+        const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
+        if (dir) await this.ensureFolder(dir);
+        await this.app.vault.create(normalizePath(f.path), got.text);
+        pulled++;
+      }
+      pending.hide();
+      new Notice(pulled > 0 ? `Pulled ${pulled} cloud repl${pulled === 1 ? "y" : "ies"} into the vault.` : "No new cloud replies.", 7000);
+    } catch (e) {
+      pending.hide();
+      new Notice(`Couldn't pull cloud replies: ${e instanceof Error ? e.message : String(e)}`, 10000);
     }
   }
 

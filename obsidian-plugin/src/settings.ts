@@ -5,6 +5,7 @@ import type { ProviderStatus } from "./providers/types";
 import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig } from "./mcp/clientConfig";
 import { configError } from "./cloud/routines";
+import { configError as repliesConfigError } from "./cloud/replies";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -378,6 +379,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       );
 
     this.renderCloudSection(containerEl);
+    this.renderRepliesSection(containerEl);
     this.renderMcpSection(containerEl);
   }
 
@@ -456,6 +458,72 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     status.toggleClass("is-ok", !err);
     status.toggleClass("is-err", !!err);
     status.setText(err ? `✗ ${err}` : "✓ Configured — run “Send to cloud Claude session” from the command palette.");
+  }
+
+  private renderRepliesSection(containerEl: HTMLElement): void {
+    const s = this.plugin.settings;
+    new Setting(containerEl).setName("Cloud replies (pull from repo)").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "Pull notes a cloud session wrote back into your vault's GitHub repo — over HTTPS, so it works on a phone with no local git. " +
+        "Point this at the repo, branch, and folder the session writes replies to.",
+    });
+
+    new Setting(containerEl)
+      .setName("Vault repo")
+      .setDesc("owner/name of the GitHub repo backing your vault.")
+      .addText((text) => {
+        text.inputEl.style.width = "280px";
+        text
+          .setPlaceholder("owner/name")
+          .setValue(s.cloudReplyRepo)
+          .onChange(async (v) => {
+            s.cloudReplyRepo = v.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Replies branch")
+      .setDesc("Branch the cloud session writes replies to.")
+      .addText((text) =>
+        text.setValue(s.cloudReplyBranch).onChange(async (v) => {
+          s.cloudReplyBranch = v.trim() || "main";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Replies folder")
+      .setDesc("Folder in the repo where reply notes land.")
+      .addText((text) =>
+        text.setValue(s.cloudReplyFolder).onChange(async (v) => {
+          s.cloudReplyFolder = v.trim() || "Claude/Replies";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("GitHub token")
+      .setDesc("Fine-grained token with Contents:read on the repo. Stored locally in this vault's plugin data.")
+      .addText((text) => {
+        text.inputEl.type = "password";
+        text.inputEl.style.width = "320px";
+        text
+          .setPlaceholder("github_pat_… / ghp_…")
+          .setValue(s.cloudReplyToken)
+          .onChange(async (v) => {
+            s.cloudReplyToken = v.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    const status = containerEl.createDiv({ cls: "cc-conn-status" });
+    const err = repliesConfigError({ repo: s.cloudReplyRepo, branch: s.cloudReplyBranch, folder: s.cloudReplyFolder, token: s.cloudReplyToken });
+    status.toggleClass("is-ok", !err);
+    status.toggleClass("is-err", !!err);
+    status.setText(err ? `✗ ${err}` : "✓ Configured — run “Pull cloud session replies into the vault”.");
   }
 
   private renderMcpSection(containerEl: HTMLElement): void {
