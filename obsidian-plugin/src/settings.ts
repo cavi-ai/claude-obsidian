@@ -381,6 +381,49 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     this.renderCloudSection(containerEl);
     this.renderRepliesSection(containerEl);
     this.renderMcpSection(containerEl);
+    this.renderMemorySection(containerEl);
+  }
+
+  private renderMemorySection(containerEl: HTMLElement): void {
+    const s = this.plugin.settings;
+    new Setting(containerEl).setName("Session memory").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Capture Claude Code CLI sessions for this vault into sanitized digest notes. Desktop-only; sessions are matched by the directory you ran Claude Code in.",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable session memory")
+      .setDesc("Show the capture command, the “ingest” checkbox, and the memory sidebar.")
+      .addToggle((t) =>
+        t.setValue(s.memoryEnabled).onChange(async (v) => {
+          s.memoryEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Memory folder")
+      .setDesc("Where session digest notes are written.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Claude/Sessions")
+          .setValue(s.memoryFolder)
+          .onChange(async (v) => {
+            s.memoryFolder = v.trim() || "Claude/Sessions";
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Ingest on save (default)")
+      .setDesc("Default state of the “ingest” checkbox next to Save in the chat view.")
+      .addToggle((t) =>
+        t.setValue(s.memoryIngestOnSave).onChange(async (v) => {
+          s.memoryIngestOnSave = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 
   private renderCloudSection(containerEl: HTMLElement): void {
