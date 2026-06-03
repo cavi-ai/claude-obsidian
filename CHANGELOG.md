@@ -17,10 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   notes are filed as **`YYYY-MM-DD — Title.md`** for a clean, dated structure.
 
 ### Added
+- **Capture the in-app conversation into memory.** Ticking the **ingest** checkbox by
+  Save now files *that conversation* into session memory (sanitized, shown in the Memory
+  sidebar), instead of an unrelated CLI session — the coherent behavior.
 - A **ribbon icon** and a **chat action-bar button** to capture a Claude Code session
   (previously command-palette only).
 - A clear notice when no Claude Code sessions exist for the vault, instead of a silent
   empty picker.
+
+### Security
+- The **MCP bearer token** is now masked in settings (was rendered in plaintext).
+- The MCP token can be **sourced from `$OBSIDIAN_COMPANION_MCP_TOKEN`**, keeping it out of
+  this vault's (possibly synced) `data.json`. Connection snippets are share-safe by
+  default (env reference or masked, with a Reveal toggle); Copy always copies the real,
+  working command.
+- The Cloud / Replies / MCP settings sections are collapsed into accordions to reduce
+  accidental exposure and clutter.
 
 ## [0.6.0] — 2026-06-03
 
