@@ -45,8 +45,7 @@ jobs:
           npm run build
           test -f main.js
 
-      - name: Resolve + check version
-        id: ver
+      - name: Check version matches the trigger
         run: |
           MANIFEST_VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -55,17 +54,17 @@ jobs:
             INPUT="${GITHUB_REF_NAME#obsidian-v}"
           fi
           if [ "$INPUT" != "$MANIFEST_VERSION" ]; then
-            echo "::error::Tag/input version ($INPUT) != manifest version ($MANIFEST_VERSION)"
+            echo "::error::Trigger version ($INPUT) != manifest version ($MANIFEST_VERSION)"
             exit 1
           fi
-          echo "version=$MANIFEST_VERSION" >> "$GITHUB_OUT"
+          echo "Releasing version $MANIFEST_VERSION"
 
       - name: Mirror plugin into the release repo
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
+          VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/cavi-ai/companion-for-claude.git" release-repo
           cp obsidian-plugin/main.js        release-repo/main.js
           cp obsidian-plugin/manifest.json  release-repo/manifest.json
@@ -88,9 +87,9 @@ jobs:
       - name: Tag + GitHub Release on the release repo
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
+          VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
           cd release-repo
           if gh release view "$VERSION" --repo cavi-ai/companion-for-claude >/dev/null 2>&1; then
             echo "Release $VERSION already exists; uploading/refreshing assets."
