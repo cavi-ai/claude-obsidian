@@ -28,6 +28,8 @@ export interface SessionDigest {
   sessionId?: string;
   model?: string;
   gitBranch?: string;
+  /** Absolute working directory the session ran in (used to scope to a vault). */
+  cwd?: string;
   /** ISO timestamps of the first and last record. */
   startedAt?: string;
   endedAt?: string;
@@ -114,6 +116,7 @@ export function digestTranscript(jsonl: string): SessionDigest {
     }
     if (!d.sessionId) d.sessionId = str(rec.sessionId);
     if (!d.gitBranch) d.gitBranch = str(rec.gitBranch);
+    if (!d.cwd) d.cwd = str(rec.cwd);
 
     const type = rec.type;
     if (type !== "user" && type !== "assistant") continue;

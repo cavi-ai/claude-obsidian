@@ -68,4 +68,11 @@ describe("digestTranscript", () => {
     expect(d.startedAt).toBe("2026-06-03T00:00:00Z");
     expect(d.endedAt).toBe("2026-06-03T00:00:09Z");
   });
+
+  it("captures cwd from the first record that has it", () => {
+    const j = [
+      JSON.stringify({ type: "user", cwd: "/Volumes/MIRZA/vault", sessionId: "s9", message: { role: "user", content: "hi" } }),
+    ].join("\n");
+    expect(digestTranscript(j).cwd).toBe("/Volumes/MIRZA/vault");
+  });
 });
