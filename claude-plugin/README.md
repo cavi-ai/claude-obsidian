@@ -55,6 +55,8 @@ gives Claude Code the commands and skills to use it well.
   `build-from-spec`), `task-harvester` (consolidate open tasks),
   `tracker-driver` (honest live progress), and `build-retrospective` (close-out:
   shipped / left / lessons).
+- **Cloud** — `cloud-reply` (a dispatched cloud session writes its result back
+  as a reply note + PR so Companion can pull it into the vault on any device).
 - **Advisor personas** — `manifest-vault`, `manifest-pm`, `manifest-infra`,
   `manifest-feature`, `manifest-content`, `manifest-risk`, `manifest-research`
   (orchestrators that survey the vault and delegate to the worker skills above).
