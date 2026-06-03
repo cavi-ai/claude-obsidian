@@ -972,18 +972,21 @@ export class ChatView extends ItemView {
       new Notice("Copied to clipboard");
     });
     this.actionBtn(bar, "Insert", "text-cursor-input", () => this.insertIntoNote(full));
-    this.actionBtn(bar, "Save as note", "save", () => void this.saveReplyAsNote(full));
+    // One Save button that adapts to the content: an artifact saves as an inline
+    // `claude-html` note (accented to stand out), anything else saves as a plain
+    // chat note. (These used to be two separate buttons running the same handler.)
+    const isArtifact = !!extractArtifact(full);
+    const saveBtn = this.actionBtn(
+      bar,
+      isArtifact ? "Save artifact" : "Save as note",
+      isArtifact ? "layout-dashboard" : "save",
+      () => void this.saveReplyAsNote(full),
+    );
+    if (isArtifact) saveBtn.addClass("cc-accent");
     // Regenerate the last reply (only on the most recent assistant message).
     const isLast = this.messages.length > 0 && this.messages[this.messages.length - 1].role === "assistant";
     if (isLast && this.lastUserText) {
       this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.regenerate());
-    }
-    // When the reply is an artifact, offer a one-click "Save artifact" accent
-    // button. Both this and "Save as note" route through saveReplyAsNote, which
-    // detects the artifact and indexes it (tags + summary) — no raw fenced dumps.
-    if (extractArtifact(full)) {
-      const btn = this.actionBtn(bar, "Save artifact", "layout-dashboard", () => void this.saveReplyAsNote(full));
-      btn.addClass("cc-accent");
     }
   }
 
