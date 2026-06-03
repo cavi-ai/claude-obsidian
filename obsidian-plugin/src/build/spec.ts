@@ -2,6 +2,8 @@
 // "build spec" + a prompt that hands it to Claude Code's harness. Obsidian-free
 // so it can be unit-tested.
 
+import { stripTags } from "../artifacts/parse";
+
 export interface BuildTask {
   title: string;
   done: boolean;
@@ -20,8 +22,9 @@ export function extractTasks(planText: string): BuildTask[] {
   }
   if (tasks.length > 0) return tasks;
 
-  // Fallback: numbered or bulleted milestone lines (strip HTML tags first).
-  const text = planText.replace(/<[^>]+>/g, " ");
+  // Fallback: numbered or bulleted milestone lines (strip HTML tags first —
+  // iterate-until-stable so multi-char reconstruction can't smuggle a tag through).
+  const text = stripTags(planText, " ");
   const item = /^\s*(?:\d+[.)]|[-*•])\s+(.*\S)/;
   for (const line of text.split("\n")) {
     const m = item.exec(line);

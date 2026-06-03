@@ -39,6 +39,13 @@ describe("titleFromHtml", () => {
     expect(titleFromHtml("<h1>Heading <em>x</em></h1>")).toBe("Heading x");
     expect(titleFromHtml("<p>nothing</p>")).toBe("Claude artifact");
   });
+
+  it("strips tags safely against the multi-char reconstruction bypass (CodeQL)", () => {
+    // A single-pass /<[^>]+>/ leaves a reconstructed tag/bracket behind.
+    const title = titleFromHtml("<h1><<b>script>alert(1)</h1>");
+    expect(title).not.toMatch(/[<>]/);
+    expect(title).not.toContain("script>");
+  });
 });
 
 describe("sanitizeFileName", () => {

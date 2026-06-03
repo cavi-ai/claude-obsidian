@@ -20,11 +20,28 @@ export function extractArtifact(markdown: string): ExtractedArtifact | null {
   return { html, title: titleFromHtml(html) };
 }
 
+/**
+ * Strip HTML tags safely. A single-pass `replace(/<[^>]+>/g, "")` is vulnerable
+ * to multi-character reconstruction (e.g. `<<b>script>` → `script>`), so we loop
+ * until the string stops changing, then remove any stray angle brackets that
+ * never formed a complete tag. Used for plain-text titles, not for sanitizing
+ * HTML that will be re-rendered.
+ */
+export function stripTags(html: string, replacement = ""): string {
+  let prev: string;
+  let out = html;
+  do {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, replacement);
+  } while (out !== prev);
+  return out.replace(/[<>]/g, "");
+}
+
 export function titleFromHtml(html: string): string {
   const t = /<title>([^<]+)<\/title>/i.exec(html);
   if (t) return t[1].trim();
   const h = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
-  if (h) return h[1].replace(/<[^>]+>/g, "").trim();
+  if (h) return stripTags(h[1]).trim();
   return "Claude artifact";
 }
 
