@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { App, MarkdownView, Modal, Notice, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
@@ -10,6 +10,7 @@ import { VaultTools } from "./mcp/vaultTools";
 import { generateToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
 import { trackerArtifact } from "./build/tracker";
+import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import {
   type Conversation,
@@ -133,6 +134,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
         void this.handoffToBuild();
         return true;
       },
+    });
+
+    this.addCommand({
+      id: "dispatch-cloud-session",
+      name: "Send to cloud Claude session (mobile-friendly)",
+      callback: () => void this.dispatchCloudSession(),
     });
 
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
@@ -421,6 +428,60 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.app.vault.create(path, content);
   }
 
+  // ---------- cloud session dispatch ----------
+
+  private cloudConfig(): CloudDispatchConfig {
+    return {
+      fireUrl: this.settings.cloudRoutineFireUrl,
+      token: this.settings.cloudRoutineToken,
+      betaHeader: this.settings.cloudRoutineBetaHeader,
+    };
+  }
+
+  /**
+   * Prompt for what a cloud session should do, attach light vault context
+   * (active note path + selection), and fire the configured routine. Desktop
+   * first (Phase 1) — de-risks the Routines API ahead of the mobile build.
+   */
+  async dispatchCloudSession(): Promise<void> {
+    if (!this.settings.cloudDispatchEnabled) {
+      new Notice("Cloud session dispatch is off. Enable it in Companion settings → Cloud session.", 7000);
+      return;
+    }
+    const cfgErr = configError(this.cloudConfig());
+    if (cfgErr) {
+      new Notice(`Cloud session not configured: ${cfgErr}`, 9000);
+      return;
+    }
+    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const selection = mdView?.editor.getSelection().trim() ?? "";
+    const parts: string[] = [];
+    if (mdView?.file) parts.push(`Active note: ${mdView.file.path}`);
+    if (selection) parts.push(`Selected text:\n${selection}`);
+    const context = parts.length ? parts.join("\n\n") : undefined;
+
+    new CloudDispatchModal(this.app, context, (instruction) => void this.fireCloudSession(instruction, context)).open();
+  }
+
+  private async fireCloudSession(instruction: string, context?: string): Promise<void> {
+    const pending = new Notice("Dispatching cloud session…", 0);
+    try {
+      const req = buildFireRequest(this.cloudConfig(), composeDispatchText(instruction, context));
+      const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, body: req.body, throw: false });
+      const result = parseFireResponse(res.status, res.text);
+      pending.hide();
+      if (result.sessionUrl) {
+        await navigator.clipboard.writeText(result.sessionUrl).catch(() => {});
+        new Notice(`Cloud session started — link copied to clipboard:\n${result.sessionUrl}`, 12000);
+      } else {
+        new Notice("Cloud session fired. (No session link was returned.)", 8000);
+      }
+    } catch (e) {
+      pending.hide();
+      new Notice(`Cloud dispatch failed: ${e instanceof Error ? e.message : String(e)}`, 10000);
+    }
+  }
+
   async generateArtifactFromContext(): Promise<void> {
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
     const hasSelection = !!mdView?.editor.getSelection().trim();
@@ -431,5 +492,54 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!view) return;
     const target = hasSelection ? "the selected text" : "my current note";
     await view.submitPrompt(`Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`);
+  }
+}
+
+/** Minimal prompt for what a dispatched cloud session should do. */
+class CloudDispatchModal extends Modal {
+  private value = "";
+
+  constructor(
+    app: App,
+    private context: string | undefined,
+    private onSubmit: (instruction: string) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "Send to cloud Claude session" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Fires your Claude Code routine in the cloud against your vault's repo. What should it do?",
+    });
+    if (this.context) {
+      contentEl.createEl("p", { cls: "setting-item-description", text: `Attaching — ${this.context.split("\n")[0]}` });
+    }
+
+    const ta = contentEl.createEl("textarea");
+    ta.rows = 5;
+    ta.style.width = "100%";
+    ta.placeholder = "e.g. Summarize this week's meeting notes into a decisions log and open a PR.";
+    ta.addEventListener("input", () => (this.value = ta.value));
+    window.setTimeout(() => ta.focus(), 0);
+
+    const controls = contentEl.createDiv({ cls: "modal-button-container" });
+    const send = controls.createEl("button", { text: "Dispatch", cls: "mod-cta" });
+    send.addEventListener("click", () => {
+      const v = this.value.trim();
+      if (!v) {
+        new Notice("Type what the cloud session should do.");
+        return;
+      }
+      this.close();
+      this.onSubmit(v);
+    });
+    controls.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }

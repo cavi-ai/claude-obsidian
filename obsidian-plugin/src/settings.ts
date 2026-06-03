@@ -4,6 +4,7 @@ import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
 import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig } from "./mcp/clientConfig";
+import { configError } from "./cloud/routines";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -376,7 +377,85 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
+    this.renderCloudSection(containerEl);
     this.renderMcpSection(containerEl);
+  }
+
+  private renderCloudSection(containerEl: HTMLElement): void {
+    const s = this.plugin.settings;
+    new Setting(containerEl).setName("Cloud session (mobile-friendly)").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "Dispatch a Claude Code session in the cloud to work your vault's Git repo and report back — so you can cowork with Claude from a phone, where the local bridge can't run. " +
+        "Create a routine in the Claude Code web UI, then paste its “fire” URL and token below.",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable cloud dispatch")
+      .setDesc("Adds a “Send to cloud Claude session” command.")
+      .addToggle((t) =>
+        t.setValue(s.cloudDispatchEnabled).onChange(async (v) => {
+          s.cloudDispatchEnabled = v;
+          await this.plugin.saveSettings();
+          this.display();
+        }),
+      );
+
+    if (!s.cloudDispatchEnabled) return;
+
+    new Setting(containerEl)
+      .setName("Routine fire URL")
+      .setDesc("The routine's “fire” endpoint from the Claude Code web UI (…/v1/claude_code/routines/<id>/fire).")
+      .addText((text) => {
+        text.inputEl.style.width = "360px";
+        text
+          .setPlaceholder("https://api.anthropic.com/v1/claude_code/routines/…/fire")
+          .setValue(s.cloudRoutineFireUrl)
+          .onChange(async (v) => {
+            s.cloudRoutineFireUrl = v.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Routine token")
+      .setDesc("Per-routine bearer token (sk-ant-oat…). It only fires this one routine — no account access. Stored locally in this vault's plugin data.")
+      .addText((text) => {
+        text.inputEl.type = "password";
+        text.inputEl.style.width = "320px";
+        text
+          .setPlaceholder("sk-ant-oat…")
+          .setValue(s.cloudRoutineToken)
+          .onChange(async (v) => {
+            s.cloudRoutineToken = v.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("API beta header")
+      .setDesc("anthropic-beta header gating the experimental Routines API. Update if Anthropic ships a newer dated version.")
+      .addText((text) => {
+        text.inputEl.style.width = "320px";
+        text.setValue(s.cloudRoutineBetaHeader).onChange(async (v) => {
+          s.cloudRoutineBetaHeader = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    const warn = containerEl.createEl("p", { cls: "setting-item-description" });
+    warn.style.color = "var(--text-warning)";
+    warn.setText(
+      "⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. " +
+        "The token sits in this vault's data.json — if the vault itself syncs, the token syncs too. Use a private repo.",
+    );
+
+    const status = containerEl.createDiv({ cls: "cc-conn-status" });
+    const err = configError({ fireUrl: s.cloudRoutineFireUrl, token: s.cloudRoutineToken, betaHeader: s.cloudRoutineBetaHeader });
+    status.toggleClass("is-ok", !err);
+    status.toggleClass("is-err", !!err);
+    status.setText(err ? `✗ ${err}` : "✓ Configured — run “Send to cloud Claude session” from the command palette.");
   }
 
   private renderMcpSection(containerEl: HTMLElement): void {
