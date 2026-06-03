@@ -3,13 +3,15 @@ import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
 import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig } from "./mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "./mcp/clientConfig";
 import { configError } from "./cloud/routines";
 import { configError as repliesConfigError } from "./cloud/replies";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
   private detectedOllamaModels: string[] | null = null;
+  /** Transient (not persisted): reveal the real MCP token in the snippets. */
+  private revealMcpToken = false;
 
   constructor(
     app: App,
@@ -584,13 +586,17 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       text: "Expose this vault as a local MCP server so Claude Code and Claude Desktop can search, read, and (optionally) write your notes — unifying all three on one knowledge base. Bound to 127.0.0.1 and protected by a token.",
     });
 
+    const mcpEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+    const resolvedMcp = resolveMcpToken(mcpEnv, s.mcpToken);
+
     new Setting(containerEl)
       .setName("Enable MCP server")
       .setDesc("Runs a local server on the port below. Turn off to stop sharing your vault.")
       .addToggle((t) =>
         t.setValue(s.mcpEnabled).onChange(async (v) => {
           s.mcpEnabled = v;
-          if (v && !s.mcpToken) s.mcpToken = generateToken();
+          // Only mint a stored token when neither the env var nor a stored token exists.
+          if (v && !resolvedMcp.token) s.mcpToken = generateToken();
           await this.plugin.saveSettings();
           this.display(); // refresh status + snippets
         }),
@@ -609,24 +615,30 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
-      .setName("Access token")
-      .setDesc("Required by clients as a bearer token. Keep it secret.")
-      .addText((text) => {
-        text.inputEl.type = "password"; // bearer token — don't render in plaintext
-        text.inputEl.style.width = "260px";
-        text.setValue(s.mcpToken).onChange(async (v) => {
-          s.mcpToken = v.trim();
-          await this.plugin.saveSettings();
-        });
-      })
-      .addButton((btn) =>
-        btn.setButtonText("Regenerate").onClick(async () => {
-          s.mcpToken = generateToken();
-          await this.plugin.saveSettings();
-          this.display();
-        }),
-      );
+    if (resolvedMcp.source === "env") {
+      new Setting(containerEl)
+        .setName("Access token")
+        .setDesc(`✓ Sourced from the $${MCP_TOKEN_ENV} environment variable — not stored in this vault. Unset it to use a stored token instead.`);
+    } else {
+      new Setting(containerEl)
+        .setName("Access token")
+        .setDesc(`Required by clients as a bearer token. Keep it secret. Tip: set $${MCP_TOKEN_ENV} to source it from the environment instead of this vault's data.`)
+        .addText((text) => {
+          text.inputEl.type = "password"; // bearer token — don't render in plaintext
+          text.inputEl.style.width = "260px";
+          text.setValue(s.mcpToken).onChange(async (v) => {
+            s.mcpToken = v.trim();
+            await this.plugin.saveSettings();
+          });
+        })
+        .addButton((btn) =>
+          btn.setButtonText("Regenerate").onClick(async () => {
+            s.mcpToken = generateToken();
+            await this.plugin.saveSettings();
+            this.display();
+          }),
+        );
+    }
 
     new Setting(containerEl)
       .setName("Allow writes")
@@ -656,21 +668,43 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     if (!s.mcpEnabled) status.setText("Server disabled.");
     else status.setText(running ? `✓ Running at ${bridgeUrl(s.mcpPort)}` : "✗ Not running — check the port isn't in use.");
 
-    // Connection snippets.
-    if (s.mcpEnabled) {
-      const info = { port: s.mcpPort, token: s.mcpToken };
-      this.codeBlock(containerEl, "Claude Code (run in a terminal):", claudeCodeCommand(info));
-      this.codeBlock(containerEl, "Claude Desktop (add to claude_desktop_config.json):", claudeDesktopConfig(info));
+    // Connection snippets — display is share-safe (env ref or masked), Copy is real.
+    if (s.mcpEnabled && resolvedMcp.source !== "none") {
+      const real = { port: s.mcpPort, token: resolvedMcp.token };
+      let display: { port: number; token: string };
+      if (resolvedMcp.source === "env") {
+        display = { port: s.mcpPort, token: mcpTokenEnvRef() }; // expands in the user's shell
+      } else {
+        display = { port: s.mcpPort, token: this.revealMcpToken ? resolvedMcp.token : maskToken(resolvedMcp.token) };
+        new Setting(containerEl)
+          .setName("Show token in snippets")
+          .setDesc("Off by default so the snippets are safe to screen-share. Copy always copies the real, working command.")
+          .addToggle((t) =>
+            t.setValue(this.revealMcpToken).onChange((v) => {
+              this.revealMcpToken = v;
+              this.display();
+            }),
+          );
+      }
+      // env-sourced: copy the env-ref command (no secret, works in their shell). stored: copy the real command.
+      const copyInfo = resolvedMcp.source === "env" ? display : real;
+      this.codeBlock(containerEl, "Claude Code (run in a terminal):", claudeCodeCommand(display), claudeCodeCommand(copyInfo));
+      this.codeBlock(containerEl, "Claude Desktop (add to claude_desktop_config.json):", claudeDesktopConfig(display), claudeDesktopConfig(copyInfo));
+    } else if (s.mcpEnabled) {
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: `Set an access token (or $${MCP_TOKEN_ENV}) to get connection snippets.`,
+      });
     }
   }
 
-  private codeBlock(containerEl: HTMLElement, label: string, code: string): void {
+  private codeBlock(containerEl: HTMLElement, label: string, code: string, copyText: string = code): void {
     const wrap = containerEl.createDiv({ cls: "cc-snippet" });
     const head = wrap.createDiv({ cls: "cc-snippet-head" });
     head.createSpan({ text: label });
     const copy = head.createEl("button", { cls: "cc-action", text: "Copy" });
     copy.addEventListener("click", () => {
-      void navigator.clipboard.writeText(code);
+      void navigator.clipboard.writeText(copyText);
       copy.setText("Copied");
       setTimeout(() => copy.setText("Copy"), 1200);
     });

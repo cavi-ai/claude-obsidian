@@ -11,7 +11,7 @@ import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSy
 import { renderArtifactInline } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
-import { generateToken } from "./mcp/clientConfig";
+import { generateToken, resolveMcpToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
 import { trackerArtifact } from "./build/tracker";
 import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
@@ -303,11 +303,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.mcpSyncChain;
   }
 
+  /** The bearer token the server validates against: env var wins over stored. */
+  private resolvedMcpToken(): string {
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+    return resolveMcpToken(env, this.settings.mcpToken).token;
+  }
+
   /** Desired server signature for the current settings, or null when it shouldn't run. */
   private mcpDesiredSignature(): string | null {
     const s = this.settings;
     if (Platform.isMobile || !s.mcpEnabled) return null;
-    return JSON.stringify({ port: s.mcpPort, token: s.mcpToken, writes: s.mcpAllowWrites, folder: s.mcpWriteFolder });
+    return JSON.stringify({ port: s.mcpPort, token: this.resolvedMcpToken(), writes: s.mcpAllowWrites, folder: s.mcpWriteFolder });
   }
 
   private async applyMcpServer(): Promise<void> {
@@ -335,7 +341,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     const { McpHttpServer } = await import("./mcp/server");
     const server = new McpHttpServer(
-      { port: s.mcpPort, token: s.mcpToken, serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
+      { port: s.mcpPort, token: this.resolvedMcpToken(), serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
       this.vaultTools,
       (level, message) => (level === "error" ? console.error("[Claude Companion MCP]", message) : console.log("[Claude Companion MCP]", message)),
     );
@@ -364,7 +370,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   async setMcpEnabled(enabled: boolean): Promise<void> {
     this.settings.mcpEnabled = enabled;
-    if (enabled && !this.settings.mcpToken) {
+    // Only mint a stored token when neither the env var nor a stored token exists.
+    if (enabled && !this.resolvedMcpToken()) {
       this.settings.mcpToken = generateToken();
     }
     await this.saveSettings();
