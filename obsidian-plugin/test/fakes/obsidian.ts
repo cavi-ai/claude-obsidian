@@ -15,6 +15,8 @@ export function normalizePath(p: string): string {
     .replace(/^\/+|\/+$/g, "");
 }
 
+export const Platform = { isMobile: false, isDesktop: true };
+
 export class TFile {
   path: string;
   basename: string;

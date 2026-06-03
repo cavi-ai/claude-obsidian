@@ -76,6 +76,26 @@ export interface PluginSettings {
   mcpAllowWrites: boolean;
   /** Default folder for notes created via MCP. */
   mcpWriteFolder: string;
+
+  // ----- cloud dispatch (Claude Code Routines API) -----
+  /** Enable the "Send to cloud Claude session" command (fires a pre-created routine). */
+  cloudDispatchEnabled: boolean;
+  /** The routine's full "fire" endpoint, copied from the Claude Code web UI. */
+  cloudRoutineFireUrl: string;
+  /** Per-routine bearer token (sk-ant-oat…), scoped to firing this one routine. */
+  cloudRoutineToken: string;
+  /** anthropic-beta header gating the experimental Routines API. */
+  cloudRoutineBetaHeader: string;
+
+  // ----- cloud replies (read cloud-session output from the vault repo) -----
+  /** "owner/name" of the vault's GitHub repo to pull replies from. */
+  cloudReplyRepo: string;
+  /** Branch the cloud session writes replies to. */
+  cloudReplyBranch: string;
+  /** Folder in the repo where reply notes are written. */
+  cloudReplyFolder: string;
+  /** GitHub token with Contents:read, to fetch replies over HTTPS. */
+  cloudReplyToken: string;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -117,6 +137,16 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   mcpToken: "",
   mcpAllowWrites: false,
   mcpWriteFolder: "Claude/Inbox",
+
+  cloudDispatchEnabled: false,
+  cloudRoutineFireUrl: "",
+  cloudRoutineToken: "",
+  cloudRoutineBetaHeader: "experimental-cc-routine-2026-04-01",
+
+  cloudReplyRepo: "",
+  cloudReplyBranch: "main",
+  cloudReplyFolder: "Claude/Replies",
+  cloudReplyToken: "",
 };
 
 /** Streaming callbacks for a single Claude request. */
