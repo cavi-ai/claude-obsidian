@@ -25,6 +25,7 @@ Rules:
 - Tags/pills: small, --gray-150 background, --gray-300 border, rounded.
 - Center content in a .page wrapper, max-width ~1120px, padding 56px 32px.
 - Calm, editorial, lots of whitespace. No drop shadows beyond very subtle. No emoji in artifacts.
+- Interactivity must actually work. If you add tabs, accordions, toggles, filters, steppers, or any control that shows/hides or changes content, you MUST include an inline <script> (vanilla JS) that implements it — define every function an onclick/handler references and wire it up. Inline <script> runs in the artifact sandbox, so this is allowed and expected. Never ship a control that looks interactive but does nothing. If you are not going to write the script that makes it work, lay the content out fully visible instead (no hidden-by-default panels).
 
 Always include <!DOCTYPE html>, <meta charset> and viewport, and a descriptive <title>.`;
 
