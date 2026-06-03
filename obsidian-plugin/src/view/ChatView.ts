@@ -1054,15 +1054,29 @@ export class ChatView extends ItemView {
    * by the utility provider (local Ollama when available, else Claude — heavy
    * lifting offloads automatically). Best-effort: never blocks a save.
    */
-  private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string }> {
+  private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string; title?: string }> {
     if (!this.plugin.settings.autoTagOnSave) return { tags: [] };
     try {
       const { summarizeAndTag, existingVaultTags } = await import("../indexing/autoTagger");
       const res = await summarizeAndTag(this.app, this.plugin.router(), content, existingVaultTags(this.app));
-      return { tags: res.tags, summary: res.summary || undefined };
+      return { tags: res.tags, summary: res.summary || undefined, title: res.title || undefined };
     } catch {
       return { tags: [] };
     }
+  }
+
+  /**
+   * A title derived from the *answer*, never the prompt. Used as a fallback when
+   * the indexer (which produces a better title) is disabled or fails.
+   */
+  private fallbackTitle(): string {
+    const firstAssistant = this.messages.find((m) => m.role === "assistant")?.content ?? "";
+    const line = firstAssistant
+      .split("\n")
+      .map((l) => l.replace(/^#+\s*/, "").replace(/[*_`]/g, "").trim())
+      .find((l) => l.length > 0) ?? "";
+    const sentence = line.split(/(?<=[.?!])\s/)[0] || line;
+    return (sentence || "Claude chat").slice(0, 60);
   }
 
   /**
@@ -1085,9 +1099,9 @@ export class ChatView extends ItemView {
       await this.app.workspace.getLeaf(true).openFile(file);
       return;
     }
-    const title = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
-    const { tags, summary } = await this.maybeIndex(full);
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, full, {
+    const { tags, summary, title } = await this.maybeIndex(full);
+    const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
+    await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
       baseTags: this.plugin.settings.chatBaseTags,
       extraTags: tags,
       summary,
@@ -1117,10 +1131,10 @@ export class ChatView extends ItemView {
       return;
     }
     const md = this.messages.map((m) => `**${m.role === "user" ? "You" : "Claude"}:**\n\n${m.content}`).join("\n\n---\n\n");
-    const title = this.messages[0].content.split("\n")[0].slice(0, 60) || "Claude chat";
     new Notice("Indexing & saving…");
-    const { tags, summary } = await this.maybeIndex(md);
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
+    const { tags, summary, title } = await this.maybeIndex(md);
+    const finalTitle = title ?? this.fallbackTitle();
+    await saveChatNote(this.app, this.plugin.settings.chatFolder, finalTitle, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
     if (this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
       await this.plugin.captureLatestSession(); // best-effort; never blocks the chat save
     }

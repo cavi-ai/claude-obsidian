@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { normalizeTag, normalizeTags, buildFrontmatter, parseTagSuggestions } from "../src/indexing/frontmatter";
+import { normalizeTag, normalizeTags, buildFrontmatter, parseTagSuggestions, datedTitleBase } from "../src/indexing/frontmatter";
+import { parseTaggerOutput } from "../src/indexing/taggerParse";
+
+describe("datedTitleBase", () => {
+  it("prefixes an ISO date and cleans the title", () => {
+    expect(datedTitleBase("2026-06-03T17:00:00Z", "  Voxtral 4B   TTS Overview ")).toBe("2026-06-03 — Voxtral 4B TTS Overview");
+  });
+  it("falls back gracefully on empty inputs", () => {
+    expect(datedTitleBase("", "")).toBe("undated — Untitled");
+  });
+});
+
+describe("parseTaggerOutput title", () => {
+  it("extracts a clean TITLE line, stripping quotes and trailing punctuation", () => {
+    const out = parseTaggerOutput('TITLE: "Vault Optimization Framework."\nTAGS: pkm, obsidian\nSUMMARY: A map of levers.');
+    expect(out.title).toBe("Vault Optimization Framework");
+    expect(out.tags).toEqual(["pkm", "obsidian"]);
+  });
+  it("returns an empty title when absent", () => {
+    expect(parseTaggerOutput("TAGS: a, b\nSUMMARY: x").title).toBe("");
+  });
+});
 
 describe("normalizeTag", () => {
   it("strips #, lowercases, hyphenates spaces", () => {

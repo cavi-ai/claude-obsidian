@@ -40,6 +40,17 @@ export interface FrontmatterData {
   [key: string]: string | number | boolean | string[] | undefined;
 }
 
+/**
+ * Build a dated, human-readable note base name: "YYYY-MM-DD — Title". Keeps saved
+ * notes sorted by day and titled meaningfully, instead of named after the prompt.
+ * Accepts a full ISO timestamp or a YYYY-MM-DD date.
+ */
+export function datedTitleBase(dateISO: string, title: string): string {
+  const date = (dateISO || "").slice(0, 10) || "undated";
+  const clean = title.trim().replace(/\s+/g, " ") || "Untitled";
+  return `${date} — ${clean}`;
+}
+
 /** Serialize a flat frontmatter object to a YAML block (with --- fences). */
 export function buildFrontmatter(data: FrontmatterData): string {
   const lines: string[] = ["---"];
