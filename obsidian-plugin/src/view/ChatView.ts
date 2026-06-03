@@ -305,7 +305,7 @@ export class ChatView extends ItemView {
     if (!this.plugin.settings.memoryEnabled) return;
     const wrap = parent.createEl("label", {
       cls: "cc-ingest-toggle",
-      attr: { title: "Also capture the latest Claude Code session when saving" },
+      attr: { title: "Also file this conversation into session memory when saving" },
     });
     const box = wrap.createEl("input", { type: "checkbox" });
     box.checked = this.plugin.settings.memoryIngestOnSave;
@@ -1139,7 +1139,7 @@ export class ChatView extends ItemView {
     const finalTitle = title ?? this.fallbackTitle();
     await saveChatNote(this.app, this.plugin.settings.chatFolder, finalTitle, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
     if (this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
-      await this.plugin.captureLatestSession(); // best-effort; never blocks the chat save
+      await this.plugin.captureConversation(this.messages); // also file this chat into memory
     }
   }
 

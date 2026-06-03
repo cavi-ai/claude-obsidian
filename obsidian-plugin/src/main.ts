@@ -3,7 +3,7 @@ import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { SessionPicker } from "./view/SessionPicker";
 import { listSessionsForVault, nodeSessionReader, defaultProjectsRoot, type SessionMeta } from "./memory/sessions";
-import { ingestSession } from "./memory/ingest";
+import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "./types";
@@ -464,7 +464,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  /** Capture the most-recent session for this vault (used by ingest-on-save). */
+  /** Capture the most-recent CLI session for this vault. */
   async captureLatestSession(): Promise<void> {
     const sessions = await this.listVaultSessions();
     if (sessions.length === 0) {
@@ -472,6 +472,32 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     await this.captureSession(sessions[0]);
+  }
+
+  /**
+   * Capture the current in-app conversation into memory (adapter B). Idempotent
+   * by conversation id, so re-saving updates the same digest note. Best-effort.
+   */
+  async captureConversation(messages: ChatMessage[]): Promise<void> {
+    if (!this.settings.memoryEnabled || messages.length === 0) return;
+    const conv = this.getActiveConversation();
+    try {
+      const res = await ingestConversation(
+        { app: this.app, folder: this.settings.memoryFolder, baseTags: this.settings.memoryBaseTags },
+        messages,
+        {
+          sessionId: conv?.id,
+          model: this.settings.model,
+          startedAt: conv ? new Date(conv.createdAt).toISOString() : undefined,
+          endedAt: conv ? new Date(conv.updatedAt).toISOString() : undefined,
+        },
+      );
+      new Notice(`Conversation captured to memory · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
+      await this.refreshMemoryView();
+    } catch (e) {
+      console.error("[Claude Companion] conversation capture failed", e);
+      new Notice("Couldn't capture this conversation to memory — see console.");
+    }
   }
 
   /** Re-ingest by session id (called from the sidebar). */

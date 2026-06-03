@@ -1,18 +1,25 @@
-// The one place a session becomes a note. Enforces the security contract: every
-// text field of the digest is sanitized before anything is rendered or written.
-// transcript → sanitize → render → idempotent write.
+// The one place a digest becomes a note. Enforces the security contract: every
+// text field is sanitized before anything is rendered or written. Two sources
+// feed the same tail: a Claude Code CLI transcript (adapter A) or an in-app
+// Companion conversation (adapter B). source → digest → sanitize → render → write.
 
 import { App, TFile } from "obsidian";
 import { digestTranscript, type SessionDigest } from "./transcript";
+import { digestConversation, type ConversationMeta } from "./conversationDigest";
 import { sanitizeWithReport } from "./sanitize";
 import { renderDigestNote, writeDigestNote } from "./note";
+import type { ChatMessage } from "../types";
 
-export interface IngestDeps {
+/** Everything the write tail needs (no source-specific reader). */
+export interface PersistDeps {
   app: App;
-  /** Reads the raw .jsonl for a session (injected for testability). */
-  read: (path: string) => Promise<string>;
   folder: string;
   baseTags: string[];
+}
+
+export interface IngestDeps extends PersistDeps {
+  /** Reads the raw .jsonl for a session (injected for testability). */
+  read: (path: string) => Promise<string>;
 }
 
 export interface IngestTarget {
@@ -26,10 +33,13 @@ export interface IngestResult {
   redactions: number;
 }
 
-export async function ingestSession(deps: IngestDeps, target: IngestTarget): Promise<IngestResult> {
-  const jsonl = await deps.read(target.path);
-  const digest = digestTranscript(jsonl);
-
+/**
+ * Sanitize every text field, render, and idempotently write the digest note.
+ * The dedup key is resolved once and stamped onto the digest so the rendered
+ * `claude-session:` frontmatter is the SAME value writeDigestNote matches on
+ * (otherwise a digest with no sessionId renders an empty key and re-ingest dupes).
+ */
+async function persistDigest(deps: PersistDeps, digest: SessionDigest, fallbackId: string): Promise<IngestResult> {
   let redactions = 0;
   const scrub = (t: string): string => {
     const r = sanitizeWithReport(t);
@@ -37,11 +47,7 @@ export async function ingestSession(deps: IngestDeps, target: IngestTarget): Pro
     return r.text;
   };
 
-  // Resolve the dedup key once and stamp it onto the digest so the rendered
-  // frontmatter (`claude-session: …`) is the SAME value writeDigestNote matches
-  // on. Otherwise a transcript with no sessionId renders `claude-session: ""`
-  // while the matcher searches for `target.id`, and re-ingest duplicates.
-  const sessionId = digest.sessionId ?? target.id;
+  const sessionId = digest.sessionId ?? fallbackId;
   const safe: SessionDigest = {
     ...digest,
     sessionId,
@@ -58,4 +64,19 @@ export async function ingestSession(deps: IngestDeps, target: IngestTarget): Pro
 
   const file = await writeDigestNote(deps.app, deps.folder, sessionId, content, fileBase);
   return { file, sessionId, redactions };
+}
+
+/** Adapter A: ingest a Claude Code CLI transcript file. */
+export async function ingestSession(deps: IngestDeps, target: IngestTarget): Promise<IngestResult> {
+  const jsonl = await deps.read(target.path);
+  return persistDigest(deps, digestTranscript(jsonl), target.id);
+}
+
+/** Adapter B: ingest the in-app Companion conversation itself. */
+export async function ingestConversation(
+  deps: PersistDeps,
+  messages: ChatMessage[],
+  meta: ConversationMeta,
+): Promise<IngestResult> {
+  return persistDigest(deps, digestConversation(messages, meta), meta.sessionId ?? "conversation");
 }
