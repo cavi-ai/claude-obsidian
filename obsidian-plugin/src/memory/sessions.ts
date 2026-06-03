@@ -3,6 +3,9 @@
 // against fixtures; the real reader (node fs) is desktop-only. Pure helpers
 // (encodeProjectDir, metaFromTranscript) carry no IO.
 
+import { readdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { digestTranscript } from "./transcript";
 
 /**
@@ -77,3 +80,35 @@ export async function listSessionsForVault(
     .filter((m) => !m.cwd || m.cwd === vaultPath)
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
+
+/** Absolute ~/.claude/projects root for the current user. */
+export function defaultProjectsRoot(): string {
+  return join(homedir(), ".claude", "projects");
+}
+
+/** Real reader over the local filesystem. Desktop-only (Electron/node). */
+export const nodeSessionReader: SessionReader = {
+  async listFiles(projectDir: string): Promise<SessionFile[]> {
+    let names: string[];
+    try {
+      names = await readdir(projectDir);
+    } catch {
+      return []; // dir absent → no sessions for this vault
+    }
+    const out: SessionFile[] = [];
+    for (const name of names) {
+      if (!name.endsWith(".jsonl")) continue;
+      const path = join(projectDir, name);
+      try {
+        const s = await stat(path);
+        out.push({ id: name.replace(/\.jsonl$/, ""), path, mtimeMs: s.mtimeMs });
+      } catch {
+        // unreadable entry — skip
+      }
+    }
+    return out;
+  },
+  read(path: string): Promise<string> {
+    return readFile(path, "utf8");
+  },
+};
