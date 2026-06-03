@@ -663,10 +663,20 @@ export class ChatView extends ItemView {
     let thinkBuf = "";
     let scheduled = false;
     let finalizing = false;
+    // Throttle the (expensive) full markdown re-render during streaming. Rendering
+    // every animation frame swaps the whole subtree via replaceChildren ~60×/s,
+    // which reads as flicker. ~100ms keeps it lively without churn; onDone always
+    // does a final authoritative render, and skipped frames just keep the last
+    // paint (the next delta reschedules a flush, so content never stalls visibly).
+    const MD_THROTTLE_MS = 100;
+    let lastMd = 0;
     const flush = () => {
       scheduled = false;
       if (finalizing) return;
       if (shouldRenderMarkdownDuringStream(buffer)) {
+        const now = performance.now();
+        if (now - lastMd < MD_THROTTLE_MS) return; // skip; next delta reschedules
+        lastMd = now;
         void this.renderMarkdownInto(body, buffer);
       } else {
         this.renderStreamingTextInto(body, buffer);
