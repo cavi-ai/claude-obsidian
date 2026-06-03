@@ -1,5 +1,9 @@
 import { App, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
+import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
+import { SessionPicker } from "./view/SessionPicker";
+import { listSessionsForVault, nodeSessionReader, defaultProjectsRoot, type SessionMeta } from "./memory/sessions";
+import { ingestSession } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "./types";
@@ -51,6 +55,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.loadSettings();
 
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
+    this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
 
     // Inline interactive artifacts: ```claude-html ... ```
     this.registerMarkdownCodeBlockProcessor("claude-html", (source, el, ctx) => {
@@ -151,6 +156,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "pull-cloud-replies",
       name: "Pull cloud session replies into the vault",
       callback: () => void this.pullCloudReplies(),
+    });
+
+    this.addCommand({
+      id: "capture-session-memory",
+      name: "Capture session memory…",
+      callback: () => void this.openSessionPicker(),
+    });
+
+    this.addCommand({
+      id: "open-memory-view",
+      name: "Open session memory",
+      callback: () => void this.activateMemoryView(),
     });
 
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
@@ -386,6 +403,92 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return leaf.view instanceof ChatView ? leaf.view : null;
     }
     return null;
+  }
+
+  // ---------- session memory ----------
+
+  /** Absolute path of the current vault, or null if not a desktop file vault. */
+  private vaultBasePath(): string | null {
+    const adapter = this.app.vault.adapter as unknown as { basePath?: string };
+    return typeof adapter.basePath === "string" ? adapter.basePath : null;
+  }
+
+  /** List this vault's Claude Code sessions (newest first). */
+  async listVaultSessions(): Promise<SessionMeta[]> {
+    const base = this.vaultBasePath();
+    if (!base) return [];
+    return listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot());
+  }
+
+  private ingestDeps() {
+    return {
+      app: this.app,
+      read: (path: string) => nodeSessionReader.read(path),
+      folder: this.settings.memoryFolder,
+      baseTags: this.settings.memoryBaseTags,
+    };
+  }
+
+  /** Open the picker; ingest the chosen session. */
+  async openSessionPicker(): Promise<void> {
+    if (!this.settings.memoryEnabled) {
+      new Notice("Session memory is disabled in settings.");
+      return;
+    }
+    const sessions = await this.listVaultSessions();
+    new SessionPicker(this.app, sessions, (session) => {
+      void this.captureSession(session);
+    }).open();
+  }
+
+  /** Ingest one session and report. */
+  async captureSession(session: SessionMeta): Promise<void> {
+    try {
+      const res = await ingestSession(this.ingestDeps(), { id: session.id, path: session.path });
+      new Notice(`Captured session · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
+      await this.refreshMemoryView();
+      await this.app.workspace.getLeaf(false).openFile(res.file);
+    } catch (e) {
+      console.error("[Claude Companion] session capture failed", e);
+      new Notice("Session capture failed — see console.");
+    }
+  }
+
+  /** Capture the most-recent session for this vault (used by ingest-on-save). */
+  async captureLatestSession(): Promise<void> {
+    const sessions = await this.listVaultSessions();
+    if (sessions.length === 0) {
+      new Notice("No Claude Code session found for this vault to ingest.");
+      return;
+    }
+    await this.captureSession(sessions[0]);
+  }
+
+  /** Re-ingest by session id (called from the sidebar). */
+  async reingestSession(sessionId: string): Promise<void> {
+    const sessions = await this.listVaultSessions();
+    const match = sessions.find((s) => (s.sessionId ?? s.id) === sessionId);
+    if (!match) {
+      new Notice("Original session transcript not found on disk.");
+      return;
+    }
+    await this.captureSession(match);
+  }
+
+  async activateMemoryView(): Promise<void> {
+    const { workspace } = this.app;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(MEMORY_VIEW_TYPE)[0] ?? null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) await leaf.setViewState({ type: MEMORY_VIEW_TYPE, active: true });
+    }
+    if (leaf) workspace.revealLeaf(leaf);
+  }
+
+  private async refreshMemoryView(): Promise<void> {
+    for (const leaf of this.app.workspace.getLeavesOfType(MEMORY_VIEW_TYPE)) {
+      if (leaf.view instanceof MemoryView) await leaf.view.render();
+    }
   }
 
   // ---------- command helpers ----------

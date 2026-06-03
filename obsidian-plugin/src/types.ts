@@ -96,6 +96,16 @@ export interface PluginSettings {
   cloudReplyFolder: string;
   /** GitHub token with Contents:read, to fetch replies over HTTPS. */
   cloudReplyToken: string;
+
+  // ----- episodic memory (capture Claude Code sessions into the vault) -----
+  /** Master switch for the session-memory feature (commands + view). */
+  memoryEnabled: boolean;
+  /** Folder where session digest notes are written. */
+  memoryFolder: string;
+  /** Default state of the "ingest on save" checkbox in the chat view. */
+  memoryIngestOnSave: boolean;
+  /** Tags every session digest note gets. */
+  memoryBaseTags: string[];
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -147,6 +157,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   cloudReplyBranch: "main",
   cloudReplyFolder: "Claude/Replies",
   cloudReplyToken: "",
+
+  memoryEnabled: true,
+  memoryFolder: "Claude/Sessions",
+  memoryIngestOnSave: false,
+  memoryBaseTags: ["claude", "session"],
 };
 
 /** Streaming callbacks for a single Claude request. */
