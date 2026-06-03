@@ -44,4 +44,18 @@ describe("ingestSession", () => {
     const all = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith("Claude/Sessions/"));
     expect(all.length).toBe(1);
   });
+
+  it("stays idempotent when the transcript has no sessionId (falls back to file id)", async () => {
+    const noId = [
+      rec({ type: "user", cwd: "/v", timestamp: "2026-06-03T00:00:00Z", message: { role: "user", content: "no session id here" } }),
+    ].join("\n");
+    const d = (app: App) => ({ app, read: async () => noId, folder: "Claude/Sessions", baseTags: ["claude"] });
+    const app = new App();
+    const r1 = await ingestSession(d(app), { id: "fileabc", path: "/p/x.jsonl" });
+    await ingestSession(d(app), { id: "fileabc", path: "/p/x.jsonl" });
+    const all = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith("Claude/Sessions/"));
+    expect(all.length).toBe(1); // not duplicated
+    expect(r1.sessionId).toBe("fileabc");
+    expect(await app.vault.cachedRead(r1.file)).toContain("claude-session: fileabc");
+  });
 });

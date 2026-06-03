@@ -37,14 +37,18 @@ export async function ingestSession(deps: IngestDeps, target: IngestTarget): Pro
     return r.text;
   };
 
+  // Resolve the dedup key once and stamp it onto the digest so the rendered
+  // frontmatter (`claude-session: …`) is the SAME value writeDigestNote matches
+  // on. Otherwise a transcript with no sessionId renders `claude-session: ""`
+  // while the matcher searches for `target.id`, and re-ingest duplicates.
+  const sessionId = digest.sessionId ?? target.id;
   const safe: SessionDigest = {
     ...digest,
+    sessionId,
     prose: digest.prose.map((p) => ({ ...p, text: scrub(p.text) })),
     toolActions: digest.toolActions.map((a) => ({ ...a, target: a.target ? scrub(a.target) : undefined })),
     filesTouched: digest.filesTouched.map(scrub),
   };
-
-  const sessionId = safe.sessionId ?? target.id;
   const vaultNoteBasenames = new Set(deps.app.vault.getMarkdownFiles().map((f) => f.basename));
   const content = renderDigestNote(safe, { baseTags: deps.baseTags, vaultNoteBasenames, redactions });
 
