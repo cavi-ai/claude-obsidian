@@ -380,9 +380,9 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
-    this.renderCloudSection(containerEl);
-    this.renderRepliesSection(containerEl);
-    this.renderMcpSection(containerEl);
+    this.accordion(containerEl, "Cloud session (mobile-friendly)", (b) => this.renderCloudSection(b));
+    this.accordion(containerEl, "Cloud replies (pull from repo)", (b) => this.renderRepliesSection(b));
+    this.accordion(containerEl, "Unified bridge (MCP server)", (b) => this.renderMcpSection(b));
     this.renderMemorySection(containerEl);
   }
 
@@ -430,7 +430,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private renderCloudSection(containerEl: HTMLElement): void {
     const s = this.plugin.settings;
-    new Setting(containerEl).setName("Cloud session (mobile-friendly)").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -507,7 +506,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private renderRepliesSection(containerEl: HTMLElement): void {
     const s = this.plugin.settings;
-    new Setting(containerEl).setName("Cloud replies (pull from repo)").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -573,7 +571,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private renderMcpSection(containerEl: HTMLElement): void {
     const s = this.plugin.settings;
-    new Setting(containerEl).setName("Unified bridge (MCP server)").setHeading();
     if (Platform.isMobile) {
       containerEl.createEl("p", {
         cls: "setting-item-description",
@@ -696,6 +693,13 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         text: `Set an access token (or $${MCP_TOKEN_ENV}) to get connection snippets.`,
       });
     }
+  }
+
+  /** A collapsed <details> accordion whose summary is the section title. */
+  private accordion(parent: HTMLElement, title: string, render: (body: HTMLElement) => void): void {
+    const details = parent.createEl("details", { cls: "cc-accordion" });
+    details.createEl("summary", { cls: "cc-accordion-summary", text: title });
+    render(details.createDiv({ cls: "cc-accordion-body" }));
   }
 
   private codeBlock(containerEl: HTMLElement, label: string, code: string, copyText: string = code): void {

@@ -816,6 +816,30 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   white-space: nowrap;
 }
 
+/* ----- settings accordions ----- */
+.cc-accordion {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin: 10px 0;
+  padding: 0 12px;
+}
+.cc-accordion-summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 10px 0;
+  list-style-position: inside;
+}
+.cc-accordion-summary:hover {
+  color: var(--text-accent);
+}
+.cc-accordion[open] > .cc-accordion-summary {
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 6px;
+}
+.cc-accordion-body {
+  padding-bottom: 8px;
+}
+
 /* ----- responsive (container queries: panel width, not viewport) ----- */
 /* These views can be docked in a narrow sidebar or a wide main pane and the
    user drags the divider freely, so we query the panel's own inline size. */
