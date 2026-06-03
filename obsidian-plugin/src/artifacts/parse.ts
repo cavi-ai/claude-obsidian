@@ -24,7 +24,10 @@ export function titleFromHtml(html: string): string {
   const t = /<title>([^<]+)<\/title>/i.exec(html);
   if (t) return t[1].trim();
   const h = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
-  if (h) return h[1].replace(/<[^>]+>/g, "").trim();
+  if (h) {
+    const textParts = h[1].match(/[^<]+/g);
+    if (textParts) return textParts.join("").trim();
+  }
   return "Claude artifact";
 }
 
