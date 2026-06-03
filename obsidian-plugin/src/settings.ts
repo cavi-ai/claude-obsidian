@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
@@ -529,6 +529,13 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   private renderMcpSection(containerEl: HTMLElement): void {
     const s = this.plugin.settings;
     new Setting(containerEl).setName("Unified bridge (MCP server)").setHeading();
+    if (Platform.isMobile) {
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: "The local MCP bridge runs only on desktop — it needs a local server. On mobile, use the cloud-session features above to cowork with Claude.",
+      });
+      return;
+    }
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "Expose this vault as a local MCP server so Claude Code and Claude Desktop can search, read, and (optionally) write your notes — unifying all three on one knowledge base. Bound to 127.0.0.1 and protected by a token.",

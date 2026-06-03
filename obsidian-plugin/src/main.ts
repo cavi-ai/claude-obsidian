@@ -1,11 +1,11 @@
-import { App, MarkdownView, Modal, Notice, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
+import { App, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { renderArtifactInline } from "./artifacts/renderInline";
-import { McpHttpServer } from "./mcp/server";
+import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
 import { generateToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
@@ -276,7 +276,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       await this.mcpServer.stop();
       this.mcpServer = null;
     }
-    if (!s.mcpEnabled) return;
+    // The MCP bridge runs only on desktop — it needs a Node http server, which
+    // Obsidian's mobile runtime lacks. The dynamic import below keeps that code
+    // (and its `http` dependency) from ever loading on mobile.
+    if (Platform.isMobile || !s.mcpEnabled) return;
 
     if (!this.vaultTools) {
       this.vaultTools = new VaultTools(this.app, { allowWrites: s.mcpAllowWrites, defaultFolder: s.mcpWriteFolder });
@@ -284,6 +287,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.vaultTools.setOptions({ allowWrites: s.mcpAllowWrites, defaultFolder: s.mcpWriteFolder });
     }
 
+    const { McpHttpServer } = await import("./mcp/server");
     const server = new McpHttpServer(
       { port: s.mcpPort, token: s.mcpToken, serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
       this.vaultTools,
