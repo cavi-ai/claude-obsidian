@@ -48,6 +48,7 @@
 }
 .cc-header-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
 }
 .cc-icon-btn {
@@ -793,9 +794,18 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 5px 7px;
+  border-radius: 6px;
   font-size: var(--font-ui-smaller);
+  line-height: 1;
   color: var(--text-muted);
   cursor: pointer;
+}
+.cc-ingest-toggle:hover {
+  background: var(--background-modifier-hover);
+}
+.cc-ingest-toggle input {
+  margin: 0;
 }
 .cc-memory-view .cc-memory-row {
   display: flex;
@@ -881,11 +891,5 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 
 /* Wide panel (docked in the main editor area): cap line length for readability. */
-@container (min-width: 720px) {
-  .cc-messages,
-  .cc-composer {
-    max-width: 860px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-}
+/* (Wide-width centering removed — it made the composer shrink oddly as the panel
+   grew. Full-width at every size reads consistently.) */

@@ -915,7 +915,9 @@ export class ChatView extends ItemView {
     this.localStatusEl.setText(localLabel);
 
     const mcp = this.plugin.mcpStats();
-    const mcpLabel = mcp.running ? `MCP: on · ${mcp.activeRequests} active` : "MCP: off";
+    // "0 active" reads as a contradiction; only surface the count when a request
+    // is genuinely in flight. Otherwise the bridge is simply ready.
+    const mcpLabel = mcp.running ? (mcp.activeRequests > 0 ? `MCP: on · ${mcp.activeRequests} active` : "MCP: ready") : "MCP: off";
     this.mcpStatusEl.setText(mcpLabel);
     this.mcpStatusEl.toggleClass("is-on", mcp.running);
     this.mcpStatusEl.toggleClass("is-warn", this.plugin.settings.mcpEnabled && !mcp.running);
