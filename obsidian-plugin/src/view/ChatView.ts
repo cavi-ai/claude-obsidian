@@ -1018,11 +1018,24 @@ export class ChatView extends ItemView {
       () => void this.saveReplyAsNote(full),
     );
     if (isArtifact) saveBtn.addClass("cc-accent");
+    // A plan reply (has a `## Build tasks` checklist) gets a Build button right here.
+    if (extractTasks(full).length > 0) {
+      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full));
+    }
     // Regenerate the last reply (only on the most recent assistant message).
     const isLast = this.messages.length > 0 && this.messages[this.messages.length - 1].role === "assistant";
     if (isLast && this.lastUserText) {
       this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.regenerate());
     }
+  }
+
+  /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
+  private async buildFromReply(full: string): Promise<void> {
+    const artifact = extractArtifact(full);
+    const { tags, summary, title } = await this.maybeIndex(full);
+    const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
+    const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, { extraTags: tags, summary });
+    await this.plugin.handoffToBuild(file);
   }
 
   /** Add a hover "copy" button to each <pre><code> block in a rendered reply. */
