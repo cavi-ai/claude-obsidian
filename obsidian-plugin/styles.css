@@ -183,6 +183,24 @@
     opacity: 0;
   }
 }
+.cc-thinking-status {
+  font-family: var(--cc-mono);
+  font-size: 12px;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--cc-gray-500);
+  margin-right: 6px;
+  animation: cc-pulse 1.6s ease-in-out infinite;
+}
+@keyframes cc-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 .cc-context-note {
   font-family: var(--cc-mono);
   font-size: 10px;

@@ -42,6 +42,9 @@ export class ChatView extends ItemView {
   private selectionStatusEl!: HTMLElement;
   private localStatusEl!: HTMLElement;
   private mcpStatusEl!: HTMLButtonElement;
+  /** Rotating "thinking" status word timer + per-turn start offset. */
+  private thinkingTimer: number | null = null;
+  private claudianSeq = 0;
   private contextStatusInterval: number | null = null;
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
@@ -272,6 +275,7 @@ export class ChatView extends ItemView {
 
   async onClose(): Promise<void> {
     this.abort?.abort();
+    this.clearThinkingStatus();
     if (this.contextStatusInterval !== null) {
       window.clearInterval(this.contextStatusInterval);
       this.contextStatusInterval = null;
@@ -715,6 +719,7 @@ export class ChatView extends ItemView {
             this.scrollToBottom();
           },
           onText: (delta) => {
+            if (buffer === "") this.clearThinkingStatus(); // first token landed
             buffer += delta;
             this._lastBuffer = buffer;
             if (!scheduled) {
@@ -757,6 +762,7 @@ export class ChatView extends ItemView {
     // for the same turn — only the first call commits the message + action bar.
     if (bubble.dataset.ccFinished === "1") return;
     bubble.dataset.ccFinished = "1";
+    this.clearThinkingStatus(); // covers no-text / error / abort turns
     this.setSending(false);
     this.abort = null;
     if (full && full.trim().length > 0) {
@@ -782,9 +788,36 @@ export class ChatView extends ItemView {
     const bubble = this.messagesEl.createDiv({ cls: "cc-msg cc-assistant" });
     bubble.createDiv({ cls: "cc-role", text: "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
+    this.startThinkingStatus(body);
     body.createSpan({ cls: "cc-cursor", text: "▍" });
     this.scrollToBottom();
     return { bubble, body };
+  }
+
+  /** Playful "Claudian" gerunds shown while Claude works, before text arrives. */
+  private static readonly CLAUDIAN = [
+    "Manifesting", "Synthesizing", "Philosophising", "Pondering",
+    "Actualizing", "Synergizing", "Ruminating", "Clauding",
+  ];
+
+  /** Cycle a whimsical status word in `body` until the first token lands. */
+  private startThinkingStatus(body: HTMLElement): void {
+    const status = body.createSpan({ cls: "cc-thinking-status" });
+    let i = this.claudianSeq++;
+    const tick = () => {
+      status.setText(`${ChatView.CLAUDIAN[i % ChatView.CLAUDIAN.length]}…`);
+      i++;
+    };
+    tick();
+    this.clearThinkingStatus();
+    this.thinkingTimer = window.setInterval(tick, 1600);
+  }
+
+  private clearThinkingStatus(): void {
+    if (this.thinkingTimer != null) {
+      window.clearInterval(this.thinkingTimer);
+      this.thinkingTimer = null;
+    }
   }
 
   /**
