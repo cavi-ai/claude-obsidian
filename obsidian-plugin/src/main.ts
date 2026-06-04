@@ -555,18 +555,38 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async handoffToBuild(): Promise<void> {
     const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
     if (!(file instanceof TFile)) {
-      new Notice("Open a plan note first.");
+      new Notice("Open a plan note first — a note with a task checklist (`- [ ]`) or numbered milestones.", 8000);
       return;
     }
     const plan = await this.app.vault.cachedRead(file);
     const tasks = extractTasks(plan);
+    // A "plan note" is one we can extract work items from. If we can't, don't
+    // dispatch a hollow build — tell the user exactly what's missing.
     if (tasks.length === 0) {
-      new Notice("No tasks/milestones found in this note to build from.");
+      new Notice(
+        `“${file.basename}” doesn't look like a plan — no task checklist (\`- [ ]\`) or numbered milestones found. ` +
+          `Run “Generate implementation plan” first, or add tasks, then build.`,
+        9000,
+      );
       return;
     }
 
     const title = file.basename;
     const folder = this.settings.mcpWriteFolder || "Claude/Builds";
+
+    // Confirm before dispatch — this writes notes and copies a command to run.
+    const confirmed = await new Promise<boolean>((resolve) => {
+      new ConfirmModal(this.app, {
+        title: "Build from this plan?",
+        body:
+          `Detected ${tasks.length} task${tasks.length === 1 ? "" : "s"} in “${file.basename}”.\n\n` +
+          `This creates a build spec + a live tracker in “${folder}” and copies a Claude Code command for you to run in a terminal.`,
+        cta: "Create spec + tracker",
+        onResolve: resolve,
+      }).open();
+    });
+    if (!confirmed) return;
+
     await this.ensureFolder(folder);
     const specPath = normalizePath(`${folder}/${title} — spec.md`);
     const trackerPath = normalizePath(`${folder}/${title} — tracker.md`);
@@ -727,6 +747,36 @@ export default class ClaudeCompanionPlugin extends Plugin {
       `Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`,
       `Turn ${target} into an artifact`,
     );
+  }
+}
+
+/** A simple confirm/cancel dialog that resolves a boolean. */
+class ConfirmModal extends Modal {
+  private decided = false;
+  constructor(
+    app: App,
+    private opts: { title: string; body: string; cta: string; onResolve: (ok: boolean) => void },
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.opts.title);
+    const p = this.contentEl.createEl("p", { cls: "setting-item-description" });
+    p.style.whiteSpace = "pre-wrap";
+    p.setText(this.opts.body);
+    const row = this.contentEl.createDiv({ cls: "modal-button-container" });
+    row.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+    const ok = row.createEl("button", { cls: "mod-cta", text: this.opts.cta });
+    ok.addEventListener("click", () => {
+      this.decided = true;
+      this.opts.onResolve(true);
+      this.close();
+    });
+  }
+
+  onClose(): void {
+    if (!this.decided) this.opts.onResolve(false);
   }
 }
 
