@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Junk note titles.** Saved chats no longer take their title from your prompt. The
   indexer now produces a short descriptive **title** (alongside tags + summary), and
   notes are filed as **`YYYY-MM-DD — Title.md`** for a clean, dated structure.
+- **Internal prompt templates are hidden.** Running a slash command or the plan/artifact
+  generators no longer dumps the verbose instruction into the chat as your message — it
+  shows a friendly label (e.g. "Generate an implementation plan") while the model still
+  receives the full instruction.
+- **Build now confirms before dispatch.** "Hand off to Claude Code" defines a plan note
+  (a task checklist or numbered milestones), guides you when the note isn't one, and asks
+  for confirmation — showing the detected task count and what it will create — before it
+  writes notes and copies a command.
 
 ### Added
 - **Capture the in-app conversation into memory.** Ticking the **ingest** checkbox by
