@@ -27,7 +27,6 @@ export interface SlashCommand {
 }
 
 export const REGISTERED_ACTION_COMMANDS: Record<string, string> = {
-  "open-chat": "open",
   "new-chat": "new",
   "plan-from-note": "plan",
   "artifact-from-selection": "artifact",
@@ -35,6 +34,7 @@ export const REGISTERED_ACTION_COMMANDS: Record<string, string> = {
   "browse-conversations": "history",
   "delete-active-conversation": "delete",
   "build-from-plan": "build",
+  "capture-session-memory": "capture",
 };
 
 /** A query like "/sum" → the part after the slash, lowercased. */
@@ -75,23 +75,16 @@ export function moveSelection(current: number, delta: number, len: number): numb
 /** The built-in slash catalog. Prompt templates mirror the command-palette actions. */
 export const SLASH_COMMANDS: SlashCommand[] = [
   {
-    name: "open",
-    aliases: ["chat", "focus"],
-    description: "Focus the Companion chat panel",
-    kind: "action",
-    action: "open-chat",
-  },
-  {
     name: "summarize",
     aliases: ["sum", "tldr"],
-    description: "Summarize the active note as concise bullet points",
+    description: "Summarize the active note as concise bullet points, key takeaways first",
     kind: "prompt",
     prompt: "Summarize my active note as concise bullet points, key takeaways first.",
   },
   {
     name: "ask",
-    aliases: ["q"],
-    description: "Ask a question across your vault (search-augmented)",
+    aliases: ["q", "search", "vault", "find"],
+    description: "Ask a question answered across your whole vault (turns on vault search)",
     kind: "action",
     action: "ask-vault",
   },
@@ -145,13 +138,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     prompt: "Suggest useful internal Obsidian links for my active note. Group them by why they are relevant and include concise link text.",
   },
   {
-    name: "search",
-    aliases: ["vault", "find"],
-    description: "Turn on vault search for the next question",
-    kind: "action",
-    action: "ask-vault",
-  },
-  {
     name: "daily",
     aliases: ["today", "journal"],
     description: "Draft or improve today's daily note",
@@ -192,6 +178,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Hand off the current plan note to Claude Code",
     kind: "action",
     action: "build",
+  },
+  {
+    name: "capture",
+    aliases: ["memory", "session"],
+    description: "Capture a Claude Code session for this vault into memory",
+    kind: "action",
+    action: "capture-memory",
   },
   {
     name: "new",

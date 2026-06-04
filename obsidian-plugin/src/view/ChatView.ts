@@ -541,8 +541,8 @@ export class ChatView extends ItemView {
       case "new-chat":
         this.clearChat();
         break;
-      case "open-chat":
-        this.inputEl.focus();
+      case "capture-memory":
+        await this.plugin.openSessionPicker();
         break;
       case "history":
         this.openHistory();
