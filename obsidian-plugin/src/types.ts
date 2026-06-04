@@ -44,6 +44,8 @@ export interface PluginSettings {
   systemPrompt: string;
   artifactFolder: string;
   chatFolder: string;
+  /** Folder for generated plan notes (artifact + build-task checklist, type: plan). */
+  planFolder: string;
   context: ContextToggles;
   /** Max characters of vault context to attach to a request. */
   contextCharBudget: number;
@@ -129,6 +131,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     "self-contained HTML artifact in a ```claude-html code block using the provided design system.",
   artifactFolder: "Claude/Artifacts",
   chatFolder: "Claude/Chats",
+  planFolder: "Claude/Plans",
   context: {
     activeNote: true,
     selection: true,

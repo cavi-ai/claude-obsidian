@@ -12,7 +12,8 @@ import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashComma
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { abbreviateNoteName, selectionLineLabel, selectionLineLabelFromText } from "./contextStatus";
 import { gatherContext } from "../context/vaultContext";
-import { extractArtifact, saveArtifactNote, saveChatNote } from "../artifacts/artifactStore";
+import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
+import { extractTasks } from "../build/spec";
 import { errorHint } from "../providers/errorHints";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
@@ -1094,6 +1095,17 @@ export class ChatView extends ItemView {
   private async saveReplyAsNote(full: string): Promise<void> {
     const artifact = extractArtifact(full);
     new Notice("Indexing & saving…");
+
+    // A plan reply carries a `## Build tasks` checklist. Save it as a canonical
+    // `type: plan` note (artifact renders inline + checklist drives Build).
+    if (extractTasks(full).length > 0) {
+      const { tags, summary, title } = await this.maybeIndex(full);
+      const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
+      const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, { extraTags: tags, summary });
+      await this.app.workspace.getLeaf(true).openFile(file);
+      return;
+    }
+
     if (artifact) {
       const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
       const file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {

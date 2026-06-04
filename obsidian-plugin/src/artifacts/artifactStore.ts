@@ -66,6 +66,28 @@ export async function saveArtifactNote(app: App, folder: string, artifact: Extra
   return file;
 }
 
+/**
+ * Save a generated plan as a `type: plan` note: the reply markdown (its inline
+ * `claude-html` artifact + the `## Build tasks` checklist) verbatim, so it renders
+ * beautifully AND the Build command can parse its checklist. The frontmatter type
+ * makes the note "canonical" — it gets the Build header icon.
+ */
+export async function savePlanNote(app: App, folder: string, title: string, markdown: string, opts?: Partial<SaveOptions>): Promise<TFile> {
+  const created = new Date().toISOString().slice(0, 10);
+  const fm = buildFrontmatter({
+    title,
+    created,
+    source: "claude-companion",
+    type: "plan",
+    summary: opts?.summary,
+    tags: normalizeTags([...(opts?.baseTags ?? ["claude", "plan"]), ...(opts?.extraTags ?? [])]),
+  });
+  const note = [fm, "", `# ${title}`, "", markdown, ""].join("\n");
+  const file = await writeUnique(app, folder, datedTitleBase(created, title), "md", note);
+  new Notice(`Saved plan → ${file.path}`);
+  return file;
+}
+
 /** Save a chat transcript as a markdown note. */
 export async function saveChatNote(app: App, folder: string, title: string, markdown: string, opts?: Partial<SaveOptions>): Promise<TFile> {
   const created = new Date().toISOString().slice(0, 10);

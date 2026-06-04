@@ -222,6 +222,16 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Plans folder")
+      .setDesc("Where saved plan notes (artifact + Build-task checklist) are written.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.planFolder).onChange(async (v) => {
+          this.plugin.settings.planFolder = v.trim() || "Claude/Plans";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
       .setName("Inline artifact height")
       .setDesc("Default pixel height for artifacts rendered inside notes.")
       .addText((text) =>

@@ -8,4 +8,7 @@ describe("memory settings defaults", () => {
     expect(DEFAULT_SETTINGS.memoryIngestOnSave).toBe(false);
     expect(DEFAULT_SETTINGS.memoryBaseTags).toEqual(["claude", "session"]);
   });
+  it("has a plans folder default", () => {
+    expect(DEFAULT_SETTINGS.planFolder).toBe("Claude/Plans");
+  });
 });

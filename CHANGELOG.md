@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Build icon on plan notes.** Any note with `type: plan` frontmatter gets a **Build**
   icon in its header that builds *that* note. A new command, "Mark current note as a plan,"
   stamps `type: plan` so any checklist note becomes build-ready.
+- **Plans are build-ready end to end.** "Generate implementation plan" now emits the visual
+  artifact **plus** a parseable `## Build tasks` checklist, and saving it writes a
+  `type: plan` note (to a configurable Plans folder) — so the plan renders beautifully *and*
+  the Build icon can parse its tasks. One loop: plan → save → Build.
 
 ### Added
 - **Capture the in-app conversation into memory.** Ticking the **ingest** checkbox by

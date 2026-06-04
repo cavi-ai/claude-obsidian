@@ -29,9 +29,17 @@ Rules:
 
 Always include <!DOCTYPE html>, <meta charset> and viewport, and a descriptive <title>.`;
 
-export const PLANNING_INSTRUCTION = `Produce an implementation plan as a single \`\`\`claude-html artifact following the design system.
+export const PLANNING_INSTRUCTION = `Produce an implementation plan in TWO parts:
+
+PART 1 — a single \`\`\`claude-html artifact following the design system.
 Structure it as:
 1. A header: eyebrow ("Implementation plan"), an h1 title, and a "prompt-box" restating the goal.
 2. A summary strip of 3–4 key/value cells (e.g. Scope, Effort, Risk, Owner) with one value in the accent color.
 3. Numbered sections. Include at least: Milestones (a vertical timeline with done/pending dots), Architecture / approach, and Risks & open questions.
-4. Concrete, specific content derived from the user's context — not placeholders.`;
+4. Concrete, specific content derived from the user's context — not placeholders.
+
+PART 2 — immediately AFTER the artifact block (in plain Markdown, not inside the code block), a section:
+
+## Build tasks
+
+A flat Markdown checklist with one \`- [ ]\` item per concrete, actionable task, in execution order. Each item is a single self-contained line (no sub-bullets). These tasks are parsed by the Build command, so make them specific and ordered — they ARE the plan's executable steps.`;
