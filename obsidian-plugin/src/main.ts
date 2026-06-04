@@ -2,8 +2,10 @@ import { App, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, Workspa
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { SessionPicker } from "./view/SessionPicker";
+import { WorkflowPicker } from "./view/WorkflowPicker";
+import { WORKFLOWS, type Workflow } from "./workflows/catalog";
 import { listSessionsForVault, nodeSessionReader, defaultProjectsRoot, type SessionMeta } from "./memory/sessions";
-import { ingestSession } from "./memory/ingest";
+import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "./types";
@@ -11,7 +13,7 @@ import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSy
 import { renderArtifactInline } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
-import { generateToken } from "./mcp/clientConfig";
+import { generateToken, resolveMcpToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
 import { trackerArtifact } from "./build/tracker";
 import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
@@ -31,6 +33,11 @@ import {
 } from "./conversations/store";
 import type { ChatMessage } from "./types";
 import { normalizePath, TFile } from "obsidian";
+
+/** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
+ *  which routinely run past the chat default. A ceiling, not a target — you only
+ *  pay for what's generated. Within current models' max-output limits. */
+const ARTIFACT_MAX_TOKENS = 16384;
 
 /** Shape of this plugin's persisted data.json (settings + chat history). */
 interface PersistedData {
@@ -73,6 +80,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
+    this.addRibbonIcon("layout-grid", "Run a Companion vault workflow", () => void this.openWorkflowPicker());
+    if (this.settings.memoryEnabled) {
+      this.addRibbonIcon("brain", "Capture Claude session memory", () => void this.openSessionPicker());
+    }
 
     this.addCommand({
       id: "open-chat",
@@ -147,6 +158,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "mark-note-as-plan",
+      name: "Mark current note as a plan (adds type: plan + Build icon)",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (checking) return file instanceof TFile;
+        if (file instanceof TFile) void this.markNoteAsPlan(file);
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "dispatch-cloud-session",
       name: "Send to cloud Claude session (mobile-friendly)",
       callback: () => void this.dispatchCloudSession(),
@@ -156,6 +178,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "pull-cloud-replies",
       name: "Pull cloud session replies into the vault",
       callback: () => void this.pullCloudReplies(),
+    });
+
+    this.addCommand({
+      id: "open-workflows",
+      name: "Run a vault workflow… (manifests, rollup, MOC, digest)",
+      callback: () => void this.openWorkflowPicker(),
     });
 
     this.addCommand({
@@ -173,7 +201,50 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
 
     // Start the MCP bridge if enabled (deferred so it doesn't block load).
-    this.app.workspace.onLayoutReady(() => void this.syncMcpServer());
+    this.app.workspace.onLayoutReady(() => {
+      void this.syncMcpServer();
+      this.syncPlanBuildActions();
+    });
+
+    // Show a "Build" action in the header of any `type: plan` note.
+    this.registerEvent(this.app.workspace.on("file-open", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
+  }
+
+  /** Tracks the Build header-action element we added to each plan-note view. */
+  private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
+
+  /**
+   * Add (or remove) a "Build" icon in the header of every open markdown note that
+   * declares `type: plan` in frontmatter, wired to build that specific note. A
+   * note becomes "canonical" by carrying `type: plan`.
+   */
+  private syncPlanBuildActions(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) continue;
+      const fm = view.file ? this.app.metadataCache.getFileCache(view.file)?.frontmatter : null;
+      const isPlan = fm?.type === "plan";
+      const existing = this.planBuildActions.get(view);
+      if (isPlan && !existing) {
+        const file = view.file;
+        const action = view.addAction("hammer", "Build this plan with Claude Code", () => void this.handoffToBuild(file ?? undefined));
+        this.planBuildActions.set(view, action);
+      } else if (!isPlan && existing) {
+        existing.remove();
+        this.planBuildActions.delete(view);
+      }
+    }
+  }
+
+  /** Stamp `type: plan` onto a note so it gets the Build affordance. */
+  async markNoteAsPlan(file: TFile): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      (fm as Record<string, unknown>).type = "plan";
+    });
+    this.syncPlanBuildActions();
+    new Notice("Marked as a plan — a Build icon is now in the note's header.");
   }
 
   onunload(): void {
@@ -300,11 +371,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.mcpSyncChain;
   }
 
+  /** The bearer token the server validates against: env var wins over stored. */
+  private resolvedMcpToken(): string {
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+    return resolveMcpToken(env, this.settings.mcpToken).token;
+  }
+
   /** Desired server signature for the current settings, or null when it shouldn't run. */
   private mcpDesiredSignature(): string | null {
     const s = this.settings;
     if (Platform.isMobile || !s.mcpEnabled) return null;
-    return JSON.stringify({ port: s.mcpPort, token: s.mcpToken, writes: s.mcpAllowWrites, folder: s.mcpWriteFolder });
+    return JSON.stringify({ port: s.mcpPort, token: this.resolvedMcpToken(), writes: s.mcpAllowWrites, folder: s.mcpWriteFolder });
   }
 
   private async applyMcpServer(): Promise<void> {
@@ -332,7 +409,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     const { McpHttpServer } = await import("./mcp/server");
     const server = new McpHttpServer(
-      { port: s.mcpPort, token: s.mcpToken, serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
+      { port: s.mcpPort, token: this.resolvedMcpToken(), serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
       this.vaultTools,
       (level, message) => (level === "error" ? console.error("[Claude Companion MCP]", message) : console.log("[Claude Companion MCP]", message)),
     );
@@ -361,7 +438,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   async setMcpEnabled(enabled: boolean): Promise<void> {
     this.settings.mcpEnabled = enabled;
-    if (enabled && !this.settings.mcpToken) {
+    // Only mint a stored token when neither the env var nor a stored token exists.
+    if (enabled && !this.resolvedMcpToken()) {
       this.settings.mcpToken = generateToken();
     }
     await this.saveSettings();
@@ -429,6 +507,22 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
+  /** Open the workflows picker; run the chosen workflow in the chat. */
+  async openWorkflowPicker(): Promise<void> {
+    new WorkflowPicker(this.app, WORKFLOWS, (wf) => void this.runWorkflow(wf)).open();
+  }
+
+  /** Run a vault workflow: ground it (active note + vault search), send its prompt. */
+  async runWorkflow(wf: Workflow): Promise<void> {
+    this.settings.context.activeNote = true;
+    if (wf.vaultSearch) this.settings.context.searchVault = true;
+    await this.saveSettings();
+    const view = await this.activateView();
+    if (!view) return;
+    // Workflows produce large artifacts — give them output-token headroom.
+    await view.submitPrompt(wf.prompt, wf.name, ARTIFACT_MAX_TOKENS);
+  }
+
   /** Open the picker; ingest the chosen session. */
   async openSessionPicker(): Promise<void> {
     if (!this.settings.memoryEnabled) {
@@ -436,6 +530,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     const sessions = await this.listVaultSessions();
+    if (sessions.length === 0) {
+      new Notice(
+        "No Claude Code sessions found for this vault. Run the `claude` CLI from this vault's folder, then capture.",
+        8000,
+      );
+      return;
+    }
     new SessionPicker(this.app, sessions, (session) => {
       void this.captureSession(session);
     }).open();
@@ -454,7 +555,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  /** Capture the most-recent session for this vault (used by ingest-on-save). */
+  /** Capture the most-recent CLI session for this vault. */
   async captureLatestSession(): Promise<void> {
     const sessions = await this.listVaultSessions();
     if (sessions.length === 0) {
@@ -462,6 +563,32 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     await this.captureSession(sessions[0]);
+  }
+
+  /**
+   * Capture the current in-app conversation into memory (adapter B). Idempotent
+   * by conversation id, so re-saving updates the same digest note. Best-effort.
+   */
+  async captureConversation(messages: ChatMessage[]): Promise<void> {
+    if (!this.settings.memoryEnabled || messages.length === 0) return;
+    const conv = this.getActiveConversation();
+    try {
+      const res = await ingestConversation(
+        { app: this.app, folder: this.settings.memoryFolder, baseTags: this.settings.memoryBaseTags },
+        messages,
+        {
+          sessionId: conv?.id,
+          model: this.settings.model,
+          startedAt: conv ? new Date(conv.createdAt).toISOString() : undefined,
+          endedAt: conv ? new Date(conv.updatedAt).toISOString() : undefined,
+        },
+      );
+      new Notice(`Conversation captured to memory · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
+      await this.refreshMemoryView();
+    } catch (e) {
+      console.error("[Claude Companion] conversation capture failed", e);
+      new Notice("Couldn't capture this conversation to memory — see console.");
+    }
   }
 
   /** Re-ingest by session id (called from the sidebar). */
@@ -498,7 +625,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.saveSettings();
     const view = await this.activateView();
     if (!view) return;
-    await view.submitPrompt(`${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`);
+    await view.submitPrompt(
+      `${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`,
+      "Generate an implementation plan from this note",
+      ARTIFACT_MAX_TOKENS,
+    );
   }
 
   /**
@@ -506,21 +637,41 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * tracker note, then hand it to Claude Code. Claude Code reaches the vault
    * through the MCP bridge and updates the tracker as it builds.
    */
-  async handoffToBuild(): Promise<void> {
-    const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+  async handoffToBuild(planFile?: TFile): Promise<void> {
+    const file = planFile ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null;
     if (!(file instanceof TFile)) {
-      new Notice("Open a plan note first.");
+      new Notice("Open a plan note first — a note with a task checklist (`- [ ]`) or numbered milestones.", 8000);
       return;
     }
     const plan = await this.app.vault.cachedRead(file);
     const tasks = extractTasks(plan);
+    // A "plan note" is one we can extract work items from. If we can't, don't
+    // dispatch a hollow build — tell the user exactly what's missing.
     if (tasks.length === 0) {
-      new Notice("No tasks/milestones found in this note to build from.");
+      new Notice(
+        `“${file.basename}” doesn't look like a plan — no task checklist (\`- [ ]\`) or numbered milestones found. ` +
+          `Run “Generate implementation plan” first, or add tasks, then build.`,
+        9000,
+      );
       return;
     }
 
     const title = file.basename;
     const folder = this.settings.mcpWriteFolder || "Claude/Builds";
+
+    // Confirm before dispatch — this writes notes and copies a command to run.
+    const confirmed = await new Promise<boolean>((resolve) => {
+      new ConfirmModal(this.app, {
+        title: "Build from this plan?",
+        body:
+          `Detected ${tasks.length} task${tasks.length === 1 ? "" : "s"} in “${file.basename}”.\n\n` +
+          `This creates a build spec + a live tracker in “${folder}” and copies a Claude Code command for you to run in a terminal.`,
+        cta: "Create spec + tracker",
+        onResolve: resolve,
+      }).open();
+    });
+    if (!confirmed) return;
+
     await this.ensureFolder(folder);
     const specPath = normalizePath(`${folder}/${title} — spec.md`);
     const trackerPath = normalizePath(`${folder}/${title} — tracker.md`);
@@ -677,7 +828,41 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const view = await this.activateView();
     if (!view) return;
     const target = hasSelection ? "the selected text" : "my current note";
-    await view.submitPrompt(`Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`);
+    await view.submitPrompt(
+      `Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`,
+      `Turn ${target} into an artifact`,
+      ARTIFACT_MAX_TOKENS,
+    );
+  }
+}
+
+/** A simple confirm/cancel dialog that resolves a boolean. */
+class ConfirmModal extends Modal {
+  private decided = false;
+  constructor(
+    app: App,
+    private opts: { title: string; body: string; cta: string; onResolve: (ok: boolean) => void },
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.opts.title);
+    const p = this.contentEl.createEl("p", { cls: "setting-item-description" });
+    p.style.whiteSpace = "pre-wrap";
+    p.setText(this.opts.body);
+    const row = this.contentEl.createDiv({ cls: "modal-button-container" });
+    row.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+    const ok = row.createEl("button", { cls: "mod-cta", text: this.opts.cta });
+    ok.addEventListener("click", () => {
+      this.decided = true;
+      this.opts.onResolve(true);
+      this.close();
+    });
+  }
+
+  onClose(): void {
+    if (!this.decided) this.opts.onResolve(false);
   }
 }
 

@@ -3,7 +3,8 @@
 
 export interface SseEvent {
   type: string;
-  delta?: { type?: string; text?: string; thinking?: string };
+  // `stop_reason` rides on the message_delta event's delta (e.g. "max_tokens").
+  delta?: { type?: string; text?: string; thinking?: string; stop_reason?: string };
   error?: { message?: string };
   // Usage appears on message_start (input/cache tokens) and message_delta (output).
   message?: { usage?: TokenUsage };
@@ -28,6 +29,8 @@ export interface SseParseResult {
   error?: string;
   /** Token usage seen in this chunk, merged across events. */
   usage?: TokenUsage;
+  /** Why generation stopped, if reported (e.g. "max_tokens" = truncated). */
+  stopReason?: string;
 }
 
 /**
@@ -40,6 +43,7 @@ export function parseSseChunk(buffer: string): SseParseResult {
   let thinking = "";
   let error: string | undefined;
   let usage: TokenUsage | undefined;
+  let stopReason: string | undefined;
   let nl: number;
   while ((nl = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, nl).trim();
@@ -60,11 +64,12 @@ export function parseSseChunk(buffer: string): SseParseResult {
     } else if (evt.type === "error") {
       error = evt.error?.message ?? "Streaming error from Anthropic API";
     }
+    if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
     // Merge any usage carried on this event (message_start / message_delta).
     const u = evt.message?.usage ?? evt.usage;
     if (u) usage = mergeUsage(usage, u);
   }
-  return { text, thinking, remainder: buffer, error, usage };
+  return { text, thinking, remainder: buffer, error, usage, stopReason };
 }
 
 /** Merge two partial usage records, preferring later non-undefined values. */

@@ -72,11 +72,12 @@ export class AnthropicProvider implements Provider {
       const decoder = new TextDecoder();
       let buffer = "";
       let full = "";
+      let stopReason: string | undefined;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const { text, thinking, remainder, error, usage } = parseSseChunk(buffer);
+        const { text, thinking, remainder, error, usage, stopReason: sr } = parseSseChunk(buffer);
         buffer = remainder;
         if (error) throw new ProviderError(error);
         if (thinking) handlers.onThinking?.(thinking);
@@ -85,7 +86,9 @@ export class AnthropicProvider implements Provider {
           handlers.onText(text);
         }
         if (usage) handlers.onUsage?.(usage);
+        if (sr) stopReason = sr;
       }
+      if (stopReason === "max_tokens") handlers.onTruncated?.();
       handlers.onDone?.(full);
     } catch (err) {
       if (isAbort(err)) return;

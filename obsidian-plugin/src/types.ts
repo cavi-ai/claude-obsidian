@@ -4,8 +4,15 @@ export type ChatRole = "user" | "assistant";
 
 export interface ChatMessage {
   role: ChatRole;
-  /** Raw markdown content of the message. */
+  /** Raw markdown content of the message — what's sent to the model. */
   content: string;
+  /**
+   * Optional human-facing label shown in the chat instead of `content`. Used to
+   * hide verbose internal instructions (e.g. the plan/artifact prompt templates)
+   * behind a friendly line like "Generate implementation plan" — the model still
+   * receives the full `content`.
+   */
+  display?: string;
 }
 
 export interface ContextToggles {
@@ -37,6 +44,8 @@ export interface PluginSettings {
   systemPrompt: string;
   artifactFolder: string;
   chatFolder: string;
+  /** Folder for generated plan notes (artifact + build-task checklist, type: plan). */
+  planFolder: string;
   context: ContextToggles;
   /** Max characters of vault context to attach to a request. */
   contextCharBudget: number;
@@ -115,13 +124,14 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   baseUrl: "",
   model: "claude-sonnet-4-6",
   customModel: "",
-  maxTokens: 4096,
+  maxTokens: 8192,
   systemPrompt:
     "You are Claude, working inside the user's Obsidian vault. Be concise and precise. " +
     "When the user asks for a plan, report, diagram, or anything visual, prefer producing a single " +
     "self-contained HTML artifact in a ```claude-html code block using the provided design system.",
   artifactFolder: "Claude/Artifacts",
   chatFolder: "Claude/Chats",
+  planFolder: "Claude/Plans",
   context: {
     activeNote: true,
     selection: true,
@@ -173,4 +183,6 @@ export interface StreamHandlers {
   onUsage?: (usage: import("./claude/sse").TokenUsage) => void;
   /** Incremental extended-thinking text (Anthropic, when thinking is on). */
   onThinking?: (delta: string) => void;
+  /** Called when generation stopped at the output-token limit (response truncated). */
+  onTruncated?: () => void;
 }

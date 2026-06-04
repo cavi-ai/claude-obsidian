@@ -71,8 +71,15 @@ describe("catalog integrity", () => {
   });
   it("includes the newer chat-surface commands", () => {
     const slashNames = new Set(SLASH_COMMANDS.map((c) => c.name));
-    for (const name of ["brainstorm", "diagram", "links", "search", "daily", "outline", "compare", "extract"]) {
+    for (const name of ["brainstorm", "diagram", "links", "daily", "outline", "compare", "extract", "capture"]) {
       expect(slashNames.has(name), name).toBe(true);
     }
+  });
+  it("folds vault-search into /ask (no duplicate /search command)", () => {
+    const slashNames = new Set(SLASH_COMMANDS.map((c) => c.name));
+    expect(slashNames.has("search")).toBe(false);
+    // …but /search, /vault, /find still resolve to ask via aliases.
+    expect(filterCommands(SLASH_COMMANDS, "search").map((c) => c.name)).toContain("ask");
+    expect(filterCommands(SLASH_COMMANDS, "find").map((c) => c.name)).toContain("ask");
   });
 });

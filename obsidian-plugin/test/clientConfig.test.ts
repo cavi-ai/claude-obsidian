@@ -1,5 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig } from "../src/mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
+
+describe("maskToken", () => {
+  it("keeps a short prefix/suffix and masks the middle", () => {
+    expect(maskToken("abcdef0123456789wxyz")).toBe("abcd••••••••••••wxyz");
+  });
+  it("fully masks short tokens and handles empty", () => {
+    expect(maskToken("abc")).toBe("•••");
+    expect(maskToken("")).toBe("");
+  });
+});
+
+describe("resolveMcpToken", () => {
+  it("prefers the env var over the stored token", () => {
+    expect(resolveMcpToken({ [MCP_TOKEN_ENV]: "envtok" }, "stored")).toEqual({ token: "envtok", source: "env" });
+  });
+  it("falls back to stored, then none", () => {
+    expect(resolveMcpToken({}, "stored")).toEqual({ token: "stored", source: "stored" });
+    expect(resolveMcpToken({}, "  ")).toEqual({ token: "", source: "none" });
+  });
+  it("exposes a share-safe env reference", () => {
+    expect(mcpTokenEnvRef()).toBe("${OBSIDIAN_COMPANION_MCP_TOKEN}");
+  });
+});
 
 describe("generateToken", () => {
   it("produces a hex string of the expected length", () => {

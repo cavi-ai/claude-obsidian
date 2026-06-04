@@ -25,12 +25,21 @@ Rules:
 - Tags/pills: small, --gray-150 background, --gray-300 border, rounded.
 - Center content in a .page wrapper, max-width ~1120px, padding 56px 32px.
 - Calm, editorial, lots of whitespace. No drop shadows beyond very subtle. No emoji in artifacts.
+- Interactivity must actually work. If you add tabs, accordions, toggles, filters, steppers, or any control that shows/hides or changes content, you MUST include an inline <script> (vanilla JS) that implements it — define every function an onclick/handler references and wire it up. Inline <script> runs in the artifact sandbox, so this is allowed and expected. Never ship a control that looks interactive but does nothing. If you are not going to write the script that makes it work, lay the content out fully visible instead (no hidden-by-default panels).
 
 Always include <!DOCTYPE html>, <meta charset> and viewport, and a descriptive <title>.`;
 
-export const PLANNING_INSTRUCTION = `Produce an implementation plan as a single \`\`\`claude-html artifact following the design system.
+export const PLANNING_INSTRUCTION = `Produce an implementation plan in TWO parts:
+
+PART 1 — a single \`\`\`claude-html artifact following the design system.
 Structure it as:
 1. A header: eyebrow ("Implementation plan"), an h1 title, and a "prompt-box" restating the goal.
 2. A summary strip of 3–4 key/value cells (e.g. Scope, Effort, Risk, Owner) with one value in the accent color.
 3. Numbered sections. Include at least: Milestones (a vertical timeline with done/pending dots), Architecture / approach, and Risks & open questions.
-4. Concrete, specific content derived from the user's context — not placeholders.`;
+4. Concrete, specific content derived from the user's context — not placeholders.
+
+PART 2 — immediately AFTER the artifact block (in plain Markdown, not inside the code block), a section:
+
+## Build tasks
+
+A flat Markdown checklist with one \`- [ ]\` item per concrete, actionable task, in execution order. Each item is a single self-contained line (no sub-bullets). These tasks are parsed by the Build command, so make them specific and ordered — they ARE the plan's executable steps.`;

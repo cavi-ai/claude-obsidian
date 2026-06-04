@@ -34,16 +34,17 @@ function renderFile(path: string, vaultNotes?: Set<string>): string {
 
 export function renderDigestNote(d: SessionDigest, opts: RenderOptions): string {
   const fm: FrontmatterData = {
-    "claude-session": d.sessionId ?? "",
+    session_id: d.sessionId ?? "",
+    source: "claude-companion",
     model: d.model,
-    branch: d.gitBranch,
-    started: d.startedAt,
-    ended: d.endedAt,
-    "user-turns": d.userTurns,
-    "assistant-turns": d.assistantTurns,
-    "input-tokens": d.inputTokens,
-    "output-tokens": d.outputTokens,
-    "files-touched": d.filesTouched,
+    git_branch: d.gitBranch,
+    started_at: d.startedAt,
+    ended_at: d.endedAt,
+    user_turns: d.userTurns,
+    assistant_turns: d.assistantTurns,
+    input_tokens: d.inputTokens,
+    output_tokens: d.outputTokens,
+    files_touched: d.filesTouched,
     redactions: opts.redactions ?? 0,
     tags: normalizeTags(opts.baseTags),
   };
@@ -100,8 +101,9 @@ function escapeRe(s: string): string {
 
 /**
  * Write the digest note for `sessionId`. If a note in `folder` already carries
- * `claude-session: <sessionId>`, modify it in place; otherwise create a new,
- * uniquely-named note. This is the idempotency guarantee for re-ingest.
+ * `session_id: <sessionId>` (or the legacy `claude-session:` key from ≤0.6.1),
+ * modify it in place; otherwise create a new, uniquely-named note. This is the
+ * idempotency guarantee for re-ingest, and it migrates old notes on re-capture.
  */
 export async function writeDigestNote(
   app: App,
@@ -112,7 +114,7 @@ export async function writeDigestNote(
 ): Promise<TFile> {
   await ensureFolder(app, folder);
   const dir = normalizePath(folder);
-  const marker = new RegExp(`^claude-session:\\s*${escapeRe(sessionId)}\\s*$`, "m");
+  const marker = new RegExp(`^(?:session_id|claude-session):\\s*${escapeRe(sessionId)}\\s*$`, "m");
 
   for (const f of app.vault.getMarkdownFiles()) {
     if (!f.path.startsWith(`${dir}/`)) continue;

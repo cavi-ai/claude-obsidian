@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { App } from "obsidian";
-import { ingestSession } from "../src/memory/ingest";
+import { ingestSession, ingestConversation } from "../src/memory/ingest";
 
 const rec = (o: object) => JSON.stringify(o);
 
@@ -56,6 +56,27 @@ describe("ingestSession", () => {
     const all = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith("Claude/Sessions/"));
     expect(all.length).toBe(1); // not duplicated
     expect(r1.sessionId).toBe("fileabc");
-    expect(await app.vault.cachedRead(r1.file)).toContain("claude-session: fileabc");
+    expect(await app.vault.cachedRead(r1.file)).toContain("session_id: fileabc");
+  });
+});
+
+describe("ingestConversation (adapter B)", () => {
+  const messages = [
+    { role: "user" as const, content: "deploy with key sk-ant-api03-DEADBEEFDEADBEEFDEADBEEF" },
+    { role: "assistant" as const, content: "Done." },
+  ];
+  const pdeps = (app: App) => ({ app, folder: "Claude/Sessions", baseTags: ["claude", "session"] });
+
+  it("sanitizes the conversation and is idempotent by conversation id", async () => {
+    const app = new App();
+    const r1 = await ingestConversation(pdeps(app), messages, { sessionId: "conv-9" });
+    const content = await app.vault.cachedRead(r1.file);
+    expect(content).not.toContain("sk-ant-api03-DEADBEEFDEADBEEFDEADBEEF");
+    expect(content).toContain("‹REDACTED›");
+    expect(r1.sessionId).toBe("conv-9");
+
+    await ingestConversation(pdeps(app), messages, { sessionId: "conv-9" });
+    const all = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith("Claude/Sessions/"));
+    expect(all.length).toBe(1);
   });
 });

@@ -30,7 +30,7 @@ export class MemoryView extends ItemView {
     await this.render();
   }
 
-  /** Notes in the memory folder that carry a `claude-session` frontmatter key. */
+  /** Notes in the memory folder that carry a `session_id` frontmatter key. */
   private capturedNotes(): TFile[] {
     const dir = normalizePath(this.plugin.settings.memoryFolder);
     return this.app.vault
@@ -38,7 +38,7 @@ export class MemoryView extends ItemView {
       .filter((f) => f.path.startsWith(`${dir}/`))
       .filter((f) => {
         const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
-        return fm != null && "claude-session" in fm;
+        return fm != null && ("session_id" in fm || "claude-session" in fm);
       })
       .sort((a, b) => b.stat.mtime - a.stat.mtime);
   }
@@ -64,7 +64,8 @@ export class MemoryView extends ItemView {
       const open = row.createEl("button", { cls: "cc-memory-open", text: f.basename });
       open.addEventListener("click", () => void this.app.workspace.getLeaf(false).openFile(f));
 
-      const sessionId = String(this.app.metadataCache.getFileCache(f)?.frontmatter?.["claude-session"] ?? "");
+      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+      const sessionId = String(fm?.["session_id"] ?? fm?.["claude-session"] ?? "");
       const reBtn = row.createEl("button", { cls: "cc-action", attr: { "aria-label": "Re-ingest", title: "Re-ingest" } });
       setIcon(reBtn, "refresh-cw");
       reBtn.addEventListener("click", () => void this.plugin.reingestSession(sessionId));

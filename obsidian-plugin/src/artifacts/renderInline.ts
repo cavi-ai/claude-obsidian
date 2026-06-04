@@ -1,4 +1,5 @@
 import { setIcon, Notice } from "obsidian";
+import { validateArtifactInteractivity } from "./parse";
 
 /**
  * Render an HTML artifact inline inside a note using a sandboxed iframe.
@@ -28,6 +29,11 @@ export function renderArtifactInline(el: HTMLElement, html: string, height: numb
   iframe.setAttribute("loading", "lazy");
   iframe.style.height = `${Math.max(120, height)}px`;
   iframe.srcdoc = html;
+
+  // Flag faux-interactive artifacts (handlers wired to undefined JS) — a model
+  // regression guard, so a tab bar that does nothing doesn't ship silently.
+  const report = validateArtifactInteractivity(html);
+  if (!report.ok) console.warn("[Claude Companion] artifact interactivity issues:", report.issues);
 }
 
 /**

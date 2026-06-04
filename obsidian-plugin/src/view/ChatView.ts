@@ -12,7 +12,8 @@ import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashComma
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { abbreviateNoteName, selectionLineLabel, selectionLineLabelFromText } from "./contextStatus";
 import { gatherContext } from "../context/vaultContext";
-import { extractArtifact, saveArtifactNote, saveChatNote } from "../artifacts/artifactStore";
+import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
+import { extractTasks } from "../build/spec";
 import { errorHint } from "../providers/errorHints";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
@@ -41,6 +42,11 @@ export class ChatView extends ItemView {
   private selectionStatusEl!: HTMLElement;
   private localStatusEl!: HTMLElement;
   private mcpStatusEl!: HTMLButtonElement;
+  /** Rotating "thinking" status word timer + per-turn start offset. */
+  private thinkingTimer: number | null = null;
+  private claudianSeq = 0;
+  /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
+  private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
@@ -88,7 +94,11 @@ export class ChatView extends ItemView {
     const actions = header.createDiv({ cls: "cc-header-actions" });
     this.iconButton(actions, "plus", "New chat", () => this.clearChat());
     this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
+    this.iconButton(actions, "layout-grid", "Run a vault workflow (manifests, rollup, MOC…)", () => void this.plugin.openWorkflowPicker());
     this.iconButton(actions, "save", "Save chat to vault", () => this.saveChat());
+    if (this.plugin.settings.memoryEnabled) {
+      this.iconButton(actions, "brain", "Capture a Claude Code session", () => void this.plugin.openSessionPicker());
+    }
     this.renderIngestToggle(actions);
     this.iconButton(actions, "settings", "Open settings", () => this.openSettings());
 
@@ -193,7 +203,7 @@ export class ChatView extends ItemView {
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
     bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
-    void this.renderMarkdownInto(body, m.content);
+    void this.renderMarkdownInto(body, m.display ?? m.content);
     if (m.role === "assistant" && m.content.trim().length > 0) this.addAssistantActions(bubble, m.content);
   }
 
@@ -267,6 +277,7 @@ export class ChatView extends ItemView {
 
   async onClose(): Promise<void> {
     this.abort?.abort();
+    this.clearThinkingStatus();
     if (this.contextStatusInterval !== null) {
       window.clearInterval(this.contextStatusInterval);
       this.contextStatusInterval = null;
@@ -283,10 +294,10 @@ export class ChatView extends ItemView {
 
   // ---------- public entry point (used by commands) ----------
 
-  async submitPrompt(text: string): Promise<void> {
+  async submitPrompt(text: string, display?: string, maxTokens?: number): Promise<void> {
     if (!text.trim() || this.streaming) return;
     this.inputEl.value = "";
-    await this.run(text.trim());
+    await this.run(text.trim(), display, maxTokens);
   }
 
   // ---------- UI helpers ----------
@@ -302,7 +313,7 @@ export class ChatView extends ItemView {
     if (!this.plugin.settings.memoryEnabled) return;
     const wrap = parent.createEl("label", {
       cls: "cc-ingest-toggle",
-      attr: { title: "Also capture the latest Claude Code session when saving" },
+      attr: { title: "Also file this conversation into session memory when saving" },
     });
     const box = wrap.createEl("input", { type: "checkbox" });
     box.checked = this.plugin.settings.memoryIngestOnSave;
@@ -529,7 +540,8 @@ export class ChatView extends ItemView {
         this.updateUsageBar();
         return;
       }
-      await this.submitPrompt(cmd.prompt);
+      // Hide the verbose template behind the command name; the model still gets cmd.prompt.
+      await this.submitPrompt(cmd.prompt, `/${cmd.name}`);
       return;
     }
 
@@ -538,8 +550,11 @@ export class ChatView extends ItemView {
       case "new-chat":
         this.clearChat();
         break;
-      case "open-chat":
-        this.inputEl.focus();
+      case "workflows":
+        await this.plugin.openWorkflowPicker();
+        break;
+      case "capture-memory":
+        await this.plugin.openSessionPicker();
         break;
       case "history":
         this.openHistory();
@@ -579,7 +594,8 @@ export class ChatView extends ItemView {
     this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
   }
 
-  private async run(userText: string): Promise<void> {
+  private async run(userText: string, display?: string, maxTokens?: number): Promise<void> {
+    this.maxTokensOverride = maxTokens ?? null; // reset each turn
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
@@ -589,8 +605,8 @@ export class ChatView extends ItemView {
       return;
     }
 
-    this.messages.push({ role: "user", content: userText });
-    this.renderMessage("user", userText);
+    this.messages.push({ role: "user", content: userText, display });
+    this.renderMessage("user", display ?? userText);
 
     // Build context-augmented copy of the message list for the API.
     const ctx = await gatherContext(this.app, this.plugin.settings, this.plugin.settings.context, userText);
@@ -655,7 +671,7 @@ export class ChatView extends ItemView {
     const onClaude = target === "claude";
     const provider = onClaude ? router.anthropic : router.ollama;
     const model = onClaude ? this.controls.model : this.plugin.settings.ollamaModel;
-    const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.plugin.settings.maxTokens);
+    const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
     const wantThinking = onClaude && this.controls.thinking && this.controls.showThinking;
     let thinkingBody: HTMLElement | null = wantThinking ? this.createThinkingPanel(bubble) : null;
 
@@ -663,10 +679,20 @@ export class ChatView extends ItemView {
     let thinkBuf = "";
     let scheduled = false;
     let finalizing = false;
+    // Throttle the (expensive) full markdown re-render during streaming. Rendering
+    // every animation frame swaps the whole subtree via replaceChildren ~60×/s,
+    // which reads as flicker. ~100ms keeps it lively without churn; onDone always
+    // does a final authoritative render, and skipped frames just keep the last
+    // paint (the next delta reschedules a flush, so content never stalls visibly).
+    const MD_THROTTLE_MS = 100;
+    let lastMd = 0;
     const flush = () => {
       scheduled = false;
       if (finalizing) return;
       if (shouldRenderMarkdownDuringStream(buffer)) {
+        const now = performance.now();
+        if (now - lastMd < MD_THROTTLE_MS) return; // skip; next delta reschedules
+        lastMd = now;
         void this.renderMarkdownInto(body, buffer);
       } else {
         this.renderStreamingTextInto(body, buffer);
@@ -696,6 +722,7 @@ export class ChatView extends ItemView {
             this.scrollToBottom();
           },
           onText: (delta) => {
+            if (buffer === "") this.clearThinkingStatus(); // first token landed
             buffer += delta;
             this._lastBuffer = buffer;
             if (!scheduled) {
@@ -711,6 +738,7 @@ export class ChatView extends ItemView {
           onUsage: (usage) => {
             this._turnUsage = mergeUsage(this._turnUsage ?? undefined, usage);
           },
+          onTruncated: () => this.annotateTruncated(bubble),
           onDone: (full) => {
             if (settled) return;
             settled = true;
@@ -738,6 +766,7 @@ export class ChatView extends ItemView {
     // for the same turn — only the first call commits the message + action bar.
     if (bubble.dataset.ccFinished === "1") return;
     bubble.dataset.ccFinished = "1";
+    this.clearThinkingStatus(); // covers no-text / error / abort turns
     this.setSending(false);
     this.abort = null;
     if (full && full.trim().length > 0) {
@@ -763,9 +792,36 @@ export class ChatView extends ItemView {
     const bubble = this.messagesEl.createDiv({ cls: "cc-msg cc-assistant" });
     bubble.createDiv({ cls: "cc-role", text: "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
+    this.startThinkingStatus(body);
     body.createSpan({ cls: "cc-cursor", text: "▍" });
     this.scrollToBottom();
     return { bubble, body };
+  }
+
+  /** Playful "Claudian" gerunds shown while Claude works, before text arrives. */
+  private static readonly CLAUDIAN = [
+    "Manifesting", "Synthesizing", "Philosophising", "Pondering",
+    "Actualizing", "Synergizing", "Ruminating", "Clauding",
+  ];
+
+  /** Cycle a whimsical status word in `body` until the first token lands. */
+  private startThinkingStatus(body: HTMLElement): void {
+    const status = body.createSpan({ cls: "cc-thinking-status" });
+    let i = this.claudianSeq++;
+    const tick = () => {
+      status.setText(`${ChatView.CLAUDIAN[i % ChatView.CLAUDIAN.length]}…`);
+      i++;
+    };
+    tick();
+    this.clearThinkingStatus();
+    this.thinkingTimer = window.setInterval(tick, 1600);
+  }
+
+  private clearThinkingStatus(): void {
+    if (this.thinkingTimer != null) {
+      window.clearInterval(this.thinkingTimer);
+      this.thinkingTimer = null;
+    }
   }
 
   /**
@@ -799,6 +855,16 @@ export class ChatView extends ItemView {
     box.createSpan({ text: message });
     const hint = errorHint(message);
     if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
+  }
+
+  /** Flag a reply that the model truncated at the output-token limit. */
+  private annotateTruncated(bubble: HTMLElement): void {
+    if (bubble.querySelector(".cc-truncated-note")) return;
+    const note = bubble.createDiv({ cls: "cc-truncated-note" });
+    note.createSpan({ cls: "cc-truncated-title", text: "Response hit the output-token limit" });
+    note.createSpan({
+      text: ` — it was cut off. Raise “max” (top of the chat) and Regenerate for the full result. Current cap: ${this.controls?.maxTokens ?? this.plugin.settings.maxTokens} tokens.`,
+    });
   }
 
   private renderInterruptedArtifact(body: HTMLElement): void {
@@ -901,7 +967,9 @@ export class ChatView extends ItemView {
     this.localStatusEl.setText(localLabel);
 
     const mcp = this.plugin.mcpStats();
-    const mcpLabel = mcp.running ? `MCP: on · ${mcp.activeRequests} active` : "MCP: off";
+    // "0 active" reads as a contradiction; only surface the count when a request
+    // is genuinely in flight. Otherwise the bridge is simply ready.
+    const mcpLabel = mcp.running ? (mcp.activeRequests > 0 ? `MCP: on · ${mcp.activeRequests} active` : "MCP: ready") : "MCP: off";
     this.mcpStatusEl.setText(mcpLabel);
     this.mcpStatusEl.toggleClass("is-on", mcp.running);
     this.mcpStatusEl.toggleClass("is-warn", this.plugin.settings.mcpEnabled && !mcp.running);
@@ -1001,11 +1069,24 @@ export class ChatView extends ItemView {
       () => void this.saveReplyAsNote(full),
     );
     if (isArtifact) saveBtn.addClass("cc-accent");
+    // A plan reply (has a `## Build tasks` checklist) gets a Build button right here.
+    if (extractTasks(full).length > 0) {
+      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full));
+    }
     // Regenerate the last reply (only on the most recent assistant message).
     const isLast = this.messages.length > 0 && this.messages[this.messages.length - 1].role === "assistant";
     if (isLast && this.lastUserText) {
       this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.regenerate());
     }
+  }
+
+  /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
+  private async buildFromReply(full: string): Promise<void> {
+    const artifact = extractArtifact(full);
+    const { tags, summary, title } = await this.maybeIndex(full);
+    const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
+    const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, { extraTags: tags, summary });
+    await this.plugin.handoffToBuild(file);
   }
 
   /** Add a hover "copy" button to each <pre><code> block in a rendered reply. */
@@ -1044,15 +1125,29 @@ export class ChatView extends ItemView {
    * by the utility provider (local Ollama when available, else Claude — heavy
    * lifting offloads automatically). Best-effort: never blocks a save.
    */
-  private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string }> {
+  private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string; title?: string }> {
     if (!this.plugin.settings.autoTagOnSave) return { tags: [] };
     try {
       const { summarizeAndTag, existingVaultTags } = await import("../indexing/autoTagger");
       const res = await summarizeAndTag(this.app, this.plugin.router(), content, existingVaultTags(this.app));
-      return { tags: res.tags, summary: res.summary || undefined };
+      return { tags: res.tags, summary: res.summary || undefined, title: res.title || undefined };
     } catch {
       return { tags: [] };
     }
+  }
+
+  /**
+   * A title derived from the *answer*, never the prompt. Used as a fallback when
+   * the indexer (which produces a better title) is disabled or fails.
+   */
+  private fallbackTitle(): string {
+    const firstAssistant = this.messages.find((m) => m.role === "assistant")?.content ?? "";
+    const line = firstAssistant
+      .split("\n")
+      .map((l) => l.replace(/^#+\s*/, "").replace(/[*_`]/g, "").trim())
+      .find((l) => l.length > 0) ?? "";
+    const sentence = line.split(/(?<=[.?!])\s/)[0] || line;
+    return (sentence || "Claude chat").slice(0, 60);
   }
 
   /**
@@ -1064,6 +1159,17 @@ export class ChatView extends ItemView {
   private async saveReplyAsNote(full: string): Promise<void> {
     const artifact = extractArtifact(full);
     new Notice("Indexing & saving…");
+
+    // A plan reply carries a `## Build tasks` checklist. Save it as a canonical
+    // `type: plan` note (artifact renders inline + checklist drives Build).
+    if (extractTasks(full).length > 0) {
+      const { tags, summary, title } = await this.maybeIndex(full);
+      const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
+      const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, { extraTags: tags, summary });
+      await this.app.workspace.getLeaf(true).openFile(file);
+      return;
+    }
+
     if (artifact) {
       const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
       const file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
@@ -1075,9 +1181,9 @@ export class ChatView extends ItemView {
       await this.app.workspace.getLeaf(true).openFile(file);
       return;
     }
-    const title = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
-    const { tags, summary } = await this.maybeIndex(full);
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, full, {
+    const { tags, summary, title } = await this.maybeIndex(full);
+    const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
+    await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
       baseTags: this.plugin.settings.chatBaseTags,
       extraTags: tags,
       summary,
@@ -1107,12 +1213,12 @@ export class ChatView extends ItemView {
       return;
     }
     const md = this.messages.map((m) => `**${m.role === "user" ? "You" : "Claude"}:**\n\n${m.content}`).join("\n\n---\n\n");
-    const title = this.messages[0].content.split("\n")[0].slice(0, 60) || "Claude chat";
     new Notice("Indexing & saving…");
-    const { tags, summary } = await this.maybeIndex(md);
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
+    const { tags, summary, title } = await this.maybeIndex(md);
+    const finalTitle = title ?? this.fallbackTitle();
+    await saveChatNote(this.app, this.plugin.settings.chatFolder, finalTitle, md, { baseTags: this.plugin.settings.chatBaseTags, extraTags: tags, summary });
     if (this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
-      await this.plugin.captureLatestSession(); // best-effort; never blocks the chat save
+      await this.plugin.captureConversation(this.messages); // also file this chat into memory
     }
   }
 
