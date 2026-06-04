@@ -89,6 +89,7 @@ export class ChatView extends ItemView {
     const actions = header.createDiv({ cls: "cc-header-actions" });
     this.iconButton(actions, "plus", "New chat", () => this.clearChat());
     this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
+    this.iconButton(actions, "layout-grid", "Run a vault workflow (manifests, rollup, MOC…)", () => void this.plugin.openWorkflowPicker());
     this.iconButton(actions, "save", "Save chat to vault", () => this.saveChat());
     if (this.plugin.settings.memoryEnabled) {
       this.iconButton(actions, "brain", "Capture a Claude Code session", () => void this.plugin.openSessionPicker());
@@ -542,6 +543,9 @@ export class ChatView extends ItemView {
     switch (cmd.action) {
       case "new-chat":
         this.clearChat();
+        break;
+      case "workflows":
+        await this.plugin.openWorkflowPicker();
         break;
       case "capture-memory":
         await this.plugin.openSessionPicker();

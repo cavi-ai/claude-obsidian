@@ -2,6 +2,8 @@ import { App, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, Workspa
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { SessionPicker } from "./view/SessionPicker";
+import { WorkflowPicker } from "./view/WorkflowPicker";
+import { WORKFLOWS, type Workflow } from "./workflows/catalog";
 import { listSessionsForVault, nodeSessionReader, defaultProjectsRoot, type SessionMeta } from "./memory/sessions";
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
@@ -73,6 +75,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
+    this.addRibbonIcon("layout-grid", "Run a Companion vault workflow", () => void this.openWorkflowPicker());
     if (this.settings.memoryEnabled) {
       this.addRibbonIcon("brain", "Capture Claude session memory", () => void this.openSessionPicker());
     }
@@ -170,6 +173,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "pull-cloud-replies",
       name: "Pull cloud session replies into the vault",
       callback: () => void this.pullCloudReplies(),
+    });
+
+    this.addCommand({
+      id: "open-workflows",
+      name: "Run a vault workflow… (manifests, rollup, MOC, digest)",
+      callback: () => void this.openWorkflowPicker(),
     });
 
     this.addCommand({
@@ -491,6 +500,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
       folder: this.settings.memoryFolder,
       baseTags: this.settings.memoryBaseTags,
     };
+  }
+
+  /** Open the workflows picker; run the chosen workflow in the chat. */
+  async openWorkflowPicker(): Promise<void> {
+    new WorkflowPicker(this.app, WORKFLOWS, (wf) => void this.runWorkflow(wf)).open();
+  }
+
+  /** Run a vault workflow: ground it (active note + vault search), send its prompt. */
+  async runWorkflow(wf: Workflow): Promise<void> {
+    this.settings.context.activeNote = true;
+    if (wf.vaultSearch) this.settings.context.searchVault = true;
+    await this.saveSettings();
+    const view = await this.activateView();
+    if (!view) return;
+    await view.submitPrompt(wf.prompt, wf.name); // friendly label hides the long prompt
   }
 
   /** Open the picker; ingest the chosen session. */

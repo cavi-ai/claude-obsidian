@@ -180,6 +180,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     action: "build",
   },
   {
+    name: "workflows",
+    aliases: ["manifest", "manifests", "roadmap", "skills"],
+    description: "Run a vault workflow — manifests, daily rollup, MOC, source digest…",
+    kind: "action",
+    action: "workflows",
+  },
+  {
     name: "capture",
     aliases: ["memory", "session"],
     description: "Capture a Claude Code session for this vault into memory",
