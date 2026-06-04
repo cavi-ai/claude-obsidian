@@ -150,6 +150,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "mark-note-as-plan",
+      name: "Mark current note as a plan (adds type: plan + Build icon)",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (checking) return file instanceof TFile;
+        if (file instanceof TFile) void this.markNoteAsPlan(file);
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "dispatch-cloud-session",
       name: "Send to cloud Claude session (mobile-friendly)",
       callback: () => void this.dispatchCloudSession(),
@@ -176,7 +187,50 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
 
     // Start the MCP bridge if enabled (deferred so it doesn't block load).
-    this.app.workspace.onLayoutReady(() => void this.syncMcpServer());
+    this.app.workspace.onLayoutReady(() => {
+      void this.syncMcpServer();
+      this.syncPlanBuildActions();
+    });
+
+    // Show a "Build" action in the header of any `type: plan` note.
+    this.registerEvent(this.app.workspace.on("file-open", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
+  }
+
+  /** Tracks the Build header-action element we added to each plan-note view. */
+  private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
+
+  /**
+   * Add (or remove) a "Build" icon in the header of every open markdown note that
+   * declares `type: plan` in frontmatter, wired to build that specific note. A
+   * note becomes "canonical" by carrying `type: plan`.
+   */
+  private syncPlanBuildActions(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) continue;
+      const fm = view.file ? this.app.metadataCache.getFileCache(view.file)?.frontmatter : null;
+      const isPlan = fm?.type === "plan";
+      const existing = this.planBuildActions.get(view);
+      if (isPlan && !existing) {
+        const file = view.file;
+        const action = view.addAction("hammer", "Build this plan with Claude Code", () => void this.handoffToBuild(file ?? undefined));
+        this.planBuildActions.set(view, action);
+      } else if (!isPlan && existing) {
+        existing.remove();
+        this.planBuildActions.delete(view);
+      }
+    }
+  }
+
+  /** Stamp `type: plan` onto a note so it gets the Build affordance. */
+  async markNoteAsPlan(file: TFile): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      (fm as Record<string, unknown>).type = "plan";
+    });
+    this.syncPlanBuildActions();
+    new Notice("Marked as a plan — a Build icon is now in the note's header.");
   }
 
   onunload(): void {
@@ -552,8 +606,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * tracker note, then hand it to Claude Code. Claude Code reaches the vault
    * through the MCP bridge and updates the tracker as it builds.
    */
-  async handoffToBuild(): Promise<void> {
-    const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+  async handoffToBuild(planFile?: TFile): Promise<void> {
+    const file = planFile ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null;
     if (!(file instanceof TFile)) {
       new Notice("Open a plan note first — a note with a task checklist (`- [ ]`) or numbered milestones.", 8000);
       return;

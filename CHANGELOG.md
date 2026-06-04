@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (a task checklist or numbered milestones), guides you when the note isn't one, and asks
   for confirmation — showing the detected task count and what it will create — before it
   writes notes and copies a command.
+- **Build icon on plan notes.** Any note with `type: plan` frontmatter gets a **Build**
+  icon in its header that builds *that* note. A new command, "Mark current note as a plan,"
+  stamps `type: plan` so any checklist note becomes build-ready.
 
 ### Added
 - **Capture the in-app conversation into memory.** Ticking the **ingest** checkbox by
