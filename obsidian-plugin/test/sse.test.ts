@@ -53,3 +53,17 @@ describe("extractApiError", () => {
     expect(extractApiError("<html>502</html>", 502)).toBe("Anthropic API error 502.");
   });
 });
+
+describe("parseSseChunk stop_reason", () => {
+  it("surfaces a max_tokens truncation from message_delta", () => {
+    const evt = `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "max_tokens" }, usage: { output_tokens: 8192 } })}\n`;
+    const r = parseSseChunk(delta("partial…") + evt);
+    expect(r.text).toBe("partial…");
+    expect(r.stopReason).toBe("max_tokens");
+  });
+  it("leaves stopReason undefined on a normal end_turn", () => {
+    const evt = `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" } })}\n`;
+    expect(parseSseChunk(evt).stopReason).toBe("end_turn");
+    expect(parseSseChunk(delta("hi")).stopReason).toBeUndefined();
+  });
+});

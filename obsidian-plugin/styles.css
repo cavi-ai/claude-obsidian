@@ -201,6 +201,19 @@
     opacity: 1;
   }
 }
+.cc-truncated-note {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--cc-clay);
+  border-radius: 4px;
+  background: var(--background-modifier-hover);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+.cc-truncated-note .cc-truncated-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
 .cc-context-note {
   font-family: var(--cc-mono);
   font-size: 10px;

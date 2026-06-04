@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.1] — 2026-06-03
 
 ### Fixed
+- **Responses no longer cut off silently.** Big outputs (manifests, artifacts, plans) were
+  hitting the output-token limit and ending with no explanation. Now: the default cap is
+  raised (4096 → 8192), artifact/plan/workflow runs request generous headroom, and if a
+  reply *is* truncated at the limit the chat says so and tells you to raise "max" and
+  regenerate (the API's `max_tokens` stop reason is finally surfaced).
 - **Chat flicker.** Streaming now throttles the markdown re-render (~100ms) instead of
   re-rendering every animation frame, eliminating the flicker during long replies.
 - **Faux-interactive artifacts.** The design-system prompt now requires that any

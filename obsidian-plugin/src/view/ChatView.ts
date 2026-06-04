@@ -45,6 +45,8 @@ export class ChatView extends ItemView {
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
+  /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
+  private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
@@ -292,10 +294,10 @@ export class ChatView extends ItemView {
 
   // ---------- public entry point (used by commands) ----------
 
-  async submitPrompt(text: string, display?: string): Promise<void> {
+  async submitPrompt(text: string, display?: string, maxTokens?: number): Promise<void> {
     if (!text.trim() || this.streaming) return;
     this.inputEl.value = "";
-    await this.run(text.trim(), display);
+    await this.run(text.trim(), display, maxTokens);
   }
 
   // ---------- UI helpers ----------
@@ -592,7 +594,8 @@ export class ChatView extends ItemView {
     this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
   }
 
-  private async run(userText: string, display?: string): Promise<void> {
+  private async run(userText: string, display?: string, maxTokens?: number): Promise<void> {
+    this.maxTokensOverride = maxTokens ?? null; // reset each turn
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
@@ -668,7 +671,7 @@ export class ChatView extends ItemView {
     const onClaude = target === "claude";
     const provider = onClaude ? router.anthropic : router.ollama;
     const model = onClaude ? this.controls.model : this.plugin.settings.ollamaModel;
-    const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.plugin.settings.maxTokens);
+    const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
     const wantThinking = onClaude && this.controls.thinking && this.controls.showThinking;
     let thinkingBody: HTMLElement | null = wantThinking ? this.createThinkingPanel(bubble) : null;
 
@@ -735,6 +738,7 @@ export class ChatView extends ItemView {
           onUsage: (usage) => {
             this._turnUsage = mergeUsage(this._turnUsage ?? undefined, usage);
           },
+          onTruncated: () => this.annotateTruncated(bubble),
           onDone: (full) => {
             if (settled) return;
             settled = true;
@@ -851,6 +855,16 @@ export class ChatView extends ItemView {
     box.createSpan({ text: message });
     const hint = errorHint(message);
     if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
+  }
+
+  /** Flag a reply that the model truncated at the output-token limit. */
+  private annotateTruncated(bubble: HTMLElement): void {
+    if (bubble.querySelector(".cc-truncated-note")) return;
+    const note = bubble.createDiv({ cls: "cc-truncated-note" });
+    note.createSpan({ cls: "cc-truncated-title", text: "Response hit the output-token limit" });
+    note.createSpan({
+      text: ` — it was cut off. Raise “max” (top of the chat) and Regenerate for the full result. Current cap: ${this.controls?.maxTokens ?? this.plugin.settings.maxTokens} tokens.`,
+    });
   }
 
   private renderInterruptedArtifact(body: HTMLElement): void {

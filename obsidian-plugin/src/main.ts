@@ -34,6 +34,11 @@ import {
 import type { ChatMessage } from "./types";
 import { normalizePath, TFile } from "obsidian";
 
+/** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
+ *  which routinely run past the chat default. A ceiling, not a target — you only
+ *  pay for what's generated. Within current models' max-output limits. */
+const ARTIFACT_MAX_TOKENS = 16384;
+
 /** Shape of this plugin's persisted data.json (settings + chat history). */
 interface PersistedData {
   settings?: Partial<PluginSettings>;
@@ -514,7 +519,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.saveSettings();
     const view = await this.activateView();
     if (!view) return;
-    await view.submitPrompt(wf.prompt, wf.name); // friendly label hides the long prompt
+    // Workflows produce large artifacts — give them output-token headroom.
+    await view.submitPrompt(wf.prompt, wf.name, ARTIFACT_MAX_TOKENS);
   }
 
   /** Open the picker; ingest the chosen session. */
@@ -622,6 +628,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await view.submitPrompt(
       `${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`,
       "Generate an implementation plan from this note",
+      ARTIFACT_MAX_TOKENS,
     );
   }
 
@@ -824,6 +831,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await view.submitPrompt(
       `Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`,
       `Turn ${target} into an artifact`,
+      ARTIFACT_MAX_TOKENS,
     );
   }
 }

@@ -124,7 +124,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   baseUrl: "",
   model: "claude-sonnet-4-6",
   customModel: "",
-  maxTokens: 4096,
+  maxTokens: 8192,
   systemPrompt:
     "You are Claude, working inside the user's Obsidian vault. Be concise and precise. " +
     "When the user asks for a plan, report, diagram, or anything visual, prefer producing a single " +
@@ -183,4 +183,6 @@ export interface StreamHandlers {
   onUsage?: (usage: import("./claude/sse").TokenUsage) => void;
   /** Incremental extended-thinking text (Anthropic, when thinking is on). */
   onThinking?: (delta: string) => void;
+  /** Called when generation stopped at the output-token limit (response truncated). */
+  onTruncated?: () => void;
 }
