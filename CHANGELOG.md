@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Build icon can parse its tasks. One loop: plan → save → Build.
 
 ### Added
+- **Vault Workflows in the chat.** The Claude Code plugin's portfolio is now native to the
+  Companion: a **Workflows** picker (command, `/workflows`, ribbon, and a chat button) runs
+  manifest personas (Product roadmap, Vault audit, Content plan, Research agenda, Risk
+  register, Feature backlog, Infra design), Daily rollup, Map of Content, Source digest,
+  Task harvest, and Vault synthesis — each grounded across your vault, producing an artifact
+  or linked Markdown. No CLI required.
+- **Build button on plan replies.** A plan generated in chat now shows a **Build** button
+  right there — it saves the `type: plan` note and dispatches in one click.
 - **Capture the in-app conversation into memory.** Ticking the **ingest** checkbox by
   Save now files *that conversation* into session memory (sanitized, shown in the Memory
   sidebar), instead of an unrelated CLI session — the coherent behavior.
