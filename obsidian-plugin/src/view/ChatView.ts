@@ -196,7 +196,7 @@ export class ChatView extends ItemView {
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
     bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
-    void this.renderMarkdownInto(body, m.content);
+    void this.renderMarkdownInto(body, m.display ?? m.content);
     if (m.role === "assistant" && m.content.trim().length > 0) this.addAssistantActions(bubble, m.content);
   }
 
@@ -286,10 +286,10 @@ export class ChatView extends ItemView {
 
   // ---------- public entry point (used by commands) ----------
 
-  async submitPrompt(text: string): Promise<void> {
+  async submitPrompt(text: string, display?: string): Promise<void> {
     if (!text.trim() || this.streaming) return;
     this.inputEl.value = "";
-    await this.run(text.trim());
+    await this.run(text.trim(), display);
   }
 
   // ---------- UI helpers ----------
@@ -532,7 +532,8 @@ export class ChatView extends ItemView {
         this.updateUsageBar();
         return;
       }
-      await this.submitPrompt(cmd.prompt);
+      // Hide the verbose template behind the command name; the model still gets cmd.prompt.
+      await this.submitPrompt(cmd.prompt, `/${cmd.name}`);
       return;
     }
 
@@ -582,7 +583,7 @@ export class ChatView extends ItemView {
     this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
   }
 
-  private async run(userText: string): Promise<void> {
+  private async run(userText: string, display?: string): Promise<void> {
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
@@ -592,8 +593,8 @@ export class ChatView extends ItemView {
       return;
     }
 
-    this.messages.push({ role: "user", content: userText });
-    this.renderMessage("user", userText);
+    this.messages.push({ role: "user", content: userText, display });
+    this.renderMessage("user", display ?? userText);
 
     // Build context-augmented copy of the message list for the API.
     const ctx = await gatherContext(this.app, this.plugin.settings, this.plugin.settings.context, userText);

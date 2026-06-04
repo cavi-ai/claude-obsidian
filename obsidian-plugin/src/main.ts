@@ -541,7 +541,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.saveSettings();
     const view = await this.activateView();
     if (!view) return;
-    await view.submitPrompt(`${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`);
+    await view.submitPrompt(
+      `${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`,
+      "Generate an implementation plan from this note",
+    );
   }
 
   /**
@@ -720,7 +723,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const view = await this.activateView();
     if (!view) return;
     const target = hasSelection ? "the selected text" : "my current note";
-    await view.submitPrompt(`Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`);
+    await view.submitPrompt(
+      `Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`,
+      `Turn ${target} into an artifact`,
+    );
   }
 }
 

@@ -4,8 +4,15 @@ export type ChatRole = "user" | "assistant";
 
 export interface ChatMessage {
   role: ChatRole;
-  /** Raw markdown content of the message. */
+  /** Raw markdown content of the message — what's sent to the model. */
   content: string;
+  /**
+   * Optional human-facing label shown in the chat instead of `content`. Used to
+   * hide verbose internal instructions (e.g. the plan/artifact prompt templates)
+   * behind a friendly line like "Generate implementation plan" — the model still
+   * receives the full `content`.
+   */
+  display?: string;
 }
 
 export interface ContextToggles {
