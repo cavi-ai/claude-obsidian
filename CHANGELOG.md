@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regenerate (the API's `max_tokens` stop reason is finally surfaced).
 - **Chat flicker.** Streaming now throttles the markdown re-render (~100ms) instead of
   re-rendering every animation frame, eliminating the flicker during long replies.
+- **Blurry/glitchy text.** Dropped the `container-type` responsive containers (a Chromium
+  quirk that rasterizes text on a fractional layer and blurs it); narrow-panel wrapping now
+  uses plain flex-wrap. Crisp at every width.
+- **Faux-interactive artifacts, guarded.** A validator checks that every artifact control
+  (tabs, toggles) references a function actually defined in a `<script>`; mismatches are
+  flagged in the console so a dead tab bar can't ship silently. (Unit-tested.)
 - **Faux-interactive artifacts.** The design-system prompt now requires that any
   interactive control (tabs, accordions, toggles) ships the JS that makes it work —
   no more tab bars wired to functions that were never written.

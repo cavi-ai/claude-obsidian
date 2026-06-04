@@ -881,46 +881,17 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding-bottom: 8px;
 }
 
-/* ----- responsive (container queries: panel width, not viewport) ----- */
-/* These views can be docked in a narrow sidebar or a wide main pane and the
-   user drags the divider freely, so we query the panel's own inline size. */
-.cc-chat-root,
-.cc-memory-view {
-  container-type: inline-size;
+/* ----- responsive (unconditional wrap) ----- */
+/* These views dock in a narrow sidebar or a wide pane. We previously used
+   `container-type: inline-size` container queries, but that rasterizes text on a
+   fractional layer and blurs it (a known Chromium quirk). Plain flex-wrap on the
+   rows that can overflow gives the same narrow-panel behavior without the blur. */
+.cc-header {
+  flex-wrap: wrap;
 }
-
-/* Narrow panel: let the header/actions/chips/controls wrap instead of clipping. */
-@container (max-width: 380px) {
-  .cc-header {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .cc-header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-  .cc-send-row {
-    flex-wrap: wrap;
-  }
+.cc-header-actions {
+  flex-wrap: wrap;
 }
-
-/* Very narrow: drop secondary text to keep controls tappable. */
-@container (max-width: 300px) {
-  .cc-eyebrow {
-    display: none;
-  }
-  .cc-ingest-toggle span {
-    display: none; /* keep the checkbox, drop the "ingest" label */
-  }
-  .cc-chips {
-    padding-left: 8px;
-    padding-right: 8px;
-  }
-  .cc-memory-view .cc-memory-row {
-    gap: 4px;
-  }
+.cc-send-row {
+  flex-wrap: wrap;
 }
-
-/* Wide panel (docked in the main editor area): cap line length for readability. */
-/* (Wide-width centering removed — it made the composer shrink oddly as the panel
-   grew. Full-width at every size reads consistently.) */

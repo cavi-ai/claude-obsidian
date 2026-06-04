@@ -1,5 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { extractArtifact, titleFromHtml, sanitizeFileName } from "../src/artifacts/parse";
+import { extractArtifact, titleFromHtml, sanitizeFileName, validateArtifactInteractivity } from "../src/artifacts/parse";
+
+describe("validateArtifactInteractivity", () => {
+  it("flags tab handlers that reference an undefined function", () => {
+    const html = `<nav><button onclick="switchTab('a')">A</button><button onclick="switchTab('b')">B</button></nav>`;
+    const r = validateArtifactInteractivity(html);
+    expect(r.ok).toBe(false);
+    expect(r.issues.join(" ")).toContain("switchTab");
+  });
+  it("passes when the handler's function is defined in a <script>", () => {
+    const html = `<button onclick="switchTab('a')">A</button><script>function switchTab(id){document.body.dataset.tab=id;}</script>`;
+    expect(validateArtifactInteractivity(html).ok).toBe(true);
+  });
+  it("accepts arrow/const definitions and is fine with no interactivity", () => {
+    expect(validateArtifactInteractivity(`<button onclick="go()">x</button><script>const go = () => {};</script>`).ok).toBe(true);
+    expect(validateArtifactInteractivity(`<h1>static</h1>`).ok).toBe(true);
+  });
+});
 
 describe("extractArtifact", () => {
   it("extracts a claude-html block and reads its <title>", () => {
