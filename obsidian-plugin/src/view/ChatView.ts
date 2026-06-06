@@ -103,9 +103,11 @@ export class ChatView extends ItemView {
     this.iconButton(actions, "settings", "Open settings", () => this.openSettings());
 
     // ---- context chips ----
+    // Label on its own line so the two rows below (toggles + status) share a
+    // single flush-left edge instead of the toggles being indented past it.
     const chips = root.createDiv({ cls: "cc-chips" });
+    chips.createSpan({ cls: "cc-chips-label", text: "Context" });
     const contextControls = chips.createDiv({ cls: "cc-chip-controls" });
-    contextControls.createSpan({ cls: "cc-chips-label", text: "Context:" });
     this.contextChip(contextControls, "Note", "activeNote", "Attach the full text of your active note to each message");
     this.contextChip(contextControls, "Selection", "selection", "Attach the text you've selected in the editor");
     this.contextChip(contextControls, "Links", "linkedNotes", "Attach notes linked to / from the active note");
@@ -117,11 +119,9 @@ export class ChatView extends ItemView {
     this.mcpStatusEl = contextStatus.createEl("button", { cls: "cc-status-pill cc-status-button", attr: { title: "MCP bridge controls" } });
     this.mcpStatusEl.addEventListener("click", (evt) => this.openMcpMenu(evt));
 
-    // ---- chat controls (model switcher, thinking, effort, temp, max) ----
-    this.controlsEl = root.createDiv({ cls: "cc-controls" });
-    this.renderControls();
-
     // ---- messages ----
+    // Chat controls now live at the bottom (in the composer), so the top stays
+    // light and the reading area gets the space.
     this.messagesEl = root.createDiv({ cls: "cc-messages" });
 
     // ---- composer ----
@@ -156,14 +156,17 @@ export class ChatView extends ItemView {
     // Close the menu when focus leaves the composer.
     this.inputEl.addEventListener("blur", () => window.setTimeout(() => this.slashMenu.hide(), 120));
 
-    // ---- usage bar: context gauge + session totals ----
-    const usageRow = composer.createDiv({ cls: "cc-usage" });
+    // ---- chat controls: model switcher (left) · thinking/effort/temp/max (right) ----
+    this.controlsEl = composer.createDiv({ cls: "cc-controls" });
+    this.renderControls();
+
+    // ---- footer: context gauge + session totals (left) · Send (right) ----
+    const footer = composer.createDiv({ cls: "cc-send-row" });
+    const usageRow = footer.createDiv({ cls: "cc-usage" });
     const gauge = usageRow.createDiv({ cls: "cc-gauge", attr: { "aria-label": "Estimated context window used" } });
     this.gaugeFillEl = gauge.createDiv({ cls: "cc-gauge-fill" });
     this.usageEl = usageRow.createDiv({ cls: "cc-usage-text" });
-
-    const sendRow = composer.createDiv({ cls: "cc-send-row" });
-    this.sendBtn = sendRow.createEl("button", { cls: "cc-send", text: "Send" });
+    this.sendBtn = footer.createEl("button", { cls: "cc-send", text: "Send" });
     this.sendBtn.addEventListener("click", () => this.onSend());
 
     this.refreshModelLabel();
@@ -308,18 +311,26 @@ export class ChatView extends ItemView {
     btn.addEventListener("click", onClick);
   }
 
-  /** A compact "ingest on save" checkbox that mirrors the persisted setting. */
+  /**
+   * An icon toggle (matches the other header icon buttons) that mirrors the
+   * persisted "ingest on save" setting. Active = clay highlight.
+   */
   private renderIngestToggle(parent: HTMLElement): void {
     if (!this.plugin.settings.memoryEnabled) return;
-    const wrap = parent.createEl("label", {
-      cls: "cc-ingest-toggle",
-      attr: { title: "Also file this conversation into session memory when saving" },
+    const btn = parent.createEl("button", {
+      cls: "cc-icon-btn cc-icon-toggle",
+      attr: { "aria-label": "Also file this conversation into session memory when saving" },
     });
-    const box = wrap.createEl("input", { type: "checkbox" });
-    box.checked = this.plugin.settings.memoryIngestOnSave;
-    wrap.createSpan({ text: "ingest" });
-    box.addEventListener("change", async () => {
-      this.plugin.settings.memoryIngestOnSave = box.checked;
+    setIcon(btn, "archive");
+    const sync = () => {
+      const on = this.plugin.settings.memoryIngestOnSave;
+      btn.toggleClass("is-active", on);
+      btn.setAttr("aria-pressed", String(on));
+    };
+    sync();
+    btn.addEventListener("click", async () => {
+      this.plugin.settings.memoryIngestOnSave = !this.plugin.settings.memoryIngestOnSave;
+      sync();
       await this.plugin.saveSettings();
     });
   }
@@ -352,19 +363,55 @@ export class ChatView extends ItemView {
     // so picking a model doesn't flicker or drop focus. Only `knobsEl` rebuilds.
     const modelWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-model" });
     const select = modelWrap.createEl("select", { cls: "cc-ctl-select", attr: { "aria-label": "Model" } });
+    const claudeGroup = select.createEl("optgroup", { attr: { label: "Claude" } });
     const ids = new Set(CLAUDE_MODELS.map((m) => m.id));
-    for (const m of CLAUDE_MODELS) select.createEl("option", { value: m.id, text: m.label });
-    if (!ids.has(this.controls.model)) select.createEl("option", { value: this.controls.model, text: this.controls.model });
+    for (const m of CLAUDE_MODELS) claudeGroup.createEl("option", { value: m.id, text: m.label });
+    if (!ids.has(this.controls.model)) claudeGroup.createEl("option", { value: this.controls.model, text: this.controls.model });
     select.value = this.controls.model;
-    select.addEventListener("change", () => {
-      this.controls.model = select.value;
-      this.renderKnobs(); // capabilities changed → rebuild only the dependent knobs
-      this.refreshModelLabel();
-      this.updateUsageBar();
-    });
+    select.addEventListener("change", () => void this.onModelSelect(select.value));
+    // Pull in detected Ollama models so a local model can be picked here without
+    // opening settings. Async — appended once the local server answers.
+    void this.appendLocalModelOptions(select);
 
     this.knobsEl = this.controlsEl.createDiv({ cls: "cc-knobs" });
     this.renderKnobs();
+  }
+
+  /** Append an "Local (Ollama)" optgroup of detected models to the switcher. */
+  private async appendLocalModelOptions(select: HTMLSelectElement): Promise<void> {
+    let models: string[] = [];
+    try {
+      models = await this.plugin.router().ollama.listModels();
+    } catch {
+      return; // local server unreachable — Claude-only switcher
+    }
+    const configured = this.plugin.settings.ollamaModel;
+    if (configured && !models.includes(configured)) models = [configured, ...models];
+    if (!models.length || !select.isConnected) return;
+    const group = select.createEl("optgroup", { attr: { label: "Local (Ollama)" } });
+    for (const m of models) group.createEl("option", { value: `ollama:${m}`, text: `${m} · local` });
+    // Now that local options exist, reflect the active backend in the selection.
+    if (this.plugin.settings.chatBackend === "local" && configured) select.value = `ollama:${configured}`;
+  }
+
+  /**
+   * Apply a model-switcher choice. Picking a `ollama:<model>` entry routes the
+   * chat to that local model (backend → local); picking a Claude model routes
+   * back to Claude (backend → auto, so it still falls back to local when needed).
+   */
+  private async onModelSelect(value: string): Promise<void> {
+    if (value.startsWith("ollama:")) {
+      this.plugin.settings.ollamaModel = value.slice("ollama:".length);
+      this.plugin.settings.chatBackend = "local";
+    } else {
+      this.controls.model = value;
+      if (this.plugin.settings.chatBackend === "local") this.plugin.settings.chatBackend = "auto";
+    }
+    await this.plugin.saveSettings();
+    this.renderKnobs(); // capabilities/provider changed → rebuild dependent knobs
+    this.refreshModelLabel();
+    this.updateUsageBar();
+    void this.refreshBackendPill();
   }
 
   /** Rebuild only the capability-dependent knobs (keeps the model select stable). */

@@ -1,4 +1,4 @@
-import { App, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
+import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { SessionPicker } from "./view/SessionPicker";
@@ -79,11 +79,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       renderArtifactInline(el, source, height, title);
     });
 
+    // One ribbon icon for the plugin itself. Workflows and session capture live
+    // in the chat panel's header action bar, so they don't need ribbon entries.
     this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
-    this.addRibbonIcon("layout-grid", "Run a Companion vault workflow", () => void this.openWorkflowPicker());
-    if (this.settings.memoryEnabled) {
-      this.addRibbonIcon("brain", "Capture Claude session memory", () => void this.openSessionPicker());
-    }
 
     this.addCommand({
       id: "open-chat",
@@ -487,8 +485,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Absolute path of the current vault, or null if not a desktop file vault. */
   private vaultBasePath(): string | null {
-    const adapter = this.app.vault.adapter as unknown as { basePath?: string };
-    return typeof adapter.basePath === "string" ? adapter.basePath : null;
+    const adapter = this.app.vault.adapter;
+    return adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null;
   }
 
   /** List this vault's Claude Code sessions (newest first). */

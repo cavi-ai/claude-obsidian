@@ -16,6 +16,8 @@ pnpm-store/
 
 # Claude Code working state & plans — never ship in the open-source repo
 .claude/
+.agents/
+.codex/
 .remember/
 .quarantine/
 docs/

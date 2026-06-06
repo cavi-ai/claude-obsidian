@@ -4,6 +4,31 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] — 2026-06-05
+
+### Added
+- **Local models in the chat switcher.** The model dropdown now lists detected
+  Ollama models under a "Local (Ollama)" group; picking one routes the chat to
+  that local model (no settings trip). Picking a Claude model routes back.
+
+### Changed
+- **Controls moved to the bottom composer.** Model switcher sits bottom-left,
+  thinking/effort/temp/max on the right, and the context gauge + Send share one
+  footer row — the top is freed for reading.
+- **Header & chips cleanup.** Action icons top-aligned; the backend pill no longer
+  indents out of the title; the `Context` label moved to its own line so the
+  toggle and status rows share a flush-left edge; status pills now use the
+  context-chips pill shape.
+- **MCP pill** matches its sibling pills in size/shape and gains a caret marking
+  it as a menu.
+- **Ingest-on-save** is now an icon toggle in the header instead of a checkbox.
+- **One ribbon icon** (Open Companion); the workflow and session-capture ribbon
+  entries were removed (both remain in the panel's header bar).
+
+### Fixed
+- **Session memory** reads the vault base path via the official
+  `FileSystemAdapter.getBasePath()` instead of an unchecked property cast.
+
 ## [0.6.1] — 2026-06-03
 
 ### Fixed
