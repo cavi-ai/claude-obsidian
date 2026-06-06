@@ -30,6 +30,9 @@ export interface ClaudeModel {
 
 export type AuthMode = "apiKey" | "oauthToken" | "environment";
 
+/** Where the "Open" button on an artifact sends it. "obsidian" = in-app fullscreen. */
+export type ArtifactOpenTarget = "obsidian" | "default" | "chrome" | "safari" | "brave" | "firefox";
+
 export interface PluginSettings {
   apiKey: string;
   /** How to authenticate to Anthropic: API key (default), long-term OAuth token, or the environment. */
@@ -42,6 +45,8 @@ export interface PluginSettings {
   customModel: string;
   maxTokens: number;
   systemPrompt: string;
+  /** Where the artifact "Open" button sends a rendered artifact. */
+  artifactOpenTarget: ArtifactOpenTarget;
   artifactFolder: string;
   chatFolder: string;
   /** Folder for generated plan notes (artifact + build-task checklist, type: plan). */
@@ -135,6 +140,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     "You are Claude, working inside the user's Obsidian vault. Be concise and precise. " +
     "When the user asks for a plan, report, diagram, or anything visual, prefer producing a single " +
     "self-contained HTML artifact in a ```claude-html code block using the provided design system.",
+  artifactOpenTarget: "obsidian",
   artifactFolder: "Claude/Artifacts",
   chatFolder: "Claude/Chats",
   planFolder: "Claude/Plans",

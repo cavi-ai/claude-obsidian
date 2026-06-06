@@ -41,7 +41,7 @@ export interface SpecInput {
   trackerPath: string;
   /** Vault path of the spec note itself. */
   specPath: string;
-  /** Vault name to target with the official Obsidian CLI (`vault=`). Optional. */
+  /** Optional vault name (kept for callers; the MCP bridge targets one vault). */
   vault?: string;
   tasks: BuildTask[];
 }
@@ -57,28 +57,24 @@ export function specBody(input: SpecInput): string {
   return lines.join("\n");
 }
 
-/** `vault=<name> ` prefix for CLI commands, or "" when no vault is set. */
-function vaultPrefix(input: SpecInput): string {
-  return input.vault ? `vault="${input.vault}" ` : "";
-}
-
 /**
- * The prompt to paste into Claude Code. Claude Code reaches the vault through
- * the **official Obsidian CLI** (`obsidian` command), reading the spec and
- * reporting progress by appending to the tracker note.
+ * The prompt to paste into Claude Code. The vault is exposed to Claude Code as
+ * an MCP server (Companion for Claude, pre-wired in the plugin's .mcp.json), so
+ * the build is driven through the `note_read` / `note_append` MCP tools — not a
+ * separate CLI.
  */
 export function buildPrompt(input: SpecInput): string {
-  const v = vaultPrefix(input);
   return [
-    `Use the official Obsidian CLI (the \`obsidian\` command) to drive this build.`,
+    `This Obsidian vault is exposed to you as an MCP server (Companion for Claude).`,
+    `Drive this build through its tools — do not shell out to any CLI.`,
     ``,
-    `1. Read the build spec:`,
-    `   obsidian ${v}read path="${input.specPath}"`,
+    `1. Read the build spec with the \`note_read\` tool:  path = "${input.specPath}"`,
     `2. Implement the tasks in order. Keep changes focused and runnable.`,
-    `3. After each task, append a line to the tracker note:`,
-    `   obsidian ${v}append path="${input.trackerPath}" content="- [x] <task> — <one-line note> (<timestamp>)"`,
+    `3. After each task, record progress with the \`note_append\` tool:`,
+    `   path = "${input.trackerPath}", content = "- [x] <task> — <one-line note> (<timestamp>)"`,
     `4. If a task is blocked, append "- [ ] <task> — BLOCKED: <reason>" instead and continue.`,
     `5. When all tasks are done, append a "## Summary" section to the tracker the same way.`,
+    `   (Writes require Companion's "Allow writes" MCP setting to be on.)`,
     ``,
     `Build spec title: ${input.title}`,
   ].join("\n");

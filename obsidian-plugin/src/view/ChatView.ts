@@ -373,8 +373,29 @@ export class ChatView extends ItemView {
     // opening settings. Async — appended once the local server answers.
     void this.appendLocalModelOptions(select);
 
-    this.knobsEl = this.controlsEl.createDiv({ cls: "cc-knobs" });
+    // Knobs (thinking / effort / temp / max) live in a popover behind a single
+    // "tune" button, so the footer stays clean and Send is never buried.
+    const tuneWrap = this.controlsEl.createDiv({ cls: "cc-tune" });
+    const tuneBtn = tuneWrap.createEl("button", {
+      cls: "cc-icon-btn cc-tune-btn",
+      attr: { "aria-label": "Model controls — thinking, temperature, max tokens", "aria-expanded": "false" },
+    });
+    setIcon(tuneBtn, "sliders-horizontal");
+    this.knobsEl = tuneWrap.createDiv({ cls: "cc-knobs cc-knobs-popover" });
     this.renderKnobs();
+    tuneBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = !this.knobsEl.hasClass("is-open");
+      this.knobsEl.toggleClass("is-open", open);
+      tuneBtn.setAttr("aria-expanded", String(open));
+    });
+    // Close the popover on an outside click (auto-cleaned with the view).
+    this.registerDomEvent(document, "click", (e) => {
+      if (this.knobsEl?.hasClass("is-open") && !tuneWrap.contains(e.target as Node)) {
+        this.knobsEl.removeClass("is-open");
+        tuneBtn.setAttr("aria-expanded", "false");
+      }
+    });
   }
 
   /** Append an "Local (Ollama)" optgroup of detected models to the switcher. */

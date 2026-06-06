@@ -11,7 +11,7 @@ import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
-import { renderArtifactInline } from "./artifacts/renderInline";
+import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
 import { generateToken, resolveMcpToken } from "./mcp/clientConfig";
@@ -87,7 +87,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
       const t = /<title>([^<]+)<\/title>/i.exec(source);
       if (t) title = t[1].trim();
-      renderArtifactInline(el, source, height, title);
+      renderArtifactInline(el, source, height, title, {
+        openFullscreen: (h, ti) => new ArtifactModal(this.app, h, ti).open(),
+        openExternal: (h, ti) => this.openArtifact(h, ti),
+      });
     });
 
     // One ribbon icon for the plugin itself. Workflows and session capture live
@@ -437,10 +440,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (desired === null) return;
 
     const s = this.settings;
+    const toolOpts = {
+      allowWrites: s.mcpAllowWrites,
+      defaultFolder: s.mcpWriteFolder,
+      semantic: (q: string, k: number) => this.semanticSearch(q, k),
+    };
     if (!this.vaultTools) {
-      this.vaultTools = new VaultTools(this.app, { allowWrites: s.mcpAllowWrites, defaultFolder: s.mcpWriteFolder });
+      this.vaultTools = new VaultTools(this.app, toolOpts);
     } else {
-      this.vaultTools.setOptions({ allowWrites: s.mcpAllowWrites, defaultFolder: s.mcpWriteFolder });
+      this.vaultTools.setOptions(toolOpts);
     }
 
     const { McpHttpServer } = await import("./mcp/server");
@@ -501,6 +509,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   composeSystemPrompt(): string {
     return `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+  }
+
+  /** Open an artifact per the user's setting: in-app fullscreen, or a browser. */
+  openArtifact(html: string, title: string): void {
+    if (this.settings.artifactOpenTarget === "obsidian") {
+      new ArtifactModal(this.app, html, title).open();
+    } else {
+      void openArtifactExternally(html, title, this.settings.artifactOpenTarget);
+    }
   }
 
   // ---------- semantic index (local embeddings) ----------
