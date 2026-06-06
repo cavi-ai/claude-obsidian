@@ -1,8 +1,19 @@
 import { App, TFile, normalizePath, getAllTags } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
+import { reciprocalRankFusion } from "../semantic/similarity";
 import { buildFrontmatter, normalizeTags } from "../indexing/frontmatter";
 import { replaceSection } from "./edit";
+
+/** Optional semantic retriever (local embeddings); absent → keyword-only. */
+export type SemanticSearch = (query: string, k: number) => Promise<{ path: string; text: string }[]>;
+
+export interface VaultToolsOptions {
+  allowWrites: boolean;
+  defaultFolder: string;
+  /** When set + the index is built, vault_search fuses semantic + keyword. */
+  semantic?: SemanticSearch;
+}
 
 /**
  * Vault tools exposed over MCP so Claude Code / Claude Desktop can read,
@@ -13,10 +24,10 @@ import { replaceSection } from "./edit";
 export class VaultTools {
   constructor(
     private app: App,
-    private opts: { allowWrites: boolean; defaultFolder: string },
+    private opts: VaultToolsOptions,
   ) {}
 
-  setOptions(opts: { allowWrites: boolean; defaultFolder: string }): void {
+  setOptions(opts: VaultToolsOptions): void {
     this.opts = opts;
   }
 
@@ -24,7 +35,7 @@ export class VaultTools {
     const defs: McpToolDef[] = [
       {
         name: "vault_search",
-        description: "Search the Obsidian vault by keyword. Returns matching notes with a relevance score and a snippet.",
+        description: "Search the Obsidian vault by meaning and keyword (semantic when enabled, otherwise keyword). Returns matching notes with a snippet.",
         inputSchema: {
           type: "object",
           properties: {
@@ -207,20 +218,46 @@ export class VaultTools {
   }
 
   private async search(query: string, limit: number): Promise<string> {
+    // Keyword pass.
     const terms = tokenize(query);
-    if (terms.length === 0) return "No searchable terms in query.";
-    const hits: Array<{ path: string; score: number; snippet: string }> = [];
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const cache = this.app.metadataCache.getFileCache(file);
-      const lowerTags = cache ? (getAllTags(cache) ?? []).join(" ").toLowerCase() : "";
-      const content = await this.app.vault.cachedRead(file);
-      const { score, firstIdx } = scoreContent(terms, file.path.toLowerCase(), lowerTags, content);
-      if (score > 0) hits.push({ path: file.path, score, snippet: snippetAround(content, firstIdx) });
+    const keyword: Array<{ path: string; score: number; snippet: string }> = [];
+    if (terms.length > 0) {
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        const cache = this.app.metadataCache.getFileCache(file);
+        const lowerTags = cache ? (getAllTags(cache) ?? []).join(" ").toLowerCase() : "";
+        const content = await this.app.vault.cachedRead(file);
+        const { score, firstIdx } = scoreContent(terms, file.path.toLowerCase(), lowerTags, content);
+        if (score > 0) keyword.push({ path: file.path, score, snippet: snippetAround(content, firstIdx) });
+      }
+      keyword.sort((a, b) => b.score - a.score);
     }
-    hits.sort((a, b) => b.score - a.score);
-    const top = hits.slice(0, limit);
-    if (top.length === 0) return `No matches for "${query}".`;
-    return top.map((h) => `## ${h.path} (score ${h.score})\n${h.snippet}`).join("\n\n");
+
+    // Semantic pass (when enabled + index built); degrades to keyword on failure.
+    let semantic: { path: string; text: string }[] = [];
+    if (this.opts.semantic) {
+      try {
+        semantic = await this.opts.semantic(query, limit);
+      } catch {
+        /* Ollama down / no index → keyword only */
+      }
+    }
+
+    if (keyword.length === 0 && semantic.length === 0) {
+      return terms.length === 0 && !this.opts.semantic ? "No searchable terms in query." : `No matches for "${query}".`;
+    }
+
+    // Fuse by path (reciprocal rank fusion); keep the best snippet per note.
+    const snippet = new Map<string, string>();
+    for (const k of keyword) if (!snippet.has(k.path)) snippet.set(k.path, k.snippet);
+    for (const doc of semantic) if (!snippet.has(doc.path)) snippet.set(doc.path, doc.text);
+    const fused = reciprocalRankFusion([
+      keyword.map((h) => ({ id: h.path, score: h.score })),
+      semantic.map((doc) => ({ id: doc.path, score: 1 })),
+    ]).slice(0, limit);
+
+    const mode = semantic.length ? "semantic + keyword" : "keyword";
+    const body = fused.map((f) => `## ${f.id}\n${snippet.get(f.id) ?? ""}`).join("\n\n");
+    return `(${mode} search)\n\n${body}`;
   }
 
   private async read(path: string): Promise<string> {

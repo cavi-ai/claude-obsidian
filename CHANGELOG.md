@@ -4,6 +4,27 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-06-06
+
+### Changed
+- **Chat controls, refined.** The model switcher now shows a chevron (clearly a
+  dropdown); the thinking / effort / temperature / max-tokens knobs collapsed
+  into a single "tune" popover, so the Send button is never buried.
+- **Artifacts open your way.** A new **⛶ Fullscreen** button opens an artifact in
+  a full-window in-app view, and a new setting ("Open artifacts in") lets you
+  choose the in-app view (default), the system browser, or Chrome / Safari /
+  Brave / Firefox.
+- **Settings are tidier.** Every section past Connection & Behavior is now a
+  collapsed accordion, so the settings tab opens clean.
+- **Semantic search reaches Claude Code too.** The MCP `vault_search` tool now
+  fuses semantic + keyword results (when the index is built), so Claude Code and
+  Claude Desktop search your vault by meaning, not just keywords.
+
+### Fixed
+- **Build handoff uses the real bridge.** "Hand off to Claude Code" now drives the
+  build through the working MCP `note_read` / `note_append` tools instead of a
+  non-existent `obsidian` CLI.
+
 ## [0.7.0] — 2026-06-06
 
 ### Added

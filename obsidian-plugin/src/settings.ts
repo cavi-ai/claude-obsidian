@@ -199,7 +199,32 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl).setName("Storage").setHeading();
+    this.accordion(containerEl, "Storage", (c) => this.renderStorageSection(c));
+    this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
+    this.accordion(containerEl, "Semantic search (local embeddings)", (c) => this.renderSemanticSection(c));
+    this.accordion(containerEl, "Indexing & tags", (c) => this.renderIndexingSection(c));
+    this.accordion(containerEl, "Cloud session (mobile-friendly)", (c) => this.renderCloudSection(c));
+    this.accordion(containerEl, "Cloud replies (pull from repo)", (c) => this.renderRepliesSection(c));
+    this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
+    this.accordion(containerEl, "Session memory", (c) => this.renderMemorySection(c));
+  }
+
+  private renderStorageSection(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName("Open artifacts in")
+      .setDesc("Where the “Open” button on an artifact sends it. Keeping it in Obsidian is tidiest; choose a browser to pop it out.")
+      .addDropdown((dd) => {
+        dd.addOption("obsidian", "Obsidian (in-app, full screen)");
+        dd.addOption("default", "System default browser");
+        dd.addOption("chrome", "Google Chrome");
+        dd.addOption("safari", "Safari");
+        dd.addOption("brave", "Brave");
+        dd.addOption("firefox", "Firefox");
+        dd.setValue(this.plugin.settings.artifactOpenTarget).onChange(async (v) => {
+          this.plugin.settings.artifactOpenTarget = v as typeof this.plugin.settings.artifactOpenTarget;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Artifacts folder")
@@ -256,9 +281,9 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           }
         }),
       );
+  }
 
-    // ---------- local models (Ollama) ----------
-    new Setting(containerEl).setName("Local models (Ollama)").setHeading();
+  private renderLocalModelsSection(containerEl: HTMLElement): void {
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "Run cheap, bulk work — summarizing, tagging, ingestion — on a local model to save Anthropic tokens. Chat and plans still use Claude unless you route them here.",
@@ -357,9 +382,9 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
-    // ---------- semantic search ----------
-    new Setting(containerEl).setName("Semantic search (local embeddings)").setHeading();
+  }
 
+  private renderSemanticSection(containerEl: HTMLElement): void {
     new Setting(containerEl)
       .setName("Enable semantic search")
       .setDesc("Build a local vector index (via Ollama) so the vault is searchable by meaning, not just keywords. Private and offline. Powers the “Search vault” context and Ask-your-vault.")
@@ -407,9 +432,9 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         );
     }
 
-    // ---------- indexing ----------
-    new Setting(containerEl).setName("Indexing & tags").setHeading();
+  }
 
+  private renderIndexingSection(containerEl: HTMLElement): void {
     new Setting(containerEl)
       .setName("Auto-tag on save")
       .setDesc("When saving an artifact or chat, generate topic tags + a one-line summary (uses the utility provider above) so notes are indexed correctly.")
@@ -439,16 +464,10 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
-
-    this.accordion(containerEl, "Cloud session (mobile-friendly)", (b) => this.renderCloudSection(b));
-    this.accordion(containerEl, "Cloud replies (pull from repo)", (b) => this.renderRepliesSection(b));
-    this.accordion(containerEl, "Unified bridge (MCP server)", (b) => this.renderMcpSection(b));
-    this.renderMemorySection(containerEl);
   }
 
   private renderMemorySection(containerEl: HTMLElement): void {
     const s = this.plugin.settings;
-    new Setting(containerEl).setName("Session memory").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "Capture Claude Code CLI sessions for this vault into sanitized digest notes. Desktop-only; sessions are matched by the directory you ran Claude Code in.",

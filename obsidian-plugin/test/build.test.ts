@@ -45,30 +45,28 @@ describe("specBody", () => {
 });
 
 describe("buildPrompt / claudeCodeBuildCommand", () => {
-  it("drives the official Obsidian CLI against the spec + tracker paths", () => {
+  it("drives the build through the MCP note tools, not a phantom CLI", () => {
     const p = buildPrompt(input);
-    expect(p).toContain("official Obsidian CLI");
-    expect(p).toContain(`obsidian vault="My Vault" read path="${input.specPath}"`);
-    expect(p).toContain(`obsidian vault="My Vault" append path="${input.trackerPath}"`);
-  });
-  it("omits the vault= prefix when no vault is given", () => {
-    const p = buildPrompt({ ...input, vault: undefined });
-    expect(p).toContain(`obsidian read path="${input.specPath}"`);
-    expect(p).not.toContain("vault=");
+    expect(p).toContain("MCP server");
+    expect(p).toContain("note_read");
+    expect(p).toContain(`path = "${input.specPath}"`);
+    expect(p).toContain("note_append");
+    expect(p).toContain(`path = "${input.trackerPath}"`);
+    expect(p).not.toContain("obsidian read"); // no non-existent CLI
+    expect(p).not.toContain("obsidian append");
   });
   it("double-quote wraps and escapes the prompt for -p", () => {
     const cmd = claudeCodeBuildCommand(input);
     expect(cmd.startsWith('claude -p "')).toBe(true);
     expect(cmd.endsWith('"')).toBe(true);
-    expect(cmd).toContain("\\`obsidian\\`");
-    expect(cmd).toContain('vault=\\"My Vault\\"');
+    expect(cmd).toContain("\\`note_read\\`"); // backticks escaped for the shell
   });
   it("escapes backslashes before double quotes in the -p argument", () => {
     const cmd = claudeCodeBuildCommand({
       ...input,
       specPath: String.raw`Claude\Builds\bad\"path.md`,
     });
-    expect(cmd).toContain(String.raw`path=\"Claude\\Builds\\bad\\\"path.md\"`);
+    expect(cmd).toContain(String.raw`path = \"Claude\\Builds\\bad\\\"path.md\"`);
   });
   it("neutralizes shell-injection chars in user-controlled fields", () => {
     const evil = claudeCodeBuildCommand({ ...input, title: 'x"; rm -rf ~ #$(whoami)`id`' });
