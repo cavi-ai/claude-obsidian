@@ -1,6 +1,7 @@
 import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
+import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
@@ -19,6 +20,8 @@ import { trackerArtifact } from "./build/tracker";
 import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
 import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileResponse, isMarkdown, configError as repliesConfigError } from "./cloud/replies";
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
+import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
+import type { IndexData } from "./semantic/store";
 import {
   type Conversation,
   type ConversationState,
@@ -57,12 +60,20 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpSyncChain: Promise<void> = Promise.resolve();
   /** Signature of the currently-running MCP server, to skip needless restarts. */
   private mcpSignature: string | null = null;
+  /** Lazily-built semantic index (local embeddings); null until first use. */
+  private _indexer: SemanticIndexer | null = null;
+  /** Embedding model the live indexer was built for (rebuild on change). */
+  private indexerModel: string | null = null;
+  /** Debounce timer for incremental re-index on note changes. */
+  private reindexTimer: number | null = null;
+  private reindexQueue = new Set<string>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
     this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
+    this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
 
     // Inline interactive artifacts: ```claude-html ... ```
     this.registerMarkdownCodeBlockProcessor("claude-html", (source, el, ctx) => {
@@ -123,8 +134,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
         await this.saveSettings();
         const view = await this.activateView();
         view?.refreshModelLabel();
-        new Notice("Vault search is on — ask your question in the chat panel.");
+        const how = this.settings.semanticEnabled ? "semantic + keyword" : "keyword";
+        new Notice(`Vault search is on (${how}) — ask your question in the chat panel.`);
       },
+    });
+
+    this.addCommand({
+      id: "rebuild-semantic-index",
+      name: "Rebuild semantic index (local embeddings)",
+      callback: () => void this.rebuildSemanticIndex(),
+    });
+
+    this.addCommand({
+      id: "open-related-notes",
+      name: "Open related notes panel",
+      callback: () => void this.activateRelatedView(),
     });
 
     this.addCommand({
@@ -202,6 +226,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       void this.syncMcpServer();
       this.syncPlanBuildActions();
+
+      // Keep the semantic index fresh as notes change (debounced; no-op when
+      // off). Registered AFTER layout-ready so Obsidian's initial vault scan
+      // doesn't fire create/modify for every note and stampede the indexer —
+      // a full build only happens via the explicit "Rebuild" command.
+      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && f.extension === "md") this.queueReindex(f.path); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md") this.queueReindex(f.path); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.removeNote(f.path); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.renameNote(oldPath, f.path); }));
     });
 
     // Show a "Build" action in the header of any `type: plan` note.
@@ -248,6 +281,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   onunload(): void {
     void this.mcpServer?.stop();
     this.mcpServer = null;
+    if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
   }
 
   // ---------- settings ----------
@@ -282,6 +316,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.persist();
     // Rebuild providers if any credentials/hosts changed.
     this._router = null;
+    // Rebuild the indexer if the embedding model / enabled state changed.
+    if (this.indexerModel !== this.settings.embeddingModel || (!this.settings.semanticEnabled && this._indexer)) {
+      this.invalidateIndexer();
+    }
     this.refreshViews();
     await this.syncMcpServer();
   }
@@ -465,6 +503,131 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
   }
 
+  // ---------- semantic index (local embeddings) ----------
+
+  /** Absolute-ish vault-relative path to the persisted index, in the plugin dir. */
+  private indexPath(): string {
+    return `${this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`}/semantic-index.json`;
+  }
+
+  /**
+   * The live semantic indexer, or null when semantic search is off. Rebuilds the
+   * instance if the embedding model changed. IO is wired here; logic is pure.
+   */
+  indexer(): SemanticIndexer | null {
+    if (!this.settings.semanticEnabled) return null;
+    const model = this.settings.embeddingModel;
+    if (this._indexer && this.indexerModel === model) return this._indexer;
+
+    const adapter = this.app.vault.adapter;
+    const path = this.indexPath();
+    this._indexer = new SemanticIndexer({
+      embeddingModel: model,
+      listMarkdown: (): IndexFile[] =>
+        this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, mtime: f.stat.mtime })),
+      read: async (p: string) => {
+        const f = this.app.vault.getAbstractFileByPath(p);
+        return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
+      },
+      embed: (input: string[]) => this.router().ollama.embed(model, input),
+      load: async () => {
+        try {
+          if (await adapter.exists(path)) return JSON.parse(await adapter.read(path));
+        } catch {
+          /* corrupt/missing → rebuild from empty */
+        }
+        return null;
+      },
+      save: async (data: IndexData) => {
+        await adapter.write(path, JSON.stringify(data));
+      },
+    });
+    this.indexerModel = model;
+    return this._indexer;
+  }
+
+  /** Drop the cached indexer (after the embedding model / enabled state changes). */
+  invalidateIndexer(): void {
+    this._indexer = null;
+    this.indexerModel = null;
+  }
+
+  /** Semantic retriever for chat grounding. Returns [] when off or unavailable. */
+  async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> {
+    const ix = this.indexer();
+    if (!ix) return [];
+    try {
+      const hits = await ix.search(query, k);
+      return hits.map((h) => ({ path: h.path, text: h.text }));
+    } catch {
+      return []; // Ollama down / model missing → keyword-only, no regression
+    }
+  }
+
+  /** Notes related to a given note (for the Related Notes panel). [] when off. */
+  async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> {
+    const ix = this.indexer();
+    if (!ix) return [];
+    const hits = await ix.related(path, k);
+    return hits.map((h) => ({ path: h.path, score: h.score }));
+  }
+
+  /** Full (re)build of the semantic index, with a progress toast. */
+  async rebuildSemanticIndex(): Promise<void> {
+    if (!this.settings.semanticEnabled) {
+      new Notice("Turn on semantic search in Companion settings first.");
+      return;
+    }
+    if (!this.router().ollama.hasCredentials()) {
+      new Notice("Semantic search needs Ollama. Start it (`ollama serve`) or set the host in settings.");
+      return;
+    }
+    const ix = this.indexer();
+    if (!ix) return;
+    const progress = new Notice(`Building semantic index with “${this.settings.embeddingModel}”…`, 0);
+    try {
+      const res = await ix.build({
+        force: true,
+        onProgress: (done, total) => progress.setMessage(`Semantic index: ${done}/${total} notes…`),
+      });
+      progress.hide();
+      new Notice(`Semantic index ready — ${res.indexed} embedded, ${res.skipped} skipped, ${res.removed} pruned.`, 6000);
+    } catch (e) {
+      progress.hide();
+      console.error("[Claude Companion] semantic index build failed", e);
+      new Notice(`Semantic index failed: ${e instanceof Error ? e.message : String(e)}`, 9000);
+    }
+  }
+
+  /** Queue a single note for incremental re-embed (debounced ~1.5s). */
+  private queueReindex(path: string): void {
+    if (!this.settings.semanticEnabled) return;
+    this.reindexQueue.add(path);
+    if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
+    this.reindexTimer = window.setTimeout(() => void this.flushReindex(), 1500);
+  }
+
+  private async flushReindex(): Promise<void> {
+    this.reindexTimer = null;
+    const ix = this.indexer();
+    if (!ix) {
+      this.reindexQueue.clear();
+      return;
+    }
+    const paths = Array.from(this.reindexQueue);
+    this.reindexQueue.clear();
+    for (const p of paths) {
+      const f = this.app.vault.getAbstractFileByPath(p);
+      if (f instanceof TFile) {
+        try {
+          await ix.updateNote(p, f.stat.mtime);
+        } catch {
+          /* transient embed failure — picked up on next change or rebuild */
+        }
+      }
+    }
+  }
+
   // ---------- view ----------
 
   async activateView(): Promise<ChatView | null> {
@@ -614,6 +777,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(MEMORY_VIEW_TYPE)) {
       if (leaf.view instanceof MemoryView) await leaf.view.render();
     }
+  }
+
+  async activateRelatedView(): Promise<void> {
+    if (!this.settings.semanticEnabled) {
+      new Notice("Turn on semantic search in Companion settings to use related notes.");
+    }
+    const { workspace } = this.app;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RELATED_VIEW_TYPE)[0] ?? null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) await leaf.setViewState({ type: RELATED_VIEW_TYPE, active: true });
+    }
+    if (leaf) workspace.revealLeaf(leaf);
   }
 
   // ---------- command helpers ----------

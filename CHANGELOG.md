@@ -4,6 +4,25 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-06-06
+
+### Added
+- **Semantic search (local embeddings).** Your vault is now searchable by meaning,
+  not just keywords. A local Ollama embedding model builds a private vector index
+  (chunked, incrementally re-embedded on save); the "Search vault" context and the
+  Ask-your-vault command now fuse semantic + keyword results. Enable it and pick a
+  model in Companion settings → Semantic search, then Rebuild.
+- **Ask your vault, with citations.** When vault matches are attached, Claude cites
+  the source notes inline as `[[wikilinks]]` so you can click straight through.
+- **Related Notes panel.** A sidebar (command: "Open related notes panel") that
+  tracks the active note and surfaces its semantically-related notes — Open or
+  insert a `[[link]]` in one click. Finds connections that share no title words.
+- `OllamaProvider.embed()` for the local embeddings endpoint.
+
+### Notes
+- Semantic features are off by default and degrade gracefully to keyword search
+  when Ollama or the embedding model isn't available — nothing regresses.
+
 ## [0.6.2] — 2026-06-05
 
 ### Added
