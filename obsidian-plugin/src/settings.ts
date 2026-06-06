@@ -357,6 +357,56 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
+    // ---------- semantic search ----------
+    new Setting(containerEl).setName("Semantic search (local embeddings)").setHeading();
+
+    new Setting(containerEl)
+      .setName("Enable semantic search")
+      .setDesc("Build a local vector index (via Ollama) so the vault is searchable by meaning, not just keywords. Private and offline. Powers the “Search vault” context and Ask-your-vault.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.semanticEnabled).onChange(async (v) => {
+          this.plugin.settings.semanticEnabled = v;
+          await this.plugin.saveSettings();
+          this.display();
+        }),
+      );
+
+    if (this.plugin.settings.semanticEnabled) {
+      new Setting(containerEl)
+        .setName("Embedding model")
+        .setDesc("An Ollama embedding model. Pull one first, e.g. `ollama pull nomic-embed-text`.")
+        .addText((text) =>
+          text
+            .setPlaceholder("nomic-embed-text")
+            .setValue(this.plugin.settings.embeddingModel)
+            .onChange(async (v) => {
+              this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      const idxStatus = containerEl.createDiv({ cls: "cc-conn-status setting-item-description" });
+      void this.plugin
+        .indexer()
+        ?.stats()
+        .then((s) => idxStatus.setText(`Index: ${s.notes} note(s), ${s.chunks} chunk(s).`))
+        .catch(() => idxStatus.setText("Index: not built yet."));
+
+      new Setting(containerEl)
+        .setName("Rebuild index")
+        .setDesc("Embed every note now. Re-embeds only changed notes on save afterward.")
+        .addButton((btn) =>
+          btn
+            .setButtonText("Rebuild")
+            .setCta()
+            .onClick(async () => {
+              await this.plugin.rebuildSemanticIndex();
+              const s = await this.plugin.indexer()?.stats();
+              if (s) idxStatus.setText(`Index: ${s.notes} note(s), ${s.chunks} chunk(s).`);
+            }),
+        );
+    }
+
     // ---------- indexing ----------
     new Setting(containerEl).setName("Indexing & tags").setHeading();
 

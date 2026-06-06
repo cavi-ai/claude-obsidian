@@ -116,4 +116,32 @@ export class OllamaProvider implements Provider {
       return [];
     }
   }
+
+  /**
+   * Embed one or more texts with the given embedding model (e.g. nomic-embed-text).
+   * Uses Ollama's /api/embed; returns one vector per input in order. Throws
+   * ProviderError on failure so the indexer can surface a clear message.
+   */
+  async embed(model: string, input: string[]): Promise<number[][]> {
+    if (input.length === 0) return [];
+    const res = await requestUrl({
+      url: `${this.base()}/api/embed`,
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model, input }),
+      throw: false,
+    });
+    if (res.status < 200 || res.status >= 300) {
+      throw new ProviderError(
+        `Ollama embeddings error ${res.status} at ${this.base()} (model "${model}"). ` +
+          `Pull it with: ollama pull ${model}`,
+        res.status,
+      );
+    }
+    const data = res.json as { embeddings?: number[][] };
+    if (!data.embeddings || data.embeddings.length !== input.length) {
+      throw new ProviderError(`Ollama returned no embeddings for model "${model}".`);
+    }
+    return data.embeddings;
+  }
 }

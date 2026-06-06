@@ -66,6 +66,12 @@ export interface PluginSettings {
   /** Chat backend: always Claude, always local, or auto (Claude with local fallback). */
   chatBackend: "claude" | "local" | "auto";
 
+  // ----- semantic search (local embeddings) -----
+  /** Build a local vector index so the vault is searchable by meaning. */
+  semanticEnabled: boolean;
+  /** Ollama embedding model (e.g. nomic-embed-text). Local + private. */
+  embeddingModel: string;
+
   // ----- indexing -----
   /** Auto-add tags + summary frontmatter when saving artifacts/chats. */
   autoTagOnSave: boolean;
@@ -147,6 +153,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaModel: "llama3.1",
   localUtilityEnabled: false,
   chatBackend: "claude",
+
+  semanticEnabled: false,
+  embeddingModel: "nomic-embed-text",
 
   autoTagOnSave: true,
   artifactBaseTags: ["claude", "artifact"],

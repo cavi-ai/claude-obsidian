@@ -656,7 +656,13 @@ export class ChatView extends ItemView {
     this.renderMessage("user", display ?? userText);
 
     // Build context-augmented copy of the message list for the API.
-    const ctx = await gatherContext(this.app, this.plugin.settings, this.plugin.settings.context, userText);
+    const ctx = await gatherContext(
+      this.app,
+      this.plugin.settings,
+      this.plugin.settings.context,
+      userText,
+      (q, k) => this.plugin.semanticSearch(q, k),
+    );
     const apiMessages: ChatMessage[] = toApiMessages(this.messages);
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
