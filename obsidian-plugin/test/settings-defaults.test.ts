@@ -11,4 +11,10 @@ describe("memory settings defaults", () => {
   it("has a plans folder default", () => {
     expect(DEFAULT_SETTINGS.planFolder).toBe("Claude/Plans");
   });
+  it("defaults max tokens to 20k for headroom", () => {
+    expect(DEFAULT_SETTINGS.maxTokens).toBe(20000);
+  });
+  it("opens artifacts in Obsidian by default", () => {
+    expect(DEFAULT_SETTINGS.artifactOpenTarget).toBe("obsidian");
+  });
 });

@@ -45,6 +45,38 @@ or takeaway.
 - Escape any user/content text interpolated into HTML.
 - When saving into Obsidian, wrap the document in a ```` ```claude-html ````
   fenced block so the Companion for Claude plugin renders it inline.
+- Output the **complete** document — close every tag and the `<script>`. A
+  truncated artifact has broken interactivity; keep prose tight so it finishes.
+
+## Interactivity (tabs, accordions, toggles)
+
+If a control shows/hides content, make it actually work:
+
+1. The first tab/panel is **shown by default** (mark it active in the HTML), so
+   content is visible even before/without JS — never leave all panels hidden.
+2. Wire it with `addEventListener` over **data-attributes**, not bare inline
+   `onclick` (no handler pointing at an undefined function).
+
+Use this exact tabs mechanism (adapt labels/content):
+
+```html
+<div class="tabs">
+  <button class="tab is-active" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="risks">Risks</button>
+</div>
+<section class="panel is-active" data-panel="overview">…real content…</section>
+<section class="panel" data-panel="risks">…real content…</section>
+<style>.panel{display:none}.panel.is-active{display:block}.tab.is-active{color:var(--clay)}</style>
+<script>
+document.querySelectorAll('.tab').forEach(function (t) {
+  t.addEventListener('click', function () {
+    var id = t.dataset.tab;
+    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('is-active', x === t); });
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.toggle('is-active', p.dataset.panel === id); });
+  });
+});
+</script>
+```
 
 ## Extending the style
 

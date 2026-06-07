@@ -16,11 +16,21 @@ function sandboxFrame(iframe: HTMLIFrameElement, html: string): void {
 }
 
 export interface ArtifactActions {
-  /** Open externally (browser), honoring the user's artifact-open setting. */
-  openExternal?: (html: string, title: string) => void;
-  /** Open full-window inside Obsidian. */
-  openFullscreen?: (html: string, title: string) => void;
+  /** 1-click open, honoring the user's artifact-open setting. */
+  open?: (html: string, title: string) => void;
+  /** Open with an explicit target (from the split-button dropdown). */
+  openWith?: (html: string, title: string, target: ArtifactOpenTarget) => void;
 }
+
+/** Targets offered in the Open split-button's dropdown. */
+const OPEN_MENU: ReadonlyArray<readonly [string, ArtifactOpenTarget]> = [
+  ["Open in Obsidian (full screen)", "obsidian"],
+  ["Default browser", "default"],
+  ["Google Chrome", "chrome"],
+  ["Safari", "safari"],
+  ["Brave", "brave"],
+  ["Firefox", "firefox"],
+];
 
 /**
  * Render an HTML artifact inline inside a note using a sandboxed iframe.
@@ -43,13 +53,48 @@ export function renderArtifactInline(
   setIcon(label.createSpan({ cls: "cc-artifact-icon" }), "layout-dashboard");
   label.createSpan({ text: title });
 
+  const open1Click = actions.open ?? ((h, t) => void openArtifactExternally(h, t));
+  const openWith = actions.openWith ?? ((h, t, target) => void openArtifactExternally(h, t, target));
+
+  // Quick in-app fullscreen.
   const fsBtn = bar.createEl("button", { cls: "cc-artifact-btn", attr: { "aria-label": "Open full screen in Obsidian" } });
   setIcon(fsBtn, "maximize-2");
-  fsBtn.addEventListener("click", () => (actions.openFullscreen ?? ((h, t) => void openArtifactExternally(h, t)))(html, title));
+  fsBtn.addEventListener("click", () => openWith(html, title, "obsidian"));
 
-  const openBtn = bar.createEl("button", { cls: "cc-artifact-btn cc-artifact-open", attr: { "aria-label": "Open in browser" } });
+  // Split "Open" button: the body is a 1-click open (per setting); the caret
+  // opens a dropdown to choose a target one-off.
+  const split = bar.createDiv({ cls: "cc-artifact-open-split" });
+  const openBtn = split.createEl("button", { cls: "cc-artifact-btn cc-artifact-open", attr: { "aria-label": "Open artifact" } });
   openBtn.setText("Open ↗");
-  openBtn.addEventListener("click", () => (actions.openExternal ?? ((h, t) => void openArtifactExternally(h, t)))(html, title));
+  openBtn.addEventListener("click", () => open1Click(html, title));
+
+  const caret = split.createEl("button", { cls: "cc-artifact-btn cc-artifact-caret", attr: { "aria-label": "Choose where to open" } });
+  setIcon(caret, "chevron-down");
+  const menu = split.createDiv({ cls: "cc-artifact-menu" });
+  for (const [menuLabel, target] of OPEN_MENU) {
+    const item = menu.createEl("button", { cls: "cc-artifact-menu-item", text: menuLabel });
+    item.addEventListener("click", () => {
+      menu.removeClass("is-open");
+      openWith(html, title, target);
+    });
+  }
+  let closeMenu: ((e: MouseEvent) => void) | null = null;
+  caret.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const opening = !menu.hasClass("is-open");
+    menu.toggleClass("is-open", opening);
+    if (opening && !closeMenu) {
+      closeMenu = (ev: MouseEvent) => {
+        if (!split.contains(ev.target as Node)) {
+          menu.removeClass("is-open");
+          if (closeMenu) document.removeEventListener("mousedown", closeMenu);
+          closeMenu = null;
+        }
+      };
+      // Defer so this same click doesn't immediately close it.
+      window.setTimeout(() => closeMenu && document.addEventListener("mousedown", closeMenu), 0);
+    }
+  });
 
   const iframe = wrap.createEl("iframe", { cls: "cc-artifact-frame" });
   sandboxFrame(iframe, html);

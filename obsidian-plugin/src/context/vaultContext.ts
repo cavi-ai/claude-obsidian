@@ -12,6 +12,12 @@ export interface GatheredContext {
 /** Optional semantic retriever (local embeddings); absent → keyword-only. */
 export type SemanticSearch = (query: string, k: number) => Promise<{ path: string; text: string }[]>;
 
+/** A note or folder explicitly attached via the "@" picker. */
+export interface AttachedPath {
+  path: string;
+  kind: "note" | "folder";
+}
+
 /**
  * Build a context string from the vault based on the active note, the current
  * selection, linked notes, and (optionally) a hybrid keyword+semantic search.
@@ -22,6 +28,7 @@ export async function gatherContext(
   toggles: ContextToggles,
   userQuery: string,
   semanticSearch?: SemanticSearch,
+  attachedPaths: AttachedPath[] = [],
 ): Promise<GatheredContext> {
   const sources: string[] = [];
   const blocks: string[] = [];
@@ -48,6 +55,28 @@ export async function gatherContext(
     blocks.push(clip(block, budget));
     budget -= Math.min(block.length, budget);
     sources.push("active note");
+  }
+
+  // 2b. Explicitly @-attached notes / folders (a folder pulls its notes in).
+  if (attachedPaths.length > 0 && budget > 0) {
+    let added = 0;
+    for (const att of attachedPaths) {
+      if (budget <= 0) break;
+      const files =
+        att.kind === "folder"
+          ? folderMarkdown(app, att.path, settings.maxContextNotes)
+          : ((f) => (f instanceof TFile ? [f] : []))(app.vault.getAbstractFileByPath(att.path));
+      for (const f of files) {
+        if (budget <= 0) break;
+        const content = await app.vault.cachedRead(f);
+        const block = section(`Attached: ${f.path}`, content);
+        const clipped = clip(block, Math.min(budget, 6000));
+        blocks.push(clipped);
+        budget -= clipped.length;
+        added++;
+      }
+    }
+    if (added > 0) sources.push(`${added} attached`);
   }
 
   // 3. Linked + backlinked notes.
@@ -104,6 +133,16 @@ export async function gatherContext(
   if (blocks.length === 0) return { text: "", sources: [] };
   const text = ["<vault_context>", ...blocks, "</vault_context>"].join("\n\n");
   return { text, sources };
+}
+
+/** Markdown files directly under a folder path (newest first), capped at `limit`. */
+function folderMarkdown(app: App, folderPath: string, limit: number): TFile[] {
+  const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
+  return app.vault
+    .getMarkdownFiles()
+    .filter((f) => f.path.startsWith(prefix))
+    .sort((a, b) => b.stat.mtime - a.stat.mtime)
+    .slice(0, limit);
 }
 
 function collectLinkedFiles(app: App, file: TFile, limit: number): TFile[] {

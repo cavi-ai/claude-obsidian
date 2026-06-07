@@ -135,7 +135,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   baseUrl: "",
   model: "claude-sonnet-4-6",
   customModel: "",
-  maxTokens: 8192,
+  maxTokens: 20000,
   systemPrompt:
     "You are Claude, working inside the user's Obsidian vault. Be concise and precise. " +
     "When the user asks for a plan, report, diagram, or anything visual, prefer producing a single " +

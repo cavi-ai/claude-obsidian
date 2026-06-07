@@ -9,7 +9,7 @@ import { listSessionsForVault, nodeSessionReader, defaultProjectsRoot, type Sess
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
-import { DEFAULT_SETTINGS, type PluginSettings } from "./types";
+import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
@@ -40,7 +40,9 @@ import { normalizePath, TFile } from "obsidian";
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
  *  pay for what's generated. Within current models' max-output limits. */
-const ARTIFACT_MAX_TOKENS = 16384;
+// Artifacts/plans are long (rich layout + inline script); give generous output
+// headroom so a tabbed document finishes instead of truncating into broken JS.
+const ARTIFACT_MAX_TOKENS = 32000;
 
 /** Shape of this plugin's persisted data.json (settings + chat history). */
 interface PersistedData {
@@ -88,8 +90,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const t = /<title>([^<]+)<\/title>/i.exec(source);
       if (t) title = t[1].trim();
       renderArtifactInline(el, source, height, title, {
-        openFullscreen: (h, ti) => new ArtifactModal(this.app, h, ti).open(),
-        openExternal: (h, ti) => this.openArtifact(h, ti),
+        open: (h, ti) => this.openArtifact(h, ti),
+        openWith: (h, ti, target) => this.openArtifactWith(h, ti, target),
       });
     });
 
@@ -513,10 +515,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Open an artifact per the user's setting: in-app fullscreen, or a browser. */
   openArtifact(html: string, title: string): void {
-    if (this.settings.artifactOpenTarget === "obsidian") {
+    this.openArtifactWith(html, title, this.settings.artifactOpenTarget);
+  }
+
+  /** Open an artifact with an explicit target (split-button dropdown). */
+  openArtifactWith(html: string, title: string, target: ArtifactOpenTarget): void {
+    if (target === "obsidian") {
       new ArtifactModal(this.app, html, title).open();
     } else {
-      void openArtifactExternally(html, title, this.settings.artifactOpenTarget);
+      void openArtifactExternally(html, title, target);
     }
   }
 
