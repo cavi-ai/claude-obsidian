@@ -10,8 +10,9 @@ import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import { SlashMenu } from "./SlashMenu";
 import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
-import { abbreviateNoteName, selectionLineLabel, selectionLineLabelFromText } from "./contextStatus";
-import { gatherContext } from "../context/vaultContext";
+import { gatherContext, type AttachedPath } from "../context/vaultContext";
+import { AtMenu } from "./AtMenu";
+import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint } from "../providers/errorHints";
@@ -38,10 +39,11 @@ export class ChatView extends ItemView {
   private controls!: ChatControls;
   private controlsEl!: HTMLElement;
   private knobsEl!: HTMLElement;
-  private noteStatusEl!: HTMLElement;
-  private selectionStatusEl!: HTMLElement;
-  private localStatusEl!: HTMLElement;
   private mcpStatusEl!: HTMLButtonElement;
+  private atMenu!: AtMenu;
+  private pillsEl!: HTMLElement;
+  /** Notes/folders explicitly attached via "@" (session-scoped). */
+  private attachedPaths: AttachedPath[] = [];
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
@@ -100,24 +102,12 @@ export class ChatView extends ItemView {
       this.iconButton(actions, "brain", "Capture a Claude Code session", () => void this.plugin.openSessionPicker());
     }
     this.renderIngestToggle(actions);
-    this.iconButton(actions, "settings", "Open settings", () => this.openSettings());
-
-    // ---- context chips ----
-    // Label on its own line so the two rows below (toggles + status) share a
-    // single flush-left edge instead of the toggles being indented past it.
-    const chips = root.createDiv({ cls: "cc-chips" });
-    chips.createSpan({ cls: "cc-chips-label", text: "Context" });
-    const contextControls = chips.createDiv({ cls: "cc-chip-controls" });
-    this.contextChip(contextControls, "Note", "activeNote", "Attach the full text of your active note to each message");
-    this.contextChip(contextControls, "Selection", "selection", "Attach the text you've selected in the editor");
-    this.contextChip(contextControls, "Links", "linkedNotes", "Attach notes linked to / from the active note");
-    this.contextChip(contextControls, "Search vault", "searchVault", "Keyword-search the whole vault and attach the best matches");
-    const contextStatus = chips.createDiv({ cls: "cc-context-status" });
-    this.noteStatusEl = contextStatus.createSpan({ cls: "cc-status-pill", attr: { title: "Open note" } });
-    this.selectionStatusEl = contextStatus.createSpan({ cls: "cc-status-pill", attr: { title: "Current selection line range" } });
-    this.localStatusEl = contextStatus.createSpan({ cls: "cc-status-pill", attr: { title: "Local LLM status" } });
-    this.mcpStatusEl = contextStatus.createEl("button", { cls: "cc-status-pill cc-status-button", attr: { title: "MCP bridge controls" } });
+    // MCP bridge status + menu now lives in the header (the old chip/status row
+    // is gone — context is attached with "@" in the composer instead).
+    this.mcpStatusEl = actions.createEl("button", { cls: "cc-icon-btn cc-mcp-btn", attr: { "aria-label": "MCP bridge controls" } });
+    setIcon(this.mcpStatusEl, "plug-zap");
     this.mcpStatusEl.addEventListener("click", (evt) => this.openMcpMenu(evt));
+    this.iconButton(actions, "settings", "Open settings", () => this.openSettings());
 
     // ---- messages ----
     // Chat controls now live at the bottom (in the composer), so the top stays
@@ -127,15 +117,27 @@ export class ChatView extends ItemView {
     // ---- composer ----
     const composer = root.createDiv({ cls: "cc-composer" });
 
-    // Slash-command palette, anchored above the input. Built before the textarea
-    // so it sits above it in the flow (CSS positions it absolutely).
+    // Attached-context pills (what "@" added). Lives above the input.
+    this.pillsEl = composer.createDiv({ cls: "cc-attach-pills" });
+    this.renderAttachPills();
+
+    // Palettes anchored above the input (built before the textarea so they sit
+    // above it in flow; CSS positions them absolutely).
     this.slashMenu = new SlashMenu(composer, SLASH_COMMANDS, (cmd) => this.runSlashCommand(cmd));
+    this.atMenu = new AtMenu(composer, () => this.atItems(), (item) => this.onAtChoose(item));
 
     this.inputEl = composer.createEl("textarea", {
       cls: "cc-input",
-      attr: { placeholder: "Ask Claude…  ( / for commands · Enter to send · Shift+Enter for newline )", rows: "3" },
+      attr: { placeholder: "Ask Claude…  ( / for commands · @ to add context · Enter to send )", rows: "3" },
     });
     this.inputEl.addEventListener("keydown", (e) => {
+      // The "@" picker intercepts navigation keys while open.
+      if (this.atMenu.isOpen()) {
+        if (e.key === "ArrowDown") { e.preventDefault(); this.atMenu.move(1); return; }
+        if (e.key === "ArrowUp") { e.preventDefault(); this.atMenu.move(-1); return; }
+        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.atMenu.choose(); return; }
+        if (e.key === "Escape") { e.preventDefault(); this.atMenu.hide(); return; }
+      }
       // Slash menu intercepts navigation keys while open.
       if (this.slashMenu.isOpen()) {
         if (e.key === "ArrowDown") { e.preventDefault(); this.slashMenu.move(1); return; }
@@ -152,21 +154,23 @@ export class ChatView extends ItemView {
       this.autosizeInput();
       this.updateUsageBar();
       this.syncSlashMenu();
+      this.syncAtMenu();
     });
-    // Close the menu when focus leaves the composer.
-    this.inputEl.addEventListener("blur", () => window.setTimeout(() => this.slashMenu.hide(), 120));
+    // Close the menus when focus leaves the composer.
+    this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hide(); this.atMenu.hide(); }, 120));
 
-    // ---- chat controls: model switcher (left) · thinking/effort/temp/max (right) ----
-    this.controlsEl = composer.createDiv({ cls: "cc-controls" });
+    // ---- composer bar: model + tune (left group) · usage + Send (right) ----
+    // One row directly under the input, so Send sits right beneath the chat box.
+    const bar = composer.createDiv({ cls: "cc-composer-bar" });
+    this.controlsEl = bar.createDiv({ cls: "cc-controls" });
     this.renderControls();
 
-    // ---- footer: context gauge + session totals (left) · Send (right) ----
-    const footer = composer.createDiv({ cls: "cc-send-row" });
-    const usageRow = footer.createDiv({ cls: "cc-usage" });
+    const sendGroup = bar.createDiv({ cls: "cc-send-group" });
+    const usageRow = sendGroup.createDiv({ cls: "cc-usage" });
     const gauge = usageRow.createDiv({ cls: "cc-gauge", attr: { "aria-label": "Estimated context window used" } });
     this.gaugeFillEl = gauge.createDiv({ cls: "cc-gauge-fill" });
     this.usageEl = usageRow.createDiv({ cls: "cc-usage-text" });
-    this.sendBtn = footer.createEl("button", { cls: "cc-send", text: "Send" });
+    this.sendBtn = sendGroup.createEl("button", { cls: "cc-send", text: "Send" });
     this.sendBtn.addEventListener("click", () => this.onSend());
 
     this.refreshModelLabel();
@@ -275,7 +279,7 @@ export class ChatView extends ItemView {
 
   private anyContextEnabled(): boolean {
     const c = this.plugin.settings.context;
-    return c.activeNote || c.selection || c.linkedNotes || c.searchVault;
+    return c.activeNote || c.selection || c.linkedNotes || c.searchVault || this.attachedPaths.length > 0;
   }
 
   async onClose(): Promise<void> {
@@ -335,20 +339,84 @@ export class ChatView extends ItemView {
     });
   }
 
-  private contextChip(parent: HTMLElement, label: string, key: keyof typeof this.plugin.settings.context, tip: string): void {
-    const chip = parent.createEl("button", { cls: "cc-chip", text: label, attr: { "aria-label": tip, title: tip } });
-    const sync = () => {
-      const on = this.plugin.settings.context[key];
-      chip.toggleClass("is-active", on);
-      chip.setAttr("aria-pressed", String(on));
+  // ---------- "@" context picker ----------
+
+  /** Candidate sources for the "@" menu: 4 specials + vault notes + folders. */
+  private atItems(): AtItem[] {
+    const notes = this.app.vault.getMarkdownFiles().map((f) => f.path);
+    const folders = new Set<string>();
+    for (const p of notes) {
+      const i = p.lastIndexOf("/");
+      if (i > 0) folders.add(p.slice(0, i));
+    }
+    return buildAtItems(notes, [...folders].sort());
+  }
+
+  /** Open/refresh/close the "@" picker based on the cursor's @-token. */
+  private syncAtMenu(): void {
+    const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const hit = activeAtQuery(this.inputEl.value, cursor);
+    if (!hit) this.atMenu.hide();
+    else this.atMenu.show(hit.query);
+  }
+
+  /** Apply a chosen "@" source: toggle a context flag or attach a note/folder. */
+  private async onAtChoose(item: AtItem): Promise<void> {
+    // Strip the "@query" token the user typed.
+    const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const hit = activeAtQuery(this.inputEl.value, cursor);
+    if (hit) {
+      const v = this.inputEl.value;
+      this.inputEl.value = v.slice(0, hit.start) + v.slice(cursor);
+      this.inputEl.setSelectionRange(hit.start, hit.start);
+    }
+    this.inputEl.focus();
+
+    if (item.kind === "note") this.plugin.settings.context.activeNote = true;
+    else if (item.kind === "selection") this.plugin.settings.context.selection = true;
+    else if (item.kind === "linked") this.plugin.settings.context.linkedNotes = true;
+    else if (item.kind === "vault") this.plugin.settings.context.searchVault = true;
+    else if (item.path && (item.kind === "note-path" || item.kind === "folder-path")) {
+      const kind = item.kind === "folder-path" ? "folder" : "note";
+      if (!this.attachedPaths.some((a) => a.path === item.path && a.kind === kind)) {
+        this.attachedPaths.push({ path: item.path, kind });
+      }
+    }
+    await this.plugin.saveSettings();
+    this.renderAttachPills();
+    this.updateUsageBar();
+  }
+
+  /** Render the attached-context pills (enabled flags + @-attached paths). */
+  private renderAttachPills(): void {
+    if (!this.pillsEl) return;
+    this.pillsEl.empty();
+    const c = this.plugin.settings.context;
+    const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
+
+    const pill = (label: string, onRemove: () => void) => {
+      const el = this.pillsEl.createDiv({ cls: "cc-attach-pill" });
+      el.createSpan({ cls: "cc-attach-label", text: label });
+      const x = el.createEl("button", { cls: "cc-attach-x", attr: { "aria-label": `Remove ${label}` }, text: "×" });
+      x.addEventListener("click", async () => {
+        onRemove();
+        await this.plugin.saveSettings();
+        this.renderAttachPills();
+        this.updateUsageBar();
+      });
     };
-    sync();
-    chip.addEventListener("click", async () => {
-      this.plugin.settings.context[key] = !this.plugin.settings.context[key];
-      await this.plugin.saveSettings();
-      sync();
-      this.updateUsageBar();
-    });
+
+    if (c.activeNote) pill(active ? `📄 ${active.basename}` : "📄 This note", () => (c.activeNote = false));
+    if (c.selection) pill("✂️ Selection", () => (c.selection = false));
+    if (c.linkedNotes) pill("🔗 Linked notes", () => (c.linkedNotes = false));
+    if (c.searchVault) pill("🔍 Entire vault", () => (c.searchVault = false));
+    for (const a of this.attachedPaths) {
+      const base = a.path.replace(/\.md$/i, "").split("/").pop() ?? a.path;
+      pill(`${a.kind === "folder" ? "📁" : "📄"} ${base}`, () => {
+        this.attachedPaths = this.attachedPaths.filter((x) => !(x.path === a.path && x.kind === a.kind));
+      });
+    }
+    this.pillsEl.toggleClass("is-empty", this.pillsEl.childElementCount === 0);
   }
 
   /**
@@ -520,7 +588,7 @@ export class ChatView extends ItemView {
     empty.createDiv({ cls: "cc-empty-title", text: "Claude, in your vault." });
     empty.createDiv({
       cls: "cc-empty-sub",
-      text: "Toggle a Context chip above to bring your notes in, then try one of these — or just ask anything.",
+      text: "Type @ to bring in a note, your selection, or the whole vault — then try one of these, or just ask.",
     });
     const examples: { label: string; prompt: string }[] = [
       { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first." },
@@ -550,6 +618,8 @@ export class ChatView extends ItemView {
     // The previous conversation is already auto-saved; detach so the next turn
     // begins a fresh session.
     void this.plugin.startNewConversation();
+    this.attachedPaths = [];
+    this.renderAttachPills();
     this.messagesEl.empty();
     this.renderEmptyState();
     this.setSending(false);
@@ -683,6 +753,7 @@ export class ChatView extends ItemView {
       this.plugin.settings.context,
       userText,
       (q, k) => this.plugin.semanticSearch(q, k),
+      this.attachedPaths,
     );
     const apiMessages: ChatMessage[] = toApiMessages(this.messages);
     if (ctx.text) {
@@ -866,8 +937,9 @@ export class ChatView extends ItemView {
     const bubble = this.messagesEl.createDiv({ cls: "cc-msg cc-assistant" });
     bubble.createDiv({ cls: "cc-role", text: "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
+    // One indicator only: the breathing smiley in the thinking status. (The old
+    // "▍" cursor was a second clay marker fighting it.)
     this.startThinkingStatus(body);
-    body.createSpan({ cls: "cc-cursor", text: "▍" });
     this.scrollToBottom();
     return { bubble, body };
   }
@@ -878,17 +950,25 @@ export class ChatView extends ItemView {
     "Actualizing", "Synergizing", "Ruminating", "Clauding",
   ];
 
-  /** Cycle a whimsical status word in `body` until the first token lands. */
+  /**
+   * Show a single breathing smiley on the left with a whimsical word cycling
+   * beside it until the first token lands. The smiley is fixed-position so the
+   * word's changing length never shifts it. The smiley pulses 4× per word-fade
+   * cycle (80 bpm vs 20 bpm) — driven by CSS; the word swaps on the fade trough.
+   */
   private startThinkingStatus(body: HTMLElement): void {
     const status = body.createSpan({ cls: "cc-thinking-status" });
+    setIcon(status.createSpan({ cls: "cc-thinking-dot" }), "smile");
+    const word = status.createSpan({ cls: "cc-thinking-word" });
     let i = this.claudianSeq++;
     const tick = () => {
-      status.setText(`${ChatView.CLAUDIAN[i % ChatView.CLAUDIAN.length]}…`);
+      word.setText(`${ChatView.CLAUDIAN[i % ChatView.CLAUDIAN.length]}…`);
       i++;
     };
     tick();
     this.clearThinkingStatus();
-    this.thinkingTimer = window.setInterval(tick, 1600);
+    // 3000ms = the 20-bpm word-fade period, so the swap lands at the fade trough.
+    this.thinkingTimer = window.setInterval(tick, 3000);
   }
 
   private clearThinkingStatus(): void {
@@ -985,66 +1065,16 @@ export class ChatView extends ItemView {
   }
 
   async refreshContextStatus(): Promise<void> {
-    if (!this.noteStatusEl || !this.selectionStatusEl || !this.localStatusEl || !this.mcpStatusEl) return;
-
-    const markdownView = this.resolveMarkdownContextView();
-    const activeFile = markdownView?.file ?? this.app.workspace.getActiveFile();
-    const noteLabel = abbreviateNoteName(activeFile?.basename, 30);
-    this.noteStatusEl.setText(`Note: ${noteLabel}`);
-    this.noteStatusEl.toggleClass("is-on", !!activeFile);
-
-    let selectionLabel = "No selection";
-    let hasSelection = false;
-    if (markdownView) {
-      const selected = markdownView.editor.getSelection();
-      hasSelection = selected.trim().length > 0;
-      if (hasSelection) {
-        const editor = markdownView.editor as {
-          getCursor?: (scope?: "from" | "to") => { line: number; ch: number };
-          listSelections?: () => Array<{ anchor: { line: number; ch: number }; head: { line: number; ch: number } }>;
-        };
-        if (editor.getCursor) {
-          selectionLabel = selectionLineLabel(editor.getCursor("from"), editor.getCursor("to"));
-        } else {
-          const range = editor.listSelections?.()[0];
-          selectionLabel = selectionLineLabel(range?.anchor, range?.head);
-        }
-      }
-    }
-    if (!hasSelection && activeFile) {
-      const visibleSelection = window.getSelection()?.toString().trim() ?? "";
-      if (visibleSelection) {
-        const label = selectionLineLabelFromText(await this.app.vault.cachedRead(activeFile), visibleSelection);
-        if (label) {
-          hasSelection = true;
-          selectionLabel = label;
-        }
-      }
-    }
-    this.selectionStatusEl.setText(`Sel: ${selectionLabel}`);
-    this.selectionStatusEl.toggleClass("is-on", hasSelection);
-
-    const backend = this.plugin.router().chatBackend;
-    let localLabel = "Local: off";
-    if (backend === "local") localLabel = "Local: chat";
-    else if (backend === "auto") localLabel = "Local: fallback";
-    else if (this.plugin.settings.localUtilityEnabled) localLabel = "Local: utility";
-    if (backend !== "claude" || this.plugin.settings.localUtilityEnabled) {
-      const localOk = await this.plugin.router().localAvailable();
-      localLabel = `${localLabel}${localOk ? " on" : " off"}`;
-      this.localStatusEl.toggleClass("is-on", localOk);
-      this.localStatusEl.toggleClass("is-warn", !localOk);
-    } else {
-      this.localStatusEl.toggleClass("is-on", false);
-      this.localStatusEl.toggleClass("is-warn", false);
-    }
-    this.localStatusEl.setText(localLabel);
-
+    // Refresh the "This note" pill label as you navigate, and the MCP header icon.
+    this.renderAttachPills();
+    if (!this.mcpStatusEl) return;
     const mcp = this.plugin.mcpStats();
-    // "0 active" reads as a contradiction; only surface the count when a request
-    // is genuinely in flight. Otherwise the bridge is simply ready.
-    const mcpLabel = mcp.running ? (mcp.activeRequests > 0 ? `MCP: on · ${mcp.activeRequests} active` : "MCP: ready") : "MCP: off";
-    this.mcpStatusEl.setText(mcpLabel);
+    const title = mcp.running
+      ? mcp.activeRequests > 0
+        ? `MCP bridge — ${mcp.activeRequests} active`
+        : "MCP bridge — ready"
+      : "MCP bridge — off";
+    this.mcpStatusEl.setAttr("aria-label", title);
     this.mcpStatusEl.toggleClass("is-on", mcp.running);
     this.mcpStatusEl.toggleClass("is-warn", this.plugin.settings.mcpEnabled && !mcp.running);
   }

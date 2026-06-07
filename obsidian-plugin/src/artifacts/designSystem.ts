@@ -25,7 +25,22 @@ Rules:
 - Tags/pills: small, --gray-150 background, --gray-300 border, rounded.
 - Center content in a .page wrapper, max-width ~1120px, padding 56px 32px.
 - Calm, editorial, lots of whitespace. No drop shadows beyond very subtle. No emoji in artifacts.
-- Interactivity must actually work. If you add tabs, accordions, toggles, filters, steppers, or any control that shows/hides or changes content, you MUST include an inline <script> (vanilla JS) that implements it — define every function an onclick/handler references and wire it up. Inline <script> runs in the artifact sandbox, so this is allowed and expected. Never ship a control that looks interactive but does nothing. If you are not going to write the script that makes it work, lay the content out fully visible instead (no hidden-by-default panels).
+- Interactivity must actually work. If you add tabs, accordions, toggles, filters, or steppers, include an inline <script> (vanilla JS — it runs in the sandbox) that implements it. Two hard rules: (1) the first tab/panel is shown by DEFAULT (mark it active in the HTML) so content is visible even before/without JS — never leave all panels hidden; (2) wire controls with addEventListener over data-attributes, not bare inline onclick, so no handler points at an undefined function.
+
+  Use exactly this tabs pattern (adapt labels/content, keep the mechanism):
+  <div class="tabs"><button class="tab is-active" data-tab="overview">Overview</button><button class="tab" data-tab="risks">Risks</button></div>
+  <section class="panel is-active" data-panel="overview">…real content…</section>
+  <section class="panel" data-panel="risks">…real content…</section>
+  <style>.panel{display:none}.panel.is-active{display:block}.tab.is-active{color:var(--clay);border-bottom:2px solid var(--clay)}</style>
+  <script>
+  document.querySelectorAll('.tab').forEach(function(t){t.addEventListener('click',function(){
+    var id=t.dataset.tab;
+    document.querySelectorAll('.tab').forEach(function(x){x.classList.toggle('is-active',x===t)});
+    document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('is-active',p.dataset.panel===id)});
+  })});
+  </script>
+
+- Output the COMPLETE document: close every tag AND the <script>. If content is large, keep prose tight so the document finishes — a truncated artifact has broken interactivity.
 
 Always include <!DOCTYPE html>, <meta charset> and viewport, and a descriptive <title>.`;
 

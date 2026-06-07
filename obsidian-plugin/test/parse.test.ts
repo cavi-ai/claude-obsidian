@@ -16,6 +16,18 @@ describe("validateArtifactInteractivity", () => {
     expect(validateArtifactInteractivity(`<button onclick="go()">x</button><script>const go = () => {};</script>`).ok).toBe(true);
     expect(validateArtifactInteractivity(`<h1>static</h1>`).ok).toBe(true);
   });
+  it("accepts window.fn assignments and addEventListener-only scripts", () => {
+    expect(validateArtifactInteractivity(`<button onclick="go()">x</button><script>window.go = function(){};</script>`).ok).toBe(true);
+    // No inline handlers → self-contained JS, nothing to flag.
+    expect(validateArtifactInteractivity(`<button id="b">x</button><script>document.getElementById('b').addEventListener('click',()=>{});</script>`).ok).toBe(true);
+  });
+  it("flags only the missing handler when several are wired", () => {
+    const html = `<button onclick="go()">go</button><button onchange="stop()">stop</button><script>function go(){}</script>`;
+    const r = validateArtifactInteractivity(html);
+    expect(r.ok).toBe(false);
+    expect(r.issues.join(" ")).toContain("stop");
+    expect(r.issues.join(" ")).not.toContain("go(");
+  });
 });
 
 describe("extractArtifact", () => {

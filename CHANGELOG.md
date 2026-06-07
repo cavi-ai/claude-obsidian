@@ -4,6 +4,36 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-06-07
+
+### Added
+- **@-mention to add context.** Type `@` in the chat to pull in your active
+  note, your selection, linked notes, the entire vault, or any specific
+  note/folder. Attached sources show as removable pills above the input — this
+  replaces the old context-toggle chips for a cleaner chat.
+- **Artifact "Open" is now a split button.** One click opens per your setting;
+  the ▾ caret lets you pick a target one-off (in Obsidian full-screen, default
+  browser, Chrome, Safari, Brave, or Firefox).
+
+### Changed
+- **Calmer "thinking" indicator.** A single breathing clay smiley sits to the
+  left of the cycling word (fixed, so it never jumps as the word changes), with
+  the smiley pulse and word fade synced at a 4:1 tempo (80 / 20 bpm). The old
+  second "▍" cursor that fought it is gone.
+- **Tidier composer.** The model switcher gained a chevron; the thinking /
+  temperature / max-token knobs collapse into one "tune" button beside it; and
+  Send now sits directly under the input.
+- **Higher output caps.** The response-token default rose to 20k, and the
+  artifact/plan cap to 32k, so rich tabbed documents finish instead of
+  truncating mid-script (which broke their interactivity).
+
+### Fixed
+- **Artifact interactivity is reliable.** The design system + note-to-artifact
+  skill now ship a robust tabs pattern (first panel visible by default;
+  `addEventListener` over data-attributes, so no handler can dangle) and require
+  the document to finish — so tabs/accordions actually switch.
+- The MCP bridge status/menu moved into the header (the chip/status row is gone).
+
 ## [0.7.1] — 2026-06-06
 
 ### Changed
