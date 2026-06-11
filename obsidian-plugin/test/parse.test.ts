@@ -28,6 +28,13 @@ describe("validateArtifactInteractivity", () => {
     expect(r.issues.join(" ")).toContain("stop");
     expect(r.issues.join(" ")).not.toContain("go(");
   });
+
+  it("matches script end tags with trailing whitespace (CodeQL bad-tag-filter)", () => {
+    // `</script >` must still be recognized, or the script body is missed and a
+    // correctly-defined handler is falsely flagged as undefined.
+    const html = `<button onclick="go()">x</button><script>function go(){}</script >`;
+    expect(validateArtifactInteractivity(html).ok).toBe(true);
+  });
 });
 
 describe("extractArtifact", () => {
