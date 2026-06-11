@@ -59,7 +59,7 @@ export function validateArtifactInteractivity(html: string): InteractivityReport
   }
   if (called.size === 0) return { ok: true, issues: [] };
 
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((s) => s[1] ?? "").join("\n");
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script(?:\s+[^>]*)?>/gi)].map((s) => s[1] ?? "").join("\n");
   const issues: string[] = [];
   for (const fn of called) {
     const def = new RegExp(
