@@ -74,13 +74,13 @@ attribution.
 
 ## Install (manual / for now)
 
-1. `cd obsidian-plugin && npm install && npm run build`
+1. `cd obsidian-plugin && pnpm install && pnpm run build`
 2. Copy `main.js`, `manifest.json`, and `styles.css` into
    `<your-vault>/.obsidian/plugins/claude-companion/`.
 3. Enable **Companion for Claude** in *Settings → Community plugins*.
 4. Open *Settings → Companion for Claude* and paste your Anthropic API key.
 
-For active development use `npm run dev` (esbuild watch) and symlink the plugin
+For active development use `pnpm run dev` (esbuild watch) and symlink the plugin
 folder into a test vault.
 
 ## Development & testing
@@ -89,10 +89,10 @@ The Obsidian-free logic (SSE parsing, artifact extraction, search scoring) is
 factored into pure modules so it can be unit-tested without a running app.
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm run lint        # eslint
-npm test            # vitest (unit tests in test/)
-npm run build       # typecheck + production bundle
+pnpm run typecheck   # tsc --noEmit
+pnpm run lint        # eslint
+pnpm test            # vitest (unit tests in test/)
+pnpm run build       # typecheck + production bundle
 ```
 
 CI runs all four on every push/PR (Node 20 & 22) in the
@@ -209,9 +209,9 @@ means following the checklist below.
       third-party relationship clear. (Not yet changed — decide before tagging.)
 
 **Pre-submit sanity**
-- [ ] `npm run build` produces a fresh `main.js`.
-- [ ] `npm test` green; `npm run typecheck`, `npm run lint`, and
-      `npm run audit` clean.
+- [ ] `pnpm run build` produces a fresh `main.js`.
+- [ ] `pnpm test` green; `pnpm run typecheck`, `pnpm run lint`, and
+      `pnpm run audit` clean.
 - [ ] Screenshots/GIF in the README (store listings render it).
 
 ## License

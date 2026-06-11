@@ -14,12 +14,12 @@ Thanks for helping make `claude-obsidian` better.
 Run Obsidian plugin commands from `obsidian-plugin/`:
 
 ```bash
-npm ci
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run audit
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run lint
+pnpm test
+pnpm run build
+pnpm run audit
 ```
 
 The plugin is desktop-only. For manual testing, build `main.js` and copy

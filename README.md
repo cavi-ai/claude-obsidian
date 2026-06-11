@@ -5,6 +5,12 @@ with your notes as context, generate gallery-grade interactive HTML artifacts,
 run extended-thinking sessions, and let Claude Code operate on the *same* vault —
 all with your vault as the single source of truth.
 
+[**▶ Install the Obsidian plugin**](obsidian://show-plugin?id=claude-companion)
+ · [**Add the Claude Code plugin**](#getting-it)
+ · [Latest release](https://github.com/cavi-ai/companion-for-claude/releases/latest)
+
+**Open source · MIT · bring your own Anthropic key · local-first**
+
 Two paired, complementary deliverables that meet at a local MCP bridge:
 
 | Path | What it is | Ships to |
@@ -120,16 +126,24 @@ compliant way to unify them without subscription OAuth in third-party tools.
 
 ## Getting it
 
+**Install the Obsidian plugin (Companion for Claude)** — *Settings → Community
+plugins → Browse → search "Companion for Claude" → Install → Enable*, or
+[open it in Obsidian](obsidian://show-plugin?id=claude-companion).
+
+**Install the Claude Code plugin** —
+`/plugin marketplace add cavi-ai/claude-obsidian` then
+`/plugin install claude-obsidian@claude-obsidian`.
+
+<details><summary>Build from source (development)</summary>
+
 ```bash
 git clone --recurse-submodules https://github.com/cavi-ai/claude-obsidian.git
 # already cloned without submodules?
 git submodule update --init --recursive
 ```
 
-- **Install the Obsidian plugin** — see [`obsidian-plugin/README.md`](obsidian-plugin/README.md).
-- **Install the Claude Code plugin** —
-  `/plugin marketplace add cavi-ai/claude-obsidian` then
-  `/plugin install claude-obsidian@claude-obsidian`.
+See [`obsidian-plugin/README.md`](obsidian-plugin/README.md) for plugin dev/build steps.
+</details>
 
 ## Open-source hygiene
 
