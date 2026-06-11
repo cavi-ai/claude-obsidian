@@ -28,7 +28,7 @@ the rest are supporting in `--gray-700`.
 ```html
 <div class="metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin:24px 0">
   <div style="border:1.5px solid #D1CFC5;border-radius:12px;padding:18px;background:#fff">
-    <div style="font:600 12px/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#87867F">Headline</div>
+    <div style="font:600 12px/1 'SF Mono',Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;letter-spacing:.06em;text-transform:uppercase;color:#87867F">Headline</div>
     <div style="font:500 30px/1.1 ui-serif,Georgia,serif;color:#D97757;margin-top:8px">+34%</div>
     <div style="font:400 13px/1.4 system-ui,sans-serif;color:#87867F;margin-top:6px">vs. prior period</div>
   </div>
@@ -41,7 +41,7 @@ A claim with a confidence pill and an inline source reference.
 
 ```html
 <div class="finding" style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid #D1CFC5">
-  <span style="flex:0 0 auto;font:600 11px/1.6 ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:999px;background:#F0EEE6;border:1px solid #D1CFC5;color:#788C5D">corroborated</span>
+  <span style="flex:0 0 auto;font:600 11px/1.6 'SF Mono',Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:999px;background:#F0EEE6;border:1px solid #D1CFC5;color:#788C5D">corroborated</span>
   <div style="font:400 14.5px/1.5 system-ui,sans-serif;color:#3D3D3A">
     Claim text here. <span style="color:#87867F">— Source.md</span>
   </div>

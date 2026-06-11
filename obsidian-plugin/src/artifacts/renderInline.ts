@@ -99,7 +99,7 @@ export function renderArtifactInline(
   const iframe = wrap.createEl("iframe", { cls: "cc-artifact-frame" });
   sandboxFrame(iframe, html);
   iframe.setAttribute("loading", "lazy");
-  iframe.style.height = `${Math.max(120, height)}px`;
+  iframe.setCssStyles({ height: `${Math.max(120, height)}px` });
 
   // Flag faux-interactive artifacts (handlers wired to undefined JS) — a model
   // regression guard, so a tab bar that does nothing doesn't ship silently.
@@ -120,14 +120,14 @@ export class ArtifactModal extends Modal {
     super(app);
   }
 
-  onOpen(): void {
+  override onOpen(): void {
     this.modalEl.addClass("cc-artifact-modal");
     this.titleEl.setText(this.artifactTitle || "Artifact");
     const iframe = this.contentEl.createEl("iframe", { cls: "cc-artifact-frame cc-artifact-frame-full" });
     sandboxFrame(iframe, this.html);
   }
 
-  onClose(): void {
+  override onClose(): void {
     this.contentEl.empty();
   }
 }

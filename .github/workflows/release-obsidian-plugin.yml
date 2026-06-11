@@ -32,17 +32,20 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
-          cache: npm
-          cache-dependency-path: obsidian-plugin/package-lock.json
+          cache: pnpm
+          cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
+
+      - name: Enable pnpm
+        run: corepack enable
 
       - name: Install, verify, build
         working-directory: obsidian-plugin
         run: |
-          npm ci
-          npm run typecheck
-          npm run lint
-          npm test
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run lint
+          pnpm test
+          pnpm run build
           test -f main.js
 
       - name: Check version matches the trigger

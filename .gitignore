@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 pnpm-store/
+.pnpm-store/
 
 # Build output — main.js is committed so the community store can serve it
 *.js.map

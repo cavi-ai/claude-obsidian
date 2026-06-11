@@ -21,7 +21,7 @@ effective reports/dashboards" (see the repo NOTICE/README for attribution).
 
 **Typography**
 - Serif for headings (`ui-serif, Georgia`), sans (`system-ui`) for body, mono
-  (`ui-monospace`) for code/labels
+  (`"SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`) for code/labels
 - Line-height ~1.6; large headings; letter-spacing on small eyebrow labels
 
 **Layout**

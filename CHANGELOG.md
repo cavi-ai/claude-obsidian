@@ -4,6 +4,23 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-06-09
+
+### Added
+- **Mobile support.** Companion now loads and runs on Obsidian mobile
+  (`isDesktopOnly` is off). Capabilities that require Node/Electron — the local
+  MCP bridge and Claude Code session import — are automatically gated off on
+  phones, while chat, vault-aware context, and interactive artifacts work there.
+
+### Changed
+- **Store-compliant styling.** Every dynamic style now goes through Obsidian's
+  `setCssStyles` instead of direct `el.style` assignment, per the community-store
+  review guidelines.
+- **Tooling moved to pnpm.** Build and test run on pnpm; `pnpm-lock.yaml` replaces
+  the npm lockfile and the scripts are now `pnpm run …`.
+- **Type-safety hardening.** Removed unsafe `any` assignments across the codebase
+  for stricter types.
+
 ## [0.7.2] — 2026-06-07
 
 ### Added

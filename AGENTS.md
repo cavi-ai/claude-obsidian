@@ -16,13 +16,13 @@ The two halves meet at the **MCP bridge**: Companion runs a loopback HTTP MCP se
 All build/test commands run from `obsidian-plugin/`:
 
 ```bash
-npm run dev         # esbuild watch → main.js (for live dev against a test vault)
-npm run build       # tsc --noEmit + production bundle to main.js
-npm run typecheck   # tsc --noEmit --skipLibCheck
-npm run lint        # eslint src test
-npm test            # vitest run (all unit tests)
-npm run test:watch  # vitest watch
-npx vitest run test/parse.test.ts   # run a single test file
+pnpm run dev         # esbuild watch → main.js (for live dev against a test vault)
+pnpm run build       # tsc --noEmit + production bundle to main.js
+pnpm run typecheck   # tsc --noEmit --skipLibCheck
+pnpm run lint        # eslint src test
+pnpm test            # vitest run (all unit tests)
+pnpm run test:watch  # vitest watch
+pnpm exec vitest run test/parse.test.ts   # run a single test file
 ```
 
 CI (`.github/workflows/obsidian-plugin-ci.yml`) runs typecheck, lint, test, build on Node 20 & 22 for every push/PR.
