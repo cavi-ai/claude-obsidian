@@ -220,6 +220,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     this.accordion(containerEl, "Cloud replies (pull from repo)", (c) => this.renderRepliesSection(c));
     this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
     this.accordion(containerEl, "Session memory", (c) => this.renderMemorySection(c));
+    this.accordion(containerEl, "Source capture (typed clips)", (c) => this.renderSourceCaptureSection(c));
   }
 
   private renderStorageSection(containerEl: HTMLElement): void {
@@ -516,6 +517,53 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(s.memoryIngestOnSave).onChange(async (v) => {
           s.memoryIngestOnSave = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+  }
+
+  private renderSourceCaptureSection(containerEl: HTMLElement): void {
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Point the Obsidian Web Clipper (and dropped CSVs) at an inbox folder; Companion types each new file into a schema-validated source note. Extraction uses your utility model (local if enabled).",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable source capture")
+      .setDesc("Master switch for watching the inbox and the 'Enrich note as source' command.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.sourceCaptureEnabled).onChange(async (v) => {
+          this.plugin.settings.sourceCaptureEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Auto-enrich on create")
+      .setDesc("Type files automatically as they appear in the inbox (otherwise use the command).")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.sourceEnrichOnCreate).onChange(async (v) => {
+          this.plugin.settings.sourceEnrichOnCreate = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Inbox folder")
+      .setDesc("Folder the Web Clipper writes to and Companion watches.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.sourceInboxFolder).onChange(async (v) => {
+          this.plugin.settings.sourceInboxFolder = v.trim() || "Clippings";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Base tags")
+      .setDesc("Comma-separated tags added to every enriched source note.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.sourceBaseTags.join(", ")).onChange(async (v) => {
+          this.plugin.settings.sourceBaseTags = v.split(",").map((s) => s.trim()).filter(Boolean);
           await this.plugin.saveSettings();
         }),
       );
