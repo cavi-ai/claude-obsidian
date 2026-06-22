@@ -213,13 +213,34 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       );
 
     this.accordion(containerEl, "Storage", (c) => this.renderStorageSection(c));
-    this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
+    // On mobile, Cloud session is the primary way to cowork — promote it above
+    // the local/desktop-bound sections.
+    this.accordion(containerEl, "Cloud session (mobile-friendly)", (c) => this.renderCloudSection(c));
     this.accordion(containerEl, "Semantic search (local embeddings)", (c) => this.renderSemanticSection(c));
     this.accordion(containerEl, "Indexing & tags", (c) => this.renderIndexingSection(c));
-    this.accordion(containerEl, "Cloud session (mobile-friendly)", (c) => this.renderCloudSection(c));
     this.accordion(containerEl, "Cloud replies (pull from repo)", (c) => this.renderRepliesSection(c));
-    this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
-    this.accordion(containerEl, "Session memory", (c) => this.renderMemorySection(c));
+    if (!Platform.isMobile) {
+      this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
+      this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
+      this.accordion(containerEl, "Session memory", (c) => this.renderMemorySection(c));
+    } else {
+      // Desktop-only features are hidden on a phone (they need a desktop runtime);
+      // one collapsed note explains where they went so nothing feels missing.
+      const note = containerEl.createEl("details", { cls: "cc-accordion" });
+      note.createEl("summary", { cls: "cc-accordion-summary", text: "🖥 Desktop-only features" });
+      const body = note.createDiv({ cls: "cc-accordion-body" });
+      body.createEl("p", {
+        text: "These need a desktop runtime and are available when you open this vault on a computer:",
+      });
+      const ul = body.createEl("ul");
+      for (const t of [
+        "Local models (Ollama) — runs a localhost model server",
+        "Unified bridge (MCP server) — exposes your vault to Claude Code",
+        "Session memory — captures Claude Code transcripts from disk",
+      ]) {
+        ul.createEl("li", { text: t });
+      }
+    }
   }
 
   private renderStorageSection(containerEl: HTMLElement): void {
