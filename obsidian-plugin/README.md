@@ -44,6 +44,14 @@ attribution.
   it **proposes the change as a red/green diff**; you accept or reject **each
   hunk** before anything is written, and Claude is told exactly what you
   accepted. Works even with write tools off — the review is the permission.
+- **Link suggestions while you write** — the Related panel surfaces **unlinked
+  mentions** (note titles and aliases sitting in your prose as plain text) with
+  one-click linking, or **Review & link all** as a single diff. No embeddings
+  needed; works alongside the semantic related-notes list.
+- **Consolidated memory** — merge captured session digests into one evolving
+  **"What Claude Knows"** note (manual command or auto after each capture).
+  It's a normal note — agent mode reads it back with its own tools, so Claude
+  remembers your projects, decisions, and preferences across chats.
 - **Prompt caching** — repeated context (system prompt, tools, conversation
   history) is cached server-side automatically, cutting input cost by up to
   ~10× on long conversations. The cost estimate in the usage bar accounts for

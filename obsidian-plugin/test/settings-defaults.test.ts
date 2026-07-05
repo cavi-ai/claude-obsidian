@@ -36,3 +36,9 @@ describe("agent mode defaults", () => {
     expect(DEFAULT_SETTINGS.agentMaxIterations).toBe(10);
   });
 });
+
+describe("memory consolidation defaults", () => {
+  it("auto-consolidate ships off (utility-model cost is opt-in)", () => {
+    expect(DEFAULT_SETTINGS.memoryAutoConsolidate).toBe(false);
+  });
+});

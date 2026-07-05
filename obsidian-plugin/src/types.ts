@@ -149,6 +149,8 @@ export interface PluginSettings {
   memoryIngestOnSave: boolean;
   /** Tags every session digest note gets. */
   memoryBaseTags: string[];
+  /** After each capture, merge recent digests into the "What Claude Knows" note. */
+  memoryAutoConsolidate: boolean;
 
   // ----- source capture (typed clip enrichment) -----
   /** Master switch: watch the inbox and enrich new clips/files into typed notes. */
@@ -226,6 +228,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   memoryFolder: "Claude/Sessions",
   memoryIngestOnSave: false,
   memoryBaseTags: ["claude", "session"],
+  memoryAutoConsolidate: false,
 
   sourceCaptureEnabled: false,
   sourceEnrichOnCreate: true,

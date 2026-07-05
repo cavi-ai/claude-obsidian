@@ -578,6 +578,16 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("Auto-consolidate memory")
+      .setDesc("After each capture, merge recent digests into the “What Claude Knows” note (uses the utility model — local when enabled).")
+      .addToggle((t) =>
+        t.setValue(s.memoryAutoConsolidate).onChange(async (v) => {
+          s.memoryAutoConsolidate = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 
   private renderSourceCaptureSection(containerEl: HTMLElement): void {

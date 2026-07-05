@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, type LinkCandidate } from "./links/unlinkedMentions";
+import { selectDigests, buildConsolidationPrompt, parseConsolidation, renderMemoryNote, MEMORY_NOTE_BASENAME, type DigestSource } from "./memory/consolidate";
 import { mentionEdits } from "./links/suggest";
 import { planEdits, applyPlan } from "./edit/diff";
 import { DiffModal } from "./view/DiffModal";
@@ -250,6 +251,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
         id: "open-memory-view",
         name: "Open session memory",
         callback: () => void this.activateMemoryView(),
+      });
+
+      this.addCommand({
+        id: "consolidate-memory",
+        name: "Consolidate session memory into knowledge note",
+        callback: () => void this.consolidateMemory(),
       });
     }
 
@@ -914,9 +921,63 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice(`Captured session · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
       await this.refreshMemoryView();
       await this.app.workspace.getLeaf(false).openFile(res.file);
+      if (this.settings.memoryAutoConsolidate) void this.consolidateMemory({ quiet: true });
     } catch (e) {
       console.error("[Claude Companion] session capture failed", e);
       new Notice("Session capture failed — see console.");
+    }
+  }
+
+  /**
+   * Merge recent session digests into the evolving "What Claude Knows" note
+   * (spec 2026-07-05 memory consolidation). Routes through the utility
+   * provider — local Ollama when enabled, else Claude. Idempotent: rewrites
+   * the same note each run from the newest digests + its previous content.
+   */
+  async consolidateMemory(opts?: { quiet?: boolean }): Promise<void> {
+    const s = this.settings;
+    if (!s.memoryEnabled) {
+      new Notice("Turn on session memory in Companion settings first.");
+      return;
+    }
+    const folder = normalizePath(s.memoryFolder);
+    const files = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${folder}/`));
+    const sources: DigestSource[] = [];
+    for (const f of files) {
+      sources.push({ path: f.path, mtime: f.stat.mtime, content: await this.app.vault.cachedRead(f) });
+    }
+    const digests = selectDigests(sources);
+    if (digests.length === 0) {
+      if (!opts?.quiet) new Notice("No session digests to consolidate yet — capture a session first.");
+      return;
+    }
+
+    const memoryPath = normalizePath(`${folder}/${MEMORY_NOTE_BASENAME}.md`);
+    const existingFile = this.app.vault.getAbstractFileByPath(memoryPath);
+    const existing = existingFile instanceof TFile ? await this.app.vault.cachedRead(existingFile) : null;
+
+    if (!opts?.quiet) new Notice(`Consolidating ${digests.length} session digest${digests.length === 1 ? "" : "s"}…`);
+    try {
+      const { provider, model } = this.router().resolve("utility");
+      const raw = await provider.complete({
+        system: "You maintain concise, factual memory notes. Output markdown only.",
+        model,
+        maxTokens: 4000,
+        temperature: 0.2,
+        messages: [{ role: "user", content: buildConsolidationPrompt(existing, digests.map((d) => d.content)) }],
+      });
+      const body = parseConsolidation(raw);
+      const note = renderMemoryNote(body, {
+        updated: new Date().toISOString().slice(0, 10),
+        digestCount: digests.length,
+        baseTags: [...s.memoryBaseTags, "memory"],
+      });
+      if (existingFile instanceof TFile) await this.app.vault.modify(existingFile, note);
+      else await this.app.vault.create(memoryPath, note);
+      new Notice(`Memory consolidated → ${MEMORY_NOTE_BASENAME} (via ${provider.label}).`);
+    } catch (e) {
+      console.error("[Claude Companion] memory consolidation failed", e);
+      if (!opts?.quiet) new Notice(`Memory consolidation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
