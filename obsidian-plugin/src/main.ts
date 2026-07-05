@@ -11,6 +11,7 @@ import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
+import { AGENT_INSTRUCTION } from "./agent/prompt";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
@@ -61,6 +62,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _router: ProviderRouter | null = null;
   private mcpServer: McpHttpServer | null = null;
   private vaultTools: VaultTools | null = null;
+  /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
+  private agentVaultTools: VaultTools | null = null;
   /** Serializes overlapping syncMcpServer() calls (settings fire it per keystroke). */
   private mcpSyncChain: Promise<void> = Promise.resolve();
   /** Signature of the currently-running MCP server, to skip needless restarts. */
@@ -587,8 +590,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._router;
   }
 
-  composeSystemPrompt(): string {
-    return `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+  composeSystemPrompt(opts?: { agent?: boolean }): string {
+    const base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+    return opts?.agent ? `${base}\n\n${AGENT_INSTRUCTION}` : base;
+  }
+
+  /** Vault tools for the in-chat agent loop, options refreshed from settings on every call. */
+  agentTools(): VaultTools {
+    const opts = {
+      allowWrites: this.settings.agentAllowWrites,
+      defaultFolder: this.settings.mcpWriteFolder,
+      semantic: (q: string, k: number) => this.semanticSearch(q, k),
+    };
+    if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
+    else this.agentVaultTools.setOptions(opts);
+    return this.agentVaultTools;
   }
 
   /** Open an artifact per the user's setting: in-app fullscreen, or a browser. */

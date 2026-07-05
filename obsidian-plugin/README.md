@@ -34,6 +34,16 @@ attribution.
 - **Chat in a side panel** — streaming responses, Markdown-rendered, with
   per-message **Copy / Insert / Save as note / Regenerate** actions and
   hover-to-copy on every code block.
+- **Agent mode (vault tools in chat)** — Claude can **search your vault, read
+  notes, and follow links on its own** while answering, showing each step as an
+  expandable tool chip. Read-only by default; an optional setting also lets it
+  **create and edit notes**, with a confirmation dialog before every write
+  ("Allow", "Allow for this session", or "Deny"). Turn it all off in settings
+  for plain chat with pre-attached context.
+- **Prompt caching** — repeated context (system prompt, tools, conversation
+  history) is cached server-side automatically, cutting input cost by up to
+  ~10× on long conversations. The cost estimate in the usage bar accounts for
+  cache reads and writes.
 - **Vault-aware context** — toggle chips to attach your **active note**, the
   **current selection**, **linked & backlinked notes**, or a keyword
   **vault search** (lightweight RAG, no embeddings) to any message.

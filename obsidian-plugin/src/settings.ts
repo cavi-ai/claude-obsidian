@@ -172,6 +172,41 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
+    new Setting(containerEl).setName("Agent mode").setHeading();
+
+    new Setting(containerEl)
+      .setName("Let Claude use vault tools")
+      .setDesc("Claude can search and read your notes on its own while answering (read-only). Turn off for plain chat with pre-attached context.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.agentModeEnabled).onChange(async (v) => {
+          this.plugin.settings.agentModeEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Allow write tools")
+      .setDesc("Also let Claude create, edit, and move notes from chat. Every write asks for your confirmation first.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.agentAllowWrites).onChange(async (v) => {
+          this.plugin.settings.agentAllowWrites = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Max tool iterations per turn")
+      .setDesc("How many search/read/write rounds Claude may take before it must answer.")
+      .addSlider((s) =>
+        s
+          .setLimits(1, 20, 1)
+          .setValue(this.plugin.settings.agentMaxIterations)
+          .onChange(async (v) => {
+            this.plugin.settings.agentMaxIterations = v;
+            await this.plugin.saveSettings();
+          }),
+      );
+
     new Setting(containerEl).setName("Behavior").setHeading();
 
     new Setting(containerEl)

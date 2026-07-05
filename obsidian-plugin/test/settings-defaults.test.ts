@@ -28,3 +28,11 @@ describe("memory settings defaults", () => {
     expect(DEFAULT_SETTINGS.artifactOpenTarget).toBe("obsidian");
   });
 });
+
+describe("agent mode defaults", () => {
+  it("agent mode ships on, writes off, 10 iterations (spec 2026-07-05, Franco-approved)", () => {
+    expect(DEFAULT_SETTINGS.agentModeEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.agentAllowWrites).toBe(false);
+    expect(DEFAULT_SETTINGS.agentMaxIterations).toBe(10);
+  });
+});
