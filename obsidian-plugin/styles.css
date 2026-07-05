@@ -1446,3 +1446,19 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   margin-top: 12px;
   flex-wrap: wrap;
 }
+
+/* ===== Link intelligence: suggestions in the Related view (spec 2026-07-05) ===== */
+
+.cc-related-link-all {
+  margin: 6px 0 14px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.cc-related-link-all:hover { background: var(--background-modifier-hover); }

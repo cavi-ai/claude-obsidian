@@ -12,6 +12,10 @@ import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION } from "./agent/prompt";
+import { findUnlinkedMentions, type LinkCandidate } from "./links/unlinkedMentions";
+import { mentionEdits } from "./links/suggest";
+import { planEdits, applyPlan } from "./edit/diff";
+import { DiffModal } from "./view/DiffModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
@@ -219,6 +223,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "pull-cloud-replies",
       name: "Pull cloud session replies into the vault",
       callback: () => void this.pullCloudReplies(),
+    });
+
+    this.addCommand({
+      id: "review-link-suggestions",
+      name: "Review link suggestions for current note",
+      callback: () => void this.reviewLinkSuggestions(),
     });
 
     this.addCommand({
@@ -593,6 +603,57 @@ export default class ClaudeCompanionPlugin extends Plugin {
   composeSystemPrompt(opts?: { agent?: boolean }): string {
     const base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
     return opts?.agent ? `${base}\n\n${AGENT_INSTRUCTION}` : base;
+  }
+
+  /** Every markdown note as a link-candidate (basename + frontmatter aliases). */
+  linkCandidates(): LinkCandidate[] {
+    return this.app.vault.getMarkdownFiles().map((f) => {
+      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
+      const raw = fm?.aliases;
+      const aliases = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" && raw.trim() ? [raw] : [];
+      return { path: f.path, basename: f.basename, aliases };
+    });
+  }
+
+  /** Paths the given note already links to (its outgoing resolved links). */
+  linkedTargets(file: TFile): Set<string> {
+    const resolved = (this.app.metadataCache as unknown as { resolvedLinks?: Record<string, Record<string, number>> }).resolvedLinks ?? {};
+    return new Set(Object.keys(resolved[file.path] ?? {}));
+  }
+
+  /**
+   * Bulk-link the unlinked mentions of a note through the diff review flow
+   * (spec 2026-07-05 link intelligence): every proposed [[link]] is a hunk the
+   * user can accept or reject before anything is written.
+   */
+  async reviewLinkSuggestions(target?: TFile): Promise<void> {
+    const file = target ?? this.app.workspace.getActiveFile();
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a note first.");
+      return;
+    }
+    const content = await this.app.vault.cachedRead(file);
+    const mentions = findUnlinkedMentions(content, this.linkCandidates(), file.path);
+    if (mentions.length === 0) {
+      new Notice("No unlinked mentions found.");
+      return;
+    }
+    const edits = mentionEdits(content, mentions);
+    if (edits.length === 0) {
+      new Notice("Mentions found, but none could be linked unambiguously.");
+      return;
+    }
+    const plan = planEdits(content, edits);
+    const accepted = await new Promise<boolean[] | null>((resolve) => {
+      new DiffModal(this.app, { path: file.path, description: `Link ${plan.hunks.length} unlinked mention${plan.hunks.length === 1 ? "" : "s"}`, plan }, resolve).open();
+    });
+    if (!accepted) return;
+    try {
+      await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
+      new Notice(`Linked ${accepted.filter(Boolean).length} mention${accepted.filter(Boolean).length === 1 ? "" : "s"} in ${file.basename}.`);
+    } catch (e) {
+      new Notice(e instanceof Error ? e.message : String(e));
+    }
   }
 
   /** Vault tools for the in-chat agent loop, options refreshed from settings on every call. */
