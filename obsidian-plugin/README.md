@@ -40,6 +40,10 @@ attribution.
   **create and edit notes**, with a confirmation dialog before every write
   ("Allow", "Allow for this session", or "Deny"). Turn it all off in settings
   for plain chat with pre-attached context.
+- **Apply edits as reviewable diffs** — ask Claude to improve or fix a note and
+  it **proposes the change as a red/green diff**; you accept or reject **each
+  hunk** before anything is written, and Claude is told exactly what you
+  accepted. Works even with write tools off — the review is the permission.
 - **Prompt caching** — repeated context (system prompt, tools, conversation
   history) is cached server-side automatically, cutting input cost by up to
   ~10× on long conversations. The cost estimate in the usage bar accounts for

@@ -2,9 +2,12 @@ import { ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, Platform, Works
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ToolTraceEntry } from "../types";
 import { runAgentTurn, type AgentTurnDeps } from "../agent/loop";
-import { executeTool, toAnthropicTools } from "../agent/tools";
+import { executeTool, toAnthropicTools, PROPOSE_EDIT_TOOL } from "../agent/tools";
 import { WriteConfirmModal } from "./WriteConfirmModal";
+import { DiffModal } from "./DiffModal";
+import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
 import type { ToolResultBlock, ToolUseBlock } from "../providers/types";
+import { TFile } from "obsidian";
 import { compactMessages, toApiMessages, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
@@ -36,6 +39,18 @@ function chipLabel(name: string, args: string): string {
 /** Truncate a tool result for the expandable chip body. */
 function previewText(text: string): string {
   return text.length > 400 ? `${text.slice(0, 400)}…` : text;
+}
+
+/** Defensive shape-check of a propose_note_edit `edits` argument. */
+function parseProposedEdits(v: unknown): ProposedEdit[] {
+  if (!Array.isArray(v) || v.length === 0) throw new Error("propose_note_edit requires a non-empty 'edits' array.");
+  return v.map((e, i) => {
+    const o = e as { old_str?: unknown; new_str?: unknown };
+    if (typeof o?.old_str !== "string" || typeof o?.new_str !== "string") {
+      throw new Error(`edits[${i}] must have string 'old_str' and 'new_str'.`);
+    }
+    return { old_str: o.old_str, new_str: o.new_str };
+  });
 }
 
 interface ObsidianAppWithSettings {
@@ -999,7 +1014,9 @@ export class ChatView extends ItemView {
       messages: apiMessages,
       model: this.controls.model,
       maxTokens: shape.maxTokens,
-      tools: toAnthropicTools(this.plugin.agentTools().definitions()),
+      // propose_note_edit rides along regardless of agentAllowWrites — the
+      // diff modal is its own gate (spec 2026-07-05 apply-to-note, §7 Q1).
+      tools: [...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL],
     };
     if (shape.temperature !== undefined) request.temperature = shape.temperature;
     if (shape.thinking !== undefined) request.thinking = shape.thinking;
@@ -1038,6 +1055,7 @@ export class ChatView extends ItemView {
           {
             call: (name, args) => this.plugin.agentTools().call(name, args),
             confirmWrite: (b) => this.confirmAgentWrite(b),
+            proposeEdit: (b) => this.proposeAgentEdit(b),
           },
           block,
         ),
@@ -1087,6 +1105,39 @@ export class ChatView extends ItemView {
     await this.renderMarkdownInto(body, result.text);
     this.finishAssistant(result.text.trim().length > 0 ? result.text : null, bubble, result.trace);
     return null;
+  }
+
+  /**
+   * Handle a propose_note_edit call: plan against the current note, let the
+   * user review per hunk in the DiffModal, apply the accepted subset
+   * atomically, and report the true outcome back to the model. Throws are
+   * mapped to is_error tool_results by the executor (model self-corrects).
+   */
+  private async proposeAgentEdit(block: ToolUseBlock): Promise<string> {
+    const input = block.input;
+    const path = typeof input.path === "string" ? input.path : "";
+    if (!path) throw new Error("propose_note_edit requires a 'path'.");
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`);
+    const edits = parseProposedEdits(input.edits);
+    const description = typeof input.description === "string" ? input.description : undefined;
+
+    const content = await this.app.vault.cachedRead(file);
+    const plan = planEdits(content, edits);
+
+    const accepted = await new Promise<boolean[] | null>((resolve) => {
+      new DiffModal(this.app, { path, ...(description !== undefined ? { description } : {}), plan }, resolve).open();
+    });
+    if (!accepted) return "User rejected the proposed edit.";
+
+    // vault.process re-reads inside the write lock; applyPlan re-validates
+    // against that content, so a mid-review change surfaces as an error
+    // instead of corrupting the note.
+    await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
+    const applied = accepted.filter(Boolean).length;
+    return applied === plan.hunks.length
+      ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${path}.`
+      : `Applied ${applied} of ${plan.hunks.length} edits to ${path} (the user rejected the rest).`;
   }
 
   /** Ask the user before an agent write tool runs; honors "allow for this session". */

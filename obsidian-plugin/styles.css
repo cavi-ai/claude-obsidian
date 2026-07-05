@@ -1387,3 +1387,62 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   margin-top: 12px;
   flex-wrap: wrap;
 }
+
+/* ===== Apply-to-note: diff review modal (spec 2026-07-05) ===== */
+
+.cc-diff-modal .cc-diff-description {
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.cc-diff-hunk {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.cc-diff-hunk.is-rejected { opacity: 0.45; }
+
+.cc-diff-hunk-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--background-secondary);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.cc-diff-lines {
+  margin: 0;
+  padding: 6px 0;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  overflow-x: auto;
+  background: var(--background-primary);
+}
+
+.cc-diff-line { padding: 0 10px; white-space: pre; }
+
+.cc-diff-line.is-add {
+  background: rgba(var(--color-green-rgb), 0.14);
+  color: var(--text-normal);
+}
+
+.cc-diff-line.is-del {
+  background: rgba(var(--color-red-rgb), 0.12);
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.cc-diff-line.is-context { color: var(--text-faint); }
+
+.cc-diff-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
