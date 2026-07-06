@@ -6,7 +6,7 @@ import { executeTool, toAnthropicTools, PROPOSE_EDIT_TOOL } from "../agent/tools
 import { WriteConfirmModal } from "./WriteConfirmModal";
 import { DiffModal } from "./DiffModal";
 import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
-import type { ToolResultBlock, ToolUseBlock } from "../providers/types";
+import type { ApiMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "../providers/types";
 import { TFile } from "obsidian";
 import { compactMessages, toApiMessages, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
@@ -19,6 +19,7 @@ import { SlashMenu } from "./SlashMenu";
 import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
+import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
 import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
@@ -83,6 +84,8 @@ export class ChatView extends ItemView {
   private pillsEl!: HTMLElement;
   /** Notes/folders explicitly attached via "@" (session-scoped). */
   private attachedPaths: AttachedPath[] = [];
+  /** PDFs/images attached via "@" or paste — cleared after the next send. */
+  private attachedMedia: MediaAttachment[] = [];
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
@@ -233,6 +236,21 @@ export class ChatView extends ItemView {
     });
     // Close the menus when focus leaves the composer.
     this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hide(); this.atMenu.hide(); }, 120));
+    // Paste a screenshot/image straight into the composer to attach it.
+    this.inputEl.addEventListener("paste", (evt: ClipboardEvent) => {
+      const items = evt.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            evt.preventDefault();
+            void this.attachPastedImage(file);
+          }
+          return;
+        }
+      }
+    });
 
     // ---- composer bar: model + tune (left group) · usage + Send (right) ----
     // One row directly under the input, so Send sits right beneath the chat box.
@@ -425,7 +443,48 @@ export class ChatView extends ItemView {
       const i = p.lastIndexOf("/");
       if (i > 0) folders.add(p.slice(0, i));
     }
-    return buildAtItems(notes, [...folders].sort());
+    const media = this.app.vault
+      .getFiles()
+      .filter((f) => mediaKind(f.path) !== null)
+      .map((f) => f.path)
+      .sort();
+    return buildAtItems(notes, [...folders].sort(), media);
+  }
+
+  /** Load attached media into wire blocks; oversize/unreadable files are skipped with a notice. */
+  private async mediaBlocks(): Promise<ContentBlock[]> {
+    const blocks: ContentBlock[] = [];
+    for (const m of this.attachedMedia) {
+      try {
+        let data = m.data;
+        if (!data && m.path) {
+          const file = this.app.vault.getAbstractFileByPath(m.path);
+          if (!(file instanceof TFile)) throw new Error("file not found");
+          if (file.stat.size > maxBytesFor(m.kind)) {
+            new Notice(`${m.label} is too large to attach (max ${Math.round(maxBytesFor(m.kind) / 1024 / 1024)} MB).`);
+            continue;
+          }
+          data = arrayBufferToBase64(await this.app.vault.readBinary(file));
+        }
+        if (data) blocks.push(mediaBlock(m.kind, m.mime, data));
+      } catch (e) {
+        new Notice(`Couldn't attach ${m.label}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return blocks;
+  }
+
+  /** Attach an image pasted into the composer (screenshots, copied images). */
+  private async attachPastedImage(file: File): Promise<void> {
+    if (file.size > maxBytesFor("image")) {
+      new Notice(`Pasted image is too large to attach (max ${Math.round(maxBytesFor("image") / 1024 / 1024)} MB).`);
+      return;
+    }
+    const data = arrayBufferToBase64(await file.arrayBuffer());
+    const n = this.attachedMedia.filter((m) => !m.path).length + 1;
+    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: file.type || "image/png", data });
+    this.renderAttachPills();
+    new Notice("Image attached to your next message.");
   }
 
   /** Open/refresh/close the "@" picker based on the cursor's @-token. */
@@ -456,6 +515,11 @@ export class ChatView extends ItemView {
       const kind = item.kind === "folder-path" ? "folder" : "note";
       if (!this.attachedPaths.some((a) => a.path === item.path && a.kind === kind)) {
         this.attachedPaths.push({ path: item.path, kind });
+      }
+    } else if (item.path && item.kind === "media-path") {
+      const kind = mediaKind(item.path);
+      if (kind && !this.attachedMedia.some((m) => m.path === item.path)) {
+        this.attachedMedia.push({ label: item.label, kind, mime: mediaMime(item.path), path: item.path });
       }
     }
     await this.plugin.saveSettings();
@@ -490,6 +554,11 @@ export class ChatView extends ItemView {
       const base = a.path.replace(/\.md$/i, "").split("/").pop() ?? a.path;
       pill(`${a.kind === "folder" ? "📁" : "📄"} ${base}`, () => {
         this.attachedPaths = this.attachedPaths.filter((x) => !(x.path === a.path && x.kind === a.kind));
+      });
+    }
+    for (const m of this.attachedMedia) {
+      pill(`${m.kind === "pdf" ? "📕" : "🖼️"} ${m.label}`, () => {
+        this.attachedMedia = this.attachedMedia.filter((x) => x !== m);
       });
     }
     this.pillsEl.toggleClass("is-empty", this.pillsEl.childElementCount === 0);
@@ -836,11 +905,24 @@ export class ChatView extends ItemView {
       (q, k) => this.plugin.semanticSearch(q, k),
       this.attachedPaths,
     );
-    const apiMessages: ChatMessage[] = toApiMessages(this.messages);
+    const apiMessages: ApiMessage[] = toApiMessages(this.messages);
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
-      if (last) last.content = `${ctx.text}\n\n---\n\n${last.content}`;
+      if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
       this.annotateContext(ctx.sources);
+    }
+
+    // Attached PDFs/images become content blocks ahead of the text (media is
+    // per-turn: consumed by this send, pills cleared). Local backends can't
+    // see them — textContent() drops non-text blocks on the Ollama path.
+    if (this.attachedMedia.length > 0) {
+      const blocks = await this.mediaBlocks();
+      const last = apiMessages[apiMessages.length - 1];
+      if (blocks.length > 0 && last && typeof last.content === "string") {
+        last.content = [...blocks, { type: "text", text: last.content }];
+      }
+      this.attachedMedia = [];
+      this.renderAttachPills();
     }
 
     const { bubble, body } = this.createAssistantBubble();
@@ -893,7 +975,7 @@ export class ChatView extends ItemView {
    */
   private streamTurn(
     target: "claude" | "local",
-    apiMessages: ChatMessage[],
+    apiMessages: ApiMessage[],
     bubble: HTMLElement,
     body: HTMLElement,
   ): Promise<{ message?: string; status?: number } | null> {
@@ -999,7 +1081,7 @@ export class ChatView extends ItemView {
    * turn produced nothing (so run() can fall back to local), null when handled.
    */
   private async agentTurn(
-    apiMessages: ChatMessage[],
+    apiMessages: ApiMessage[],
     bubble: HTMLElement,
     body: HTMLElement,
   ): Promise<{ message?: string; status?: number } | null> {

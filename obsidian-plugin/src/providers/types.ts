@@ -35,7 +35,25 @@ export interface ToolResultBlock {
   is_error?: boolean;
 }
 
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
+/** Base64-embedded media source (images and PDFs). */
+export interface Base64Source {
+  type: "base64";
+  media_type: string;
+  data: string;
+}
+
+export interface ImageBlock {
+  type: "image";
+  source: Base64Source;
+}
+
+/** A PDF attached to a user turn. */
+export interface DocumentBlock {
+  type: "document";
+  source: Base64Source;
+}
+
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ImageBlock | DocumentBlock;
 
 /**
  * A message as sent to a provider. `content` is a plain string for ordinary
