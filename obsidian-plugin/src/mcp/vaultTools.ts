@@ -5,6 +5,7 @@ import { reciprocalRankFusion } from "../semantic/similarity";
 import { buildFrontmatter, normalizeTags } from "../indexing/frontmatter";
 import { replaceSection } from "./edit";
 import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
+import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 
 /** Optional semantic retriever (local embeddings); absent → keyword-only. */
 export type SemanticSearch = (query: string, k: number) => Promise<{ path: string; text: string }[]>;
@@ -172,6 +173,42 @@ export class VaultTools {
           },
         },
         {
+          name: "base_create",
+          description:
+            "Create an Obsidian Base (.base) — a database view over notes, driven by their frontmatter properties. Use frontmatter_query/vault_tags first to discover real property names. Filters are statements like 'file.hasTag(\"book\")' or 'note.status == \"open\"' (AND-ed). Great for reading trackers, project dashboards, and review queues.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Base title (also the filename)." },
+              filters: { type: "array", items: { type: "string" }, description: "Global filter statements, AND-ed." },
+              views: {
+                type: "array",
+                description: "Views: {name, type? (table|cards), order? (property list like 'file.name'/'note.status'), groupBy? {property, direction}, limit?, filters?}.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    type: { type: "string" },
+                    order: { type: "array", items: { type: "string" } },
+                    groupBy: {
+                      type: "object",
+                      properties: { property: { type: "string" }, direction: { type: "string", enum: ["ASC", "DESC"] } },
+                      required: ["property"],
+                    },
+                    limit: { type: "number" },
+                    filters: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["name"],
+                },
+              },
+              formulas: { type: "object", description: "formula name → expression (e.g. {ppu: '(price / age).toFixed(2)'})." },
+              properties: { type: "object", description: "property id → display name (e.g. {status: 'Status'})." },
+              folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
+            },
+            required: ["title", "views"],
+          },
+        },
+        {
           name: "canvas_create",
           description:
             "Create an Obsidian Canvas (.canvas) — a visual mind map / board of nodes and edges. Nodes: text (idea cards), file (embed a vault note by path), or link (url). Omit x/y to auto-layout left-to-right by edge depth. Use for mind maps, project boards, and argument maps wired to real notes.",
@@ -256,6 +293,9 @@ export class VaultTools {
       case "canvas_create":
         this.assertWrites();
         return this.createCanvas(str(args.title), args.nodes, args.edges, optStr(args.folder));
+      case "base_create":
+        this.assertWrites();
+        return this.createBase(str(args.title), args, optStr(args.folder));
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -439,6 +479,20 @@ export class VaultTools {
     hits.sort();
     if (hits.length === 0) return value === undefined ? `No notes have frontmatter field "${field}".` : `No notes where ${field} = "${value}".`;
     return hits.map((p) => `- ${p}`).join("\n");
+  }
+
+  private async createBase(title: string, args: Record<string, unknown>, folder: string | undefined): Promise<string> {
+    const yaml = buildBaseFile({
+      filters: strArray(args.filters),
+      views: Array.isArray(args.views) ? (args.views as ProposedBase["views"]) : [],
+      ...(args.formulas && typeof args.formulas === "object" ? { formulas: args.formulas as Record<string, string> } : {}),
+      ...(args.properties && typeof args.properties === "object" ? { properties: args.properties as Record<string, string> } : {}),
+    });
+    const dir = (folder ?? this.opts.defaultFolder).trim();
+    await this.ensureFolder(dir);
+    const path = await this.uniquePath(dir, title, ".base");
+    const file = await this.app.vault.create(path, yaml);
+    return `Created base: ${file.path}`;
   }
 
   private async createCanvas(title: string, nodes: unknown, edges: unknown, folder: string | undefined): Promise<string> {

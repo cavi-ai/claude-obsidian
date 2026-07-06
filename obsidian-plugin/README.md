@@ -53,6 +53,10 @@ attribution.
   notes, labeled edges, auto-layout. A write like any other: gated and
   confirmed before the .canvas file is created. Also available to Claude Code
   over the MCP bridge.
+- **Bases from your frontmatter** — ask for "a reading tracker" or "a project
+  dashboard" and Claude builds a native **Obsidian Base** (.base database
+  view), discovering your real frontmatter properties first. Write-gated and
+  confirmed, in chat and over the MCP bridge.
 - **PDFs & images in chat** — @-mention any PDF or image in your vault, or
   **paste a screenshot** straight into the composer; Claude reads it natively
   (vision + document understanding). Attachments are per-message pills you can

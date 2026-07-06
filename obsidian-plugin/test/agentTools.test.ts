@@ -147,3 +147,9 @@ describe("canvas_create classification", () => {
     expect(isWriteTool("canvas_create")).toBe(true);
   });
 });
+
+describe("base_create classification", () => {
+  it("is a write tool (vault mutation — gated + confirmed)", () => {
+    expect(isWriteTool("base_create")).toBe(true);
+  });
+});

@@ -9,7 +9,7 @@ import type { AnthropicToolDef, ToolResultBlock, ToolUseBlock } from "../provide
 export const TOOL_RESULT_MAX_CHARS = 8000;
 
 /** The vault tools that mutate the vault; everything else is read-only. */
-const WRITE_TOOLS = new Set(["note_create", "note_append", "note_update", "update_frontmatter", "note_move", "canvas_create"]);
+const WRITE_TOOLS = new Set(["note_create", "note_append", "note_update", "update_frontmatter", "note_move", "canvas_create", "base_create"]);
 
 export function isWriteTool(name: string): boolean {
   return WRITE_TOOLS.has(name);
