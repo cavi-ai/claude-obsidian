@@ -106,3 +106,21 @@ describe("breakpoint budget", () => {
     expect(countBreakpoints(r)).toBeLessThanOrEqual(4);
   });
 });
+
+describe("withCacheControl — media blocks", () => {
+  it("flags the trailing text block after attached media", () => {
+    const messages: ApiMessage[] = [
+      {
+        role: "user",
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: "AAAA" } },
+          { type: "text", text: "Summarize this PDF." },
+        ],
+      },
+    ];
+    const r = withCacheControl({ system: "s", messages });
+    const content = (r.messages[0] as { content: Array<Record<string, unknown>> }).content;
+    expect(content[0]).not.toHaveProperty("cache_control");
+    expect(content[1]).toMatchObject({ type: "text", cache_control: EPHEMERAL });
+  });
+});
