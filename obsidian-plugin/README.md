@@ -34,6 +34,28 @@ attribution.
 - **Chat in a side panel** — streaming responses, Markdown-rendered, with
   per-message **Copy / Insert / Save as note / Regenerate** actions and
   hover-to-copy on every code block.
+- **Agent mode (vault tools in chat)** — Claude can **search your vault, read
+  notes, and follow links on its own** while answering, showing each step as an
+  expandable tool chip. Read-only by default; an optional setting also lets it
+  **create and edit notes**, with a confirmation dialog before every write
+  ("Allow", "Allow for this session", or "Deny"). Turn it all off in settings
+  for plain chat with pre-attached context.
+- **Apply edits as reviewable diffs** — ask Claude to improve or fix a note and
+  it **proposes the change as a red/green diff**; you accept or reject **each
+  hunk** before anything is written, and Claude is told exactly what you
+  accepted. Works even with write tools off — the review is the permission.
+- **Link suggestions while you write** — the Related panel surfaces **unlinked
+  mentions** (note titles and aliases sitting in your prose as plain text) with
+  one-click linking, or **Review & link all** as a single diff. No embeddings
+  needed; works alongside the semantic related-notes list.
+- **Consolidated memory** — merge captured session digests into one evolving
+  **"What Claude Knows"** note (manual command or auto after each capture).
+  It's a normal note — agent mode reads it back with its own tools, so Claude
+  remembers your projects, decisions, and preferences across chats.
+- **Prompt caching** — repeated context (system prompt, tools, conversation
+  history) is cached server-side automatically, cutting input cost by up to
+  ~10× on long conversations. The cost estimate in the usage bar accounts for
+  cache reads and writes.
 - **Vault-aware context** — toggle chips to attach your **active note**, the
   **current selection**, **linked & backlinked notes**, or a keyword
   **vault search** (lightweight RAG, no embeddings) to any message.
