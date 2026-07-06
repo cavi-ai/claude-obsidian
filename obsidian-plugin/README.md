@@ -48,6 +48,11 @@ attribution.
   mentions** (note titles and aliases sitting in your prose as plain text) with
   one-click linking, or **Review & link all** as a single diff. No embeddings
   needed; works alongside the semantic related-notes list.
+- **Canvas mind maps** — `/canvas` (or just ask): Claude searches your vault
+  and builds a native **Obsidian Canvas** — file nodes wired to your real
+  notes, labeled edges, auto-layout. A write like any other: gated and
+  confirmed before the .canvas file is created. Also available to Claude Code
+  over the MCP bridge.
 - **PDFs & images in chat** — @-mention any PDF or image in your vault, or
   **paste a screenshot** straight into the composer; Claude reads it natively
   (vision + document understanding). Attachments are per-message pills you can

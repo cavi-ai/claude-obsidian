@@ -4,6 +4,7 @@ import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
 import { buildFrontmatter, normalizeTags } from "../indexing/frontmatter";
 import { replaceSection } from "./edit";
+import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
 
 /** Optional semantic retriever (local embeddings); absent → keyword-only. */
 export type SemanticSearch = (query: string, k: number) => Promise<{ path: string; text: string }[]>;
@@ -170,6 +171,50 @@ export class VaultTools {
             required: ["path", "to"],
           },
         },
+        {
+          name: "canvas_create",
+          description:
+            "Create an Obsidian Canvas (.canvas) — a visual mind map / board of nodes and edges. Nodes: text (idea cards), file (embed a vault note by path), or link (url). Omit x/y to auto-layout left-to-right by edge depth. Use for mind maps, project boards, and argument maps wired to real notes.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Canvas title (also the filename)." },
+              nodes: {
+                type: "array",
+                description: "Nodes: {id?, text?} for idea cards, {id?, file?} to embed a note, {id?, url?} for links. Optional x/y/width/height/color.",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    text: { type: "string" },
+                    file: { type: "string" },
+                    url: { type: "string" },
+                    x: { type: "number" },
+                    y: { type: "number" },
+                    width: { type: "number" },
+                    height: { type: "number" },
+                    color: { type: "string" },
+                  },
+                },
+              },
+              edges: {
+                type: "array",
+                description: "Directed edges between node ids, with optional labels.",
+                items: {
+                  type: "object",
+                  properties: {
+                    from: { type: "string" },
+                    to: { type: "string" },
+                    label: { type: "string" },
+                  },
+                  required: ["from", "to"],
+                },
+              },
+              folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
+            },
+            required: ["title", "nodes"],
+          },
+        },
       );
     }
     return defs;
@@ -208,6 +253,9 @@ export class VaultTools {
       case "note_move":
         this.assertWrites();
         return this.move(str(args.path), str(args.to));
+      case "canvas_create":
+        this.assertWrites();
+        return this.createCanvas(str(args.title), args.nodes, args.edges, optStr(args.folder));
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -393,6 +441,18 @@ export class VaultTools {
     return hits.map((p) => `- ${p}`).join("\n");
   }
 
+  private async createCanvas(title: string, nodes: unknown, edges: unknown, folder: string | undefined): Promise<string> {
+    const data = buildCanvas(
+      Array.isArray(nodes) ? (nodes as ProposedCanvasNode[]) : [],
+      Array.isArray(edges) ? (edges as ProposedCanvasEdge[]) : [],
+    );
+    const dir = (folder ?? this.opts.defaultFolder).trim();
+    await this.ensureFolder(dir);
+    const path = await this.uniquePath(dir, title, ".canvas");
+    const file = await this.app.vault.create(path, serializeCanvas(data));
+    return `Created canvas: ${file.path} (${data.nodes.length} nodes, ${data.edges.length} edges)`;
+  }
+
   private async move(path: string, to: string): Promise<string> {
     const file = this.resolveFile(path);
     const dest = normalizePath(to);
@@ -424,12 +484,12 @@ export class VaultTools {
     }
   }
 
-  private async uniquePath(folder: string, title: string): Promise<string> {
+  private async uniquePath(folder: string, title: string, ext = ".md"): Promise<string> {
     const safe = title.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Untitled";
-    let path = normalizePath(folder ? `${folder}/${safe}.md` : `${safe}.md`);
+    let path = normalizePath(folder ? `${folder}/${safe}${ext}` : `${safe}${ext}`);
     let i = 2;
     while (this.app.vault.getAbstractFileByPath(path)) {
-      path = normalizePath(folder ? `${folder}/${safe} ${i}.md` : `${safe} ${i}.md`);
+      path = normalizePath(folder ? `${folder}/${safe} ${i}${ext}` : `${safe} ${i}${ext}`);
       i++;
     }
     return path;
