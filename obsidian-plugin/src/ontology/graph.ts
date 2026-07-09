@@ -52,7 +52,13 @@ export function buildGraph(notes: NoteMeta[], resolved: Map<string, ResolvedType
     const type = resolved.get(node.type);
     if (!type) continue;
     for (const e of extractEdges(n.path, n.frontmatter, type)) {
-      const toPath = nodes.has(e.to) ? e.to : byBasename.get(e.to);
+      // Exact path, then extension-less path (Obsidian's folder-qualified
+      // disambiguation writes "[[Projects/CAVI]]"), then basename.
+      const toPath = nodes.has(e.to)
+        ? e.to
+        : nodes.has(`${e.to}.md`)
+          ? `${e.to}.md`
+          : byBasename.get(e.to);
       edges.push(toPath !== undefined ? { ...e, toPath } : { ...e });
     }
   }

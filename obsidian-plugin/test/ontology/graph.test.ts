@@ -45,6 +45,27 @@ describe("buildGraph", () => {
     expect(g.neighbors("Projects/CAVI.md")).toHaveLength(1);
     expect(g.neighbors("People/Franco.md")).toHaveLength(2);
   });
+  it("resolves extension-less folder-qualified targets", () => {
+    const g4 = buildGraph(
+      [
+        { path: "a.md", basename: "a", frontmatter: { type: "person", works_on: ["[[Projects/CAVI]]"] } },
+        { path: "Projects/CAVI.md", basename: "CAVI", frontmatter: { type: "project" } },
+      ],
+      resolved,
+    );
+    expect(g4.edges[0]?.toPath).toBe("Projects/CAVI.md");
+  });
+  it("basename collisions resolve deterministically to the first note in input order", () => {
+    const g5 = buildGraph(
+      [
+        { path: "a.md", basename: "a", frontmatter: { type: "person", works_on: ["[[CAVI]]"] } },
+        { path: "Projects/CAVI.md", basename: "CAVI", frontmatter: { type: "project" } },
+        { path: "Archive/CAVI.md", basename: "CAVI", frontmatter: { type: "project" } },
+      ],
+      resolved,
+    );
+    expect(g5.edges[0]?.toPath).toBe("Projects/CAVI.md");
+  });
   it("a note with an unknown type is untyped (no edges extracted)", () => {
     const g3 = buildGraph([{ path: "x.md", basename: "x", frontmatter: { type: "ghost", works_on: ["[[CAVI]]"] } }], resolved);
     expect(g3.nodes.get("x.md")?.type).toBeUndefined();
