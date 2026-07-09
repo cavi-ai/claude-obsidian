@@ -3,7 +3,9 @@
 // resolution produces ResolvedType, which everything downstream consumes.
 
 /** Same vocabulary as sources' FieldType, kept independent to avoid coupling. */
-export type PropertyType = "string" | "number" | "date" | "duration" | "string[]";
+export const PROPERTY_TYPE_VALUES = ["string", "number", "date", "duration", "string[]"] as const;
+
+export type PropertyType = (typeof PROPERTY_TYPE_VALUES)[number];
 
 export interface PropertyDef {
   key: string;
@@ -44,7 +46,7 @@ export interface SchemaError {
   message: string;
 }
 
-export const PROPERTY_TYPES: ReadonlySet<string> = new Set(["string", "number", "date", "duration", "string[]"]);
+export const PROPERTY_TYPES: ReadonlySet<string> = new Set<string>(PROPERTY_TYPE_VALUES);
 
 /** The root type every type ultimately extends. */
 export const ROOT_TYPE = "entity";
