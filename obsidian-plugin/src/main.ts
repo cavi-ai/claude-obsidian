@@ -910,8 +910,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
         new Notice("Semantic search needs Ollama. Start it (`ollama serve`) or set the host in settings.");
         return;
       }
-    } else if (!this.builtinEmbedder().backend()) {
-      // Consent gate: embedding with no loaded model would fetch weights implicitly.
+    } else if (!(await this.canEmbedWithoutDownload())) {
+      // Consent gate: embedding with no downloaded model would fetch weights
+      // implicitly. Cached weights pass — they load offline.
       new Notice("Download the built-in model in settings first.");
       return;
     }
