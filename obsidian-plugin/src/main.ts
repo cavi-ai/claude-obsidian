@@ -1210,7 +1210,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await navigator.clipboard.writeText(command).catch(() => {});
     await this.app.workspace.getLeaf(true).openFile(trackerFile);
 
-    new Notice("Build spec + tracker created. Claude Code command copied — run it in a terminal (requires the official Obsidian CLI).", 8000);
+    new Notice("Build spec + tracker created. Claude Code command copied — run it in a terminal (drives the tracker over the MCP bridge).", 8000);
   }
 
   private async ensureFolder(folder: string): Promise<void> {

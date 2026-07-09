@@ -3,8 +3,9 @@
 // ambient environment. Verified empirically (2026-05-31) against the live API:
 //   - API key  → `x-api-key` header.
 //   - OAuth long-term token (sk-ant-oat…) → `Authorization: Bearer` + the
-//     `oauth-2025-04-20` beta header. No Claude Code identity system prompt is
-//     required (a normal system prompt is accepted), so this stays store-safe.
+//     `oauth-2025-04-20` beta header, and the Claude Code identity must be
+//     prepended as the first system block (buildSystem below); the user's own
+//     system prompt follows it, so this stays store-safe.
 //   - A token sent as `x-api-key` is rejected (401) — the header choice matters.
 
 export type AuthMode = "apiKey" | "oauthToken" | "environment";
