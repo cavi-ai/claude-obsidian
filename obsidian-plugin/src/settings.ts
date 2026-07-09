@@ -6,6 +6,7 @@ import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "./mcp/clientConfig";
 import { configError } from "./cloud/routines";
 import { configError as repliesConfigError } from "./cloud/replies";
+import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -484,6 +485,34 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             this.renderSettings();
           });
         });
+
+      if (this.plugin.settings.embeddingEngine === "builtin") {
+        const model = BUILTIN_EMBEDDING_MODEL;
+        const status = containerEl.createDiv({ cls: "cc-conn-status setting-item-description" });
+        const backend = this.plugin.builtinEmbedder().backend();
+        status.setText(backend ? `Model ready · ${backend === "webgpu" ? "WebGPU" : "WASM"}` : "Model not downloaded yet.");
+
+        new Setting(containerEl)
+          .setName("Embedding model")
+          .setDesc(`${model.hfRepo} (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net, one-time; cached and fully on-device afterwards).`)
+          .addButton((btn) =>
+            btn
+              .setButtonText(backend ? "Re-check" : `Download (~${model.approxDownloadMB} MB)`)
+              .setCta()
+              .onClick(async () => {
+                btn.setDisabled(true);
+                try {
+                  await this.plugin.builtinEmbedder().download((p) => status.setText(`Downloading… ${p.percent}% (${p.file})`));
+                  const b = this.plugin.builtinEmbedder().backend();
+                  status.setText(`Model ready · ${b === "webgpu" ? "WebGPU" : "WASM"}`);
+                } catch (e) {
+                  status.setText(`Download failed: ${e instanceof Error ? e.message : String(e)} — check your connection and retry.`);
+                } finally {
+                  btn.setDisabled(false);
+                }
+              }),
+          );
+      }
 
       if (this.plugin.settings.embeddingEngine === "ollama") {
         new Setting(containerEl)

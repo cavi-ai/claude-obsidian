@@ -28,6 +28,9 @@ import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileRes
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import type { IndexData } from "./semantic/store";
+import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
+import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
+import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import {
   type Conversation,
   type ConversationState,
@@ -77,6 +80,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpSignature: string | null = null;
   /** Lazily-built semantic index (local embeddings); null until first use. */
   private _indexer: SemanticIndexer | null = null;
+  /** Built-in engine's worker-backed embedder; created lazily, torn down on unload/engine switch. */
+  private _builtinEmbedder: TransformersEmbedder | null = null;
   /** Embedding model the live indexer was built for (rebuild on change). */
   private indexerModel: string | null = null;
   /** Debounce timer for incremental re-index on note changes. */
@@ -426,6 +431,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   override onunload(): void {
     void this.mcpServer?.stop();
     this.mcpServer = null;
+    this._builtinEmbedder?.terminate();
+    this._builtinEmbedder = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
     if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
   }
@@ -462,9 +469,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.persist();
     // Rebuild providers if any credentials/hosts changed.
     this._router = null;
-    // Rebuild the indexer if the embedding model / enabled state changed.
-    if (this.indexerModel !== this.settings.embeddingModel || (!this.settings.semanticEnabled && this._indexer)) {
+    // Rebuild the indexer if the embedding engine/model or enabled state changed.
+    const activeEmbedder = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel);
+    if (this.indexerModel !== activeEmbedder || (!this.settings.semanticEnabled && this._indexer)) {
       this.invalidateIndexer();
+    }
+    // Engine no longer builtin → don't leave its worker idling.
+    if (this.settings.embeddingEngine !== "builtin" && this._builtinEmbedder) {
+      this._builtinEmbedder.terminate();
+      this._builtinEmbedder = null;
     }
     this.refreshViews();
     await this.syncMcpServer();
@@ -651,6 +664,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._router;
   }
 
+  /** The built-in engine's embedder (worker-backed); created lazily, torn down on unload. */
+  builtinEmbedder(): TransformersEmbedder {
+    // Runtime-compatible: WorkerLike is the DOM Worker surface the embedder uses;
+    // only the onmessage/onerror event-param types differ (narrower here).
+    if (!this._builtinEmbedder) this._builtinEmbedder = new TransformersEmbedder(() => createEmbedWorker() as unknown as WorkerLike);
+    return this._builtinEmbedder;
+  }
+
   /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
   ontology(): OntologyRegistry | null {
     if (!this.settings.ontologyEnabled) return null;
@@ -779,11 +800,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
    */
   indexer(): SemanticIndexer | null {
     if (!this.settings.semanticEnabled) return null;
-    const model = this.settings.embeddingModel;
+    const model = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel);
     if (this._indexer && this.indexerModel === model) return this._indexer;
 
     const adapter = this.app.vault.adapter;
     const path = this.indexPath();
+    const embedder: Embedder =
+      this.settings.embeddingEngine === "builtin"
+        ? this.builtinEmbedder()
+        : new OllamaEmbedder(this.settings.embeddingModel, (m, input) => this.router().ollama.embed(m, input));
     this._indexer = new SemanticIndexer({
       embeddingModel: model,
       listMarkdown: (): IndexFile[] =>
@@ -792,7 +817,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const f = this.app.vault.getAbstractFileByPath(p);
         return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
       },
-      embed: (input: string[]) => this.router().ollama.embed(model, input),
+      embed: (input: string[]) => embedder.embed(input),
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
