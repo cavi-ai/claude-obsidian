@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parse as parseYaml } from "yaml";
-import { extractYamlBlock, parseSchemaNote } from "../../src/ontology/schema";
+import { extractYamlBlock, parseSchemaNote, resolveTypes } from "../../src/ontology/schema";
+import type { TypeDef } from "../../src/ontology/types";
 
 const FM = { ontology: "type", type_name: "person", version: 1 };
 
@@ -125,5 +126,48 @@ describe("parseSchemaNote", () => {
     expect(r.def).toBeUndefined();
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0]?.message).toMatch(/YAML/);
+  });
+});
+
+function def(name: string, extendsType?: string, over: Partial<TypeDef> = {}): TypeDef {
+  return { name, version: 1, ...(extendsType !== undefined ? { extendsType } : {}), properties: [], relations: [], ...over };
+}
+
+describe("resolveTypes", () => {
+  it("merges inherited properties and relations, self first in lineage", () => {
+    const entity = def("entity", undefined, { relations: [{ key: "related", targets: ["entity"] }] });
+    const person = def("person", "entity", { properties: [{ key: "role", type: "string", required: false }] });
+    const { resolved, errors } = resolveTypes([entity, person]);
+    expect(errors).toEqual([]);
+    const p = resolved.get("person")!;
+    expect(p.lineage).toEqual(["person", "entity"]);
+    expect(p.properties.map((x) => x.key)).toEqual(["role"]);
+    expect(p.relations.map((x) => x.key)).toEqual(["related"]);
+  });
+  it("child overrides parent by key", () => {
+    const entity = def("entity", undefined, { properties: [{ key: "status", type: "string", required: false }] });
+    const proj = def("project", "entity", { properties: [{ key: "status", type: "string", required: true }] });
+    const { resolved } = resolveTypes([entity, proj]);
+    expect(resolved.get("project")!.properties).toEqual([{ key: "status", type: "string", required: true }]);
+  });
+  it("reports an unknown parent and excludes the child", () => {
+    const { resolved, errors } = resolveTypes([def("x", "ghost")]);
+    expect(resolved.has("x")).toBe(false);
+    expect(errors[0].message).toMatch(/ghost/);
+  });
+  it("detects extends cycles and excludes their members", () => {
+    const { resolved, errors } = resolveTypes([def("a", "b"), def("b", "a")]);
+    expect(resolved.size).toBe(0);
+    expect(errors.some((e) => /cycle/i.test(e.message))).toBe(true);
+  });
+  it("reports duplicate type names", () => {
+    const { errors } = resolveTypes([def("a"), def("a")]);
+    expect(errors.some((e) => /duplicate/i.test(e.message))).toBe(true);
+  });
+  it("records unknown relation targets as errors but keeps the type usable", () => {
+    const t = def("a", undefined, { relations: [{ key: "r", targets: ["nowhere"] }] });
+    const { resolved, errors } = resolveTypes([t]);
+    expect(resolved.has("a")).toBe(true);
+    expect(errors.some((e) => /nowhere/.test(e.message))).toBe(true);
   });
 });

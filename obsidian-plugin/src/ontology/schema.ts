@@ -2,8 +2,8 @@
 // TypeDefs, and resolve inheritance into ResolvedTypes. Pure — the YAML
 // parser is injected (obsidian's parseYaml at runtime, `yaml` in tests).
 
-import { PROPERTY_TYPES } from "./types";
-import type { PropertyDef, PropertyType, RelationDef, SchemaError, TypeDef } from "./types";
+import { PROPERTY_TYPES, ROOT_TYPE } from "./types";
+import type { PropertyDef, PropertyType, RelationDef, ResolvedType, SchemaError, TypeDef } from "./types";
 
 /** First fenced ```yaml block in a note body, or null. */
 export function extractYamlBlock(body: string): string | null {
@@ -88,4 +88,68 @@ export function parseSchemaNote(
     else if (r.def) def.relations.push(r.def);
   }
   return { def, errors };
+}
+
+/**
+ * Resolve inheritance across a set of TypeDefs. Unknown parents and cycles
+ * exclude the affected types (with errors); unknown relation targets are
+ * errors but keep the type usable — the user may define targets later.
+ */
+export function resolveTypes(defs: TypeDef[]): { resolved: Map<string, ResolvedType>; errors: SchemaError[] } {
+  const errors: SchemaError[] = [];
+  const byName = new Map<string, TypeDef>();
+  for (const d of defs) {
+    if (byName.has(d.name)) errors.push({ message: `duplicate type name '${d.name}'` });
+    else byName.set(d.name, d);
+  }
+
+  const resolved = new Map<string, ResolvedType>();
+  for (const d of byName.values()) {
+    // Walk the extends chain, self first.
+    const lineage: string[] = [];
+    const seen = new Set<string>();
+    let cur: TypeDef | undefined = d;
+    let broken = false;
+    while (cur) {
+      if (seen.has(cur.name)) {
+        errors.push({ message: `extends cycle involving '${cur.name}' (via '${d.name}')` });
+        broken = true;
+        break;
+      }
+      seen.add(cur.name);
+      lineage.push(cur.name);
+      if (!cur.extendsType) break;
+      const parent = byName.get(cur.extendsType);
+      if (!parent) {
+        errors.push({ message: `type '${cur.name}' extends unknown type '${cur.extendsType}'` });
+        broken = true;
+        break;
+      }
+      cur = parent;
+    }
+    if (broken) continue;
+
+    // Merge root-last → self-last wins (child overrides parent by key).
+    const props = new Map<string, PropertyDef>();
+    const rels = new Map<string, RelationDef>();
+    for (const name of [...lineage].reverse()) {
+      const t = byName.get(name);
+      if (!t) continue;
+      for (const p of t.properties) props.set(p.key, p);
+      for (const r of t.relations) rels.set(r.key, r);
+    }
+    resolved.set(d.name, { name: d.name, version: d.version, lineage, properties: [...props.values()], relations: [...rels.values()] });
+  }
+
+  // Relation targets should name known types (or the root); advisory errors.
+  for (const t of resolved.values()) {
+    for (const r of t.relations) {
+      for (const target of r.targets) {
+        if (target !== ROOT_TYPE && !byName.has(target)) {
+          errors.push({ message: `type '${t.name}' relation '${r.key}' targets unknown type '${target}'` });
+        }
+      }
+    }
+  }
+  return { resolved, errors };
 }
