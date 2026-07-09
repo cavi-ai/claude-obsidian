@@ -65,6 +65,27 @@ describe("conform", () => {
     const r = conform({ type: "ghost" }, undefined, lookup);
     expect(r.issues).toEqual([expect.objectContaining({ kind: "unknown-type" })]);
   });
+  it("flags non-finite numeric strings instead of coercing", () => {
+    const r = conform({ type: "person", role: "x", age: "1e309" }, person, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "age" })]);
+    expect(r.fixed.age).toBe("1e309");
+  });
+  it("flags a non-string, non-array relation value", () => {
+    const r = conform({ type: "person", role: "x", works_on: 5 }, person, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "works_on" })]);
+  });
+  it("treats an empty string as missing for required properties", () => {
+    const r = conform({ type: "person", role: "" }, person, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "missing-required", key: "role" })]);
+  });
+  it("flags a non-ISO date value", () => {
+    const dated: ResolvedType = {
+      ...person,
+      properties: [...person.properties, { key: "born", type: "date", required: false }],
+    };
+    const r = conform({ type: "person", role: "x", born: "July 8" }, dated, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "born" })]);
+  });
   it("does not mutate the input frontmatter", () => {
     const fm = { type: "person", role: "x", topics: "ai" };
     conform(fm, person, lookup);

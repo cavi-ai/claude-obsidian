@@ -37,7 +37,7 @@ function checkProperty(p: PropertyDef, value: unknown, fixed: Record<string, unk
       return;
     case "number":
       if (typeof value === "number") return;
-      if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) fixed[p.key] = Number(value);
+      if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) fixed[p.key] = Number(value);
       else issues.push({ kind: "wrong-type", key: p.key, message: `'${p.key}' should be a number` });
       return;
     case "date":
@@ -83,6 +83,10 @@ export function conform(
     const v = fixed[r.key];
     if (v === undefined || v === null) continue;
     if (typeof v === "string") fixed[r.key] = [v]; // relations are always lists
+    else if (!Array.isArray(v)) {
+      issues.push({ kind: "wrong-type", key: r.key, message: `'${r.key}' should be a list of "[[wikilinks]]"` });
+      continue;
+    }
     for (const target of relationTargets(fixed[r.key])) {
       const targetType = lookupType(target);
       if (!targetType) continue; // dangling/untyped: allowed
