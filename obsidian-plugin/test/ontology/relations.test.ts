@@ -17,6 +17,19 @@ describe("wikilink parse/format", () => {
     expect(parseWikilink("")).toBeNull();
     expect(parseWikilink("[[]]")).toBeNull();
   });
+  it("rejects bracket debris instead of extracting garbage targets", () => {
+    expect(parseWikilink("see [[A]] and [[B]]")).toBeNull();
+    expect(parseWikilink("![[A]]")).toBeNull();
+    expect(parseWikilink("see [[A]]")).toBeNull();
+    expect(parseWikilink("[[a|b]] extra")).toBeNull();
+  });
+  it("strips #heading and ^block subpath suffixes", () => {
+    expect(parseWikilink("[[A#h]]")).toBe("A");
+    expect(parseWikilink("[[A^b]]")).toBe("A");
+  });
+  it("still passes a plain bare target through", () => {
+    expect(parseWikilink("CAVI")).toBe("CAVI");
+  });
 });
 
 describe("relationTargets", () => {

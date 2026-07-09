@@ -9,7 +9,7 @@ export interface RelationEdge {
   from: string;
   /** Relation key (e.g. "works_on"). */
   key: string;
-  /** Link target as written — a basename or vault path, alias stripped. */
+  /** Link target as written — a basename or vault path, alias and #heading/^block suffixes stripped. */
   to: string;
 }
 
@@ -17,11 +17,16 @@ export function formatWikilink(target: string): string {
   return `[[${target}]]`;
 }
 
-/** "[[Target|alias]]" → "Target"; bare strings pass through; empty → null. */
+/**
+ * "[[Target|alias]]" → "Target" (alias and #heading/^block suffixes stripped);
+ * bare strings pass through; empty or bracket debris (embeds, multi-link or
+ * mixed-text strings) → null so garbage never becomes a graph node.
+ */
 export function parseWikilink(value: string): string | null {
   const trimmed = value.trim();
-  const m = trimmed.match(/^\[\[(.*)\]\]$/);
-  const inner = (m ? (m[1] ?? "") : trimmed).split("|")[0]?.trim() ?? "";
+  const m = trimmed.match(/^\[\[([^[\]]*)\]\]$/);
+  if (!m && (trimmed.includes("[[") || trimmed.includes("]]"))) return null;
+  const inner = (m ? (m[1] ?? "") : trimmed).split("|")[0]?.split(/[#^]/)[0]?.trim() ?? "";
   return inner.length > 0 ? inner : null;
 }
 
