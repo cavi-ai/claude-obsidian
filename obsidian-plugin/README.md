@@ -145,13 +145,19 @@ attribution.
   your schemas (advisory, never blocking). Enable under *Vault ontology* in
   settings.
 
-## Install (manual / for now)
+## Install
+
+**From the community store (recommended):** *Settings → Community plugins →
+Browse* → search **Companion for Claude** → Install → Enable, or use
+[this direct link](https://obsidian.md/plugins?id=claude-companion). Then open
+*Settings → Companion for Claude* and paste your Anthropic API key.
+
+**From source (development):**
 
 1. `cd obsidian-plugin && pnpm install && pnpm run build`
 2. Copy `main.js`, `manifest.json`, and `styles.css` into
    `<your-vault>/.obsidian/plugins/claude-companion/`.
 3. Enable **Companion for Claude** in *Settings → Community plugins*.
-4. Open *Settings → Companion for Claude* and paste your Anthropic API key.
 
 For active development use `pnpm run dev` (esbuild watch) and symlink the plugin
 folder into a test vault.
@@ -258,44 +264,18 @@ CI runs all four on every push/PR (Node 20 & 22) in the
       opens it in a new window.
 - [ ] Invalid key surfaces a friendly error instead of failing silently.
 
-## Releasing to the community store
+## Releases
 
-This plugin lives in the [`cavi-ai/claude-obsidian`](https://github.com/cavi-ai/claude-obsidian)
-monorepo under `obsidian-plugin/`. Submitting to Obsidian's community catalog
-means following the checklist below.
+| | |
+|---|---|
+| Store listing | [Companion for Claude](https://obsidian.md/plugins?id=claude-companion) (`claude-companion`) |
+| Source of truth | [`cavi-ai/claude-obsidian`](https://github.com/cavi-ai/claude-obsidian) monorepo, `obsidian-plugin/` |
+| Release repo | [`cavi-ai/companion-for-claude`](https://github.com/cavi-ai/companion-for-claude) — built `main.js`, `manifest.json`, `styles.css` attached per release |
+| Versioning | `manifest.json` = `versions.json` = `package.json` = git tag (exact version, no `v` prefix) |
 
-**Packaging**
-- [ ] The plugin source is `obsidian-plugin/` within the monorepo; the store
-      entry points at that path.
-- [ ] `LICENSE` present (MIT).
-- [ ] `.gitignore` excludes `node_modules/`; **for a release `main.js` is
-      committed/attached** (the store serves the built file, not the source).
-
-**Manifest & versioning** (keep these three in lockstep)
-- [ ] `manifest.json` `version` (currently `0.9.0`) matches the git tag.
-- [ ] `versions.json` maps that version → `minAppVersion` (`1.7.2`).
-- [ ] `package.json` `version` matches.
-
-**GitHub release**
-- [ ] Tag the release with the **exact** version number, no `v` prefix
-      (`0.9.0`, not `v0.9.0`).
-- [ ] Attach `main.js`, `manifest.json`, and `styles.css` as individual binary
-      assets (not just the source zip).
-
-**Catalog PR** (to `obsidianmd/obsidian-releases`)
-- [ ] Add an entry to `community-plugins.json` with `id`, `name`, `author`,
-      `description`, and the new repo path.
-- [ ] First-time submissions go through Obsidian's automated + manual review.
-
-**Naming / trademark**
-- [x] Store name is **Companion for Claude** (`claude-companion` id), making the
-      third-party relationship clear to Obsidian reviewers.
-
-**Pre-submit sanity**
-- [ ] `pnpm run build` produces a fresh `main.js`.
-- [ ] `pnpm test` green; `pnpm run typecheck`, `pnpm run lint`, and
-      `pnpm run audit` clean.
-- [ ] Screenshots/GIF in the README (store listings render it).
+Releases are cut by the monorepo's release workflow, which runs the full gate
+(typecheck, lint, tests, build, audit), mirrors the plugin to the release repo,
+and publishes the tagged GitHub release the store serves.
 
 ## License
 

@@ -42,6 +42,18 @@ both; the MCP bridge, session import, and semantic index build require desktop
   `node_modules/`, or generated release bundles unless a maintainer explicitly
   asks for release artifacts.
 
+## Releases (maintainers)
+
+1. Bump `manifest.json`, `versions.json` (version → `minAppVersion`), and
+   `package.json` in lockstep; the git tag is the exact version, no `v` prefix.
+2. Merge to `main`, then dispatch the **Release Obsidian plugin** workflow
+   (`.github/workflows/release-obsidian-plugin.yml`) with that version.
+3. The workflow runs the full gate (typecheck, lint, tests, build, audit),
+   verifies the version matches, mirrors `obsidian-plugin/` to
+   `cavi-ai/companion-for-claude`, and publishes the tagged release with
+   `main.js`, `manifest.json`, and `styles.css` attached — the files the
+   community store serves.
+
 ## Licensing and attribution
 
 Everything authored in this repository is MIT-licensed. The upstream HTML
