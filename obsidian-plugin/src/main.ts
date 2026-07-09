@@ -29,6 +29,7 @@ import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
+import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
 import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
 import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import {
@@ -834,6 +835,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._indexer;
   }
 
+  /** Human-readable label for the active embedding engine/model (Notices, status copy). */
+  private embeddingLabel(): string {
+    return this.settings.embeddingEngine === "builtin"
+      ? `built-in (${BUILTIN_EMBEDDING_MODEL.id.replace(/^builtin:/, "")})`
+      : this.settings.embeddingModel;
+  }
+
   /** Drop the cached indexer (after the embedding model / enabled state changes). */
   invalidateIndexer(): void {
     this._indexer = null;
@@ -866,13 +874,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice("Turn on semantic search in Companion settings first.");
       return;
     }
-    if (!this.router().ollama.hasCredentials()) {
-      new Notice("Semantic search needs Ollama. Start it (`ollama serve`) or set the host in settings.");
+    if (this.settings.embeddingEngine === "ollama") {
+      if (!this.router().ollama.hasCredentials()) {
+        new Notice("Semantic search needs Ollama. Start it (`ollama serve`) or set the host in settings.");
+        return;
+      }
+    } else if (!this.builtinEmbedder().backend()) {
+      // Consent gate: embedding with no loaded model would fetch weights implicitly.
+      new Notice("Download the built-in model in settings first.");
       return;
     }
     const ix = this.indexer();
     if (!ix) return;
-    const progress = new Notice(`Building semantic index with “${this.settings.embeddingModel}”…`, 0);
+    const progress = new Notice(`Building semantic index with “${this.embeddingLabel()}”…`, 0);
     try {
       const res = await ix.build({
         force: true,
@@ -899,9 +913,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     try {
-      const [{ notes, chunks }, localOk] = await Promise.all([ix.stats(), this.router().localAvailable()]);
-      const reach = localOk ? "Ollama reachable" : "Ollama unreachable — searches fall back to keyword";
-      new Notice(`Semantic index · ${notes} notes, ${chunks} chunks · “${this.settings.embeddingModel}” · ${reach}`, 9000);
+      let reach: string;
+      let stats: { notes: number; chunks: number };
+      if (this.settings.embeddingEngine === "builtin") {
+        stats = await ix.stats();
+        const backend = this.builtinEmbedder().backend();
+        reach = backend ? `model ready (${backend === "webgpu" ? "WebGPU" : "WASM"})` : "model not downloaded — download it in settings";
+      } else {
+        const [s, localOk] = await Promise.all([ix.stats(), this.router().localAvailable()]);
+        stats = s;
+        reach = localOk ? "Ollama reachable" : "Ollama unreachable — searches fall back to keyword";
+      }
+      new Notice(`Semantic index · ${stats.notes} notes, ${stats.chunks} chunks · “${this.embeddingLabel()}” · ${reach}`, 9000);
     } catch (e) {
       new Notice(`Semantic index status unavailable: ${e instanceof Error ? e.message : String(e)}`, 8000);
     }

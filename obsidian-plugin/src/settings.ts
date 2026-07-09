@@ -34,7 +34,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("What this plugin accesses")
       .setDesc(
-        "Your messages and vault context go only to Anthropic (and your local Ollama, if enabled) — nothing else leaves your machine. On desktop, optional features touch files outside the vault: session capture reads Claude Code transcripts from your Claude projects folder, and “open artifact in browser” writes a temporary HTML file. Semantic search reads every note in your vault to build a local index. Copy buttons use the system clipboard. All filesystem access is disabled on mobile.",
+        "Your messages and vault context go only to Anthropic (and your local Ollama, if enabled) — nothing else leaves your machine. The built-in semantic-search engine downloads its model once from huggingface.co and cdn.jsdelivr.net when you click Download; afterwards it runs fully offline. On desktop, optional features touch files outside the vault: session capture reads Claude Code transcripts from your Claude projects folder, and “open artifact in browser” writes a temporary HTML file. Semantic search reads every note in your vault to build a local index. Copy buttons use the system clipboard. All filesystem access is disabled on mobile.",
       )
       .setHeading();
 
