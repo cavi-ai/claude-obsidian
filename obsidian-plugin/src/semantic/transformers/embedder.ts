@@ -36,6 +36,9 @@ export class TransformersEmbedder implements Embedder {
 
   async embed(texts: string[]): Promise<number[][]> {
     await this.ensureLoaded();
+    // terminate() may race the await continuation: don't resurrect a worker
+    // with an un-loaded embed.
+    if (!this.loaded) throw new Error("embedding worker terminated");
     const req = this.tracker.create<number[][]>();
     this.post({ id: req.id, type: "embed", texts });
     return req.promise;
@@ -70,14 +73,20 @@ export class TransformersEmbedder implements Embedder {
   private post(msg: WorkerRequest): void {
     if (!this.worker) {
       const w = this.createWorker();
+      // Handlers are scoped to this worker's lifetime: a stale, abandoned
+      // worker firing late must not disturb the replacement's state.
       w.onmessage = (e) => {
+        if (this.worker !== w) return;
         const data = e.data as WorkerResponse;
         if (data.type === "result" && data.backend) this._backend = data.backend;
         this.tracker.settle(data);
       };
       w.onerror = () => {
+        if (this.worker !== w) return;
+        w.terminate(); // an unhandled exception doesn't kill the worker; don't leak it
         this.worker = null;
         this.loaded = null;
+        this._backend = null;
         this.tracker.rejectAll(new Error("embedding worker crashed"));
       };
       this.worker = w;

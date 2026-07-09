@@ -92,6 +92,60 @@ describe("TransformersEmbedder", () => {
     await expect(p2).resolves.toEqual([[3]]);
   });
 
+  it("a stale worker's onerror does not disturb the new worker lifetime", async () => {
+    const { e, workers } = make();
+    const p = e.embed(["a"]);
+    const w1 = workers[0]!;
+    w1.onerror?.(new Error("crash"));
+    await expect(p).rejects.toThrow();
+    const p2 = e.embed(["b"]);
+    expect(workers).toHaveLength(2);
+    const w2 = workers[1]!;
+    w1.onerror?.(new Error("late crash from abandoned worker"));
+    w2.reply({ id: w2.sent[0]!.id, type: "result", vectors: [], backend: "wasm" });
+    await vi.waitFor(() => expect(w2.sent).toHaveLength(2));
+    w2.reply({ id: w2.sent[1]!.id, type: "result", vectors: [[9]] });
+    await expect(p2).resolves.toEqual([[9]]);
+  });
+
+  it("worker onerror terminates the crashed worker and clears backend", async () => {
+    const { e, workers } = make();
+    const p = e.embed(["a"]);
+    const w = workers[0]!;
+    w.reply({ id: w.sent[0]!.id, type: "result", vectors: [], backend: "wasm" });
+    await vi.waitFor(() => expect(w.sent).toHaveLength(2));
+    expect(e.backend()).toBe("wasm");
+    w.onerror?.(new Error("crash"));
+    await expect(p).rejects.toThrow();
+    expect(w.terminated).toBe(true);
+    expect(e.backend()).toBeNull();
+  });
+
+  it("terminate() during a pending load allows a fresh retry with a fresh load", async () => {
+    const { e, workers } = make();
+    const p = e.embed(["a"]);
+    e.terminate();
+    await expect(p).rejects.toThrow();
+    const p2 = e.embed(["b"]);
+    expect(workers).toHaveLength(2);
+    const w2 = workers[1]!;
+    expect(w2.sent[0]).toMatchObject({ type: "load" });
+    w2.reply({ id: w2.sent[0]!.id, type: "result", vectors: [], backend: "wasm" });
+    await vi.waitFor(() => expect(w2.sent).toHaveLength(2));
+    w2.reply({ id: w2.sent[1]!.id, type: "result", vectors: [[4]] });
+    await expect(p2).resolves.toEqual([[4]]);
+  });
+
+  it("terminate() racing a resolved load rejects the embed instead of respawning", async () => {
+    const { e, workers } = make();
+    const p = e.embed(["a"]);
+    const w = workers[0]!;
+    w.reply({ id: w.sent[0]!.id, type: "result", vectors: [], backend: "wasm" });
+    e.terminate();
+    await expect(p).rejects.toThrow("embedding worker terminated");
+    expect(workers).toHaveLength(1);
+  });
+
   it("terminate() kills the worker and rejects in-flight requests", async () => {
     const { e, workers } = make();
     const p = e.embed(["a"]);
