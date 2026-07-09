@@ -24,7 +24,17 @@ export interface CachesLike {
 /** Entries the built-in engine put in the bucket: our repo's files, or the
  *  ORT runtime assets that env.useWasmCache stores alongside them. */
 function isBuiltinEngineEntry(url: string): boolean {
-  return url.includes(`/${BUILTIN_EMBEDDING_MODEL.hfRepo}/`) || (url.includes("cdn.jsdelivr.net") && url.includes("onnxruntime-web"));
+  try {
+    const parsed = new URL(url);
+    const isBuiltinRepoFile = parsed.pathname.includes(`/${BUILTIN_EMBEDDING_MODEL.hfRepo}/`);
+    const isOrtRuntimeAsset =
+      parsed.hostname === "cdn.jsdelivr.net" &&
+      parsed.pathname.includes("/npm/onnxruntime-web@") &&
+      parsed.pathname.includes("/dist/ort-");
+    return isBuiltinRepoFile || isOrtRuntimeAsset;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -39,7 +49,14 @@ export async function hasCachedModel(cachesLike: CachesLike | undefined): Promis
   try {
     const cache = await cachesLike.open(TRANSFORMERS_CACHE_NAME);
     const keys = await cache.keys();
-    return keys.some((k) => k.url.includes(`/${BUILTIN_EMBEDDING_MODEL.hfRepo}/`) && k.url.endsWith(".onnx"));
+    return keys.some((k) => {
+      try {
+        const parsed = new URL(k.url);
+        return parsed.pathname.includes(`/${BUILTIN_EMBEDDING_MODEL.hfRepo}/`) && parsed.pathname.endsWith(".onnx");
+      } catch {
+        return false;
+      }
+    });
   } catch {
     return false;
   }
