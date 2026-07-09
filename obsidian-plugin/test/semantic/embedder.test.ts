@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { OllamaEmbedder, embedderId } from "../../src/semantic/embedder";
 import { BUILTIN_EMBEDDING_MODEL } from "../../src/semantic/transformers/model";
@@ -21,5 +22,14 @@ describe("OllamaEmbedder", () => {
     expect(e.id).toBe("nomic-embed-text");
     await expect(e.embed(["hi"])).resolves.toEqual([[0.1]]);
     expect(calls).toEqual([{ model: "nomic-embed-text", input: ["hi"] }]);
+  });
+});
+
+describe("worker bundle", () => {
+  // CI runs typecheck→lint→test→build, so the artifact doesn't exist yet
+  // there; local post-build runs assert esbuild pass 1 produced it.
+  const artifact = new URL("../../.build/embed-worker.txt", import.meta.url);
+  it.skipIf(!existsSync(artifact))("esbuild pass 1 produced the inlined worker artifact", () => {
+    expect(existsSync(artifact)).toBe(true);
   });
 });
