@@ -48,6 +48,10 @@ interface Extractor {
 
 let extractor: Extractor | null = null;
 let backend = "wasm";
+/** In-flight pipeline construction, memoized so concurrent "load" requests share it. */
+let loading: Promise<void> | null = null;
+/** Bumped by "dispose" so an in-flight load can tell it was cancelled. */
+let generation = 0;
 
 const POOLING_OPTS = { pooling: BUILTIN_EMBEDDING_MODEL.pooling, normalize: true } as const;
 
@@ -68,30 +72,53 @@ function makeExtractor(device: "webgpu" | "wasm", id: number): Promise<Extractor
   });
 }
 
-async function load(id: number): Promise<void> {
-  if (extractor) {
-    ctx.postMessage({ id, type: "result", vectors: [], backend });
-    return;
-  }
+async function doLoad(id: number): Promise<void> {
+  const gen = generation;
+  let candidate: Extractor | null = null;
+  let chosen = "wasm";
   // pipeline() throws synchronously-via-rejection when navigator.gpu is
   // missing ("Unsupported device"), but some WebGPU failures only surface at
   // session creation or first inference — probe the API up front, then verify
   // with a warm-up inference before committing to the backend. Weights are
   // already cached by then, so the wasm fallback re-load is offline.
   if (typeof navigator !== "undefined" && "gpu" in navigator) {
-    let candidate: Extractor | null = null;
+    let webgpu: Extractor | null = null;
     try {
-      candidate = await makeExtractor("webgpu", id);
-      await candidate(["warm-up"], POOLING_OPTS);
-      extractor = candidate;
-      backend = "webgpu";
+      webgpu = await makeExtractor("webgpu", id);
+      await webgpu(["warm-up"], POOLING_OPTS);
+      candidate = webgpu;
+      chosen = "webgpu";
     } catch {
-      void candidate?.dispose?.()?.catch(() => {});
+      void webgpu?.dispose?.()?.catch(() => {});
     }
   }
+  if (!candidate) {
+    candidate = await makeExtractor("wasm", id);
+  }
+  if (gen !== generation) {
+    // "dispose" arrived while we were loading: don't resurrect the pipeline.
+    void candidate.dispose?.()?.catch(() => {});
+    throw new Error("disposed during load");
+  }
+  extractor = candidate;
+  backend = chosen;
+}
+
+async function load(id: number): Promise<void> {
   if (!extractor) {
-    extractor = await makeExtractor("wasm", id);
-    backend = "wasm";
+    // Memoize the in-flight construction: a second "load" while the first is
+    // still running must not build a second pipeline (that would leak the
+    // first ORT session). Only the initiating request streams progress
+    // events — later joiners just await the shared promise and post their
+    // own result by id.
+    if (!loading) {
+      const p = doLoad(id).catch((e: unknown) => {
+        if (loading === p) loading = null; // allow retry after a failed load
+        throw e;
+      });
+      loading = p;
+    }
+    await loading;
   }
   ctx.postMessage({ id, type: "result", vectors: [], backend });
 }
@@ -116,7 +143,9 @@ ctx.onmessage = (e) => {
   if (msg.type === "load") void load(msg.id).catch(fail);
   else if (msg.type === "embed") void embed(msg.id, msg.texts).catch(fail);
   else if (msg.type === "dispose") {
+    generation++; // cancels any in-flight load (see doLoad)
     void extractor?.dispose?.()?.catch(() => {});
     extractor = null;
+    loading = null;
   }
 };
