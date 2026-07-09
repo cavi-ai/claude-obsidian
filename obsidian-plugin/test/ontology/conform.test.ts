@@ -78,6 +78,24 @@ describe("conform", () => {
     const r = conform({ type: "person", role: "" }, person, lookup);
     expect(r.issues).toEqual([expect.objectContaining({ kind: "missing-required", key: "role" })]);
   });
+  it("accepts a real boolean for a boolean property", () => {
+    const flagged: ResolvedType = {
+      ...person,
+      properties: [...person.properties, { key: "source_enriched", type: "boolean", required: false }],
+    };
+    const r = conform({ type: "person", role: "x", source_enriched: true }, flagged, lookup);
+    expect(r.ok).toBe(true);
+    expect(r.issues).toEqual([]);
+  });
+  it("flags a non-boolean value for a boolean property (no string coercion)", () => {
+    const flagged: ResolvedType = {
+      ...person,
+      properties: [...person.properties, { key: "source_enriched", type: "boolean", required: false }],
+    };
+    const r = conform({ type: "person", role: "x", source_enriched: "yes" }, flagged, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "source_enriched" })]);
+    expect(r.fixed.source_enriched).toBe("yes");
+  });
   it("flags a non-ISO date value", () => {
     const dated: ResolvedType = {
       ...person,

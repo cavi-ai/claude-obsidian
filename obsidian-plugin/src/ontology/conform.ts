@@ -40,6 +40,9 @@ function checkProperty(p: PropertyDef, value: unknown, fixed: Record<string, unk
       if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) fixed[p.key] = Number(value);
       else issues.push({ kind: "wrong-type", key: p.key, message: `'${p.key}' should be a number` });
       return;
+    case "boolean":
+      if (typeof value !== "boolean") issues.push({ kind: "wrong-type", key: p.key, message: `'${p.key}' should be true or false` });
+      return;
     case "date":
       if (typeof value !== "string" || !DATE_RE.test(value)) issues.push({ kind: "wrong-type", key: p.key, message: `'${p.key}' should be a YYYY-MM-DD date` });
       return;

@@ -94,6 +94,11 @@ describe("parseSchemaNote", () => {
     expect(r.errors).toEqual([]);
     expect(r.def?.properties).toEqual([{ key: "x", type: "string", required: false }]);
   });
+  it("parses a boolean property type", () => {
+    const r = parseSchemaNote("Ontology/x.md", FM, "```yaml\nproperties:\n  - key: source_enriched\n    type: boolean\n```", parseYaml);
+    expect(r.errors).toEqual([]);
+    expect(r.def?.properties).toEqual([{ key: "source_enriched", type: "boolean", required: false }]);
+  });
   it("rejects an unknown property type but keeps the valid entries", () => {
     const body = "```yaml\nproperties:\n  - key: x\n    type: blob\n  - key: y\n    type: number\n```";
     const r = parseSchemaNote("Ontology/x.md", FM, body, parseYaml);
