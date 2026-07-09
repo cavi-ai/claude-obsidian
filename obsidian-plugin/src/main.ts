@@ -587,6 +587,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: s.mcpAllowWrites,
       defaultFolder: s.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      ontology: () => this.ontology(),
     };
     if (!this.vaultTools) {
       this.vaultTools = new VaultTools(this.app, toolOpts);
@@ -744,6 +745,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: this.settings.agentAllowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      ontology: () => this.ontology(),
     };
     if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
     else this.agentVaultTools.setOptions(opts);
