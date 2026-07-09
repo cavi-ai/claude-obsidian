@@ -215,8 +215,26 @@ describe("note_create with ontology", () => {
     const { vt } = await ontologyTools();
     const msg = await vt.call("note_create", { title: "Franco", content: "body", type: "ghost" });
     expect(msg).toContain("unknown type");
+    expect(msg).toContain("available:");
+    expect(msg).toContain("person");
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
     expect(read).not.toContain("type:");
+  });
+
+  it("protects base keys from model-supplied properties", async () => {
+    const { vt } = await ontologyTools();
+    await vt.call("note_create", {
+      title: "Franco",
+      content: "body",
+      type: "person",
+      properties: { tags: "foo", type: "other", role: "x" },
+    });
+    const read = await vt.call("note_read", { path: "Claude/Franco.md" });
+    expect(read).toContain("type: person");
+    expect(read).toContain("tags:\n  - claude");
+    expect(read).not.toContain("foo");
+    expect(read).not.toContain("other");
+    expect(read).toContain("role: x");
   });
 
   it("keeps legacy behavior when no ontology is wired", async () => {

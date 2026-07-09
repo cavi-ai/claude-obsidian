@@ -437,11 +437,19 @@ export class VaultTools {
     const registry = this.opts.ontology?.() ?? null;
     if (registry && typeName) {
       const resolved = registry.resolve(typeName);
-      const merged: Record<string, unknown> = { ...base, type: typeName, ...(properties ?? {}) };
+      // Base keys + the validated type always win over model-supplied properties.
+      const safeProps: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(properties ?? {})) if (!PROTECTED_KEYS.has(k)) safeProps[k] = v;
+      const merged: Record<string, unknown> = { ...base, type: typeName, ...safeProps };
       const r = conform(merged, resolved, (target) => this.lookupTargetType(registry, target));
       // Unknown type: fall back to the untyped legacy frontmatter — advisory, never blocking.
       data = resolved ? toFrontmatterData(r.fixed) : base;
-      if (r.issues.length > 0) conformance = `\nConformance: ${r.issues.map((i) => i.message).join("; ")}`;
+      if (r.issues.length > 0) {
+        const messages = r.issues.map((i) =>
+          i.kind === "unknown-type" ? `${i.message} — available: ${[...registry.resolved().keys()].join(", ")}` : i.message,
+        );
+        conformance = `\nConformance: ${messages.join("; ")}`;
+      }
     }
     const body = `${buildFrontmatter(data)}\n\n# ${title}\n\n${content}\n`;
     const path = await this.uniquePath(dir, title);
@@ -610,6 +618,8 @@ function strArray(v: unknown): string[] {
 function optObj(v: unknown): Record<string, unknown> | undefined {
   return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 }
+/** note_create base-frontmatter keys the model's `properties` may never overwrite. */
+const PROTECTED_KEYS: ReadonlySet<string> = new Set(["type", "title", "created", "source", "tags"]);
 /** Narrow a conformance-fixed record to buildFrontmatter's value types; anything else is dropped. */
 function toFrontmatterData(record: Record<string, unknown>): FrontmatterData {
   const out: FrontmatterData = {};

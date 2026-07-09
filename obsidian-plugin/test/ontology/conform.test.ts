@@ -74,6 +74,21 @@ describe("conform", () => {
     const r = conform({ type: "person", role: "x", works_on: 5 }, person, lookup);
     expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "works_on" })]);
   });
+  it("flags string[] arrays containing non-string entries", () => {
+    const r = conform({ type: "person", role: "x", topics: [1, 2] }, person, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "topics" })]);
+  });
+  it("flags relation arrays containing non-string entries but still checks the string targets", () => {
+    const r = conform({ type: "person", role: "x", works_on: ["[[CAVI]]", 5] }, person, lookup);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: "wrong-type", key: "works_on" })]);
+    const bad = conform({ type: "person", role: "x", works_on: ["[[Ada]]", 5] }, person, lookup);
+    expect(bad.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "wrong-type", key: "works_on" }),
+        expect.objectContaining({ kind: "bad-relation-target", key: "works_on" }),
+      ]),
+    );
+  });
   it("treats an empty string as missing for required properties", () => {
     const r = conform({ type: "person", role: "" }, person, lookup);
     expect(r.issues).toEqual([expect.objectContaining({ kind: "missing-required", key: "role" })]);

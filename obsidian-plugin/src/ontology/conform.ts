@@ -34,6 +34,7 @@ function checkProperty(p: PropertyDef, value: unknown, fixed: Record<string, unk
     case "string[]":
       if (typeof value === "string") fixed[p.key] = [value];
       else if (!Array.isArray(value)) issues.push({ kind: "wrong-type", key: p.key, message: `'${p.key}' should be a list` });
+      else if (value.some((x) => typeof x !== "string")) issues.push({ kind: "wrong-type", key: p.key, message: `'${p.key}' should be a list of text values` });
       return;
     case "number":
       if (typeof value === "number") return;
@@ -89,6 +90,9 @@ export function conform(
     else if (!Array.isArray(v)) {
       issues.push({ kind: "wrong-type", key: r.key, message: `'${r.key}' should be a list of "[[wikilinks]]"` });
       continue;
+    } else if (v.some((x) => typeof x !== "string")) {
+      // Flag the mixed array, but still check the string targets it does have.
+      issues.push({ kind: "wrong-type", key: r.key, message: `'${r.key}' should be a list of "[[wikilink]]" strings only` });
     }
     for (const target of relationTargets(fixed[r.key])) {
       const targetType = lookupType(target);
