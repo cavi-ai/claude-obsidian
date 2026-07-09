@@ -1,4 +1,4 @@
-import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
@@ -6,6 +6,7 @@ import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "./mcp/clientConfig";
 import { configError } from "./cloud/routines";
 import { configError as repliesConfigError } from "./cloud/replies";
+import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -33,7 +34,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("What this plugin accesses")
       .setDesc(
-        "Your messages and vault context go only to Anthropic (and your local Ollama, if enabled) — nothing else leaves your machine. On desktop, optional features touch files outside the vault: session capture reads Claude Code transcripts from your Claude projects folder, and “open artifact in browser” writes a temporary HTML file. Semantic search reads every note in your vault to build a local index. Copy buttons use the system clipboard. All filesystem access is disabled on mobile.",
+        "Your messages and vault context go only to Anthropic (and your local Ollama, if enabled) — nothing else leaves your machine. The built-in semantic-search engine downloads its model once from huggingface.co and cdn.jsdelivr.net when you click Download; afterwards it runs fully offline. On desktop, optional features touch files outside the vault: session capture reads Claude Code transcripts from your Claude projects folder, and “open artifact in browser” writes a temporary HTML file. Semantic search reads every note in your vault to build a local index. Copy buttons use the system clipboard. All filesystem access is disabled on mobile.",
       )
       .setHeading();
 
@@ -461,7 +462,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   private renderSemanticSection(containerEl: HTMLElement): void {
     new Setting(containerEl)
       .setName("Enable semantic search")
-      .setDesc("Build a local vector index (via Ollama) so the vault is searchable by meaning, not just keywords. Private and offline. Powers the “Search vault” context and Ask-your-vault.")
+      .setDesc("Build a local vector index so the vault is searchable by meaning, not just keywords. Private and on-device. Powers the “Search vault” context and Ask-your-vault.")
       .addToggle((t) =>
         t.setValue(this.plugin.settings.semanticEnabled).onChange(async (v) => {
           this.plugin.settings.semanticEnabled = v;
@@ -472,17 +473,86 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
     if (this.plugin.settings.semanticEnabled) {
       new Setting(containerEl)
-        .setName("Embedding model")
-        .setDesc("An Ollama embedding model. Pull one first, e.g. `ollama pull nomic-embed-text`.")
-        .addText((text) =>
-          text
-            .setPlaceholder("nomic-embed-text")
-            .setValue(this.plugin.settings.embeddingModel)
-            .onChange(async (v) => {
-              this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
-              await this.plugin.saveSettings();
-            }),
-        );
+        .setName("Embedding engine")
+        .setDesc("Built-in runs a small model inside Obsidian on every platform (one-time ~45 MB download). Ollama uses your local Ollama server (desktop).")
+        .addDropdown((dd) => {
+          dd.addOption("builtin", "Built-in (recommended)");
+          dd.addOption("ollama", "Ollama");
+          dd.setValue(this.plugin.settings.embeddingEngine).onChange(async (v) => {
+            this.plugin.settings.embeddingEngine = v as "builtin" | "ollama";
+            await this.plugin.saveSettings();
+            this.plugin.invalidateIndexer();
+            this.renderSettings();
+          });
+        });
+
+      if (this.plugin.settings.embeddingEngine === "builtin") {
+        const model = BUILTIN_EMBEDDING_MODEL;
+        const status = containerEl.createDiv({ cls: "cc-conn-status setting-item-description" });
+        const backend = this.plugin.builtinEmbedder().backend();
+        status.setText(backend ? `Model ready · ${backend === "webgpu" ? "WebGPU" : "WASM"}` : "Model not downloaded yet.");
+
+        let mainBtn: ButtonComponent | null = null;
+        let clearBtn: ButtonComponent | null = null;
+        new Setting(containerEl)
+          .setName("Embedding model")
+          .setDesc(`${model.hfRepo} (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net, one-time; cached and fully on-device afterwards).`)
+          .addButton((btn) => {
+            // Non-CTA: delete the downloaded model from the local cache. Hidden
+            // until we know there is something to clear (loaded or cached).
+            clearBtn = btn;
+            btn.setButtonText("Clear").onClick(async () => {
+              btn.setDisabled(true);
+              await this.plugin.clearBuiltinModel();
+              this.renderSettings(); // status returns to "Model not downloaded yet."
+            });
+            if (!backend) btn.buttonEl.hide();
+          })
+          .addButton((btn) => {
+            mainBtn = btn;
+            btn
+              .setButtonText(backend ? "Re-check" : `Download (~${model.approxDownloadMB} MB)`)
+              .setCta()
+              .onClick(async () => {
+                btn.setDisabled(true);
+                try {
+                  await this.plugin.builtinEmbedder().download((p) => status.setText(`Downloading… ${p.percent}% (${p.file})`));
+                  const b = this.plugin.builtinEmbedder().backend();
+                  status.setText(`Model ready · ${b === "webgpu" ? "WebGPU" : "WASM"}`);
+                  clearBtn?.buttonEl.show();
+                } catch (e) {
+                  status.setText(`Download failed: ${e instanceof Error ? e.message : String(e)} — check your connection and retry.`);
+                } finally {
+                  btn.setDisabled(false);
+                }
+              });
+          });
+        if (!backend) {
+          // Distinguish "downloaded earlier, not loaded this session" (offline
+          // load) from "never downloaded" (network download needing consent).
+          void this.plugin.builtinModelCached().then((cached) => {
+            if (!cached) return;
+            status.setText("Model cached — loads on first use.");
+            mainBtn?.setButtonText("Load");
+            clearBtn?.buttonEl.show();
+          });
+        }
+      }
+
+      if (this.plugin.settings.embeddingEngine === "ollama") {
+        new Setting(containerEl)
+          .setName("Embedding model")
+          .setDesc("An Ollama embedding model. Pull one first, e.g. `ollama pull nomic-embed-text`.")
+          .addText((text) =>
+            text
+              .setPlaceholder("nomic-embed-text")
+              .setValue(this.plugin.settings.embeddingModel)
+              .onChange(async (v) => {
+                this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
+                await this.plugin.saveSettings();
+              }),
+          );
+      }
 
       const idxStatus = containerEl.createDiv({ cls: "cc-conn-status setting-item-description" });
       void this.plugin

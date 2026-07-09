@@ -28,6 +28,11 @@ import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileRes
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import type { IndexData } from "./semantic/store";
+import { OllamaEmbedder, embedderId, migrateEmbeddingEngine, type Embedder } from "./semantic/embedder";
+import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
+import { clearCachedModel, hasCachedModel } from "./semantic/transformers/cache";
+import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
+import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import {
   type Conversation,
   type ConversationState,
@@ -77,6 +82,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpSignature: string | null = null;
   /** Lazily-built semantic index (local embeddings); null until first use. */
   private _indexer: SemanticIndexer | null = null;
+  /** Built-in engine's worker-backed embedder; created lazily, torn down on unload/engine switch. */
+  private _builtinEmbedder: TransformersEmbedder | null = null;
+  /** Memoized "built-in model is in the local cache" (only flips false→true; downloads are additive). */
+  private _builtinModelCached = false;
+  /** One Notice per session when incremental reindex is paused awaiting the model download. */
+  private reindexPausedNotified = false;
   /** Embedding model the live indexer was built for (rebuild on change). */
   private indexerModel: string | null = null;
   /** Debounce timer for incremental re-index on note changes. */
@@ -426,6 +437,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   override onunload(): void {
     void this.mcpServer?.stop();
     this.mcpServer = null;
+    this._builtinEmbedder?.terminate();
+    this._builtinEmbedder = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
     if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
   }
@@ -438,9 +451,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     // namespaced { settings, conversations } shape.
     const isNamespaced = !!raw && typeof raw === "object" && ("settings" in raw || "conversations" in raw);
     const settingsData = (isNamespaced ? (raw).settings : raw) as Partial<PluginSettings> | null;
+    // Pre-engine semantic users are working Ollama users — keep them there
+    // instead of letting the builtin default repoint their index. Persisted on
+    // the next save, like the shape migration above.
+    const migratedEngine = migrateEmbeddingEngine(settingsData);
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...settingsData,
+      ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
       context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
     };
     this.convState = isNamespaced
@@ -462,9 +480,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.persist();
     // Rebuild providers if any credentials/hosts changed.
     this._router = null;
-    // Rebuild the indexer if the embedding model / enabled state changed.
-    if (this.indexerModel !== this.settings.embeddingModel || (!this.settings.semanticEnabled && this._indexer)) {
+    // Rebuild the indexer if the embedding engine/model or enabled state changed.
+    const activeEmbedder = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel);
+    if (this.indexerModel !== activeEmbedder || (!this.settings.semanticEnabled && this._indexer)) {
       this.invalidateIndexer();
+    }
+    // Engine no longer builtin → don't leave its worker idling.
+    if (this.settings.embeddingEngine !== "builtin" && this._builtinEmbedder) {
+      this._builtinEmbedder.terminate();
+      this._builtinEmbedder = null;
     }
     this.refreshViews();
     await this.syncMcpServer();
@@ -651,6 +675,44 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._router;
   }
 
+  /** The built-in engine's embedder (worker-backed); created lazily, torn down on unload. */
+  builtinEmbedder(): TransformersEmbedder {
+    // Runtime-compatible: WorkerLike is the DOM Worker surface the embedder uses;
+    // only the onmessage/onerror event-param types differ (narrower here).
+    if (!this._builtinEmbedder) this._builtinEmbedder = new TransformersEmbedder(() => createEmbedWorker() as unknown as WorkerLike);
+    return this._builtinEmbedder;
+  }
+
+  /** Whether the built-in model's weights are already in the local cache (a load needs no network). */
+  async builtinModelCached(): Promise<boolean> {
+    if (this._builtinModelCached) return true;
+    if (await hasCachedModel(typeof caches !== "undefined" ? caches : undefined)) this._builtinModelCached = true;
+    return this._builtinModelCached;
+  }
+
+  /**
+   * Delete the downloaded built-in model (+ ORT runtime) from the local cache
+   * and drop the loaded pipeline. Returns the number of cache entries deleted.
+   */
+  async clearBuiltinModel(): Promise<number> {
+    this._builtinEmbedder?.terminate();
+    this._builtinEmbedder = null;
+    const deleted = await clearCachedModel(typeof caches !== "undefined" ? caches : undefined);
+    this._builtinModelCached = false;
+    return deleted;
+  }
+
+  /**
+   * Consent gate for IMPLICIT embed paths (incremental reindex, query-time
+   * search): true when embedding cannot trigger a network download — Ollama
+   * engine, model already loaded, or weights already cached (loads offline).
+   * Explicit paths (rebuild command, settings Download button) have their own gates.
+   */
+  private async canEmbedWithoutDownload(): Promise<boolean> {
+    if (this.settings.embeddingEngine !== "builtin") return true;
+    return this.builtinEmbedder().backend() !== null || (await this.builtinModelCached());
+  }
+
   /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
   ontology(): OntologyRegistry | null {
     if (!this.settings.ontologyEnabled) return null;
@@ -779,11 +841,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
    */
   indexer(): SemanticIndexer | null {
     if (!this.settings.semanticEnabled) return null;
-    const model = this.settings.embeddingModel;
+    const model = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel);
     if (this._indexer && this.indexerModel === model) return this._indexer;
 
     const adapter = this.app.vault.adapter;
     const path = this.indexPath();
+    const embedder: Embedder =
+      this.settings.embeddingEngine === "builtin"
+        ? this.builtinEmbedder()
+        : new OllamaEmbedder(this.settings.embeddingModel, (m, input) => this.router().ollama.embed(m, input));
     this._indexer = new SemanticIndexer({
       embeddingModel: model,
       listMarkdown: (): IndexFile[] =>
@@ -792,7 +858,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const f = this.app.vault.getAbstractFileByPath(p);
         return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
       },
-      embed: (input: string[]) => this.router().ollama.embed(model, input),
+      embed: async (input: string[]) => {
+        // Belt-and-braces consent gate: no indexer path (build, update, query,
+        // related-notes fallback) may implicitly fetch weights from the network.
+        if (!(await this.canEmbedWithoutDownload())) {
+          throw new Error("Built-in embedding model not downloaded — download it in Companion settings.");
+        }
+        return embedder.embed(input);
+      },
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
@@ -809,6 +882,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._indexer;
   }
 
+  /** Human-readable label for the active embedding engine/model (Notices, status copy). */
+  private embeddingLabel(): string {
+    return this.settings.embeddingEngine === "builtin"
+      ? `built-in (${BUILTIN_EMBEDDING_MODEL.id.replace(/^builtin:/, "")})`
+      : this.settings.embeddingModel;
+  }
+
   /** Drop the cached indexer (after the embedding model / enabled state changes). */
   invalidateIndexer(): void {
     this._indexer = null;
@@ -819,6 +899,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> {
     const ix = this.indexer();
     if (!ix) return [];
+    if (!(await this.canEmbedWithoutDownload())) return []; // consent gate → keyword-only, same as other fallbacks
     try {
       const hits = await ix.search(query, k);
       return hits.map((h) => ({ path: h.path, text: h.text }));
@@ -841,13 +922,20 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice("Turn on semantic search in Companion settings first.");
       return;
     }
-    if (!this.router().ollama.hasCredentials()) {
-      new Notice("Semantic search needs Ollama. Start it (`ollama serve`) or set the host in settings.");
+    if (this.settings.embeddingEngine === "ollama") {
+      if (!this.router().ollama.hasCredentials()) {
+        new Notice("Semantic search needs Ollama. Start it (`ollama serve`) or set the host in settings.");
+        return;
+      }
+    } else if (!(await this.canEmbedWithoutDownload())) {
+      // Consent gate: embedding with no downloaded model would fetch weights
+      // implicitly. Cached weights pass — they load offline.
+      new Notice("Download the built-in model in settings first.");
       return;
     }
     const ix = this.indexer();
     if (!ix) return;
-    const progress = new Notice(`Building semantic index with “${this.settings.embeddingModel}”…`, 0);
+    const progress = new Notice(`Building semantic index with “${this.embeddingLabel()}”…`, 0);
     try {
       const res = await ix.build({
         force: true,
@@ -874,9 +962,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     try {
-      const [{ notes, chunks }, localOk] = await Promise.all([ix.stats(), this.router().localAvailable()]);
-      const reach = localOk ? "Ollama reachable" : "Ollama unreachable — searches fall back to keyword";
-      new Notice(`Semantic index · ${notes} notes, ${chunks} chunks · “${this.settings.embeddingModel}” · ${reach}`, 9000);
+      let reach: string;
+      let stats: { notes: number; chunks: number };
+      if (this.settings.embeddingEngine === "builtin") {
+        stats = await ix.stats();
+        const backend = this.builtinEmbedder().backend();
+        reach = backend ? `model ready (${backend === "webgpu" ? "WebGPU" : "WASM"})` : "model not downloaded — download it in settings";
+      } else {
+        const [s, localOk] = await Promise.all([ix.stats(), this.router().localAvailable()]);
+        stats = s;
+        reach = localOk ? "Ollama reachable" : "Ollama unreachable — searches fall back to keyword";
+      }
+      new Notice(`Semantic index · ${stats.notes} notes, ${stats.chunks} chunks · “${this.embeddingLabel()}” · ${reach}`, 9000);
     } catch (e) {
       new Notice(`Semantic index status unavailable: ${e instanceof Error ? e.message : String(e)}`, 8000);
     }
@@ -895,6 +992,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const ix = this.indexer();
     if (!ix) {
       this.reindexQueue.clear();
+      return;
+    }
+    if (!(await this.canEmbedWithoutDownload())) {
+      // Consent gate: drop the queue (notes re-queue on their next change) and
+      // say so once per session instead of spamming a Notice per save.
+      this.reindexQueue.clear();
+      if (!this.reindexPausedNotified) {
+        this.reindexPausedNotified = true;
+        new Notice("Semantic reindex paused — download the built-in model in settings.");
+      }
       return;
     }
     const paths = Array.from(this.reindexQueue);
