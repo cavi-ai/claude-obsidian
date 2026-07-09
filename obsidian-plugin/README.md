@@ -13,8 +13,10 @@ generates look gallery-grade. See the
 attribution.
 
 > **Bring your own credential.** Companion for Claude talks to the Anthropic
-> Messages API with *your* credential — nothing is sent anywhere else. Desktop
-> only (it needs direct network access). Three auth modes:
+> Messages API with *your* credential — nothing is sent anywhere else. On desktop,
+> direct network access is required for Claude and the local MCP bridge; on mobile,
+> chat and artifacts work with desktop-only features (MCP bridge, session import,
+> semantic index build) gated off. Three auth modes:
 >
 > - **API key** (default, recommended) — a standard `sk-ant-api…` key from
 >   console.anthropic.com. This is the mode used for community-store builds.
@@ -69,17 +71,19 @@ attribution.
   history) is cached server-side automatically, cutting input cost by up to
   ~10× on long conversations. The cost estimate in the usage bar accounts for
   cache reads and writes.
-- **Vault-aware context** — toggle chips to attach your **active note**, the
-  **current selection**, **linked & backlinked notes**, or a keyword
-  **vault search** (lightweight RAG, no embeddings) to any message.
+- **Vault-aware context** — `@`-mention notes, folders, or the whole vault;
+  toggle context pills for your **active note**, the **current selection**,
+  **linked & backlinked notes**, or a **vault search**. Keyword search by
+  default; optional **semantic search** (local Ollama embeddings) fuses with
+  keywords when enabled.
 - **In-chat model & reasoning controls** — switch model per message
   (**Opus / Sonnet / Haiku**), toggle **extended thinking** with an **effort**
   dial, stream the model's **reasoning** in a collapsible panel, and set
   per-message **temperature / max tokens**. Controls are model-aware — anything
   a model would reject is hidden, not broken.
 - **Slash commands** — type `/` in the composer for a fuzzy palette:
-  `/summarize`, `/ask`, `/improve`, `/artifact`, `/plan`, `/table`, `/explain`,
-  `/build`, `/new`, `/history`, `/save`.
+  summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
+  and more.
 - **Flexible auth** — your Anthropic **API key** (default), a long-term
   **OAuth subscription token**, or **import from the environment** — with an
   optional base-URL override for gateways.
@@ -100,6 +104,14 @@ attribution.
 - **Indexing & tags** — saved artifacts and chats get YAML frontmatter
   (`title`, `tags`, `summary`, `type`) so they index in the tag pane, search,
   and Dataview, with optional local-model **auto-tagging**.
+- **Typed source capture** (experimental, off by default) — watch a clippings
+  inbox (default `Clippings/`) and enrich new clips with typed frontmatter
+  (article, video, dataset) from per-type schemas.
+- **Vault ontology** (experimental, off by default) — schema notes in an
+  `Ontology/` folder define **note types and typed wikilink relations**; run
+  **Seed ontology** to create the defaults, and notes Claude creates conform to
+  your schemas (advisory, never blocking). Enable under *Vault ontology* in
+  settings.
 - **Save & test connection** — one click confirms settings are saved and the
   credential works, with readable, actionable errors.
 - **Commands** — *Open chat panel*, *New chat*, *Resume a past conversation*,
@@ -137,8 +149,9 @@ CI runs all four on every push/PR (Node 20 & 22) in the
 
 - [ ] Settings: API key saves; model dropdown + custom id both take effect.
 - [ ] Chat streams; **Stop** aborts mid-stream; **New chat** clears history.
-- [ ] Context chips: active note / selection / links / vault-search each attach
-      (the `+ context:` line under your message reflects what was sent).
+- [ ] Context: `@`-mention a note and toggle context pills (active note /
+      selection / links / vault search); the `+ context:` line under your message
+      reflects what was sent.
 - [ ] "Generate implementation plan from current note" yields a `claude-html`
       artifact that renders inline.
 - [ ] **Save artifact** writes a note that re-renders in Reading view; **Open ↗**
@@ -154,8 +167,12 @@ the compliant way to unify all three without subscription OAuth.
 Enable it in *Settings → Companion for Claude → Unified bridge (MCP server)*. It:
 
 - binds to **127.0.0.1 only** (never the network) and requires a **bearer token**;
-- exposes read tools always (`vault_search`, `note_read`, `list_recent`,
-  `vault_tags`) and, when *Allow writes* is on, `note_create` / `note_append`;
+- exposes **eight read tools** always (`vault_search`, `note_read`, `list_recent`,
+  `vault_tags`, `list_titles`, `get_backlinks`, `get_outgoing_links`,
+  `frontmatter_query`) and, when *Allow writes* is on, seven write tools:
+  `note_create`, `note_append`, `note_update`, `update_frontmatter`, `note_move`,
+  `base_create`, `canvas_create` (with *Vault ontology* enabled, `note_create`
+  also accepts `type` / `properties` for schema-conformant typed notes);
 - shows ready-to-paste connection snippets for both clients.
 
 **Claude Code:**
@@ -222,13 +239,13 @@ means following the checklist below.
       committed/attached** (the store serves the built file, not the source).
 
 **Manifest & versioning** (keep these three in lockstep)
-- [ ] `manifest.json` `version` (currently `0.4.0`) matches the git tag.
-- [ ] `versions.json` maps that version → `minAppVersion` (`1.5.0`).
+- [ ] `manifest.json` `version` (currently `0.9.0`) matches the git tag.
+- [ ] `versions.json` maps that version → `minAppVersion` (`1.7.2`).
 - [ ] `package.json` `version` matches.
 
 **GitHub release**
 - [ ] Tag the release with the **exact** version number, no `v` prefix
-      (`0.4.0`, not `v0.4.0`).
+      (`0.9.0`, not `v0.9.0`).
 - [ ] Attach `main.js`, `manifest.json`, and `styles.css` as individual binary
       assets (not just the source zip).
 
@@ -238,10 +255,8 @@ means following the checklist below.
 - [ ] First-time submissions go through Obsidian's automated + manual review.
 
 **Naming / trademark**
-- [ ] Review the plugin **name**. Obsidian's policy asks you to avoid trademarks
-      you don't own; "Claude" is Anthropic's. A store-safe name such as
-      *"Companion for Claude"* keeps the `claude-companion` id while making the
-      third-party relationship clear. (Not yet changed — decide before tagging.)
+- [x] Store name is **Companion for Claude** (`claude-companion` id), making the
+      third-party relationship clear to Obsidian reviewers.
 
 **Pre-submit sanity**
 - [ ] `pnpm run build` produces a fresh `main.js`.

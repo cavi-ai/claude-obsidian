@@ -41,9 +41,22 @@ Two paired, complementary deliverables that meet at a local MCP bridge:
 
 A full Claude chat experience that lives in your vault and speaks its language.
 
-- **Chat with vault context** — toggle `Context` chips to attach your active
-  note, selection, linked/backlinked notes, or a keyword vault search to any
-  message. Lightweight RAG, no embeddings.
+- **Chat with vault context** — `@`-mention notes, folders, or the whole vault;
+  toggle context pills for your active note, selection, linked/backlinked notes,
+  or vault search. Keyword search by default; optional local semantic search via
+  Ollama embeddings.
+- **Agent mode** — Claude searches, reads, and follows links in your vault on
+  its own while answering (expandable tool chips); optional writes are confirmed
+  per call, and note edits land as reviewable per-hunk diffs.
+- **Link intelligence** — unlinked mentions and semantic neighbors surface in a
+  Related panel, with one-click linking or a reviewed bulk-link diff.
+- **PDFs, images & screenshots** — `@`-mention vault PDFs/images or paste a
+  screenshot; Claude reads them natively.
+- **Consolidated memory** — captured session digests merge into one evolving
+  "What Claude Knows" note that agent mode reads back across chats.
+- **Canvas & Bases** — Claude builds native Obsidian Canvas mind maps and
+  `.base` database views from your real notes and frontmatter — write-gated and
+  confirmed, in chat and over the bridge.
 - **Three auth modes** — your Anthropic **API key** (default, community-store
   safe), a long-term **OAuth subscription token** (`claude setup-token`, usage
   bills to your plan), or **import from the environment**. Optional base-URL
@@ -54,8 +67,8 @@ A full Claude chat experience that lives in your vault and speaks its language.
   tokens. Every control is model-aware: anything a model would reject is hidden,
   not broken.
 - **Slash commands** — type `/` in the composer for a fuzzy palette:
-  `/summarize`, `/ask`, `/improve`, `/artifact`, `/plan`, `/table`, `/explain`,
-  `/build`, `/new`, `/history`, `/save`.
+  summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
+  and more.
 - **Beautiful interactive artifacts** — Claude emits a `claude-html` block;
   Companion renders it inline in a **sandboxed iframe** and can open it in your
   real browser or save it as a portable note.
@@ -66,6 +79,10 @@ A full Claude chat experience that lives in your vault and speaks its language.
   live connectivity indicator. Or run **Local only** for full offline use.
 - **Unified bridge** — expose the vault as a loopback-only, token-gated MCP
   server so Claude Code / Claude Desktop work against the same notes.
+- **Experimental, off by default** — **typed source capture** (enrich clipped
+  files with typed frontmatter from per-type schemas) and a **vault ontology**
+  (schema notes define note types + typed wikilink relations that Claude-created
+  notes conform to).
 
 → Full details: [`obsidian-plugin/README.md`](obsidian-plugin/README.md)
 
@@ -73,7 +90,7 @@ A full Claude chat experience that lives in your vault and speaks its language.
 
 Commands and skills that let Claude Code operate on your vault through the
 Companion MCP bridge — turning a chat agent into a vault collaborator. **14
-commands and 24 skills** across six areas, all built on a shared grounding
+commands and 29 skills** across seven areas, all built on a shared grounding
 discipline (cite real notes, never fabricate, writes confirmed):
 
 - **Knowledge** — `vault-synthesis` (grounded, cited "what do I know about X"),
@@ -82,8 +99,10 @@ discipline (cite real notes, never fabricate, writes confirmed):
   `frontmatter-normalizer`, `note-splitter`, `dedup-merge`.
 - **Writing** — `outline-to-draft`, `daily-rollup`, `session-to-note`,
   `meeting-cleanup`, `summarize-and-link`.
-- **Build** — `plan-to-spec`, `build-from-spec`, `tracker-driver`,
-  `build-retrospective`, `task-harvester`.
+- **Build** — `plan-to-spec`, `tracker-driver`, `build-retrospective`,
+  `task-harvester` (plus the `build-from-spec` command).
+- **Cloud** — `cloud-reply` (dispatch a cloud session; result lands as a reply
+  note + PR for vault import).
 - **Advisor personas (`manifest-*`)** — `vault`, `pm`, `infra`, `feature`,
   `content`, `risk`, `research`: survey the vault, produce a prioritized
   `claude-html` artifact, and route work into the build pipeline.
@@ -104,7 +123,7 @@ session memory into persistent knowledge-graph points.
 ┌─────────────────────────┐      loopback MCP (127.0.0.1, bearer token)
 │  Companion for Claude    │  ◀───────────────────────────────────────┐
 │  (Obsidian plugin)       │                                           │
-│  • chat + artifacts      │   exposes 13 vault tools                  │
+│  • chat + artifacts      │   exposes 15 vault tools                  │
 │  • runs the MCP server   │                                           │
 └─────────────────────────┘                                           │
 ┌─────────────────────────┐                                           │
@@ -113,11 +132,12 @@ session memory into persistent knowledge-graph points.
 └─────────────────────────┘
 ```
 
-**Vault tools exposed over the bridge** — read: `vault_search`, `note_read`,
-`list_recent`, `list_titles`, `vault_tags`, `get_backlinks`,
-`get_outgoing_links`, `frontmatter_query`; write (gated behind a setting):
-`note_create`, `note_append`, `note_update`, `update_frontmatter`, `note_move`
-(rename/move with automatic backlink rewrite).
+**Vault tools exposed over the bridge (15 total)** — read (always):
+`vault_search`, `note_read`, `list_recent`, `vault_tags`, `list_titles`,
+`get_backlinks`, `get_outgoing_links`, `frontmatter_query`; write (gated behind
+a setting): `note_create`, `note_append`, `note_update`, `update_frontmatter`,
+`note_move` (rename/move with automatic backlink rewrite), `base_create`,
+`canvas_create`.
 
 Companion runs a local MCP server (`obsidian-vault`, bound to `127.0.0.1`,
 bearer-token auth, default port **22360**). The Claude Code plugin connects to
