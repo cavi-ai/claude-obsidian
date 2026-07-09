@@ -2,7 +2,7 @@
 // obsidian imports. Schema notes in the vault parse into TypeDef; inheritance
 // resolution produces ResolvedType, which everything downstream consumes.
 
-/** Same vocabulary as sources' FieldType, kept independent to avoid coupling. */
+/** Superset of sources' FieldType (adds boolean), kept independent to avoid coupling. */
 export const PROPERTY_TYPE_VALUES = ["string", "number", "boolean", "date", "duration", "string[]"] as const;
 
 export type PropertyType = (typeof PROPERTY_TYPE_VALUES)[number];
