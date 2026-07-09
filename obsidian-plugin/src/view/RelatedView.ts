@@ -82,7 +82,13 @@ export class RelatedView extends ItemView {
     try {
       hits = await this.plugin.relatedNotes(file.path, 8);
     } catch {
-      if (seq === this.renderSeq) loading.setText("Couldn’t compute related notes — is Ollama running?");
+      if (seq === this.renderSeq) {
+        loading.setText(
+          this.plugin.settings.embeddingEngine === "builtin"
+            ? "Couldn’t compute related notes — download the built-in model in settings."
+            : "Couldn’t compute related notes — is Ollama running?",
+        );
+      }
       return;
     }
     if (seq !== this.renderSeq) return; // a newer render superseded this one
