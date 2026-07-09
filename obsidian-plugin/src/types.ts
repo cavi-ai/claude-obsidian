@@ -91,6 +91,8 @@ export interface PluginSettings {
   semanticEnabled: boolean;
   /** Ollama embedding model (e.g. nomic-embed-text). Local + private. */
   embeddingModel: string;
+  /** Which engine computes embeddings: the bundled in-webview model or Ollama. */
+  embeddingEngine: "builtin" | "ollama";
 
   // ----- indexing -----
   /** Auto-add tags + summary frontmatter when saving artifacts/chats. */
@@ -205,6 +207,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
   semanticEnabled: false,
   embeddingModel: "nomic-embed-text",
+  embeddingEngine: "builtin",
 
   autoTagOnSave: true,
   artifactBaseTags: ["claude", "artifact"],

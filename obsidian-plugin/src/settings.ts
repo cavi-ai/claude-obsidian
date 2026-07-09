@@ -461,7 +461,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   private renderSemanticSection(containerEl: HTMLElement): void {
     new Setting(containerEl)
       .setName("Enable semantic search")
-      .setDesc("Build a local vector index (via Ollama) so the vault is searchable by meaning, not just keywords. Private and offline. Powers the “Search vault” context and Ask-your-vault.")
+      .setDesc("Build a local vector index so the vault is searchable by meaning, not just keywords. Private and on-device. Powers the “Search vault” context and Ask-your-vault.")
       .addToggle((t) =>
         t.setValue(this.plugin.settings.semanticEnabled).onChange(async (v) => {
           this.plugin.settings.semanticEnabled = v;
@@ -472,17 +472,33 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
     if (this.plugin.settings.semanticEnabled) {
       new Setting(containerEl)
-        .setName("Embedding model")
-        .setDesc("An Ollama embedding model. Pull one first, e.g. `ollama pull nomic-embed-text`.")
-        .addText((text) =>
-          text
-            .setPlaceholder("nomic-embed-text")
-            .setValue(this.plugin.settings.embeddingModel)
-            .onChange(async (v) => {
-              this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
-              await this.plugin.saveSettings();
-            }),
-        );
+        .setName("Embedding engine")
+        .setDesc("Built-in runs a small model inside Obsidian on every platform (one-time ~45 MB download). Ollama uses your local Ollama server (desktop).")
+        .addDropdown((dd) => {
+          dd.addOption("builtin", "Built-in (recommended)");
+          dd.addOption("ollama", "Ollama");
+          dd.setValue(this.plugin.settings.embeddingEngine).onChange(async (v) => {
+            this.plugin.settings.embeddingEngine = v as "builtin" | "ollama";
+            await this.plugin.saveSettings();
+            this.plugin.invalidateIndexer();
+            this.renderSettings();
+          });
+        });
+
+      if (this.plugin.settings.embeddingEngine === "ollama") {
+        new Setting(containerEl)
+          .setName("Embedding model")
+          .setDesc("An Ollama embedding model. Pull one first, e.g. `ollama pull nomic-embed-text`.")
+          .addText((text) =>
+            text
+              .setPlaceholder("nomic-embed-text")
+              .setValue(this.plugin.settings.embeddingModel)
+              .onChange(async (v) => {
+                this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
+                await this.plugin.saveSettings();
+              }),
+          );
+      }
 
       const idxStatus = containerEl.createDiv({ cls: "cc-conn-status setting-item-description" });
       void this.plugin
