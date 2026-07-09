@@ -28,6 +28,19 @@ both; the MCP bridge, session import, and semantic index build require desktop
 `main.js`, `manifest.json`, and `styles.css` into a test vault under
 `.obsidian/plugins/claude-companion/`.
 
+### Manual smoke-test checklist (needs a real vault + API key)
+
+- [ ] Settings: API key saves; model dropdown + custom id both take effect.
+- [ ] Chat streams; **Stop** aborts mid-stream; **New chat** clears history.
+- [ ] Context: `@`-mention a note and toggle context pills (active note /
+      selection / links / vault search); the `+ context:` line under your
+      message reflects what was sent.
+- [ ] "Generate implementation plan from current note" yields a `claude-html`
+      artifact that renders inline.
+- [ ] **Save artifact** writes a note that re-renders in Reading view;
+      **Open ↗** opens it in a new window.
+- [ ] Invalid key surfaces a friendly error instead of failing silently.
+
 ## Pull requests
 
 - Keep `manifest.json`, `versions.json`, `package.json`, and the git tag version

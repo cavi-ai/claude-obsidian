@@ -249,20 +249,8 @@ pnpm run build       # typecheck + production bundle
 ```
 
 CI runs all four on every push/PR (Node 20 & 22) in the
-[monorepo](https://github.com/cavi-ai/claude-obsidian).
-
-### Manual test checklist (needs a real vault + API key)
-
-- [ ] Settings: API key saves; model dropdown + custom id both take effect.
-- [ ] Chat streams; **Stop** aborts mid-stream; **New chat** clears history.
-- [ ] Context: `@`-mention a note and toggle context pills (active note /
-      selection / links / vault search); the `+ context:` line under your message
-      reflects what was sent.
-- [ ] "Generate implementation plan from current note" yields a `claude-html`
-      artifact that renders inline.
-- [ ] **Save artifact** writes a note that re-renders in Reading view; **Open ↗**
-      opens it in a new window.
-- [ ] Invalid key surfaces a friendly error instead of failing silently.
+[monorepo](https://github.com/cavi-ai/claude-obsidian). A manual smoke-test
+checklist lives in [`CONTRIBUTING.md`](https://github.com/cavi-ai/claude-obsidian/blob/main/CONTRIBUTING.md).
 
 ## Releases
 
