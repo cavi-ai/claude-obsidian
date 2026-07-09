@@ -1,4 +1,4 @@
-import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
+import { App, FileSystemAdapter, MarkdownView, Modal, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
@@ -45,6 +45,8 @@ import { normalizePath, TFile } from "obsidian";
 import { enrichCapture, type EnrichDeps } from "./sources/enrich";
 import { shouldEnrich } from "./sources/watcher";
 import { parseClipUrl } from "./sources/detect";
+import { OntologyRegistry } from "./ontology/registry";
+import { seedFiles } from "./ontology/seed";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
@@ -82,6 +84,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private reindexQueue = new Set<string>();
   private enrichTimers = new Map<string, number>();
   private enrichRecentlyWritten = new Set<string>();
+  /** Lazily-built ontology registry; null while the feature is disabled. */
+  private _ontology: OntologyRegistry | null = null;
+  /** Debounce timer for ontology reloads on schema-note changes. */
+  private _ontologyReloadTimer: number | null = null;
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -271,12 +277,40 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "seed-ontology",
+      name: "Seed ontology (default type schemas)",
+      checkCallback: (checking) => {
+        if (checking) return this.settings.ontologyEnabled;
+        void (async () => {
+          const folder = normalizePath(this.settings.ontologyFolder);
+          await this.ensureFolder(folder);
+          let created = 0;
+          for (const f of seedFiles()) {
+            const path = normalizePath(`${folder}/${f.fileName}`);
+            if (this.app.vault.getAbstractFileByPath(path)) continue; // never overwrite user edits
+            await this.app.vault.create(path, f.content);
+            created++;
+          }
+          const result = await this.ontology()?.load();
+          const errors = result?.errors ?? [];
+          new Notice(created > 0 ? `Seeded ${created} ontology type${created === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
+          if (errors.length > 0) {
+            new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
+            console.warn("[Claude Companion] ontology schema errors:", errors);
+          }
+        })();
+        return true;
+      },
+    });
+
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
 
     // Start the MCP bridge if enabled (deferred so it doesn't block load).
     this.app.workspace.onLayoutReady(() => {
       void this.syncMcpServer();
       this.syncPlanBuildActions();
+      if (this.settings.ontologyEnabled) void this.ontology()?.load();
 
       // Keep the semantic index fresh as notes change (debounced; no-op when
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
@@ -289,6 +323,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.renameNote(oldPath, f.path); }));
+
+      // Reload the ontology when schema notes under the ontology folder change
+      // (debounced; no-op while the feature is off).
+      const inOntology = (path: string): boolean => path.startsWith(`${normalizePath(this.settings.ontologyFolder)}/`);
+      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.scheduleOntologyReload(); }));
     });
 
     // Show a "Build" action in the header of any `type: plan` note.
@@ -385,6 +427,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     void this.mcpServer?.stop();
     this.mcpServer = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
+    if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
   }
 
   // ---------- settings ----------
@@ -544,6 +587,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: s.mcpAllowWrites,
       defaultFolder: s.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      ontology: () => this.ontology(),
     };
     if (!this.vaultTools) {
       this.vaultTools = new VaultTools(this.app, toolOpts);
@@ -607,8 +651,40 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._router;
   }
 
+  /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
+  ontology(): OntologyRegistry | null {
+    if (!this.settings.ontologyEnabled) return null;
+    if (!this._ontology) {
+      this._ontology = new OntologyRegistry({
+        listSchemaNotes: async () => {
+          const folder = normalizePath(this.settings.ontologyFolder);
+          const out: Array<{ path: string; frontmatter?: Record<string, unknown> | undefined; body: string }> = [];
+          for (const f of this.app.vault.getMarkdownFiles()) {
+            if (f.path !== folder && !f.path.startsWith(`${folder}/`)) continue;
+            const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
+            out.push({ path: f.path, frontmatter: fm, body: await this.app.vault.cachedRead(f) });
+          }
+          return out;
+        },
+        parseYaml: (src) => parseYaml(src) as unknown,
+      });
+    }
+    return this._ontology;
+  }
+
+  /** Queue an ontology reload after schema-note changes (debounced ~500ms). */
+  private scheduleOntologyReload(): void {
+    if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
+    this._ontologyReloadTimer = window.setTimeout(() => {
+      this._ontologyReloadTimer = null;
+      void this.ontology()?.load();
+    }, 500);
+  }
+
   composeSystemPrompt(opts?: { agent?: boolean }): string {
-    const base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+    let base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+    const digest = this.ontology()?.digest();
+    if (digest) base = `${base}\n\n${digest}`;
     return opts?.agent ? `${base}\n\n${AGENT_INSTRUCTION}` : base;
   }
 
@@ -669,6 +745,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: this.settings.agentAllowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      ontology: () => this.ontology(),
     };
     if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
     else this.agentVaultTools.setOptions(opts);
@@ -1133,7 +1210,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await navigator.clipboard.writeText(command).catch(() => {});
     await this.app.workspace.getLeaf(true).openFile(trackerFile);
 
-    new Notice("Build spec + tracker created. Claude Code command copied — run it in a terminal (requires the official Obsidian CLI).", 8000);
+    new Notice("Build spec + tracker created. Claude Code command copied — run it in a terminal (drives the tracker over the MCP bridge).", 8000);
   }
 
   private async ensureFolder(folder: string): Promise<void> {

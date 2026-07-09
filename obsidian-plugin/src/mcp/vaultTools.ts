@@ -2,7 +2,10 @@ import { App, TFile, normalizePath, getAllTags } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
-import { buildFrontmatter, normalizeTags } from "../indexing/frontmatter";
+import { buildFrontmatter, normalizeTags, type FrontmatterData } from "../indexing/frontmatter";
+import { conform } from "../ontology/conform";
+import type { OntologyRegistry } from "../ontology/registry";
+import type { ResolvedType } from "../ontology/types";
 import { replaceSection } from "./edit";
 import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
@@ -15,6 +18,8 @@ export interface VaultToolsOptions {
   defaultFolder: string;
   /** When set + the index is built, vault_search fuses semantic + keyword. */
   semantic?: SemanticSearch;
+  /** Ontology registry accessor; absent/null disables typed creation. */
+  ontology?: (() => OntologyRegistry | null) | undefined;
 }
 
 /**
@@ -118,6 +123,12 @@ export class VaultTools {
               content: { type: "string", description: "Markdown body." },
               folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
               tags: { type: "array", items: { type: "string" }, description: "Tags to apply." },
+              ...(this.opts.ontology?.()
+                ? {
+                    type: { type: "string", description: "Ontology type for this note (e.g. person, project, concept; unknown types are reported back with the available list)." },
+                    properties: { type: "object", description: "Type-specific frontmatter properties and relation fields (relations are lists of \"[[wikilink]]\" strings)." },
+                  }
+                : {}),
             },
             required: ["title", "content"],
           },
@@ -277,7 +288,7 @@ export class VaultTools {
         return this.frontmatterQuery(str(args.field), optStr(args.value));
       case "note_create":
         this.assertWrites();
-        return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags));
+        return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags), optStr(args.type), optObj(args.properties));
       case "note_append":
         this.assertWrites();
         return this.append(str(args.path), str(args.content));
@@ -405,19 +416,60 @@ export class VaultTools {
       .join("\n");
   }
 
-  private async create(title: string, content: string, folder: string | undefined, tags: string[]): Promise<string> {
+  private async create(
+    title: string,
+    content: string,
+    folder: string | undefined,
+    tags: string[],
+    typeName?: string,
+    properties?: Record<string, unknown>,
+  ): Promise<string> {
     const dir = (folder ?? this.opts.defaultFolder).trim();
     await this.ensureFolder(dir);
-    const fm = buildFrontmatter({
+    const base: FrontmatterData = {
       title,
       created: new Date().toISOString().slice(0, 10),
       source: "claude-mcp",
       tags: normalizeTags(["claude", ...tags]),
-    });
-    const body = `${fm}\n\n# ${title}\n\n${content}\n`;
+    };
+    let data: FrontmatterData = base;
+    let conformance = "";
+    const registry = this.opts.ontology?.() ?? null;
+    if (registry && typeName) {
+      const resolved = registry.resolve(typeName);
+      // Base keys + the validated type always win over model-supplied properties.
+      const safeProps: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(properties ?? {})) if (!PROTECTED_KEYS.has(k)) safeProps[k] = v;
+      const merged: Record<string, unknown> = { ...base, type: typeName, ...safeProps };
+      const r = conform(merged, resolved, (target) => this.lookupTargetType(registry, target));
+      // Unknown type: fall back to the untyped legacy frontmatter — advisory, never blocking.
+      data = resolved ? toFrontmatterData(r.fixed) : base;
+      if (r.issues.length > 0) {
+        const messages = r.issues.map((i) =>
+          i.kind === "unknown-type" ? `${i.message} — available: ${[...registry.resolved().keys()].join(", ")}` : i.message,
+        );
+        conformance = `\nConformance: ${messages.join("; ")}`;
+      }
+    }
+    const body = `${buildFrontmatter(data)}\n\n# ${title}\n\n${content}\n`;
     const path = await this.uniquePath(dir, title);
     const file = await this.app.vault.create(path, body);
-    return `Created note: ${file.path}`;
+    return `Created note: ${file.path}${conformance}`;
+  }
+
+  /** Resolve a relation target (basename/path as written) to that note's ResolvedType. */
+  private lookupTargetType(registry: OntologyRegistry, target: string): ResolvedType | undefined {
+    // Real Obsidian resolves linkpaths via metadataCache; the test fake doesn't
+    // implement that method, so fall back to a basename/path scan.
+    const cache: { getFirstLinkpathDest?: (linkpath: string, sourcePath: string) => TFile | null } = this.app.metadataCache;
+    const file =
+      typeof cache.getFirstLinkpathDest === "function"
+        ? cache.getFirstLinkpathDest(target, "")
+        : (this.app.vault.getMarkdownFiles().find((f) => f.basename === target || f.path === normalizePath(target)) ?? null);
+    if (!file) return undefined;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+    const t = fm?.type;
+    return typeof t === "string" ? registry.resolve(t) : undefined;
   }
 
   private async append(path: string, content: string): Promise<string> {
@@ -562,4 +614,18 @@ function num(v: unknown, dflt: number): number {
 }
 function strArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function optObj(v: unknown): Record<string, unknown> | undefined {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+}
+/** note_create base-frontmatter keys the model's `properties` may never overwrite. */
+const PROTECTED_KEYS: ReadonlySet<string> = new Set(["type", "title", "created", "source", "tags"]);
+/** Narrow a conformance-fixed record to buildFrontmatter's value types; anything else is dropped. */
+function toFrontmatterData(record: Record<string, unknown>): FrontmatterData {
+  const out: FrontmatterData = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") out[key] = value;
+    else if (Array.isArray(value) && value.every((x): x is string => typeof x === "string")) out[key] = value;
+  }
+  return out;
 }
