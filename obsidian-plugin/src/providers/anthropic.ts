@@ -1,9 +1,43 @@
 import { requestUrl } from "obsidian";
-import type { ChatMessage, StreamHandlers } from "../types";
-import { parseSseChunk, extractApiError } from "../claude/sse";
+import type { StreamHandlers } from "../types";
+import { parseSseChunk, extractApiError, type SseBlockState } from "../claude/sse";
+import { withCacheControl } from "../claude/cache";
 import { PING_MODEL } from "../claude/models";
 import { type CompletionRequest, type Provider, type ProviderStatus, ProviderError, isAbort } from "./types";
 import { type AuthInputs, type ResolvedAuth, resolveAuth, authHeaders, messagesUrl, buildSystem } from "./auth";
+
+/**
+ * Serialize a request for the Messages API. Exported (pure) so the wire shape —
+ * tools, content blocks, cache_control placement — is unit-testable.
+ */
+export function buildRequestBody(req: CompletionRequest, stream: boolean, auth: ResolvedAuth): string {
+  // Cache breakpoints: system + tools + latest-user-message prefix (claude/cache.ts).
+  const cached = withCacheControl({
+    // OAuth tokens require the Claude Code identity as the first system block.
+    system: buildSystem(auth, req.system),
+    ...(req.tools ? { tools: req.tools } : {}),
+    messages: req.messages,
+  });
+  const payload: Record<string, unknown> = {
+    model: req.model,
+    max_tokens: req.maxTokens,
+    system: cached.system,
+    stream,
+    messages: cached.messages,
+  };
+  if (cached.tools) payload.tools = cached.tools;
+  // Model-aware fields (set by chatControls.shapeRequest); omit when absent so
+  // we never send a parameter the active model would 400 on.
+  if (req.temperature !== undefined) payload.temperature = req.temperature;
+  if (req.thinking) {
+    payload.thinking =
+      req.thinkingDisplay && req.thinking.type === "adaptive"
+        ? { ...req.thinking, display: req.thinkingDisplay }
+        : req.thinking;
+  }
+  if (req.outputConfig) payload.output_config = req.outputConfig;
+  return JSON.stringify(payload);
+}
 
 export class AnthropicProvider implements Provider {
   readonly id = "anthropic" as const;
@@ -30,25 +64,7 @@ export class AnthropicProvider implements Provider {
   }
 
   private body(req: CompletionRequest, stream: boolean, auth: ResolvedAuth): string {
-    const payload: Record<string, unknown> = {
-      model: req.model,
-      max_tokens: req.maxTokens,
-      // OAuth tokens require the Claude Code identity as the first system block.
-      system: buildSystem(auth, req.system),
-      stream,
-      messages: req.messages.map((m: ChatMessage) => ({ role: m.role, content: m.content })),
-    };
-    // Model-aware fields (set by chatControls.shapeRequest); omit when absent so
-    // we never send a parameter the active model would 400 on.
-    if (req.temperature !== undefined) payload.temperature = req.temperature;
-    if (req.thinking) {
-      payload.thinking =
-        req.thinkingDisplay && req.thinking.type === "adaptive"
-          ? { ...req.thinking, display: req.thinkingDisplay }
-          : req.thinking;
-    }
-    if (req.outputConfig) payload.output_config = req.outputConfig;
-    return JSON.stringify(payload);
+    return buildRequestBody(req, stream, auth);
   }
 
   async stream(req: CompletionRequest, handlers: StreamHandlers): Promise<void> {
@@ -74,25 +90,35 @@ export class AnthropicProvider implements Provider {
       let buffer = "";
       let full = "";
       let stopReason: string | undefined;
+      let blockState: SseBlockState = { open: {} };
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const { text, thinking, remainder, error, usage, stopReason: sr } = parseSseChunk(buffer);
+        const { text, thinking, remainder, error, usage, stopReason: sr, toolUses, state } = parseSseChunk(buffer, blockState);
         buffer = remainder;
+        blockState = state;
         if (error) throw new ProviderError(error);
         if (thinking) handlers.onThinking?.(thinking);
         if (text) {
           full += text;
           handlers.onText(text);
         }
+        for (const block of toolUses) handlers.onToolUse?.(block);
         if (usage) handlers.onUsage?.(usage);
         if (sr) stopReason = sr;
       }
       if (stopReason === "max_tokens") handlers.onTruncated?.();
+      if (stopReason) handlers.onStopReason?.(stopReason);
       handlers.onDone?.(full);
     } catch (err) {
       if (isAbort(err)) return;
+      // Agent turns own their retry semantics: a buffered fallback can't carry
+      // tool_use blocks, so surface the error instead of silently degrading.
+      if (req.tools) {
+        handlers.onError?.(err instanceof Error ? err : new ProviderError(String(err)));
+        return;
+      }
       try {
         const full = await this.complete(req);
         handlers.onText(full);

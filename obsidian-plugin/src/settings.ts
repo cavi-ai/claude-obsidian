@@ -172,6 +172,41 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
+    new Setting(containerEl).setName("Agent mode").setHeading();
+
+    new Setting(containerEl)
+      .setName("Let Claude use vault tools")
+      .setDesc("Claude can search and read your notes on its own while answering (read-only). Turn off for plain chat with pre-attached context.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.agentModeEnabled).onChange(async (v) => {
+          this.plugin.settings.agentModeEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Allow write tools")
+      .setDesc("Also let Claude create, edit, and move notes from chat. Every write asks for your confirmation first.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.agentAllowWrites).onChange(async (v) => {
+          this.plugin.settings.agentAllowWrites = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Max tool iterations per turn")
+      .setDesc("How many search/read/write rounds Claude may take before it must answer.")
+      .addSlider((s) =>
+        s
+          .setLimits(1, 20, 1)
+          .setValue(this.plugin.settings.agentMaxIterations)
+          .onChange(async (v) => {
+            this.plugin.settings.agentMaxIterations = v;
+            await this.plugin.saveSettings();
+          }),
+      );
+
     new Setting(containerEl).setName("Behavior").setHeading();
 
     new Setting(containerEl)
@@ -222,6 +257,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     // Source capture is vault-API based (no Node/fs) → works on mobile, so it
     // stays in the shared group rather than the desktop-only block below.
     this.accordion(containerEl, "Source capture (typed clips)", (c) => this.renderSourceCaptureSection(c));
+    this.accordion(containerEl, "Vault ontology (typed notes & relations)", (c) => this.renderOntologySection(c));
     if (!Platform.isMobile) {
       this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
       this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
@@ -543,6 +579,16 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("Auto-consolidate memory")
+      .setDesc("After each capture, merge recent digests into the “What Claude Knows” note (uses the utility model — local when enabled).")
+      .addToggle((t) =>
+        t.setValue(s.memoryAutoConsolidate).onChange(async (v) => {
+          s.memoryAutoConsolidate = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 
   private renderSourceCaptureSection(containerEl: HTMLElement): void {
@@ -588,6 +634,30 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         text.setValue(this.plugin.settings.sourceBaseTags.join(", ")).onChange(async (v) => {
           this.plugin.settings.sourceBaseTags = v.split(",").map((s) => s.trim()).filter(Boolean);
           await this.plugin.saveSettings();
+        }),
+      );
+  }
+
+  private renderOntologySection(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName("Enable ontology")
+      .setDesc("Claude writes typed frontmatter and wikilink relations that conform to schema notes in your vault. Run “Seed ontology” to create the default schemas.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.ontologyEnabled).onChange(async (v) => {
+          this.plugin.settings.ontologyEnabled = v;
+          await this.plugin.saveSettings();
+          if (v) void this.plugin.ontology()?.load();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Ontology folder")
+      .setDesc("Where the schema notes live (one note per type). Edit those notes to change the schema.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.ontologyFolder).onChange(async (v) => {
+          this.plugin.settings.ontologyFolder = v.trim() || "Ontology";
+          await this.plugin.saveSettings();
+          void this.plugin.ontology()?.load();
         }),
       );
   }

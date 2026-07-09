@@ -1,6 +1,13 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ToolTraceEntry } from "../types";
+import { runAgentTurn, type AgentTurnDeps } from "../agent/loop";
+import { executeTool, toAnthropicTools, PROPOSE_EDIT_TOOL } from "../agent/tools";
+import { WriteConfirmModal } from "./WriteConfirmModal";
+import { DiffModal } from "./DiffModal";
+import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
+import type { ApiMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "../providers/types";
+import { TFile } from "obsidian";
 import { compactMessages, toApiMessages, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
@@ -12,6 +19,7 @@ import { SlashMenu } from "./SlashMenu";
 import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
+import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
 import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
@@ -21,6 +29,30 @@ import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, form
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
+
+/** Compact one-line chip label: tool name + trimmed args (empty args omitted). */
+function chipLabel(name: string, args: string): string {
+  const a = args === "{}" ? "" : args;
+  const trimmed = a.length > 80 ? `${a.slice(0, 80)}…` : a;
+  return trimmed ? `${name} ${trimmed}` : name;
+}
+
+/** Truncate a tool result for the expandable chip body. */
+function previewText(text: string): string {
+  return text.length > 400 ? `${text.slice(0, 400)}…` : text;
+}
+
+/** Defensive shape-check of a propose_note_edit `edits` argument. */
+function parseProposedEdits(v: unknown): ProposedEdit[] {
+  if (!Array.isArray(v) || v.length === 0) throw new Error("propose_note_edit requires a non-empty 'edits' array.");
+  return v.map((e, i) => {
+    const o = e as { old_str?: unknown; new_str?: unknown };
+    if (typeof o?.old_str !== "string" || typeof o?.new_str !== "string") {
+      throw new Error(`edits[${i}] must have string 'old_str' and 'new_str'.`);
+    }
+    return { old_str: o.old_str, new_str: o.new_str };
+  });
+}
 
 interface ObsidianAppWithSettings {
   setting?: {
@@ -52,6 +84,8 @@ export class ChatView extends ItemView {
   private pillsEl!: HTMLElement;
   /** Notes/folders explicitly attached via "@" (session-scoped). */
   private attachedPaths: AttachedPath[] = [];
+  /** PDFs/images attached via "@" or paste — cleared after the next send. */
+  private attachedMedia: MediaAttachment[] = [];
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
@@ -65,6 +99,8 @@ export class ChatView extends ItemView {
   private slashMenu!: SlashMenu;
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private _lastBuffer = "";
+  /** "Allow for this session" on agent write confirmations (cleared with the view). */
+  private agentWriteAlways = false;
   private renderVersions = new WeakMap<HTMLElement, number>();
 
   constructor(
@@ -200,6 +236,21 @@ export class ChatView extends ItemView {
     });
     // Close the menus when focus leaves the composer.
     this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hide(); this.atMenu.hide(); }, 120));
+    // Paste a screenshot/image straight into the composer to attach it.
+    this.inputEl.addEventListener("paste", (evt: ClipboardEvent) => {
+      const items = evt.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            evt.preventDefault();
+            void this.attachPastedImage(file);
+          }
+          return;
+        }
+      }
+    });
 
     // ---- composer bar: model + tune (left group) · usage + Send (right) ----
     // One row directly under the input, so Send sits right beneath the chat box.
@@ -252,6 +303,7 @@ export class ChatView extends ItemView {
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
     bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
+    if (m.role === "assistant" && m.toolTrace && m.toolTrace.length > 0) this.renderTraceChips(bubble, body, m.toolTrace);
     void this.renderMarkdownInto(body, m.display ?? m.content);
     if (m.role === "assistant" && m.content.trim().length > 0) this.addAssistantActions(bubble, m.content);
   }
@@ -391,7 +443,48 @@ export class ChatView extends ItemView {
       const i = p.lastIndexOf("/");
       if (i > 0) folders.add(p.slice(0, i));
     }
-    return buildAtItems(notes, [...folders].sort());
+    const media = this.app.vault
+      .getFiles()
+      .filter((f) => mediaKind(f.path) !== null)
+      .map((f) => f.path)
+      .sort();
+    return buildAtItems(notes, [...folders].sort(), media);
+  }
+
+  /** Load attached media into wire blocks; oversize/unreadable files are skipped with a notice. */
+  private async mediaBlocks(): Promise<ContentBlock[]> {
+    const blocks: ContentBlock[] = [];
+    for (const m of this.attachedMedia) {
+      try {
+        let data = m.data;
+        if (!data && m.path) {
+          const file = this.app.vault.getAbstractFileByPath(m.path);
+          if (!(file instanceof TFile)) throw new Error("file not found");
+          if (file.stat.size > maxBytesFor(m.kind)) {
+            new Notice(`${m.label} is too large to attach (max ${Math.round(maxBytesFor(m.kind) / 1024 / 1024)} MB).`);
+            continue;
+          }
+          data = arrayBufferToBase64(await this.app.vault.readBinary(file));
+        }
+        if (data) blocks.push(mediaBlock(m.kind, m.mime, data));
+      } catch (e) {
+        new Notice(`Couldn't attach ${m.label}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return blocks;
+  }
+
+  /** Attach an image pasted into the composer (screenshots, copied images). */
+  private async attachPastedImage(file: File): Promise<void> {
+    if (file.size > maxBytesFor("image")) {
+      new Notice(`Pasted image is too large to attach (max ${Math.round(maxBytesFor("image") / 1024 / 1024)} MB).`);
+      return;
+    }
+    const data = arrayBufferToBase64(await file.arrayBuffer());
+    const n = this.attachedMedia.filter((m) => !m.path).length + 1;
+    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: file.type || "image/png", data });
+    this.renderAttachPills();
+    new Notice("Image attached to your next message.");
   }
 
   /** Open/refresh/close the "@" picker based on the cursor's @-token. */
@@ -422,6 +515,11 @@ export class ChatView extends ItemView {
       const kind = item.kind === "folder-path" ? "folder" : "note";
       if (!this.attachedPaths.some((a) => a.path === item.path && a.kind === kind)) {
         this.attachedPaths.push({ path: item.path, kind });
+      }
+    } else if (item.path && item.kind === "media-path") {
+      const kind = mediaKind(item.path);
+      if (kind && !this.attachedMedia.some((m) => m.path === item.path)) {
+        this.attachedMedia.push({ label: item.label, kind, mime: mediaMime(item.path), path: item.path });
       }
     }
     await this.plugin.saveSettings();
@@ -456,6 +554,11 @@ export class ChatView extends ItemView {
       const base = a.path.replace(/\.md$/i, "").split("/").pop() ?? a.path;
       pill(`${a.kind === "folder" ? "📁" : "📄"} ${base}`, () => {
         this.attachedPaths = this.attachedPaths.filter((x) => !(x.path === a.path && x.kind === a.kind));
+      });
+    }
+    for (const m of this.attachedMedia) {
+      pill(`${m.kind === "pdf" ? "📕" : "🖼️"} ${m.label}`, () => {
+        this.attachedMedia = this.attachedMedia.filter((x) => x !== m);
       });
     }
     this.pillsEl.toggleClass("is-empty", this.pillsEl.childElementCount === 0);
@@ -787,20 +890,39 @@ export class ChatView extends ItemView {
     this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
     this.renderMessage("user", display ?? userText);
 
-    // Build context-augmented copy of the message list for the API.
+    // Agent mode: Claude pulls vault context itself via tools (Anthropic only).
+    const agentActive = this.plugin.settings.agentModeEnabled && provider.id === "anthropic";
+
+    // Build context-augmented copy of the message list for the API. In agent
+    // mode the pre-emptive vault-search stuffing is skipped — the vault_search
+    // tool replaces it with better, model-chosen queries.
+    const toggles = agentActive ? { ...this.plugin.settings.context, searchVault: false } : this.plugin.settings.context;
     const ctx = await gatherContext(
       this.app,
       this.plugin.settings,
-      this.plugin.settings.context,
+      toggles,
       userText,
       (q, k) => this.plugin.semanticSearch(q, k),
       this.attachedPaths,
     );
-    const apiMessages: ChatMessage[] = toApiMessages(this.messages);
+    const apiMessages: ApiMessage[] = toApiMessages(this.messages);
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
-      if (last) last.content = `${ctx.text}\n\n---\n\n${last.content}`;
+      if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
       this.annotateContext(ctx.sources);
+    }
+
+    // Attached PDFs/images become content blocks ahead of the text (media is
+    // per-turn: consumed by this send, pills cleared). Local backends can't
+    // see them — textContent() drops non-text blocks on the Ollama path.
+    if (this.attachedMedia.length > 0) {
+      const blocks = await this.mediaBlocks();
+      const last = apiMessages[apiMessages.length - 1];
+      if (blocks.length > 0 && last && typeof last.content === "string") {
+        last.content = [...blocks, { type: "text", text: last.content }];
+      }
+      this.attachedMedia = [];
+      this.renderAttachPills();
     }
 
     const { bubble, body } = this.createAssistantBubble();
@@ -810,7 +932,11 @@ export class ChatView extends ItemView {
 
     // Attempt #1 on the primary backend (Claude unless backend is "local").
     const startedOnLocal = provider.id === "ollama";
-    const err1 = await this.streamTurn(startedOnLocal ? "local" : "claude", apiMessages, bubble, body);
+    const err1 = startedOnLocal
+      ? await this.streamTurn("local", apiMessages, bubble, body)
+      : agentActive
+        ? await this.agentTurn(apiMessages, bubble, body)
+        : await this.streamTurn("claude", apiMessages, bubble, body);
 
     // Fallback: if Claude failed with an offline/usage error and a local model is
     // available, retry transparently so you keep working with no internet/tokens.
@@ -849,7 +975,7 @@ export class ChatView extends ItemView {
    */
   private streamTurn(
     target: "claude" | "local",
-    apiMessages: ChatMessage[],
+    apiMessages: ApiMessage[],
     bubble: HTMLElement,
     body: HTMLElement,
   ): Promise<{ message?: string; status?: number } | null> {
@@ -949,7 +1075,209 @@ export class ChatView extends ItemView {
     });
   }
 
-  private finishAssistant(full: string | null, bubble: HTMLElement): void {
+  /**
+   * Run one agent-mode turn: Claude may call vault tools between streaming
+   * passes (spec 2026-07-05). Resolves like streamTurn — error info when the
+   * turn produced nothing (so run() can fall back to local), null when handled.
+   */
+  private async agentTurn(
+    apiMessages: ApiMessage[],
+    bubble: HTMLElement,
+    body: HTMLElement,
+  ): Promise<{ message?: string; status?: number } | null> {
+    const provider = this.plugin.router().anthropic;
+    const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
+    const wantThinking = this.controls.thinking && this.controls.showThinking;
+    let thinkingBody: HTMLElement | null = wantThinking ? this.createThinkingPanel(bubble) : null;
+    let thinkBuf = "";
+
+    const request: CompletionRequest = {
+      system: this.plugin.composeSystemPrompt({ agent: true }),
+      messages: apiMessages,
+      model: this.controls.model,
+      maxTokens: shape.maxTokens,
+      // propose_note_edit rides along regardless of agentAllowWrites — the
+      // diff modal is its own gate (spec 2026-07-05 apply-to-note, §7 Q1).
+      tools: [...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL],
+    };
+    if (shape.temperature !== undefined) request.temperature = shape.temperature;
+    if (shape.thinking !== undefined) request.thinking = shape.thinking;
+    if (shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
+    if (shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
+    if (this.abort?.signal) request.signal = this.abort.signal;
+
+    // Throttled streaming render (same pattern as streamTurn; the final render
+    // below is authoritative). Iteration boundaries insert a paragraph break so
+    // the live view matches the loop's joined result.
+    let buffer = "";
+    let scheduled = false;
+    let finalizing = false;
+    let needSeparator = false;
+    const MD_THROTTLE_MS = 100;
+    let lastMd = 0;
+    const flush = () => {
+      scheduled = false;
+      if (finalizing) return;
+      if (shouldRenderMarkdownDuringStream(buffer)) {
+        const now = performance.now();
+        if (now - lastMd < MD_THROTTLE_MS) return;
+        lastMd = now;
+        void this.renderMarkdownInto(body, buffer);
+      } else {
+        this.renderStreamingTextInto(body, buffer);
+      }
+      this.scrollToBottom();
+    };
+
+    const chips = this.createToolChips(bubble, body);
+    const deps: AgentTurnDeps = {
+      stream: (req, handlers) => provider.stream(req, handlers),
+      execute: (block) =>
+        executeTool(
+          {
+            call: (name, args) => this.plugin.agentTools().call(name, args),
+            confirmWrite: (b) => this.confirmAgentWrite(b),
+            proposeEdit: (b) => this.proposeAgentEdit(b),
+          },
+          block,
+        ),
+      maxIterations: this.plugin.settings.agentMaxIterations,
+      ...(this.abort?.signal ? { signal: this.abort.signal } : {}),
+    };
+
+    const result = await runAgentTurn(deps, request, {
+      onText: (delta) => {
+        if (buffer === "") this.clearThinkingStatus();
+        if (needSeparator && buffer.length > 0) buffer += "\n\n";
+        needSeparator = false;
+        buffer += delta;
+        this._lastBuffer = buffer;
+        if (!scheduled) {
+          scheduled = true;
+          window.requestAnimationFrame(flush);
+        }
+      },
+      onThinking: (delta) => {
+        if (!thinkingBody) thinkingBody = this.createThinkingPanel(bubble);
+        thinkBuf += delta;
+        thinkingBody.setText(thinkBuf);
+        this.scrollToBottom();
+      },
+      onUsage: (usage) => {
+        this._turnUsage = mergeUsage(this._turnUsage ?? undefined, usage);
+      },
+      onTruncated: () => this.annotateTruncated(bubble),
+      onToolStart: (block) => chips.start(block),
+      onToolResult: (block, res) => {
+        chips.finish(block, res);
+        needSeparator = true;
+      },
+      onNotice: (text) => this.annotateAgentNotice(bubble, text),
+    });
+
+    // Nothing rendered and nothing ran → let run() decide on the local fallback.
+    if (result.error && result.trace.length === 0 && result.text.trim().length === 0) {
+      const status = (result.error as { status?: number }).status;
+      return { message: result.error.message, ...(status !== undefined ? { status } : {}) };
+    }
+
+    finalizing = true;
+    this._lastBuffer = result.text;
+    if (result.error) this.annotateAgentNotice(bubble, `Turn ended early: ${result.error.message}`);
+    await this.renderMarkdownInto(body, result.text);
+    this.finishAssistant(result.text.trim().length > 0 ? result.text : null, bubble, result.trace);
+    return null;
+  }
+
+  /**
+   * Handle a propose_note_edit call: plan against the current note, let the
+   * user review per hunk in the DiffModal, apply the accepted subset
+   * atomically, and report the true outcome back to the model. Throws are
+   * mapped to is_error tool_results by the executor (model self-corrects).
+   */
+  private async proposeAgentEdit(block: ToolUseBlock): Promise<string> {
+    const input = block.input;
+    const path = typeof input.path === "string" ? input.path : "";
+    if (!path) throw new Error("propose_note_edit requires a 'path'.");
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`);
+    const edits = parseProposedEdits(input.edits);
+    const description = typeof input.description === "string" ? input.description : undefined;
+
+    const content = await this.app.vault.cachedRead(file);
+    const plan = planEdits(content, edits);
+
+    const accepted = await new Promise<boolean[] | null>((resolve) => {
+      new DiffModal(this.app, { path, ...(description !== undefined ? { description } : {}), plan }, resolve).open();
+    });
+    if (!accepted) return "User rejected the proposed edit.";
+
+    // vault.process re-reads inside the write lock; applyPlan re-validates
+    // against that content, so a mid-review change surfaces as an error
+    // instead of corrupting the note.
+    await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
+    const applied = accepted.filter(Boolean).length;
+    return applied === plan.hunks.length
+      ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${path}.`
+      : `Applied ${applied} of ${plan.hunks.length} edits to ${path} (the user rejected the rest).`;
+  }
+
+  /** Ask the user before an agent write tool runs; honors "allow for this session". */
+  private confirmAgentWrite(block: ToolUseBlock): Promise<boolean> {
+    if (this.agentWriteAlways) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      new WriteConfirmModal(this.app, block, (choice) => {
+        if (choice === "always") this.agentWriteAlways = true;
+        resolve(choice !== "deny");
+      }).open();
+    });
+  }
+
+  /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
+  private createToolChips(bubble: HTMLElement, body: HTMLElement) {
+    let container: HTMLElement | null = null;
+    const open = new Map<string, HTMLElement>();
+    const ensure = (): HTMLElement => {
+      if (!container) {
+        container = bubble.createDiv({ cls: "cc-tool-chips" });
+        bubble.insertBefore(container, body);
+      }
+      return container;
+    };
+    return {
+      start: (block: ToolUseBlock): void => {
+        const chip = ensure().createEl("details", { cls: "cc-tool-chip is-running" });
+        chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(block.name, JSON.stringify(block.input)) });
+        open.set(block.id, chip);
+        this.scrollToBottom();
+      },
+      finish: (block: ToolUseBlock, result: ToolResultBlock): void => {
+        const chip = open.get(block.id);
+        if (!chip) return;
+        chip.removeClass("is-running");
+        if (result.is_error) chip.addClass("is-error");
+        chip.createEl("pre", { cls: "cc-tool-chip-result", text: previewText(result.content) });
+      },
+    };
+  }
+
+  /** Re-render persisted tool chips (from a message's toolTrace) on replay. */
+  private renderTraceChips(bubble: HTMLElement, body: HTMLElement, trace: ToolTraceEntry[]): void {
+    const container = bubble.createDiv({ cls: "cc-tool-chips" });
+    bubble.insertBefore(container, body);
+    for (const t of trace) {
+      const chip = container.createEl("details", { cls: `cc-tool-chip${t.ok ? "" : " is-error"}` });
+      chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(t.name, t.argsSummary) });
+      chip.createEl("pre", { cls: "cc-tool-chip-result", text: t.resultPreview });
+    }
+  }
+
+  /** Muted status line under an agent turn (iteration cap, early end). */
+  private annotateAgentNotice(bubble: HTMLElement, text: string): void {
+    bubble.createDiv({ cls: "cc-agent-notice", text });
+  }
+
+  private finishAssistant(full: string | null, bubble: HTMLElement, trace?: ToolTraceEntry[]): void {
     // Idempotent per bubble: onDone and the abort-safety net can both reach here
     // for the same turn — only the first call commits the message + action bar.
     if (bubble.dataset.ccFinished === "1") return;
@@ -958,7 +1286,7 @@ export class ChatView extends ItemView {
     this.setSending(false);
     this.abort = null;
     if (full && full.trim().length > 0) {
-      this.messages.push({ role: "assistant", content: full });
+      this.messages.push({ role: "assistant", content: full, ...(trace && trace.length > 0 ? { toolTrace: trace } : {}) });
       this.addAssistantActions(bubble, full);
     }
     // Persist the turn so the conversation survives a restart (best-effort).

@@ -13,6 +13,21 @@ export interface ChatMessage {
    * receives the full `content`.
    */
   display?: string;
+  /**
+   * Display-only record of the tool calls behind an assistant turn (agent mode).
+   * Used to re-render tool chips on conversation replay; never sent to the model.
+   */
+  toolTrace?: ToolTraceEntry[];
+}
+
+/** One tool call as shown in the chat UI (not the wire format). */
+export interface ToolTraceEntry {
+  name: string;
+  /** Compact one-line rendering of the arguments (e.g. the search query). */
+  argsSummary: string;
+  /** Truncated result text for the expandable chip. */
+  resultPreview: string;
+  ok: boolean;
 }
 
 export interface ContextToggles {
@@ -85,6 +100,14 @@ export interface PluginSettings {
   /** Tags every saved chat gets. */
   chatBaseTags: string[];
 
+  // ----- agent mode (vault tools in chat) -----
+  /** Offer read-only vault tools to Claude in chat, so it can search/read on its own. */
+  agentModeEnabled: boolean;
+  /** Also offer write tools (create/append/update/move). Each write asks for confirmation. */
+  agentAllowWrites: boolean;
+  /** Max stream→tools→stream iterations per turn. */
+  agentMaxIterations: number;
+
   // ----- MCP bridge (vault-as-MCP-server) -----
   /** Run a local MCP server exposing vault tools to Claude Code / Desktop. */
   mcpEnabled: boolean;
@@ -126,6 +149,8 @@ export interface PluginSettings {
   memoryIngestOnSave: boolean;
   /** Tags every session digest note gets. */
   memoryBaseTags: string[];
+  /** After each capture, merge recent digests into the "What Claude Knows" note. */
+  memoryAutoConsolidate: boolean;
 
   // ----- source capture (typed clip enrichment) -----
   /** Master switch: watch the inbox and enrich new clips/files into typed notes. */
@@ -138,6 +163,12 @@ export interface PluginSettings {
   sourceBaseTags: string[];
   /** Per-type schema overrides, keyed by source type. */
   sourceSchemaOverrides: Record<string, { version?: number; fields?: unknown[] }>;
+
+  // ----- vault ontology (typed notes & relations) -----
+  /** Master switch: seed/validate typed frontmatter and relations. */
+  ontologyEnabled: boolean;
+  /** Folder holding the schema notes (one note per type). */
+  ontologyFolder: string;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -179,6 +210,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   artifactBaseTags: ["claude", "artifact"],
   chatBaseTags: ["claude", "chat"],
 
+  agentModeEnabled: true,
+  agentAllowWrites: false,
+  agentMaxIterations: 10,
+
   mcpEnabled: false,
   mcpPort: 22360,
   mcpToken: "",
@@ -199,12 +234,16 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   memoryFolder: "Claude/Sessions",
   memoryIngestOnSave: false,
   memoryBaseTags: ["claude", "session"],
+  memoryAutoConsolidate: false,
 
   sourceCaptureEnabled: false,
   sourceEnrichOnCreate: true,
   sourceInboxFolder: "Clippings",
   sourceBaseTags: ["source"],
   sourceSchemaOverrides: {},
+
+  ontologyEnabled: false,
+  ontologyFolder: "Ontology",
 };
 
 /** Streaming callbacks for a single Claude request. */
@@ -216,6 +255,10 @@ export interface StreamHandlers {
   onUsage?: (usage: import("./claude/sse").TokenUsage) => void;
   /** Incremental extended-thinking text (Anthropic, when thinking is on). */
   onThinking?: (delta: string) => void;
+  /** A completed `tool_use` block streamed by the model (agent mode, Anthropic only). */
+  onToolUse?: (block: import("./providers/types").ToolUseBlock) => void;
   /** Called when generation stopped at the output-token limit (response truncated). */
   onTruncated?: () => void;
+  /** Final stop reason when the stream ends (e.g. "end_turn", "tool_use"). */
+  onStopReason?: (reason: string) => void;
 }

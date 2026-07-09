@@ -25,11 +25,12 @@ Useful reports include:
 
 ## Security boundaries
 
-- The Obsidian plugin is desktop-only and stores credentials in Obsidian plugin
-  settings on the user's machine.
+- The Obsidian plugin stores credentials in Obsidian plugin settings on the
+  user's device (desktop and mobile).
 - The MCP bridge must bind to `127.0.0.1`, require a non-empty bearer token, and
   keep write tools disabled unless the user explicitly enables them.
 - Rendered `claude-html` artifacts are model-generated HTML. They must remain
   sandboxed without `allow-same-origin` and with network/form submission blocked.
-- Claude.ai Free/Pro/Max OAuth tokens are not supported. The plugin uses the
-  Anthropic API with a user-provided API key.
+- Browser/session OAuth from claude.ai is not supported. The plugin authenticates
+  via a user-provided API key, a long-term CLI token from `claude setup-token`
+  (`sk-ant-oat…`), or environment import — not a pasted browser session cookie.

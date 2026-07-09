@@ -28,3 +28,24 @@ describe("memory settings defaults", () => {
     expect(DEFAULT_SETTINGS.artifactOpenTarget).toBe("obsidian");
   });
 });
+
+describe("agent mode defaults", () => {
+  it("agent mode ships on, writes off, 10 iterations (spec 2026-07-05, Franco-approved)", () => {
+    expect(DEFAULT_SETTINGS.agentModeEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.agentAllowWrites).toBe(false);
+    expect(DEFAULT_SETTINGS.agentMaxIterations).toBe(10);
+  });
+});
+
+describe("memory consolidation defaults", () => {
+  it("auto-consolidate ships off (utility-model cost is opt-in)", () => {
+    expect(DEFAULT_SETTINGS.memoryAutoConsolidate).toBe(false);
+  });
+});
+
+describe("ontology defaults", () => {
+  it("ships dormant with the Ontology folder (spec 2026-07-08)", () => {
+    expect(DEFAULT_SETTINGS.ontologyEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.ontologyFolder).toBe("Ontology");
+  });
+});

@@ -2,8 +2,8 @@
 
 Cowork with Claude **inside your Obsidian vault**. This Claude Code plugin pairs
 with the **Companion for Claude** Obsidian plugin: Companion runs a local MCP
-bridge exposing your vault (search / read / create / append), and this plugin
-gives Claude Code the commands and skills to use it well.
+bridge exposing your vault over 15 read/write tools, and this plugin gives
+Claude Code the commands and skills to use it well.
 
 ## What you get
 
@@ -63,8 +63,8 @@ gives Claude Code the commands and skills to use it well.
 - **`note-to-artifact`** — the design system Claude uses for artifacts.
 
 **`obsidian-vault` MCP server** — pre-wired HTTP connection to the Companion
-bridge (search / read / list / tags / backlinks / titles / create / append /
-update / frontmatter).
+bridge (15 tools: search, read, list, tags, backlinks, titles, frontmatter query,
+create, append, update, frontmatter merge, move/rename, Base, Canvas).
 
 ## Setup
 

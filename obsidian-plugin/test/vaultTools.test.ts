@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { App } from "obsidian";
+import { parse as parseYaml } from "yaml";
 import { VaultTools } from "../src/mcp/vaultTools";
+import { OntologyRegistry } from "../src/ontology/registry";
+import { schemaNoteContent, SEED_TYPES } from "../src/ontology/seed";
 
 function tools(allowWrites = true) {
   const app = new App();
@@ -152,5 +155,103 @@ describe("note_move", () => {
   it("is rejected when writes are disabled", async () => {
     const { vt } = moveTools(false);
     await expect(vt.call("note_move", { path: "Inbox/Draft.md", to: "Notes/Final.md" })).rejects.toThrow(/disabled/);
+  });
+});
+
+async function seededRegistry(): Promise<OntologyRegistry> {
+  const reg = new OntologyRegistry({
+    listSchemaNotes: () =>
+      Promise.resolve(
+        SEED_TYPES.map((d) => {
+          const content = schemaNoteContent(d);
+          const m = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)!;
+          return { path: `Ontology/${d.name}.md`, frontmatter: parseYaml(m[1] ?? "") as Record<string, unknown>, body: m[2] ?? "" };
+        }),
+      ),
+    parseYaml,
+  });
+  await reg.load();
+  return reg;
+}
+
+describe("note_create with ontology", () => {
+  async function ontologyTools() {
+    const reg = await seededRegistry();
+    const app = new App();
+    const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude", ontology: () => reg });
+    return { app, vt };
+  }
+
+  it("writes type + validated properties into frontmatter", async () => {
+    const { vt } = await ontologyTools();
+    const msg = await vt.call("note_create", {
+      title: "Franco",
+      content: "body",
+      type: "person",
+      properties: { role: "engineer", works_on: "[[CAVI]]" },
+    });
+    expect(msg).toContain("Created note:");
+    const read = await vt.call("note_read", { path: "Claude/Franco.md" });
+    expect(read).toContain("type: person");
+    expect(read).toContain("role: engineer");
+    expect(read).toContain('- "[[CAVI]]"'); // scalar relation wrapped to a list
+  });
+
+  it("reports conformance issues in the result instead of failing", async () => {
+    const { vt } = await ontologyTools();
+    const msg = await vt.call("note_create", {
+      title: "Franco",
+      content: "body",
+      type: "person",
+      properties: { banana: 1 },
+    });
+    expect(msg).toContain("Conformance:");
+    expect(msg).toContain("banana");
+    const read = await vt.call("note_read", { path: "Claude/Franco.md" });
+    expect(read).toContain("type: person");
+  });
+
+  it("reports an unknown type and creates the note untyped", async () => {
+    const { vt } = await ontologyTools();
+    const msg = await vt.call("note_create", { title: "Franco", content: "body", type: "ghost" });
+    expect(msg).toContain("unknown type");
+    expect(msg).toContain("available:");
+    expect(msg).toContain("person");
+    const read = await vt.call("note_read", { path: "Claude/Franco.md" });
+    expect(read).not.toContain("type:");
+  });
+
+  it("protects base keys from model-supplied properties", async () => {
+    const { vt } = await ontologyTools();
+    await vt.call("note_create", {
+      title: "Franco",
+      content: "body",
+      type: "person",
+      properties: { tags: "foo", type: "other", role: "x" },
+    });
+    const read = await vt.call("note_read", { path: "Claude/Franco.md" });
+    expect(read).toContain("type: person");
+    expect(read).toContain("tags:\n  - claude");
+    expect(read).not.toContain("foo");
+    expect(read).not.toContain("other");
+    expect(read).toContain("role: x");
+  });
+
+  it("keeps legacy behavior when no ontology is wired", async () => {
+    const app = new App();
+    const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude", ontology: () => null });
+    const msg = await vt.call("note_create", {
+      title: "Franco",
+      content: "body",
+      type: "person",
+      properties: { role: "engineer" },
+    });
+    expect(msg).not.toContain("Conformance:");
+    const read = await vt.call("note_read", { path: "Claude/Franco.md" });
+    expect(read).not.toContain("type:");
+    expect(read).not.toContain("role:");
+    expect(read).toContain("title: Franco");
+    expect(read).toContain("source: claude-mcp");
+    expect(read).toContain("tags:\n  - claude");
   });
 });

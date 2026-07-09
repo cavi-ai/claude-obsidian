@@ -1,4 +1,4 @@
-import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
+import { App, FileSystemAdapter, MarkdownView, Modal, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
@@ -11,6 +11,12 @@ import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
+import { AGENT_INSTRUCTION } from "./agent/prompt";
+import { findUnlinkedMentions, type LinkCandidate } from "./links/unlinkedMentions";
+import { selectDigests, buildConsolidationPrompt, parseConsolidation, renderMemoryNote, MEMORY_NOTE_BASENAME, type DigestSource } from "./memory/consolidate";
+import { mentionEdits } from "./links/suggest";
+import { planEdits, applyPlan } from "./edit/diff";
+import { DiffModal } from "./view/DiffModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools } from "./mcp/vaultTools";
@@ -39,6 +45,8 @@ import { normalizePath, TFile } from "obsidian";
 import { enrichCapture, type EnrichDeps } from "./sources/enrich";
 import { shouldEnrich } from "./sources/watcher";
 import { parseClipUrl } from "./sources/detect";
+import { OntologyRegistry } from "./ontology/registry";
+import { seedFiles } from "./ontology/seed";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
@@ -61,6 +69,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _router: ProviderRouter | null = null;
   private mcpServer: McpHttpServer | null = null;
   private vaultTools: VaultTools | null = null;
+  /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
+  private agentVaultTools: VaultTools | null = null;
   /** Serializes overlapping syncMcpServer() calls (settings fire it per keystroke). */
   private mcpSyncChain: Promise<void> = Promise.resolve();
   /** Signature of the currently-running MCP server, to skip needless restarts. */
@@ -74,6 +84,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private reindexQueue = new Set<string>();
   private enrichTimers = new Map<string, number>();
   private enrichRecentlyWritten = new Set<string>();
+  /** Lazily-built ontology registry; null while the feature is disabled. */
+  private _ontology: OntologyRegistry | null = null;
+  /** Debounce timer for ontology reloads on schema-note changes. */
+  private _ontologyReloadTimer: number | null = null;
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -219,6 +233,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "review-link-suggestions",
+      name: "Review link suggestions for current note",
+      callback: () => void this.reviewLinkSuggestions(),
+    });
+
+    this.addCommand({
       id: "open-workflows",
       name: "Run a vault workflow… (manifests, rollup, MOC, digest)",
       callback: () => void this.openWorkflowPicker(),
@@ -238,6 +258,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
         name: "Open session memory",
         callback: () => void this.activateMemoryView(),
       });
+
+      this.addCommand({
+        id: "consolidate-memory",
+        name: "Consolidate session memory into knowledge note",
+        callback: () => void this.consolidateMemory(),
+      });
     }
 
     this.addCommand({
@@ -251,12 +277,40 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "seed-ontology",
+      name: "Seed ontology (default type schemas)",
+      checkCallback: (checking) => {
+        if (checking) return this.settings.ontologyEnabled;
+        void (async () => {
+          const folder = normalizePath(this.settings.ontologyFolder);
+          await this.ensureFolder(folder);
+          let created = 0;
+          for (const f of seedFiles()) {
+            const path = normalizePath(`${folder}/${f.fileName}`);
+            if (this.app.vault.getAbstractFileByPath(path)) continue; // never overwrite user edits
+            await this.app.vault.create(path, f.content);
+            created++;
+          }
+          const result = await this.ontology()?.load();
+          const errors = result?.errors ?? [];
+          new Notice(created > 0 ? `Seeded ${created} ontology type${created === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
+          if (errors.length > 0) {
+            new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
+            console.warn("[Claude Companion] ontology schema errors:", errors);
+          }
+        })();
+        return true;
+      },
+    });
+
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
 
     // Start the MCP bridge if enabled (deferred so it doesn't block load).
     this.app.workspace.onLayoutReady(() => {
       void this.syncMcpServer();
       this.syncPlanBuildActions();
+      if (this.settings.ontologyEnabled) void this.ontology()?.load();
 
       // Keep the semantic index fresh as notes change (debounced; no-op when
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
@@ -269,6 +323,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.renameNote(oldPath, f.path); }));
+
+      // Reload the ontology when schema notes under the ontology folder change
+      // (debounced; no-op while the feature is off).
+      const inOntology = (path: string): boolean => path.startsWith(`${normalizePath(this.settings.ontologyFolder)}/`);
+      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.scheduleOntologyReload(); }));
     });
 
     // Show a "Build" action in the header of any `type: plan` note.
@@ -365,6 +427,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     void this.mcpServer?.stop();
     this.mcpServer = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
+    if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
   }
 
   // ---------- settings ----------
@@ -524,6 +587,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: s.mcpAllowWrites,
       defaultFolder: s.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      ontology: () => this.ontology(),
     };
     if (!this.vaultTools) {
       this.vaultTools = new VaultTools(this.app, toolOpts);
@@ -587,8 +651,105 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._router;
   }
 
-  composeSystemPrompt(): string {
-    return `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+  /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
+  ontology(): OntologyRegistry | null {
+    if (!this.settings.ontologyEnabled) return null;
+    if (!this._ontology) {
+      this._ontology = new OntologyRegistry({
+        listSchemaNotes: async () => {
+          const folder = normalizePath(this.settings.ontologyFolder);
+          const out: Array<{ path: string; frontmatter?: Record<string, unknown> | undefined; body: string }> = [];
+          for (const f of this.app.vault.getMarkdownFiles()) {
+            if (f.path !== folder && !f.path.startsWith(`${folder}/`)) continue;
+            const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
+            out.push({ path: f.path, frontmatter: fm, body: await this.app.vault.cachedRead(f) });
+          }
+          return out;
+        },
+        parseYaml: (src) => parseYaml(src) as unknown,
+      });
+    }
+    return this._ontology;
+  }
+
+  /** Queue an ontology reload after schema-note changes (debounced ~500ms). */
+  private scheduleOntologyReload(): void {
+    if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
+    this._ontologyReloadTimer = window.setTimeout(() => {
+      this._ontologyReloadTimer = null;
+      void this.ontology()?.load();
+    }, 500);
+  }
+
+  composeSystemPrompt(opts?: { agent?: boolean }): string {
+    let base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+    const digest = this.ontology()?.digest();
+    if (digest) base = `${base}\n\n${digest}`;
+    return opts?.agent ? `${base}\n\n${AGENT_INSTRUCTION}` : base;
+  }
+
+  /** Every markdown note as a link-candidate (basename + frontmatter aliases). */
+  linkCandidates(): LinkCandidate[] {
+    return this.app.vault.getMarkdownFiles().map((f) => {
+      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
+      const raw = fm?.aliases;
+      const aliases = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" && raw.trim() ? [raw] : [];
+      return { path: f.path, basename: f.basename, aliases };
+    });
+  }
+
+  /** Paths the given note already links to (its outgoing resolved links). */
+  linkedTargets(file: TFile): Set<string> {
+    const resolved = (this.app.metadataCache as unknown as { resolvedLinks?: Record<string, Record<string, number>> }).resolvedLinks ?? {};
+    return new Set(Object.keys(resolved[file.path] ?? {}));
+  }
+
+  /**
+   * Bulk-link the unlinked mentions of a note through the diff review flow
+   * (spec 2026-07-05 link intelligence): every proposed [[link]] is a hunk the
+   * user can accept or reject before anything is written.
+   */
+  async reviewLinkSuggestions(target?: TFile): Promise<void> {
+    const file = target ?? this.app.workspace.getActiveFile();
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a note first.");
+      return;
+    }
+    const content = await this.app.vault.cachedRead(file);
+    const mentions = findUnlinkedMentions(content, this.linkCandidates(), file.path);
+    if (mentions.length === 0) {
+      new Notice("No unlinked mentions found.");
+      return;
+    }
+    const edits = mentionEdits(content, mentions);
+    if (edits.length === 0) {
+      new Notice("Mentions found, but none could be linked unambiguously.");
+      return;
+    }
+    const plan = planEdits(content, edits);
+    const accepted = await new Promise<boolean[] | null>((resolve) => {
+      new DiffModal(this.app, { path: file.path, description: `Link ${plan.hunks.length} unlinked mention${plan.hunks.length === 1 ? "" : "s"}`, plan }, resolve).open();
+    });
+    if (!accepted) return;
+    try {
+      await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
+      new Notice(`Linked ${accepted.filter(Boolean).length} mention${accepted.filter(Boolean).length === 1 ? "" : "s"} in ${file.basename}.`);
+    } catch (e) {
+      new Notice(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** Vault tools for the in-chat agent loop, options refreshed from settings on every call. */
+  agentTools(): VaultTools {
+    const opts = {
+      allowWrites: this.settings.agentAllowWrites,
+      defaultFolder: this.settings.mcpWriteFolder,
+      semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      ontology: () => this.ontology(),
+    };
+    if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
+    else this.agentVaultTools.setOptions(opts);
+    return this.agentVaultTools;
   }
 
   /** Open an artifact per the user's setting: in-app fullscreen, or a browser. */
@@ -837,9 +998,63 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice(`Captured session · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
       await this.refreshMemoryView();
       await this.app.workspace.getLeaf(false).openFile(res.file);
+      if (this.settings.memoryAutoConsolidate) void this.consolidateMemory({ quiet: true });
     } catch (e) {
       console.error("[Claude Companion] session capture failed", e);
       new Notice("Session capture failed — see console.");
+    }
+  }
+
+  /**
+   * Merge recent session digests into the evolving "What Claude Knows" note
+   * (spec 2026-07-05 memory consolidation). Routes through the utility
+   * provider — local Ollama when enabled, else Claude. Idempotent: rewrites
+   * the same note each run from the newest digests + its previous content.
+   */
+  async consolidateMemory(opts?: { quiet?: boolean }): Promise<void> {
+    const s = this.settings;
+    if (!s.memoryEnabled) {
+      new Notice("Turn on session memory in Companion settings first.");
+      return;
+    }
+    const folder = normalizePath(s.memoryFolder);
+    const files = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${folder}/`));
+    const sources: DigestSource[] = [];
+    for (const f of files) {
+      sources.push({ path: f.path, mtime: f.stat.mtime, content: await this.app.vault.cachedRead(f) });
+    }
+    const digests = selectDigests(sources);
+    if (digests.length === 0) {
+      if (!opts?.quiet) new Notice("No session digests to consolidate yet — capture a session first.");
+      return;
+    }
+
+    const memoryPath = normalizePath(`${folder}/${MEMORY_NOTE_BASENAME}.md`);
+    const existingFile = this.app.vault.getAbstractFileByPath(memoryPath);
+    const existing = existingFile instanceof TFile ? await this.app.vault.cachedRead(existingFile) : null;
+
+    if (!opts?.quiet) new Notice(`Consolidating ${digests.length} session digest${digests.length === 1 ? "" : "s"}…`);
+    try {
+      const { provider, model } = this.router().resolve("utility");
+      const raw = await provider.complete({
+        system: "You maintain concise, factual memory notes. Output markdown only.",
+        model,
+        maxTokens: 4000,
+        temperature: 0.2,
+        messages: [{ role: "user", content: buildConsolidationPrompt(existing, digests.map((d) => d.content)) }],
+      });
+      const body = parseConsolidation(raw);
+      const note = renderMemoryNote(body, {
+        updated: new Date().toISOString().slice(0, 10),
+        digestCount: digests.length,
+        baseTags: [...s.memoryBaseTags, "memory"],
+      });
+      if (existingFile instanceof TFile) await this.app.vault.modify(existingFile, note);
+      else await this.app.vault.create(memoryPath, note);
+      new Notice(`Memory consolidated → ${MEMORY_NOTE_BASENAME} (via ${provider.label}).`);
+    } catch (e) {
+      console.error("[Claude Companion] memory consolidation failed", e);
+      if (!opts?.quiet) new Notice(`Memory consolidation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -995,7 +1210,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await navigator.clipboard.writeText(command).catch(() => {});
     await this.app.workspace.getLeaf(true).openFile(trackerFile);
 
-    new Notice("Build spec + tracker created. Claude Code command copied — run it in a terminal (requires the official Obsidian CLI).", 8000);
+    new Notice("Build spec + tracker created. Claude Code command copied — run it in a terminal (drives the tracker over the MCP bridge).", 8000);
   }
 
   private async ensureFolder(folder: string): Promise<void> {

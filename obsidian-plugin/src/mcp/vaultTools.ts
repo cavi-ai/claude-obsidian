@@ -2,8 +2,13 @@ import { App, TFile, normalizePath, getAllTags } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
-import { buildFrontmatter, normalizeTags } from "../indexing/frontmatter";
+import { buildFrontmatter, normalizeTags, type FrontmatterData } from "../indexing/frontmatter";
+import { conform } from "../ontology/conform";
+import type { OntologyRegistry } from "../ontology/registry";
+import type { ResolvedType } from "../ontology/types";
 import { replaceSection } from "./edit";
+import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
+import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 
 /** Optional semantic retriever (local embeddings); absent → keyword-only. */
 export type SemanticSearch = (query: string, k: number) => Promise<{ path: string; text: string }[]>;
@@ -13,6 +18,8 @@ export interface VaultToolsOptions {
   defaultFolder: string;
   /** When set + the index is built, vault_search fuses semantic + keyword. */
   semantic?: SemanticSearch;
+  /** Ontology registry accessor; absent/null disables typed creation. */
+  ontology?: (() => OntologyRegistry | null) | undefined;
 }
 
 /**
@@ -116,6 +123,12 @@ export class VaultTools {
               content: { type: "string", description: "Markdown body." },
               folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
               tags: { type: "array", items: { type: "string" }, description: "Tags to apply." },
+              ...(this.opts.ontology?.()
+                ? {
+                    type: { type: "string", description: "Ontology type for this note (e.g. person, project, concept; unknown types are reported back with the available list)." },
+                    properties: { type: "object", description: "Type-specific frontmatter properties and relation fields (relations are lists of \"[[wikilink]]\" strings)." },
+                  }
+                : {}),
             },
             required: ["title", "content"],
           },
@@ -170,6 +183,86 @@ export class VaultTools {
             required: ["path", "to"],
           },
         },
+        {
+          name: "base_create",
+          description:
+            "Create an Obsidian Base (.base) — a database view over notes, driven by their frontmatter properties. Use frontmatter_query/vault_tags first to discover real property names. Filters are statements like 'file.hasTag(\"book\")' or 'note.status == \"open\"' (AND-ed). Great for reading trackers, project dashboards, and review queues.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Base title (also the filename)." },
+              filters: { type: "array", items: { type: "string" }, description: "Global filter statements, AND-ed." },
+              views: {
+                type: "array",
+                description: "Views: {name, type? (table|cards), order? (property list like 'file.name'/'note.status'), groupBy? {property, direction}, limit?, filters?}.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    type: { type: "string" },
+                    order: { type: "array", items: { type: "string" } },
+                    groupBy: {
+                      type: "object",
+                      properties: { property: { type: "string" }, direction: { type: "string", enum: ["ASC", "DESC"] } },
+                      required: ["property"],
+                    },
+                    limit: { type: "number" },
+                    filters: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["name"],
+                },
+              },
+              formulas: { type: "object", description: "formula name → expression (e.g. {ppu: '(price / age).toFixed(2)'})." },
+              properties: { type: "object", description: "property id → display name (e.g. {status: 'Status'})." },
+              folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
+            },
+            required: ["title", "views"],
+          },
+        },
+        {
+          name: "canvas_create",
+          description:
+            "Create an Obsidian Canvas (.canvas) — a visual mind map / board of nodes and edges. Nodes: text (idea cards), file (embed a vault note by path), or link (url). Omit x/y to auto-layout left-to-right by edge depth. Use for mind maps, project boards, and argument maps wired to real notes.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Canvas title (also the filename)." },
+              nodes: {
+                type: "array",
+                description: "Nodes: {id?, text?} for idea cards, {id?, file?} to embed a note, {id?, url?} for links. Optional x/y/width/height/color.",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    text: { type: "string" },
+                    file: { type: "string" },
+                    url: { type: "string" },
+                    x: { type: "number" },
+                    y: { type: "number" },
+                    width: { type: "number" },
+                    height: { type: "number" },
+                    color: { type: "string" },
+                  },
+                },
+              },
+              edges: {
+                type: "array",
+                description: "Directed edges between node ids, with optional labels.",
+                items: {
+                  type: "object",
+                  properties: {
+                    from: { type: "string" },
+                    to: { type: "string" },
+                    label: { type: "string" },
+                  },
+                  required: ["from", "to"],
+                },
+              },
+              folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
+            },
+            required: ["title", "nodes"],
+          },
+        },
       );
     }
     return defs;
@@ -195,7 +288,7 @@ export class VaultTools {
         return this.frontmatterQuery(str(args.field), optStr(args.value));
       case "note_create":
         this.assertWrites();
-        return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags));
+        return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags), optStr(args.type), optObj(args.properties));
       case "note_append":
         this.assertWrites();
         return this.append(str(args.path), str(args.content));
@@ -208,6 +301,12 @@ export class VaultTools {
       case "note_move":
         this.assertWrites();
         return this.move(str(args.path), str(args.to));
+      case "canvas_create":
+        this.assertWrites();
+        return this.createCanvas(str(args.title), args.nodes, args.edges, optStr(args.folder));
+      case "base_create":
+        this.assertWrites();
+        return this.createBase(str(args.title), args, optStr(args.folder));
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -317,19 +416,60 @@ export class VaultTools {
       .join("\n");
   }
 
-  private async create(title: string, content: string, folder: string | undefined, tags: string[]): Promise<string> {
+  private async create(
+    title: string,
+    content: string,
+    folder: string | undefined,
+    tags: string[],
+    typeName?: string,
+    properties?: Record<string, unknown>,
+  ): Promise<string> {
     const dir = (folder ?? this.opts.defaultFolder).trim();
     await this.ensureFolder(dir);
-    const fm = buildFrontmatter({
+    const base: FrontmatterData = {
       title,
       created: new Date().toISOString().slice(0, 10),
       source: "claude-mcp",
       tags: normalizeTags(["claude", ...tags]),
-    });
-    const body = `${fm}\n\n# ${title}\n\n${content}\n`;
+    };
+    let data: FrontmatterData = base;
+    let conformance = "";
+    const registry = this.opts.ontology?.() ?? null;
+    if (registry && typeName) {
+      const resolved = registry.resolve(typeName);
+      // Base keys + the validated type always win over model-supplied properties.
+      const safeProps: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(properties ?? {})) if (!PROTECTED_KEYS.has(k)) safeProps[k] = v;
+      const merged: Record<string, unknown> = { ...base, type: typeName, ...safeProps };
+      const r = conform(merged, resolved, (target) => this.lookupTargetType(registry, target));
+      // Unknown type: fall back to the untyped legacy frontmatter — advisory, never blocking.
+      data = resolved ? toFrontmatterData(r.fixed) : base;
+      if (r.issues.length > 0) {
+        const messages = r.issues.map((i) =>
+          i.kind === "unknown-type" ? `${i.message} — available: ${[...registry.resolved().keys()].join(", ")}` : i.message,
+        );
+        conformance = `\nConformance: ${messages.join("; ")}`;
+      }
+    }
+    const body = `${buildFrontmatter(data)}\n\n# ${title}\n\n${content}\n`;
     const path = await this.uniquePath(dir, title);
     const file = await this.app.vault.create(path, body);
-    return `Created note: ${file.path}`;
+    return `Created note: ${file.path}${conformance}`;
+  }
+
+  /** Resolve a relation target (basename/path as written) to that note's ResolvedType. */
+  private lookupTargetType(registry: OntologyRegistry, target: string): ResolvedType | undefined {
+    // Real Obsidian resolves linkpaths via metadataCache; the test fake doesn't
+    // implement that method, so fall back to a basename/path scan.
+    const cache: { getFirstLinkpathDest?: (linkpath: string, sourcePath: string) => TFile | null } = this.app.metadataCache;
+    const file =
+      typeof cache.getFirstLinkpathDest === "function"
+        ? cache.getFirstLinkpathDest(target, "")
+        : (this.app.vault.getMarkdownFiles().find((f) => f.basename === target || f.path === normalizePath(target)) ?? null);
+    if (!file) return undefined;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+    const t = fm?.type;
+    return typeof t === "string" ? registry.resolve(t) : undefined;
   }
 
   private async append(path: string, content: string): Promise<string> {
@@ -393,6 +533,32 @@ export class VaultTools {
     return hits.map((p) => `- ${p}`).join("\n");
   }
 
+  private async createBase(title: string, args: Record<string, unknown>, folder: string | undefined): Promise<string> {
+    const yaml = buildBaseFile({
+      filters: strArray(args.filters),
+      views: Array.isArray(args.views) ? (args.views as ProposedBase["views"]) : [],
+      ...(args.formulas && typeof args.formulas === "object" ? { formulas: args.formulas as Record<string, string> } : {}),
+      ...(args.properties && typeof args.properties === "object" ? { properties: args.properties as Record<string, string> } : {}),
+    });
+    const dir = (folder ?? this.opts.defaultFolder).trim();
+    await this.ensureFolder(dir);
+    const path = await this.uniquePath(dir, title, ".base");
+    const file = await this.app.vault.create(path, yaml);
+    return `Created base: ${file.path}`;
+  }
+
+  private async createCanvas(title: string, nodes: unknown, edges: unknown, folder: string | undefined): Promise<string> {
+    const data = buildCanvas(
+      Array.isArray(nodes) ? (nodes as ProposedCanvasNode[]) : [],
+      Array.isArray(edges) ? (edges as ProposedCanvasEdge[]) : [],
+    );
+    const dir = (folder ?? this.opts.defaultFolder).trim();
+    await this.ensureFolder(dir);
+    const path = await this.uniquePath(dir, title, ".canvas");
+    const file = await this.app.vault.create(path, serializeCanvas(data));
+    return `Created canvas: ${file.path} (${data.nodes.length} nodes, ${data.edges.length} edges)`;
+  }
+
   private async move(path: string, to: string): Promise<string> {
     const file = this.resolveFile(path);
     const dest = normalizePath(to);
@@ -424,12 +590,12 @@ export class VaultTools {
     }
   }
 
-  private async uniquePath(folder: string, title: string): Promise<string> {
+  private async uniquePath(folder: string, title: string, ext = ".md"): Promise<string> {
     const safe = title.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Untitled";
-    let path = normalizePath(folder ? `${folder}/${safe}.md` : `${safe}.md`);
+    let path = normalizePath(folder ? `${folder}/${safe}${ext}` : `${safe}${ext}`);
     let i = 2;
     while (this.app.vault.getAbstractFileByPath(path)) {
-      path = normalizePath(folder ? `${folder}/${safe} ${i}.md` : `${safe} ${i}.md`);
+      path = normalizePath(folder ? `${folder}/${safe} ${i}${ext}` : `${safe} ${i}${ext}`);
       i++;
     }
     return path;
@@ -448,4 +614,18 @@ function num(v: unknown, dflt: number): number {
 }
 function strArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function optObj(v: unknown): Record<string, unknown> | undefined {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+}
+/** note_create base-frontmatter keys the model's `properties` may never overwrite. */
+const PROTECTED_KEYS: ReadonlySet<string> = new Set(["type", "title", "created", "source", "tags"]);
+/** Narrow a conformance-fixed record to buildFrontmatter's value types; anything else is dropped. */
+function toFrontmatterData(record: Record<string, unknown>): FrontmatterData {
+  const out: FrontmatterData = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") out[key] = value;
+    else if (Array.isArray(value) && value.every((x): x is string => typeof x === "string")) out[key] = value;
+  }
+  return out;
 }

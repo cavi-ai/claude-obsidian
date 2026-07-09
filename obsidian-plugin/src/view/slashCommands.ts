@@ -131,6 +131,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     awaitsInput: true,
   },
   {
+    name: "canvas",
+    aliases: ["mindmap", "board"],
+    description: "Build an Obsidian Canvas mind map (agent mode)",
+    kind: "prompt",
+    prompt:
+      "Using the canvas_create tool, build an Obsidian Canvas mind map. Search the vault for the relevant notes first and prefer file nodes pointing at them; connect nodes with labeled edges. Topic: ",
+    awaitsInput: true,
+  },
+  {
     name: "links",
     aliases: ["backlinks", "related"],
     description: "Suggest useful internal links for the active note",
