@@ -41,8 +41,9 @@ A full Claude chat experience that lives in your vault and speaks its language.
 
 - **Chat with vault context** — `@`-mention notes, folders, or the whole vault;
   toggle context pills for your active note, selection, linked/backlinked notes,
-  or vault search. Keyword search by default; optional local semantic search via
-  Ollama embeddings.
+  or vault search. Keyword search by default; optional semantic search runs
+  on-device via a built-in model (one-time ~45MB+~23MB download, then fully
+  offline) or a local Ollama server.
 - **Agent mode** — Claude searches, reads, and follows links in your vault on
   its own while answering (expandable tool chips); optional writes are confirmed
   per call, and note edits land as reviewable per-hunk diffs.
