@@ -19,8 +19,8 @@ Two paired, complementary deliverables that meet at a local MCP bridge:
 
 | Path | What it is | Ships to |
 |---|---|---|
-| [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: side-panel chat, vault-aware context, inline `claude-html` artifacts, model/thinking controls, conversation history, slash commands, offline local-model fallback, and a loopback MCP bridge. → [README](obsidian-plugin/README.md) | Obsidian community store |
-| [`claude-plugin/`](claude-plugin/) | **claude-obsidian** — the Claude Code plugin + marketplace: commands and skills that drive your vault over the Companion MCP bridge (synthesis, tagging, drafting, session capture, artifacts, spec builds, advisor roadmaps). → [README](claude-plugin/README.md) | Claude Code marketplace |
+| [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: side-panel chat with **agent mode** (Claude works your vault with its own tools), diff-reviewed note edits, vault-aware context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases generation, inline `claude-html` artifacts, prompt caching, offline local-model fallback, and a loopback MCP bridge. | Obsidian community store |
+| [`claude-plugin/`](claude-plugin/) | **claude-obsidian** — the Claude Code plugin + marketplace: commands and skills that drive your vault over the Companion MCP bridge (synthesis, tagging, drafting, session capture, artifacts, spec builds, advisor roadmaps). | Claude Code marketplace |
 | [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
 
 ---
@@ -39,23 +39,23 @@ Two paired, complementary deliverables that meet at a local MCP bridge:
 
 A full Claude chat experience that lives in your vault and speaks its language.
 
-- **Chat with vault context** — `@`-mention notes, folders, or the whole vault;
-  toggle context pills for your active note, selection, linked/backlinked notes,
-  or vault search. Keyword search by default; optional semantic search runs
-  on-device via a built-in model (one-time ~45MB+~23MB download, then fully
-  offline) or a local Ollama server.
-- **Agent mode** — Claude searches, reads, and follows links in your vault on
-  its own while answering (expandable tool chips); optional writes are confirmed
-  per call, and note edits land as reviewable per-hunk diffs.
-- **Link intelligence** — unlinked mentions and semantic neighbors surface in a
-  Related panel, with one-click linking or a reviewed bulk-link diff.
-- **PDFs, images & screenshots** — `@`-mention vault PDFs/images or paste a
-  screenshot; Claude reads them natively.
-- **Consolidated memory** — captured session digests merge into one evolving
-  "What Claude Knows" note that agent mode reads back across chats.
-- **Canvas & Bases** — Claude builds native Obsidian Canvas mind maps and
-  `.base` database views from your real notes and frontmatter — write-gated and
-  confirmed, in chat and over the bridge.
+- **Agent mode** — Claude searches, reads, and follows links across your vault
+  **on its own** while answering, each step visible as a tool chip. Optional
+  write tools (create/edit/move notes) sit behind a per-action confirmation.
+- **Edits as reviewable diffs** — "improve this note" produces a red/green
+  per-hunk diff you accept or reject before anything is written.
+- **Chat with vault context** — toggle `Context` chips to attach your active
+  note, selection, linked/backlinked notes, or a keyword vault search to any
+  message. **@-mention** notes, folders, **PDFs and images** — or paste a
+  screenshot straight into the composer.
+- **Second-brain loops** — live **link suggestions** (unlinked mentions, one
+  click to wire up), and session digests consolidated into an evolving **"What
+  Claude Knows"** memory note that agent mode reads back.
+- **Native Canvas & Bases output** — Claude builds `.canvas` mind maps wired to
+  real notes and `.base` database views over your frontmatter, write-gated like
+  every other mutation.
+- **Prompt caching built in** — repeated context is cached server-side (reads at
+  0.1× the input rate); the cost gauge accounts for it.
 - **Three auth modes** — your Anthropic **API key** (default, community-store
   safe), a long-term **OAuth subscription token** (`claude setup-token`, usage
   bills to your plan), or **import from the environment**. Optional base-URL
