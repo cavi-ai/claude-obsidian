@@ -72,3 +72,14 @@ describe("parseTagSuggestions", () => {
     expect(parseTagSuggestions("a,b,c,d,e,f", 3)).toEqual(["a", "b", "c"].slice(0, 3));
   });
 });
+
+describe("wikilink values (ontology relations)", () => {
+  it("quotes wikilinks in lists so Obsidian reads them as link values", () => {
+    const fm = buildFrontmatter({ works_on: ["[[CAVI]]", "[[Projects/X|alias]]"] });
+    expect(fm).toContain('  - "[[CAVI]]"');
+    expect(fm).toContain('  - "[[Projects/X|alias]]"');
+  });
+  it("quotes a scalar wikilink value", () => {
+    expect(buildFrontmatter({ parent: "[[Hub]]" })).toContain('parent: "[[Hub]]"');
+  });
+});
