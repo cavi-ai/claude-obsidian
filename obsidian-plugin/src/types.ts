@@ -163,6 +163,12 @@ export interface PluginSettings {
   sourceBaseTags: string[];
   /** Per-type schema overrides, keyed by source type. */
   sourceSchemaOverrides: Record<string, { version?: number; fields?: unknown[] }>;
+
+  // ----- vault ontology (typed notes & relations) -----
+  /** Master switch: seed/validate typed frontmatter and relations. */
+  ontologyEnabled: boolean;
+  /** Folder holding the schema notes (one note per type). */
+  ontologyFolder: string;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -235,6 +241,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   sourceInboxFolder: "Clippings",
   sourceBaseTags: ["source"],
   sourceSchemaOverrides: {},
+
+  ontologyEnabled: false,
+  ontologyFolder: "Ontology",
 };
 
 /** Streaming callbacks for a single Claude request. */

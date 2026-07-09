@@ -42,3 +42,10 @@ describe("memory consolidation defaults", () => {
     expect(DEFAULT_SETTINGS.memoryAutoConsolidate).toBe(false);
   });
 });
+
+describe("ontology defaults", () => {
+  it("ships dormant with the Ontology folder (spec 2026-07-08)", () => {
+    expect(DEFAULT_SETTINGS.ontologyEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.ontologyFolder).toBe("Ontology");
+  });
+});

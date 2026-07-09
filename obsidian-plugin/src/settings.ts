@@ -257,6 +257,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     // Source capture is vault-API based (no Node/fs) → works on mobile, so it
     // stays in the shared group rather than the desktop-only block below.
     this.accordion(containerEl, "Source capture (typed clips)", (c) => this.renderSourceCaptureSection(c));
+    this.accordion(containerEl, "Vault ontology (typed notes & relations)", (c) => this.renderOntologySection(c));
     if (!Platform.isMobile) {
       this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
       this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
@@ -632,6 +633,28 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .addText((text) =>
         text.setValue(this.plugin.settings.sourceBaseTags.join(", ")).onChange(async (v) => {
           this.plugin.settings.sourceBaseTags = v.split(",").map((s) => s.trim()).filter(Boolean);
+          await this.plugin.saveSettings();
+        }),
+      );
+  }
+
+  private renderOntologySection(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName("Enable ontology")
+      .setDesc("Claude writes typed frontmatter and wikilink relations that conform to schema notes in your vault. Run “Seed ontology” to create the default schemas.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.ontologyEnabled).onChange(async (v) => {
+          this.plugin.settings.ontologyEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Ontology folder")
+      .setDesc("Where the schema notes live (one note per type). Edit those notes to change the schema.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.ontologyFolder).onChange(async (v) => {
+          this.plugin.settings.ontologyFolder = v.trim() || "Ontology";
           await this.plugin.saveSettings();
         }),
       );
