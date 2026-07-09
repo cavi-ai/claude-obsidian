@@ -1,4 +1,4 @@
-import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
@@ -492,19 +492,24 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         const backend = this.plugin.builtinEmbedder().backend();
         status.setText(backend ? `Model ready · ${backend === "webgpu" ? "WebGPU" : "WASM"}` : "Model not downloaded yet.");
 
+        let mainBtn: ButtonComponent | null = null;
+        let clearBtn: ButtonComponent | null = null;
         new Setting(containerEl)
           .setName("Embedding model")
           .setDesc(`${model.hfRepo} (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net, one-time; cached and fully on-device afterwards).`)
           .addButton((btn) => {
-            if (!backend) {
-              // Distinguish "downloaded earlier, not loaded this session" (offline
-              // load) from "never downloaded" (network download needing consent).
-              void this.plugin.builtinModelCached().then((cached) => {
-                if (!cached) return;
-                status.setText("Model cached — loads on first use.");
-                btn.setButtonText("Load");
-              });
-            }
+            // Non-CTA: delete the downloaded model from the local cache. Hidden
+            // until we know there is something to clear (loaded or cached).
+            clearBtn = btn;
+            btn.setButtonText("Clear").onClick(async () => {
+              btn.setDisabled(true);
+              await this.plugin.clearBuiltinModel();
+              this.renderSettings(); // status returns to "Model not downloaded yet."
+            });
+            if (!backend) btn.buttonEl.hide();
+          })
+          .addButton((btn) => {
+            mainBtn = btn;
             btn
               .setButtonText(backend ? "Re-check" : `Download (~${model.approxDownloadMB} MB)`)
               .setCta()
@@ -514,6 +519,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
                   await this.plugin.builtinEmbedder().download((p) => status.setText(`Downloading… ${p.percent}% (${p.file})`));
                   const b = this.plugin.builtinEmbedder().backend();
                   status.setText(`Model ready · ${b === "webgpu" ? "WebGPU" : "WASM"}`);
+                  clearBtn?.buttonEl.show();
                 } catch (e) {
                   status.setText(`Download failed: ${e instanceof Error ? e.message : String(e)} — check your connection and retry.`);
                 } finally {
@@ -521,6 +527,16 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
                 }
               });
           });
+        if (!backend) {
+          // Distinguish "downloaded earlier, not loaded this session" (offline
+          // load) from "never downloaded" (network download needing consent).
+          void this.plugin.builtinModelCached().then((cached) => {
+            if (!cached) return;
+            status.setText("Model cached — loads on first use.");
+            mainBtn?.setButtonText("Load");
+            clearBtn?.buttonEl.show();
+          });
+        }
       }
 
       if (this.plugin.settings.embeddingEngine === "ollama") {

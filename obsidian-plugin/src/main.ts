@@ -28,9 +28,9 @@ import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileRes
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import type { IndexData } from "./semantic/store";
-import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
+import { OllamaEmbedder, embedderId, migrateEmbeddingEngine, type Embedder } from "./semantic/embedder";
 import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
-import { hasCachedModel } from "./semantic/transformers/cache";
+import { clearCachedModel, hasCachedModel } from "./semantic/transformers/cache";
 import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
 import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import {
@@ -451,9 +451,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     // namespaced { settings, conversations } shape.
     const isNamespaced = !!raw && typeof raw === "object" && ("settings" in raw || "conversations" in raw);
     const settingsData = (isNamespaced ? (raw).settings : raw) as Partial<PluginSettings> | null;
+    // Pre-engine semantic users are working Ollama users — keep them there
+    // instead of letting the builtin default repoint their index. Persisted on
+    // the next save, like the shape migration above.
+    const migratedEngine = migrateEmbeddingEngine(settingsData);
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...settingsData,
+      ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
       context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
     };
     this.convState = isNamespaced
@@ -683,6 +688,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (this._builtinModelCached) return true;
     if (await hasCachedModel(typeof caches !== "undefined" ? caches : undefined)) this._builtinModelCached = true;
     return this._builtinModelCached;
+  }
+
+  /**
+   * Delete the downloaded built-in model (+ ORT runtime) from the local cache
+   * and drop the loaded pipeline. Returns the number of cache entries deleted.
+   */
+  async clearBuiltinModel(): Promise<number> {
+    this._builtinEmbedder?.terminate();
+    this._builtinEmbedder = null;
+    const deleted = await clearCachedModel(typeof caches !== "undefined" ? caches : undefined);
+    this._builtinModelCached = false;
+    return deleted;
   }
 
   /**

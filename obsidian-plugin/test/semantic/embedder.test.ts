@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { OllamaEmbedder, embedderId } from "../../src/semantic/embedder";
+import { OllamaEmbedder, embedderId, migrateEmbeddingEngine } from "../../src/semantic/embedder";
 import { BUILTIN_EMBEDDING_MODEL } from "../../src/semantic/transformers/model";
 
 describe("embedderId", () => {
@@ -9,6 +9,23 @@ describe("embedderId", () => {
   });
   it("builtin uses the pinned prefixed id", () => {
     expect(embedderId("builtin", "nomic-embed-text")).toBe(BUILTIN_EMBEDDING_MODEL.id);
+  });
+});
+
+describe("migrateEmbeddingEngine", () => {
+  it("keeps a pre-engine semantic user on ollama (their working setup)", () => {
+    expect(migrateEmbeddingEngine({ semanticEnabled: true })).toBe("ollama");
+  });
+  it("undefined when semantic was never enabled — the builtin default applies", () => {
+    expect(migrateEmbeddingEngine({ semanticEnabled: false })).toBeUndefined();
+    expect(migrateEmbeddingEngine({})).toBeUndefined();
+  });
+  it("undefined when an engine is already stored — respect the user's choice", () => {
+    expect(migrateEmbeddingEngine({ embeddingEngine: "builtin", semanticEnabled: true })).toBeUndefined();
+    expect(migrateEmbeddingEngine({ embeddingEngine: "ollama", semanticEnabled: true })).toBeUndefined();
+  });
+  it("undefined for missing persisted settings (fresh install)", () => {
+    expect(migrateEmbeddingEngine(null)).toBeUndefined();
   });
 });
 

@@ -17,6 +17,20 @@ export function embedderId(engine: EmbeddingEngine, ollamaModel: string): string
   return engine === "builtin" ? BUILTIN_EMBEDDING_MODEL.id : ollamaModel;
 }
 
+/**
+ * Settings migration for the engine key: a user whose persisted settings have
+ * semantic search enabled but no `embeddingEngine` predates the engine choice —
+ * they are definitionally a working Ollama user, so keep them on Ollama instead
+ * of silently repointing their index at the builtin engine. Returns the engine
+ * to force, or undefined to let stored/default values apply.
+ */
+export function migrateEmbeddingEngine(
+  persisted: Partial<{ embeddingEngine: EmbeddingEngine; semanticEnabled: boolean }> | null | undefined,
+): EmbeddingEngine | undefined {
+  if (!persisted || "embeddingEngine" in persisted) return undefined;
+  return persisted.semanticEnabled === true ? "ollama" : undefined;
+}
+
 export class OllamaEmbedder implements Embedder {
   constructor(
     private model: string,
