@@ -31,7 +31,8 @@ const CACHE_READ_MULT = 0.1;
 export const DEFAULT_LIMITS: ModelLimits = { contextWindow: 200_000, maxOutput: 8_000, inputCostPerM: 3, outputCostPerM: 15 };
 
 export function limitsFor(modelId: string): ModelLimits {
-  if (LIMITS[modelId]) return LIMITS[modelId];
+  const exact = LIMITS[modelId];
+  if (exact) return exact;
   // Match by family prefix so dated snapshots resolve (e.g. ...-20250930).
   for (const [id, lim] of Object.entries(LIMITS)) {
     const family = id.replace(/-\d{8}$/, "");

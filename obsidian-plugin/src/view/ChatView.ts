@@ -613,7 +613,7 @@ export class ChatView extends ItemView {
 
   /** Append an "Local (Ollama)" optgroup of detected models to the switcher. */
   private async appendLocalModelOptions(select: HTMLSelectElement): Promise<void> {
-    let models: string[] = [];
+    let models: string[];
     try {
       models = await this.plugin.router().ollama.listModels();
     } catch {

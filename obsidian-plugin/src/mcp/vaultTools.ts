@@ -380,7 +380,10 @@ export class VaultTools {
   private async backlinks(target: string): Promise<string> {
     const t = normalizePath(target);
     const links = this.resolvedLinks();
-    const sources = Object.keys(links).filter((src) => src !== t && links[src] && t in links[src]);
+    const sources = Object.keys(links).filter((src) => {
+      const targets = links[src];
+      return src !== t && !!targets && t in targets;
+    });
     sources.sort();
     if (sources.length === 0) return `No backlinks to ${t}.`;
     return sources.map((s) => `- ${s}`).join("\n");
