@@ -125,7 +125,7 @@ export class VaultTools {
               tags: { type: "array", items: { type: "string" }, description: "Tags to apply." },
               ...(this.opts.ontology?.()
                 ? {
-                    type: { type: "string", description: "Ontology type for this note (see the vault ontology in your system prompt)." },
+                    type: { type: "string", description: "Ontology type for this note (e.g. person, project, concept; unknown types are reported back with the available list)." },
                     properties: { type: "object", description: "Type-specific frontmatter properties and relation fields (relations are lists of \"[[wikilink]]\" strings)." },
                   }
                 : {}),
