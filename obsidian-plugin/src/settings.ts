@@ -495,7 +495,16 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         new Setting(containerEl)
           .setName("Embedding model")
           .setDesc(`${model.hfRepo} (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net, one-time; cached and fully on-device afterwards).`)
-          .addButton((btn) =>
+          .addButton((btn) => {
+            if (!backend) {
+              // Distinguish "downloaded earlier, not loaded this session" (offline
+              // load) from "never downloaded" (network download needing consent).
+              void this.plugin.builtinModelCached().then((cached) => {
+                if (!cached) return;
+                status.setText("Model cached — loads on first use.");
+                btn.setButtonText("Load");
+              });
+            }
             btn
               .setButtonText(backend ? "Re-check" : `Download (~${model.approxDownloadMB} MB)`)
               .setCta()
@@ -510,8 +519,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
                 } finally {
                   btn.setDisabled(false);
                 }
-              }),
-          );
+              });
+          });
       }
 
       if (this.plugin.settings.embeddingEngine === "ollama") {

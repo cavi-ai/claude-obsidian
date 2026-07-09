@@ -30,6 +30,7 @@ import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
 import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
+import { hasCachedModel } from "./semantic/transformers/cache";
 import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
 import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import {
@@ -83,6 +84,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _indexer: SemanticIndexer | null = null;
   /** Built-in engine's worker-backed embedder; created lazily, torn down on unload/engine switch. */
   private _builtinEmbedder: TransformersEmbedder | null = null;
+  /** Memoized "built-in model is in the local cache" (only flips false→true; downloads are additive). */
+  private _builtinModelCached = false;
+  /** One Notice per session when incremental reindex is paused awaiting the model download. */
+  private reindexPausedNotified = false;
   /** Embedding model the live indexer was built for (rebuild on change). */
   private indexerModel: string | null = null;
   /** Debounce timer for incremental re-index on note changes. */
@@ -673,6 +678,24 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._builtinEmbedder;
   }
 
+  /** Whether the built-in model's weights are already in the local cache (a load needs no network). */
+  async builtinModelCached(): Promise<boolean> {
+    if (this._builtinModelCached) return true;
+    if (await hasCachedModel(typeof caches !== "undefined" ? caches : undefined)) this._builtinModelCached = true;
+    return this._builtinModelCached;
+  }
+
+  /**
+   * Consent gate for IMPLICIT embed paths (incremental reindex, query-time
+   * search): true when embedding cannot trigger a network download — Ollama
+   * engine, model already loaded, or weights already cached (loads offline).
+   * Explicit paths (rebuild command, settings Download button) have their own gates.
+   */
+  private async canEmbedWithoutDownload(): Promise<boolean> {
+    if (this.settings.embeddingEngine !== "builtin") return true;
+    return this.builtinEmbedder().backend() !== null || (await this.builtinModelCached());
+  }
+
   /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
   ontology(): OntologyRegistry | null {
     if (!this.settings.ontologyEnabled) return null;
@@ -818,7 +841,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const f = this.app.vault.getAbstractFileByPath(p);
         return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
       },
-      embed: (input: string[]) => embedder.embed(input),
+      embed: async (input: string[]) => {
+        // Belt-and-braces consent gate: no indexer path (build, update, query,
+        // related-notes fallback) may implicitly fetch weights from the network.
+        if (!(await this.canEmbedWithoutDownload())) {
+          throw new Error("Built-in embedding model not downloaded — download it in Companion settings.");
+        }
+        return embedder.embed(input);
+      },
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
@@ -852,6 +882,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> {
     const ix = this.indexer();
     if (!ix) return [];
+    if (!(await this.canEmbedWithoutDownload())) return []; // consent gate → keyword-only, same as other fallbacks
     try {
       const hits = await ix.search(query, k);
       return hits.map((h) => ({ path: h.path, text: h.text }));
@@ -943,6 +974,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const ix = this.indexer();
     if (!ix) {
       this.reindexQueue.clear();
+      return;
+    }
+    if (!(await this.canEmbedWithoutDownload())) {
+      // Consent gate: drop the queue (notes re-queue on their next change) and
+      // say so once per session instead of spamming a Notice per save.
+      this.reindexQueue.clear();
+      if (!this.reindexPausedNotified) {
+        this.reindexPausedNotified = true;
+        new Notice("Semantic reindex paused — download the built-in model in settings.");
+      }
       return;
     }
     const paths = Array.from(this.reindexQueue);
