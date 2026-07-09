@@ -22,9 +22,9 @@ pnpm run build
 pnpm run audit
 ```
 
-The plugin targets desktop and mobile. Chat, vault context, and artifacts run on
-both; the MCP bridge, session import, and semantic index build require desktop
-(Electron/Node). For manual testing on desktop, build `main.js` and copy
+The plugin targets desktop and mobile. Chat, vault context, artifacts, and
+semantic search run on both; only the MCP bridge and session import require
+desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
 `main.js`, `manifest.json`, and `styles.css` into a test vault under
 `.obsidian/plugins/claude-companion/`.
 
