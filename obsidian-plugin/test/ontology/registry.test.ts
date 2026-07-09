@@ -64,4 +64,44 @@ describe("OntologyRegistry", () => {
     const { errors } = await reg.load();
     expect(errors).toEqual([]); // silently skipped — not an error
   });
+  it("a stale overlapping load does not clobber a newer one", async () => {
+    type Notes = Awaited<ReturnType<OntologyIO["listSchemaNotes"]>>;
+    let resolveSlow!: (notes: Notes) => void;
+    const slow = new Promise<Notes>((res) => { resolveSlow = res; });
+    let call = 0;
+    const base = ioFromNotes(seededNotes);
+    const io: OntologyIO = { parseYaml, listSchemaNotes: () => (++call === 1 ? slow : base.listSchemaNotes()) };
+    const reg = new OntologyRegistry(io);
+    const slowLoad = reg.load(); // older load, listing still pending
+    await reg.load(); // newer load completes with the seeded types
+    resolveSlow([]); // the stale load finally resolves with an empty vault
+    await slowLoad;
+    expect(reg.resolve("person")).toBeDefined(); // newer load owns the state
+    expect(reg.digest()).toContain("- person");
+  });
+  it("a successful load of an empty list clears a previously populated schema", async () => {
+    const notes = [...seededNotes];
+    const io: OntologyIO = { parseYaml, listSchemaNotes: () => ioFromNotes(notes).listSchemaNotes() };
+    const reg = new OntologyRegistry(io);
+    await reg.load();
+    expect(reg.resolve("person")).toBeDefined();
+    notes.length = 0; // vault emptied — a successful load, not a failure
+    const { errors } = await reg.load();
+    expect(errors).toEqual([]);
+    expect(reg.resolve("person")).toBeUndefined();
+    expect(reg.digest()).toBe("");
+  });
+  it("a successful reload after an IO failure clears the error and repopulates", async () => {
+    let fail = true;
+    const base = ioFromNotes(seededNotes);
+    const io: OntologyIO = { parseYaml, listSchemaNotes: () => (fail ? Promise.reject(new Error("io")) : base.listSchemaNotes()) };
+    const reg = new OntologyRegistry(io);
+    const first = await reg.load();
+    expect(first.errors.some((e) => /io/.test(e.message))).toBe(true);
+    fail = false;
+    const { errors } = await reg.load();
+    expect(errors).toEqual([]);
+    expect(reg.errors()).toEqual([]);
+    expect(reg.resolve("person")).toBeDefined();
+  });
 });

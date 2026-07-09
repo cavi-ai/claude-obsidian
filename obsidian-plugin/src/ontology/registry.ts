@@ -17,22 +17,29 @@ export interface OntologyIO {
 export class OntologyRegistry {
   private _resolved = new Map<string, ResolvedType>();
   private _errors: SchemaError[] = [];
+  /** Reentrancy guard: only the newest load() may swap state (overlapping triggers: layout-ready, folder watcher). */
+  private _loadGen = 0;
 
   constructor(private io: OntologyIO) {}
 
   /**
    * (Re)load all schema notes. Notes without the `ontology: type` marker are
    * silently skipped (docs are welcome in the folder). If listing throws, the
-   * previous schema is kept and the failure is reported as an error.
+   * previous schema is kept and the failure is reported as an error. If a
+   * newer load() started while this one was awaiting IO, the stale load leaves
+   * state untouched and returns the current errors.
    */
-  async load(): Promise<{ errors: SchemaError[] }> {
+  async load(): Promise<{ errors: readonly SchemaError[] }> {
+    const gen = ++this._loadGen;
     let notes;
     try {
       notes = await this.io.listSchemaNotes();
     } catch (e) {
+      if (gen !== this._loadGen) return { errors: this._errors }; // a newer load owns the state
       this._errors = [{ message: `ontology load failed: ${e instanceof Error ? e.message : String(e)}` }];
       return { errors: this._errors };
     }
+    if (gen !== this._loadGen) return { errors: this._errors }; // a newer load owns the state
     const defs: TypeDef[] = [];
     const errors: SchemaError[] = [];
     const parseYaml = (src: string): unknown => this.io.parseYaml(src);
@@ -52,11 +59,11 @@ export class OntologyRegistry {
     return this._resolved.get(name);
   }
 
-  resolved(): Map<string, ResolvedType> {
+  resolved(): ReadonlyMap<string, ResolvedType> {
     return this._resolved;
   }
 
-  errors(): SchemaError[] {
+  errors(): readonly SchemaError[] {
     return this._errors;
   }
 
