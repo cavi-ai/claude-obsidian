@@ -646,6 +646,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.ontologyEnabled).onChange(async (v) => {
           this.plugin.settings.ontologyEnabled = v;
           await this.plugin.saveSettings();
+          if (v) void this.plugin.ontology()?.load();
         }),
       );
 
@@ -656,6 +657,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         text.setValue(this.plugin.settings.ontologyFolder).onChange(async (v) => {
           this.plugin.settings.ontologyFolder = v.trim() || "Ontology";
           await this.plugin.saveSettings();
+          void this.plugin.ontology()?.load();
         }),
       );
   }
