@@ -2,6 +2,8 @@
 // menu UI and the actual command handlers; this owns the catalog and the
 // query→matches logic so it can be unit-tested.
 
+import type { Workflow } from "../workflows/catalog";
+
 export interface SlashCommand {
   /** The token after "/", e.g. "summarize". Lowercase, no spaces. */
   name: string;
@@ -64,6 +66,23 @@ export function filterCommands(commands: SlashCommand[], query: string): SlashCo
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.cmd);
+}
+
+/** Action-id prefix for a slash command that runs a vault workflow. */
+export const WORKFLOW_ACTION_PREFIX = "workflow:";
+
+/**
+ * Derive slash commands from the workflow catalog, so every workflow is also
+ * reachable by typing "/" (the browsable picker stays available via /workflows).
+ * They dispatch through the `workflow:<id>` action, handled in ChatView.
+ */
+export function workflowSlashCommands(workflows: Workflow[]): SlashCommand[] {
+  return workflows.map((wf) => ({
+    name: wf.id,
+    description: wf.description,
+    kind: "action",
+    action: `${WORKFLOW_ACTION_PREFIX}${wf.id}`,
+  }));
 }
 
 /** Move a selection index within [0, len) with wrap-around. */
@@ -145,6 +164,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Suggest useful internal links for the active note",
     kind: "prompt",
     prompt: "Suggest useful internal Obsidian links for my active note. Group them by why they are relevant and include concise link text.",
+  },
+  {
+    name: "frontmatter",
+    aliases: ["fm", "meta", "tags", "properties"],
+    description: "Propose and apply frontmatter (type, tags, summary) for the active note",
+    kind: "action",
+    action: "frontmatter",
   },
   {
     name: "daily",

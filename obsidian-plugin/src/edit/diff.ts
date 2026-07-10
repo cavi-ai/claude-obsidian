@@ -85,6 +85,15 @@ export function applyPlan(content: string, plan: EditPlan, accepted: boolean[]):
     located.push({ start: locate(content, hunk), hunk });
   }
   located.sort((a, b) => b.start - a.start);
+  // Guard against drift that made two accepted hunks resolve to overlapping
+  // ranges: splicing them end→start would corrupt the note. Reject instead.
+  for (let i = 1; i < located.length; i++) {
+    const higher = located[i - 1]!; // larger start (sorted desc)
+    const lower = located[i]!;
+    if (lower.start + lower.hunk.oldText.length > higher.start) {
+      throw new Error("The note changed during review — the accepted edits now overlap. Re-read the note and propose again.");
+    }
+  }
   let result = content;
   for (const { start, hunk } of located) {
     result = result.slice(0, start) + hunk.newText + result.slice(start + hunk.oldText.length);

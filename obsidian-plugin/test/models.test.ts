@@ -9,6 +9,10 @@ describe("resolveModelId", () => {
     expect(resolveModelId("claude-sonnet-4-6", "   ")).toBe("claude-sonnet-4-6");
     expect(resolveModelId("claude-opus-4-8", "")).toBe("claude-opus-4-8");
   });
+  it("never returns an empty id — falls back to a default when both are blank", () => {
+    expect(resolveModelId("", "")).toBe(CLAUDE_MODELS[0]!.id);
+    expect(resolveModelId("  ", "  ")).toBe(CLAUDE_MODELS[0]!.id);
+  });
 });
 
 describe("modelLabel", () => {

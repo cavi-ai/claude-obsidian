@@ -46,6 +46,30 @@ export function maxBytesFor(kind: MediaKind): number {
   return kind === "pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
 }
 
+/**
+ * Sniff the media type from leading magic bytes, so a mislabeled or renamed file
+ * (e.g. a `.png` that actually holds JPEG bytes) gets the correct `media_type`
+ * instead of an extension-derived one the Anthropic API would 400 on. Returns
+ * null when the bytes match no known signature (caller falls back to extension).
+ */
+export function sniffMime(buf: ArrayBuffer): string | null {
+  const b = new Uint8Array(buf);
+  if (b.length < 4) return null;
+  // PNG: 89 50 4E 47
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  // JPEG: FF D8 FF
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  // GIF: "GIF8"
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return "image/gif";
+  // PDF: "%PDF"
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "application/pdf";
+  // WEBP: "RIFF"…"WEBP"
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) {
+    return "image/webp";
+  }
+  return null;
+}
+
 /** Build the wire content block for one attachment payload. */
 export function mediaBlock(kind: MediaKind, mime: string, base64: string): ContentBlock {
   const source = { type: "base64", media_type: mime, data: base64 } as const;
