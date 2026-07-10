@@ -1256,7 +1256,9 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 
 /* Per-message actions: touch-sized (they're already persistent). */
 .is-mobile .cc-action { width: 36px; height: 32px; }
-.is-mobile .cc-action svg { width: 17px; height: 17px; }
+/* flex:0 0 auto — without it the icon collapses to 0 width inside the flex
+   button on mobile, leaving an empty box (same fix as .cc-add-context svg). */
+.is-mobile .cc-action svg { width: 17px; height: 17px; flex: 0 0 auto; }
 
 /* Composer: bottom-anchored, thumb-reachable, safe-area aware. */
 .is-mobile .cc-composer {

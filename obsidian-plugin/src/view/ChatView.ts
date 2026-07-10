@@ -206,7 +206,9 @@ export class ChatView extends ItemView {
     }
     this.inputEl = inputRow.createEl("textarea", {
       cls: "cc-input",
-      attr: { placeholder: "Ask Claude…  ( / for commands · @ to add context · Enter to send )", rows: "3" },
+      // Start compact on mobile (1 row, grows via autosizeInput) so the composer
+      // doesn't eat a big band of the phone screen; roomier default on desktop.
+      attr: { placeholder: "Ask Claude…  ( / for commands · @ to add context · Enter to send )", rows: Platform.isMobile ? "1" : "3" },
     });
     this.inputEl.addEventListener("keydown", (e) => {
       // The "@" picker intercepts navigation keys while open.
