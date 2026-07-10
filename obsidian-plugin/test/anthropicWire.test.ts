@@ -109,3 +109,37 @@ describe("AnthropicProvider.stream tool use", () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 });
+
+describe("AnthropicProvider.stream error handling", () => {
+  it("does NOT replay a buffered fallback once text has already streamed (no duplication)", async () => {
+    // Partial text arrives, THEN the stream errors. Replaying the full reply on
+    // top of the partial would duplicate it in the UI, so we surface the error.
+    const lines = [
+      evt({ type: "content_block_delta", delta: { type: "text_delta", text: "Partial answer" } }),
+      evt({ type: "error", error: { message: "mid-stream boom" } }),
+    ];
+    vi.stubGlobal("window", { fetch: vi.fn().mockResolvedValue(sseResponse(lines)) });
+    const onText = vi.fn();
+    const onError = vi.fn();
+    const onDone = vi.fn();
+    await provider().stream(baseReq, { onText, onError, onDone });
+    expect(onText).toHaveBeenCalledTimes(1);
+    expect(onText).toHaveBeenCalledWith("Partial answer");
+    expect(onError.mock.calls[0]?.[0]?.message).toBe("mid-stream boom");
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("flushes a final event that arrives without a trailing newline", async () => {
+    const lines = [
+      evt({ type: "content_block_delta", delta: { type: "text_delta", text: "Hi" } }),
+      // No trailing "\n" — the stop_reason would be dropped without a final flush.
+      `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 3 } })}`,
+    ];
+    vi.stubGlobal("window", { fetch: vi.fn().mockResolvedValue(sseResponse(lines)) });
+    const onStopReason = vi.fn();
+    const onDone = vi.fn();
+    await provider().stream(baseReq, { onText: vi.fn(), onStopReason, onDone });
+    expect(onStopReason).toHaveBeenCalledWith("end_turn");
+    expect(onDone).toHaveBeenCalledWith("Hi");
+  });
+});
