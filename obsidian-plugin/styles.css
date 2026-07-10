@@ -1390,6 +1390,46 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   flex-wrap: wrap;
 }
 
+/* ===== /frontmatter: suggested-frontmatter preview modal ===== */
+.cc-fm-modal .cc-fm-note {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 10px;
+}
+.cc-fm-modal .cc-fm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cc-fm-modal .cc-fm-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.cc-fm-modal .cc-fm-key {
+  flex: 0 0 72px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-align: right;
+}
+.cc-fm-modal .cc-fm-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-normal);
+}
+.cc-fm-modal .cc-fm-via {
+  margin-top: 12px;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+.cc-fm-modal .cc-fm-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 /* ===== Apply-to-note: diff review modal (spec 2026-07-05) ===== */
 
 .cc-diff-modal .cc-diff-description {

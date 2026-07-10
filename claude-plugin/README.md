@@ -18,6 +18,8 @@ Claude Code the commands and skills to use it well.
   (decisions, changes, open tasks).
 - **`manifest-vault`** — audit and optimize the vault: orphans, tag sprawl,
   missing links, stale notes — then fix with your consent.
+- **`frontmatter`** — audit and normalize note frontmatter to a consistent
+  schema: survey first, confirm the schema, then apply additively with consent.
 - **`manifest-pm`** — a prioritized, client-facing product roadmap from your
   project notes, routed into the build pipeline.
 - **`manifest-infra`** — grounded infrastructure/system designs (with diagrams)
