@@ -16,10 +16,11 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
+import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
+import { WORKFLOWS } from "../workflows/catalog";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
-import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, type MediaAttachment } from "../context/attachments";
+import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime, type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
 import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
@@ -151,7 +152,8 @@ export class ChatView extends ItemView {
       // One-shot actions (left group). These DO something on click.
       this.iconButton(actions, "plus", "New chat", () => this.clearChat());
       this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
-      this.iconButton(actions, "wand-2", "Run a vault workflow (manifests, rollup, MOC…)", () => void this.plugin.openWorkflowPicker());
+      // Workflows moved into the single slash surface: "/workflows" opens the
+      // browsable picker, and each workflow is also its own "/" command.
       this.iconButton(actions, "save", "Save chat to vault", () => void this.saveChat());
       if (this.plugin.settings.memoryEnabled) {
         // "import" reads as a one-shot pull-in, not a toggle — capture brings a
@@ -184,7 +186,9 @@ export class ChatView extends ItemView {
 
     // Palettes anchored above the input (built before the textarea so they sit
     // above it in flow; CSS positions them absolutely).
-    this.slashMenu = new SlashMenu(composer, SLASH_COMMANDS, (cmd) => void this.runSlashCommand(cmd));
+    // Slash is the single command surface: the built-in commands plus every vault
+    // workflow (the browsable picker stays reachable via /workflows).
+    this.slashMenu = new SlashMenu(composer, [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS)], (cmd) => void this.runSlashCommand(cmd));
     this.atMenu = new AtMenu(composer, () => this.atItems(), (item) => void this.onAtChoose(item));
 
     // On mobile the input shares a row with a thumb-friendly "+" that opens the
@@ -206,7 +210,9 @@ export class ChatView extends ItemView {
     }
     this.inputEl = inputRow.createEl("textarea", {
       cls: "cc-input",
-      attr: { placeholder: "Ask Claude…  ( / for commands · @ to add context · Enter to send )", rows: "3" },
+      // Start compact on mobile (1 row, grows via autosizeInput) so the composer
+      // doesn't eat a big band of the phone screen; roomier default on desktop.
+      attr: { placeholder: "Ask Claude…  ( / for commands · @ to add context · Enter to send )", rows: Platform.isMobile ? "1" : "3" },
     });
     this.inputEl.addEventListener("keydown", (e) => {
       // The "@" picker intercepts navigation keys while open.
@@ -457,6 +463,7 @@ export class ChatView extends ItemView {
     for (const m of this.attachedMedia) {
       try {
         let data = m.data;
+        let mime = m.mime;
         if (!data && m.path) {
           const file = this.app.vault.getAbstractFileByPath(m.path);
           if (!(file instanceof TFile)) throw new Error("file not found");
@@ -464,9 +471,12 @@ export class ChatView extends ItemView {
             new Notice(`${m.label} is too large to attach (max ${Math.round(maxBytesFor(m.kind) / 1024 / 1024)} MB).`);
             continue;
           }
-          data = arrayBufferToBase64(await this.app.vault.readBinary(file));
+          const buf = await this.app.vault.readBinary(file);
+          // Trust the bytes over the extension so a mislabeled file isn't 400'd.
+          mime = sniffMime(buf) ?? m.mime;
+          data = arrayBufferToBase64(buf);
         }
-        if (data) blocks.push(mediaBlock(m.kind, m.mime, data));
+        if (data) blocks.push(mediaBlock(m.kind, mime, data));
       } catch (e) {
         new Notice(`Couldn't attach ${m.label}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -480,9 +490,10 @@ export class ChatView extends ItemView {
       new Notice(`Pasted image is too large to attach (max ${Math.round(maxBytesFor("image") / 1024 / 1024)} MB).`);
       return;
     }
-    const data = arrayBufferToBase64(await file.arrayBuffer());
+    const buf = await file.arrayBuffer();
+    const data = arrayBufferToBase64(buf);
     const n = this.attachedMedia.filter((m) => !m.path).length + 1;
-    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: file.type || "image/png", data });
+    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: sniffMime(buf) ?? (file.type || "image/png"), data });
     this.renderAttachPills();
     new Notice("Image attached to your next message.");
   }
@@ -827,6 +838,16 @@ export class ChatView extends ItemView {
       return;
     }
 
+    // A workflow slash command ("/manifest-pm", "/frontmatter-audit", …) runs the
+    // matching catalog workflow directly.
+    if (cmd.action?.startsWith(WORKFLOW_ACTION_PREFIX)) {
+      const id = cmd.action.slice(WORKFLOW_ACTION_PREFIX.length);
+      const wf = WORKFLOWS.find((w) => w.id === id);
+      if (wf) await this.plugin.runWorkflow(wf);
+      else new Notice(`Unknown workflow: ${id}`);
+      return;
+    }
+
     // kind: "action" — dispatch to the matching behavior.
     switch (cmd.action) {
       case "new-chat":
@@ -834,6 +855,9 @@ export class ChatView extends ItemView {
         break;
       case "workflows":
         await this.plugin.openWorkflowPicker();
+        break;
+      case "frontmatter":
+        await this.plugin.suggestFrontmatterForActiveNote();
         break;
       case "capture-memory":
         await this.plugin.openSessionPicker();

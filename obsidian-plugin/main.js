@@ -52,7 +52,7 @@ ${v.content}`),this.annotateContext(d.sources)}if(this.attachedMedia.length>0){l
 ${e}`),d=await Yn(this.app,this.plugin.settings.artifactFolder,t,{height:this.plugin.settings.artifactHeight,baseTags:this.plugin.settings.artifactBaseTags,extraTags:l,...c!==void 0?{summary:c}:{}});await this.app.workspace.getLeaf(!0).openFile(d);return}let{tags:i,summary:o,title:r}=await this.maybeIndex(e),a=e.split(`
 `).find(l=>l.trim())?.replace(/^#+\s*/,"").slice(0,60)??"Claude reply";await $t(this.app,this.plugin.settings.chatFolder,r??a,e,{baseTags:this.plugin.settings.chatBaseTags,extraTags:i,...o!==void 0?{summary:o}:{}})}actionBtn(e,t,i,o){let r=e.createEl("button",{cls:"cc-action",attr:{"aria-label":t,title:t}});return(0,k.setIcon)(r,i),r.addEventListener("click",o),r}insertIntoNote(e){let t=this.app.workspace.getActiveViewOfType(k.MarkdownView);if(!t){new k.Notice("Open a note to insert into.");return}t.editor.replaceSelection(e),new k.Notice("Inserted into note")}async saveChat(){if(this.messages.length===0){new k.Notice("Nothing to save yet.");return}let e=this.messages.map(a=>`**${a.role==="user"?"You":"Claude"}:**
 
-${a.content}`).join(`
+${o.content}`).join(`
 
 ---
 
@@ -133,8 +133,8 @@ PART 2 \u2014 immediately AFTER the artifact block (in plain Markdown, not insid
 
 A flat Markdown checklist with one \`- [ ]\` item per concrete, actionable task, in execution order. Each item is a single self-contained line (no sub-bullets). These tasks are parsed by the Build command, so make them specific and ordered \u2014 they ARE the plan's executable steps.`;var Xs="You have tools that read (and possibly write) the user's Obsidian vault.\n\n- Ground answers in the vault: when a question could be answered by the user's notes, search or read before answering \u2014 never guess at note contents.\n- Cite the vault paths of notes you actually used, and prefer [[wikilinks]] when referring to them in prose.\n- Chain tools when useful: search \u2192 read the promising hits \u2192 follow backlinks or outgoing links for context.\n- Keep tool use purposeful: stop searching once you have enough to answer; don't re-read notes already in your context.\n- Never fabricate a note, path, or quote. If the vault doesn't contain something, say so.\n- Only create or modify notes when the user asked for it; describe what you changed. If a write is declined, continue helping without it.\n- To modify an existing note, prefer `propose_note_edit` \u2014 the user reviews a diff and accepts or rejects each change. Keep edits minimal and targeted; the result tells you which changes the user actually accepted.\n- When durable context about the user's past work would help, check for a \"What Claude Knows\" memory note (frontmatter `type: claude-memory`) via vault_search or frontmatter_query before asking the user.\n- For mind maps, project boards, and visual overviews, use `canvas_create` (when available) \u2014 prefer `file` nodes pointing at real vault notes over restating their content as text cards.\n- For database-style views over notes (trackers, dashboards, review queues), use `base_create` (when available) \u2014 discover the real frontmatter property names with `frontmatter_query`/`vault_tags` first.";F();var W="What Claude Knows",Xo=15,Qo=24e3;function Qs(s,n){let e=n?.max??Xo,t=n?.maxChars??Qo,i=s.filter(a=>!a.path.endsWith(`/${W}.md`)&&a.path!==`${W}.md`).filter(a=>/^---\n[\s\S]*?^session_id:/m.test(a.content)).sort((a,l)=>l.mtime-a.mtime).slice(0,e),o=[],r=0;for(let a of i){if(r+a.content.length>t&&o.length>0)break;o.push(a),r+=a.content.length}return o}function Zs(s,n){let e=s?`CURRENT MEMORY NOTE (revise this \u2014 keep facts that still hold, drop stale ones):
 
-${s}`:"There is no existing memory note yet \u2014 write the first one.",t=n.map((i,o)=>`--- Session digest ${o+1} ---
-${i}`).join(`
+${r}`:"There is no existing memory note yet \u2014 write the first one.",t=n.map((s,i)=>`--- Session digest ${i+1} ---
+${s}`).join(`
 
 `);return`You maintain a single durable memory note about this user's work, distilled from their recent Claude session digests.
 
@@ -216,7 +216,7 @@ ${e}
     <div class="bar"><div class="fill"></div></div>
     <div class="meta">${e} / ${n.length} tasks \xB7 ${t}%</div>
     <div class="list">
-${i}
+${s}
     </div>
   </div>
 </body>

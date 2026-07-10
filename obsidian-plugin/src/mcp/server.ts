@@ -91,7 +91,8 @@ export class McpHttpServer {
   private authorized(req: IncomingMessage): boolean {
     const header = req.headers["authorization"] as string | string[] | undefined;
     const bearer = Array.isArray(header) ? header[0] : header;
-    return bearer === `Bearer ${this.config.token.trim()}`;
+    if (!bearer) return false;
+    return timingSafeEqualStr(bearer, `Bearer ${this.config.token.trim()}`);
   }
 
   private async onRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -111,6 +112,15 @@ export class McpHttpServer {
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // Defense-in-depth against DNS rebinding: a browser page on some attacker
+    // domain that resolves to 127.0.0.1 would carry that domain as Host. Only
+    // accept loopback Host values (real clients send 127.0.0.1/localhost).
+    if (!isLoopbackHost(req.headers.host)) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Forbidden: non-loopback Host." }));
       return;
     }
 
@@ -183,8 +193,10 @@ export class McpHttpServer {
         call: (name, args) => this.tools.call(name, args),
       });
     } catch (e) {
+      // Log the detail server-side; return a generic message so an unexpected
+      // exception can't leak filesystem/internal detail to the client.
       this.log("error", `RPC error: ${e instanceof Error ? e.message : String(e)}`);
-      return err(req.id, RPC.INTERNAL_ERROR, e instanceof Error ? e.message : String(e));
+      return err(req.id, RPC.INTERNAL_ERROR, "Internal server error.");
     }
   }
 
@@ -193,6 +205,25 @@ export class McpHttpServer {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(json);
   }
+}
+
+/** Constant-time string compare (equal-length). Length differences short-circuit
+ *  — the token's length is not secret — but content never leaks via `===` timing. */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** True only for loopback Host header values (strips port and IPv6 brackets). */
+function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false;
+  const name = host
+    .replace(/:\d+$/, "")
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
+  return name === "127.0.0.1" || name === "localhost" || name === "::1";
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

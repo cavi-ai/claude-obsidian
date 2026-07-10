@@ -10,6 +10,21 @@ import { replaceSection } from "./edit";
 import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 
+/**
+ * Normalize a caller-supplied vault path and reject anything that escapes the
+ * vault root. `normalizePath` collapses slashes but keeps `..` segments, so
+ * writes (`note_create`, `note_append`, `note_move`, folder creation) must be
+ * checked explicitly — otherwise `folder: "../../.."` would write outside the
+ * vault even though writes are only meant to be vault-scoped.
+ */
+export function assertVaultPath(p: string): string {
+  const norm = normalizePath(p);
+  if (norm.startsWith("/") || norm.split("/").some((seg) => seg === "..")) {
+    throw new Error(`Path escapes the vault: ${p}`);
+  }
+  return norm;
+}
+
 /** Optional semantic retriever (local embeddings); absent → keyword-only. */
 export type SemanticSearch = (query: string, k: number) => Promise<{ path: string; text: string }[]>;
 
@@ -427,7 +442,7 @@ export class VaultTools {
     typeName?: string,
     properties?: Record<string, unknown>,
   ): Promise<string> {
-    const dir = (folder ?? this.opts.defaultFolder).trim();
+    const dir = assertVaultPath((folder ?? this.opts.defaultFolder).trim());
     await this.ensureFolder(dir);
     const base: FrontmatterData = {
       title,
@@ -476,12 +491,13 @@ export class VaultTools {
   }
 
   private async append(path: string, content: string): Promise<string> {
-    const existing = this.app.vault.getAbstractFileByPath(normalizePath(path));
+    const p = assertVaultPath(path);
+    const existing = this.app.vault.getAbstractFileByPath(p);
     if (existing instanceof TFile) {
       await this.app.vault.append(existing, `\n${content}\n`);
       return `Appended to: ${existing.path}`;
     }
-    const file = await this.app.vault.create(normalizePath(path), `${content}\n`);
+    const file = await this.app.vault.create(p, `${content}\n`);
     return `Created and wrote: ${file.path}`;
   }
 
@@ -543,7 +559,7 @@ export class VaultTools {
       ...(args.formulas && typeof args.formulas === "object" ? { formulas: args.formulas as Record<string, string> } : {}),
       ...(args.properties && typeof args.properties === "object" ? { properties: args.properties as Record<string, string> } : {}),
     });
-    const dir = (folder ?? this.opts.defaultFolder).trim();
+    const dir = assertVaultPath((folder ?? this.opts.defaultFolder).trim());
     await this.ensureFolder(dir);
     const path = await this.uniquePath(dir, title, ".base");
     const file = await this.app.vault.create(path, yaml);
@@ -555,7 +571,7 @@ export class VaultTools {
       Array.isArray(nodes) ? (nodes as ProposedCanvasNode[]) : [],
       Array.isArray(edges) ? (edges as ProposedCanvasEdge[]) : [],
     );
-    const dir = (folder ?? this.opts.defaultFolder).trim();
+    const dir = assertVaultPath((folder ?? this.opts.defaultFolder).trim());
     await this.ensureFolder(dir);
     const path = await this.uniquePath(dir, title, ".canvas");
     const file = await this.app.vault.create(path, serializeCanvas(data));
@@ -564,7 +580,7 @@ export class VaultTools {
 
   private async move(path: string, to: string): Promise<string> {
     const file = this.resolveFile(path);
-    const dest = normalizePath(to);
+    const dest = assertVaultPath(to);
     await this.app.fileManager.renameFile(file, dest);
     return `Moved ${path} → ${dest} (backlinks updated)`;
   }
@@ -578,7 +594,7 @@ export class VaultTools {
   }
 
   private async ensureFolder(folder: string): Promise<void> {
-    const p = normalizePath(folder);
+    const p = assertVaultPath(folder);
     if (p === "" || p === "/" || this.app.vault.getAbstractFileByPath(p)) return;
     let cur = "";
     for (const part of p.split("/")) {

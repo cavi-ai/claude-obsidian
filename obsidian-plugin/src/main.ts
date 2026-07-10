@@ -26,6 +26,9 @@ import { trackerArtifact } from "./build/tracker";
 import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
 import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileResponse, isMarkdown, configError as repliesConfigError } from "./cloud/replies";
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
+import { existingVaultTags } from "./indexing/autoTagger";
+import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
+import { FrontmatterModal } from "./view/FrontmatterModal";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, migrateEmbeddingEngine, type Embedder } from "./semantic/embedder";
@@ -1255,6 +1258,66 @@ export default class ClaudeCompanionPlugin extends Plugin {
       "Generate an implementation plan from this note",
       ARTIFACT_MAX_TOKENS,
     );
+  }
+
+  /**
+   * "/frontmatter": propose type / tags / summary for the ACTIVE note using the
+   * utility model (reusing the vault's existing tags), preview it, and apply it
+   * additively via processFrontMatter. Never clobbers fields the user already set
+   * — tags union, scalar fields only filled when absent.
+   */
+  async suggestFrontmatterForActiveNote(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a note to suggest frontmatter for.");
+      return;
+    }
+    const content = await this.app.vault.cachedRead(file);
+    if (content.trim().length === 0) {
+      new Notice("This note is empty — nothing to describe.");
+      return;
+    }
+
+    const existingTags = existingVaultTags(this.app);
+    const typeOptions = this.settings.ontologyEnabled ? [...(this.ontology()?.resolved().keys() ?? [])] : [];
+    const { provider, model } = this.router().resolve("utility");
+    const notice = new Notice("Suggesting frontmatter…", 0);
+    try {
+      const existingLine = existingTags.length > 0 ? `Existing tags (prefer these when relevant): ${existingTags.join(", ")}\n\n` : "";
+      const body = content.length > 8000 ? content.slice(0, 8000) + "\n…[truncated]" : content;
+      const raw = await provider.complete({
+        system: frontmatterSuggestSystem(typeOptions),
+        model,
+        maxTokens: 200,
+        temperature: 0,
+        messages: [{ role: "user", content: `${existingLine}Document:\n\n${body}` }],
+      });
+      const suggestion = parseFrontmatterSuggestion(raw);
+
+      // Merge additively against what's already in the note's frontmatter.
+      const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
+      const currentTags = Array.isArray(fm.tags) ? fm.tags.map(String) : typeof fm.tags === "string" ? [fm.tags] : [];
+      const proposal = {
+        ...(suggestion.type && !fm.type ? { type: suggestion.type } : {}),
+        tags: normalizeTags([...currentTags, ...suggestion.tags]),
+        ...(suggestion.summary && !fm.summary ? { summary: suggestion.summary } : {}),
+      };
+      notice.hide();
+
+      new FrontmatterModal(this.app, file.basename, proposal, provider.label, async (apply) => {
+        if (!apply) return;
+        await this.app.fileManager.processFrontMatter(file, (f) => {
+          const rec = f as Record<string, unknown>;
+          if (proposal.type && !rec.type) rec.type = proposal.type;
+          rec.tags = proposal.tags;
+          if (proposal.summary && !rec.summary) rec.summary = proposal.summary;
+        });
+        new Notice(`Frontmatter updated: ${file.basename}`);
+      }).open();
+    } catch (e) {
+      notice.hide();
+      new Notice(`Couldn't suggest frontmatter: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /**

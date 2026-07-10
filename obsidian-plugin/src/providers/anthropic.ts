@@ -1,6 +1,6 @@
 import { requestUrl } from "obsidian";
 import type { StreamHandlers } from "../types";
-import { parseSseChunk, extractApiError, type SseBlockState } from "../claude/sse";
+import { parseSseChunk, extractApiError, type SseBlockState, type SseParseResult } from "../claude/sse";
 import { withCacheControl } from "../claude/cache";
 import { PING_MODEL } from "../claude/models";
 import { type CompletionRequest, type Provider, type ProviderStatus, ProviderError, isAbort } from "./types";
@@ -73,6 +73,7 @@ export class AnthropicProvider implements Provider {
       handlers.onError?.(new ProviderError("No Anthropic credential set. Add an API key or OAuth token in Companion for Claude settings."));
       return;
     }
+    let emitted = false;
     try {
       const init: RequestInit = {
         method: "POST",
@@ -91,31 +92,40 @@ export class AnthropicProvider implements Provider {
       let full = "";
       let stopReason: string | undefined;
       let blockState: SseBlockState = { open: {} };
+      const apply = (r: SseParseResult): void => {
+        if (r.error) throw new ProviderError(r.error);
+        if (r.thinking) handlers.onThinking?.(r.thinking);
+        if (r.text) {
+          full += r.text;
+          emitted = true;
+          handlers.onText(r.text);
+        }
+        for (const block of r.toolUses) handlers.onToolUse?.(block);
+        if (r.usage) handlers.onUsage?.(r.usage);
+        if (r.stopReason) stopReason = r.stopReason;
+      };
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const { text, thinking, remainder, error, usage, stopReason: sr, toolUses, state } = parseSseChunk(buffer, blockState);
-        buffer = remainder;
-        blockState = state;
-        if (error) throw new ProviderError(error);
-        if (thinking) handlers.onThinking?.(thinking);
-        if (text) {
-          full += text;
-          handlers.onText(text);
-        }
-        for (const block of toolUses) handlers.onToolUse?.(block);
-        if (usage) handlers.onUsage?.(usage);
-        if (sr) stopReason = sr;
+        const r = parseSseChunk(buffer, blockState);
+        buffer = r.remainder;
+        blockState = r.state;
+        apply(r);
       }
+      // Flush a final complete event that arrived in the last chunk without a
+      // trailing newline (otherwise its stop_reason/usage would be dropped).
+      if (buffer.trim().length > 0) apply(parseSseChunk(buffer + "\n", blockState));
       if (stopReason === "max_tokens") handlers.onTruncated?.();
       if (stopReason) handlers.onStopReason?.(stopReason);
       handlers.onDone?.(full);
     } catch (err) {
       if (isAbort(err)) return;
-      // Agent turns own their retry semantics: a buffered fallback can't carry
-      // tool_use blocks, so surface the error instead of silently degrading.
-      if (req.tools) {
+      // Surface the error instead of silently degrading when a buffered fallback
+      // can't safely replace what streamed: agent turns own their retry semantics
+      // (tool_use blocks can't ride a buffered reply), and once any text has been
+      // emitted, replaying the full reply would duplicate it in the UI.
+      if (req.tools || emitted) {
         handlers.onError?.(err instanceof Error ? err : new ProviderError(String(err)));
         return;
       }

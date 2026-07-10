@@ -1,5 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS } from "../src/view/slashCommands";
+import { parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "../src/view/slashCommands";
+import { WORKFLOWS } from "../src/workflows/catalog";
+
+describe("workflowSlashCommands", () => {
+  it("derives one action command per workflow, dispatched via the workflow: prefix", () => {
+    const cmds = workflowSlashCommands(WORKFLOWS);
+    expect(cmds).toHaveLength(WORKFLOWS.length);
+    for (const c of cmds) {
+      expect(c.kind).toBe("action");
+      expect(c.action?.startsWith(WORKFLOW_ACTION_PREFIX)).toBe(true);
+    }
+    // The id round-trips through the action so ChatView can look it up.
+    const fm = cmds.find((c) => c.name === "frontmatter-audit");
+    expect(fm?.action).toBe(`${WORKFLOW_ACTION_PREFIX}frontmatter-audit`);
+  });
+  it("merges into the slash catalog so a workflow is reachable by typing '/'", () => {
+    const all = [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS)];
+    expect(filterCommands(all, "manifest-pm").some((c) => c.name === "manifest-pm")).toBe(true);
+    // Both the per-note command and the vault workflow surface under "front".
+    const front = filterCommands(all, "front").map((c) => c.name);
+    expect(front).toContain("frontmatter");
+    expect(front).toContain("frontmatter-audit");
+  });
+});
 
 describe("parseSlashQuery", () => {
   it("returns the token after a leading slash", () => {

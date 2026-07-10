@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { App } from "obsidian";
 import { parse as parseYaml } from "yaml";
-import { VaultTools } from "../src/mcp/vaultTools";
+import { VaultTools, assertVaultPath } from "../src/mcp/vaultTools";
 import { OntologyRegistry } from "../src/ontology/registry";
 import { schemaNoteContent, SEED_TYPES } from "../src/ontology/seed";
 
@@ -13,6 +13,30 @@ function tools(allowWrites = true) {
   const vt = new VaultTools(app as never, { allowWrites, defaultFolder: "Claude" });
   return { app, vt };
 }
+
+describe("assertVaultPath — vault-escape guard", () => {
+  it("accepts normal vault-relative paths", () => {
+    expect(assertVaultPath("Notes/Alpha.md")).toBe("Notes/Alpha.md");
+    expect(assertVaultPath("")).toBe("");
+    // normalizePath strips a leading slash, so an "absolute" path stays in-vault.
+    expect(assertVaultPath("/etc/passwd")).toBe("etc/passwd");
+  });
+  it("rejects `..` traversal", () => {
+    expect(() => assertVaultPath("../../../etc/passwd")).toThrow(/escapes the vault/);
+    expect(() => assertVaultPath("Notes/../../secret.md")).toThrow(/escapes the vault/);
+  });
+});
+
+describe("write tools reject vault escapes", () => {
+  it("note_create with a traversal folder is refused", async () => {
+    const { vt } = tools();
+    await expect(vt.call("note_create", { title: "Evil", content: "x", folder: "../../.." })).rejects.toThrow(/escapes the vault/);
+  });
+  it("note_move to a path outside the vault is refused", async () => {
+    const { vt } = tools();
+    await expect(vt.call("note_move", { path: "Notes/Alpha.md", to: "../../../tmp/evil.md" })).rejects.toThrow(/escapes the vault/);
+  });
+});
 
 describe("list_titles", () => {
   it("lists every markdown note's path and title", async () => {

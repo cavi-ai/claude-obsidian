@@ -106,7 +106,10 @@ export function resolveAuth(inputs: AuthInputs): ResolvedAuth | null {
       return { credential: envKey, scheme: schemeFor(envKey), baseUrl, isOAuth: isOAuthToken(envKey) };
     }
     if (envToken) {
-      return { credential: envToken, scheme: schemeFor(envToken), baseUrl, isOAuth: isOAuthToken(envToken) };
+      // ANTHROPIC_AUTH_TOKEN is a Bearer credential by SDK convention (gateway
+      // tokens, subscription OAuth); it must never go on x-api-key (→ 401). Only
+      // genuine sk-ant-oat tokens are treated as OAuth (Claude Code identity block).
+      return { credential: envToken, scheme: "bearer", baseUrl, isOAuth: isOAuthToken(envToken) };
     }
     return null;
   }
@@ -142,7 +145,9 @@ export function authHeaders(auth: ResolvedAuth): Record<string, string> {
   };
   if (auth.scheme === "bearer") {
     headers["authorization"] = `Bearer ${auth.credential}`;
-    headers["anthropic-beta"] = OAUTH_BETA;
+    // The oauth beta header belongs only to genuine subscription OAuth tokens;
+    // a plain Bearer (e.g. a gateway auth token) must not carry it.
+    if (auth.isOAuth) headers["anthropic-beta"] = OAUTH_BETA;
   } else {
     headers["x-api-key"] = auth.credential;
   }

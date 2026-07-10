@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { planEdits, applyPlan, type ProposedEdit } from "../src/edit/diff";
 
+describe("applyPlan — drift safety", () => {
+  it("rejects the apply when drift makes two accepted hunks resolve to overlapping ranges", () => {
+    // Two multi-line edits, well separated (and individually unique) at plan time.
+    const original = "PPP\nQQ\nxxxxx\nQQ\nRRR\n";
+    const plan = planEdits(original, [
+      { old_str: "PPP\nQQ", new_str: "AAA" },
+      { old_str: "QQ\nRRR", new_str: "BBB" },
+    ]);
+    // The note was rewritten during review to "PPP\nQQ\nRRR": both targets are
+    // still uniquely locatable but their line regions now overlap on "QQ".
+    expect(() => applyPlan("PPP\nQQ\nRRR", plan, [true, true])).toThrow(/overlap/i);
+  });
+});
+
 const NOTE = `# Weekly Review
 
 Every Friday I review the week: wins, blockers, and what to carry forward.
