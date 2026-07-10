@@ -1,5 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { mediaKind, mediaMime, maxBytesFor, mediaBlock, arrayBufferToBase64, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from "../src/context/attachments";
+import { mediaKind, mediaMime, maxBytesFor, mediaBlock, arrayBufferToBase64, sniffMime, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from "../src/context/attachments";
+
+const bytes = (...b: number[]): ArrayBuffer => new Uint8Array(b).buffer;
+
+describe("sniffMime", () => {
+  it("identifies types from magic bytes", () => {
+    expect(sniffMime(bytes(0x89, 0x50, 0x4e, 0x47))).toBe("image/png");
+    expect(sniffMime(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe("image/jpeg");
+    expect(sniffMime(bytes(0x47, 0x49, 0x46, 0x38))).toBe("image/gif");
+    expect(sniffMime(bytes(0x25, 0x50, 0x44, 0x46))).toBe("application/pdf");
+    expect(sniffMime(bytes(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50))).toBe("image/webp");
+  });
+  it("trusts bytes over a mislabeled extension (a .png holding JPEG bytes)", () => {
+    // The wire mime must come from the bytes, not mediaMime('x.png').
+    expect(sniffMime(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe("image/jpeg");
+  });
+  it("returns null for unknown or too-short data (caller falls back to extension)", () => {
+    expect(sniffMime(bytes(0x00, 0x01, 0x02, 0x03))).toBeNull();
+    expect(sniffMime(bytes(0x89))).toBeNull();
+  });
+});
 
 describe("mediaKind / mediaMime", () => {
   it("classifies pdfs and common image types (case-insensitive)", () => {

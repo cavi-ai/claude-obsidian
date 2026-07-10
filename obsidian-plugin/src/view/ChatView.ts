@@ -19,7 +19,7 @@ import { SlashMenu } from "./SlashMenu";
 import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery } from "./slashCommands";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
-import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, type MediaAttachment } from "../context/attachments";
+import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime, type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
 import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
@@ -457,6 +457,7 @@ export class ChatView extends ItemView {
     for (const m of this.attachedMedia) {
       try {
         let data = m.data;
+        let mime = m.mime;
         if (!data && m.path) {
           const file = this.app.vault.getAbstractFileByPath(m.path);
           if (!(file instanceof TFile)) throw new Error("file not found");
@@ -464,9 +465,12 @@ export class ChatView extends ItemView {
             new Notice(`${m.label} is too large to attach (max ${Math.round(maxBytesFor(m.kind) / 1024 / 1024)} MB).`);
             continue;
           }
-          data = arrayBufferToBase64(await this.app.vault.readBinary(file));
+          const buf = await this.app.vault.readBinary(file);
+          // Trust the bytes over the extension so a mislabeled file isn't 400'd.
+          mime = sniffMime(buf) ?? m.mime;
+          data = arrayBufferToBase64(buf);
         }
-        if (data) blocks.push(mediaBlock(m.kind, m.mime, data));
+        if (data) blocks.push(mediaBlock(m.kind, mime, data));
       } catch (e) {
         new Notice(`Couldn't attach ${m.label}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -480,9 +484,10 @@ export class ChatView extends ItemView {
       new Notice(`Pasted image is too large to attach (max ${Math.round(maxBytesFor("image") / 1024 / 1024)} MB).`);
       return;
     }
-    const data = arrayBufferToBase64(await file.arrayBuffer());
+    const buf = await file.arrayBuffer();
+    const data = arrayBufferToBase64(buf);
     const n = this.attachedMedia.filter((m) => !m.path).length + 1;
-    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: file.type || "image/png", data });
+    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: sniffMime(buf) ?? (file.type || "image/png"), data });
     this.renderAttachPills();
     new Notice("Image attached to your next message.");
   }
