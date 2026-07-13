@@ -27,6 +27,17 @@ describe("research workbench command parity", () => {
       expect(RESEARCH_WORKBENCH_PROMPT.toLowerCase(), term).toContain(term);
       expect(skill.toLowerCase(), term).toContain(term);
     }
+    for (const tool of [
+      "research_project_create", "research_source_import", "research_evidence_capture",
+      "research_evidence_review", "research_claim_create", "research_audit", "research_outline_generate",
+    ]) {
+      expect(RESEARCH_WORKBENCH_PROMPT).toContain(tool);
+      expect(skill).toContain(tool);
+    }
+    for (const legacy of ["research_evidence_create", "research_outline_create"]) {
+      expect(RESEARCH_WORKBENCH_PROMPT).not.toContain(legacy);
+      expect(skill).not.toContain(legacy);
+    }
     expect(command).toContain("claude-obsidian:research-workbench");
   });
 });

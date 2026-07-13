@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { toAnthropicTools, executeTool, isWriteTool, TOOL_RESULT_MAX_CHARS, PROPOSE_EDIT_TOOL } from "../src/agent/tools";
 import type { McpToolDef } from "../src/mcp/protocol";
 import type { ToolUseBlock } from "../src/providers/types";
+import { ResearchTools } from "../src/research/tools";
 
 const defs: McpToolDef[] = [
   { name: "vault_search", description: "Search.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
@@ -36,7 +37,7 @@ describe("isWriteTool", () => {
   });
 
   it("fails closed for every research mutation while keeping project reads and audits read-only", async () => {
-    for (const name of ["research_project_create", "research_source_import", "research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]) {
+    for (const name of ["research_project_create", "research_source_import", "research_evidence_capture", "research_evidence_review", "research_claim_create", "research_claim_link", "research_outline_generate", "research_evidence_create", "research_outline_create"]) {
       expect(isWriteTool(name)).toBe(true);
       const call = vi.fn();
       const result = await executeTool({ call }, use(name));
@@ -45,6 +46,13 @@ describe("isWriteTool", () => {
     }
     expect(isWriteTool("research_project_read")).toBe(false);
     expect(isWriteTool("research_audit")).toBe(false);
+  });
+
+  it("transforms only canonical research definitions for the model", () => {
+    const names = toAnthropicTools(new ResearchTools({} as never).definitions()).map(({ name }) => name);
+    expect(names).toEqual(expect.arrayContaining(["research_evidence_capture", "research_evidence_review", "research_outline_generate"]));
+    expect(names).not.toContain("research_evidence_create");
+    expect(names).not.toContain("research_outline_create");
   });
 });
 
