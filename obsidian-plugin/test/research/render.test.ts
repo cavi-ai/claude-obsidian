@@ -12,7 +12,7 @@ function parseRendered(path: string, markdown: string) {
 
 const records: ResearchRecord[] = [
   { path: "Projects/P.md", title: "P", type: "research-project", project: "Projects/P", question: "What works?", audience: "Researchers", stage: "gather", status: "active" },
-  { path: "Sources/S.md", title: "S", type: "research-source", project: "Projects/P", sourceKind: "doi", canonicalId: "10.1/x", url: "https://example.test", asset: "Files/S.pdf", contentFingerprint: "sha256:abc" },
+  { path: "Sources/S.md", title: "S", type: "research-source", project: "Projects/P", sourceKind: "doi", canonicalId: "10.1/x", url: "https://example.test", asset: "Files/S.pdf", contentFingerprint: "sha256:abc", doi: "10.1/x", arxivId: "2501.01234", zoteroKey: "KEY1", authors: ["Ada Lovelace"], published: "2025-04-02", publication: "Journal of Tests" },
   { path: "Evidence/E.md", title: "E", type: "evidence", project: "Projects/P", source: "Sources/S", locatorKind: "page", locatorValue: "14", excerpt: "Measured effect.\nAcross cohorts.", interpretation: "Useful result.", reviewState: "reviewed", model: "claude" },
   { path: "Claims/C.md", title: "C", type: "claim", project: "Projects/P", proposition: "The effect generalizes.", confidence: "moderate", reviewState: "proposed", supports: ["Evidence/E1"], challenges: ["Evidence/E2"], contextualizes: ["Evidence/E3"], limitations: ["Small sample"] },
   { path: "Questions/Q.md", title: "Q", type: "research-question", project: "Projects/P", question: "Does it generalize?", status: "open", about: "Claims/C" },
@@ -39,5 +39,13 @@ describe("renderResearchRecord", () => {
     const result = parseRendered(record.path, renderResearchRecord(record));
     expect(result.issues).toEqual([]);
     expect(result.record).toEqual(record);
+  });
+
+  it("persists canonical scholarly field names as snake_case", () => {
+    const rendered = renderResearchRecord(records[1]!);
+    expect(rendered).toContain('arxiv_id: "2501.01234"');
+    expect(rendered).toContain("zotero_key: KEY1");
+    expect(rendered).not.toContain("arxivId:");
+    expect(rendered).not.toContain("zoteroKey:");
   });
 });

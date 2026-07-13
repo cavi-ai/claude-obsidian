@@ -129,7 +129,13 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
     const url = scalar(input, issues, "url");
     const asset = wikilink(input, issues, "asset");
     const contentFingerprint = scalar(input, issues, "content_fingerprint");
-    return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(contentFingerprint ? { contentFingerprint } : {}) }, issues };
+    const doi = scalar(input, issues, "doi");
+    const arxivId = scalar(input, issues, "arxiv_id");
+    const zoteroKey = scalar(input, issues, "zotero_key");
+    const authors = stringList(input, issues, "authors");
+    const published = scalar(input, issues, "published");
+    const publication = scalar(input, issues, "publication");
+    return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(contentFingerprint ? { contentFingerprint } : {}), ...(doi ? { doi } : {}), ...(arxivId ? { arxivId } : {}), ...(zoteroKey ? { zoteroKey } : {}), ...(authors.length ? { authors } : {}), ...(published ? { published } : {}), ...(publication ? { publication } : {}) }, issues };
   }
 
   if (type === "evidence") {

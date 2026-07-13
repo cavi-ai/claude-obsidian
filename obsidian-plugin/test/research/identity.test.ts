@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { parseResearchRecord } from "../../src/research/parse";
 import type { ResearchSourceRecord } from "../../src/research/types";
 import { canonicalSourceId, findDuplicate, normalizeArxivId, normalizeDoi } from "../../src/research/identity";
 
-type ScholarlySource = ResearchSourceRecord & {
-  doi?: string;
-  arxivId?: string;
-  zoteroKey?: string;
-  authors?: string[];
-  published?: string;
-};
-
-function source(path: string, fields: Partial<ScholarlySource> = {}): ScholarlySource {
+function source(path: string, fields: Partial<ResearchSourceRecord> = {}): ResearchSourceRecord {
   return {
     path,
     title: "A Reliable Result",
@@ -28,6 +21,8 @@ describe("scholarly source identity", () => {
 
   it("normalizes arXiv prefixes and removes version suffixes", () => {
     expect(normalizeArxivId("arXiv:2501.01234v2")).toBe("2501.01234");
+    expect(normalizeArxivId("https://arxiv.org/abs/2501.01234v3?download=1#top")).toBe("2501.01234");
+    expect(normalizeArxivId("https://arxiv.org/pdf/2501.01234v4.pdf?download=1#page=2")).toBe("2501.01234");
   });
 
   it("chooses canonical identifiers in DOI, arXiv, Zotero, URL order", () => {
@@ -41,6 +36,30 @@ describe("scholarly source identity", () => {
     const existing = [source("Sources/Paper.md", { doi: "10.1000/abc.1" })];
     const candidate = source("Inbox/paper.md", { doi: "https://doi.org/10.1000/ABC.1" });
     expect(findDuplicate(candidate, existing)?.path).toBe("Sources/Paper.md");
+  });
+
+  it("uses scholarly fields parsed into the canonical research source record", () => {
+    const parsed = parseResearchRecord({
+      path: "Sources/Paper.md",
+      frontmatter: {
+        title: "A Reliable Result",
+        type: "research-source",
+        project: "[[Projects/Test]]",
+        source_kind: "doi",
+        doi: "https://doi.org/10.1000/ABC.1",
+        arxiv_id: "2501.01234v2",
+        zotero_key: "KEY1",
+        authors: ["Ada Lovelace"],
+        published: "2025-04-02",
+        publication: "Journal of Tests",
+      },
+      body: "",
+    });
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.record).toMatchObject({ doi: "https://doi.org/10.1000/ABC.1", arxivId: "2501.01234v2", zoteroKey: "KEY1" });
+    const record = parsed.record as ResearchSourceRecord;
+    expect(canonicalSourceId(record)).toBe("doi:10.1000/abc.1");
+    expect(findDuplicate(source("new", { doi: "10.1000/abc.1" }), [record])?.path).toBe("Sources/Paper.md");
   });
 
   it("falls back through arXiv, Zotero, normalized URL, then bibliographic fingerprint", () => {

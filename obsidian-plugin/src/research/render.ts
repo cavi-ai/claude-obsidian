@@ -9,10 +9,12 @@ function wikilink(path: string): string {
   return `[[${path}]]`;
 }
 
-function researchFrontmatter(data: FrontmatterData, locatorValue?: string): string {
-  const rendered = buildFrontmatter(data);
-  if (locatorValue === undefined) return rendered;
-  return rendered.replace(/^locator_value:.*$/m, `locator_value: ${JSON.stringify(locatorValue)}`);
+function researchFrontmatter(data: FrontmatterData, exactStrings: Record<string, string | undefined> = {}): string {
+  let rendered = buildFrontmatter(data);
+  for (const [key, value] of Object.entries(exactStrings)) {
+    if (value !== undefined) rendered = rendered.replace(new RegExp(`^${key}:.*$`, "m"), `${key}: ${JSON.stringify(value)}`);
+  }
+  return rendered;
 }
 
 export function renderResearchRecord(record: ResearchRecord): string {
@@ -26,7 +28,7 @@ export function renderResearchRecord(record: ResearchRecord): string {
       body = `# Research project\n\n## Question\n\n${record.question}`;
       break;
     case "research-source":
-      frontmatter = { ...common, source_kind: record.sourceKind, canonical_id: record.canonicalId, url: record.url, asset: record.asset ? wikilink(record.asset) : undefined, content_fingerprint: record.contentFingerprint };
+      frontmatter = { ...common, source_kind: record.sourceKind, canonical_id: record.canonicalId, url: record.url, asset: record.asset ? wikilink(record.asset) : undefined, content_fingerprint: record.contentFingerprint, doi: record.doi, arxiv_id: record.arxivId, zotero_key: record.zoteroKey, authors: record.authors, published: record.published, publication: record.publication };
       body = "# Research source\n\n## Notes";
       break;
     case "evidence":
@@ -47,5 +49,10 @@ export function renderResearchRecord(record: ResearchRecord): string {
       break;
   }
 
-  return `${researchFrontmatter(frontmatter, record.type === "evidence" ? record.locatorValue : undefined)}\n\n${body}\n`;
+  const exactStrings = record.type === "evidence"
+    ? { locator_value: record.locatorValue }
+    : record.type === "research-source"
+      ? { arxiv_id: record.arxivId }
+      : {};
+  return `${researchFrontmatter(frontmatter, exactStrings)}\n\n${body}\n`;
 }

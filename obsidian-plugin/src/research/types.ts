@@ -35,6 +35,12 @@ export interface ResearchSourceRecord extends BaseResearchRecord {
   url?: string;
   asset?: string;
   contentFingerprint?: string;
+  doi?: string;
+  arxivId?: string;
+  zoteroKey?: string;
+  authors?: string[];
+  published?: string;
+  publication?: string;
 }
 
 export type SourceLocatorKind = "page" | "section" | "paragraph" | "timestamp" | "quote";
