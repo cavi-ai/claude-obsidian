@@ -18,6 +18,7 @@ import { isReviewState } from "./types";
 
 export interface ResearchRepositoryIO {
   listMarkdown(): Promise<ResearchNoteInput[]>;
+  listProjectMarkdown?(projectPath: string): Promise<ResearchNoteInput[]>;
   createWithParents(path: string, content: string): Promise<void>;
   updateFrontmatter(path: string, mutator: (frontmatter: Record<string, unknown>) => void): Promise<void>;
 }
@@ -116,7 +117,8 @@ export class ResearchRepository {
 
   async loadProject(projectPath: string): Promise<ProjectSnapshot> {
     projectFolder(projectPath);
-    const parsed = (await this.io.listMarkdown()).map(parseResearchRecord);
+    const notes = this.io.listProjectMarkdown ? await this.io.listProjectMarkdown(projectPath) : await this.io.listMarkdown();
+    const parsed = notes.map(parseResearchRecord);
     return buildProjectSnapshot(projectPath, parsed.flatMap(({ record }) => record ? [record] : []), parsed.flatMap(({ issues }) => issues));
   }
 

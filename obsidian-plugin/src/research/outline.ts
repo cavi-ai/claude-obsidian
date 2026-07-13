@@ -1,5 +1,6 @@
-import type { ProjectClaim, ProjectSnapshot } from "./graph";
+import { isStaleEvidence, isTrustedEvidence, type ProjectClaim, type ProjectSnapshot } from "./graph";
 import type { EvidenceRecord, EvidenceRelation } from "./types";
+import { buildFrontmatter } from "../indexing/frontmatter";
 
 function evidence(snapshot: ProjectSnapshot, path: string): EvidenceRecord {
   const item = snapshot.evidence.find((candidate) => candidate.path === path);
@@ -7,9 +8,14 @@ function evidence(snapshot: ProjectSnapshot, path: string): EvidenceRecord {
   return item;
 }
 
-function link(snapshot: ProjectSnapshot, path: string): string {
+function matrixEvidence(snapshot: ProjectSnapshot, relation: EvidenceRelation, path: string): string {
   const item = evidence(snapshot, path);
-  return `[[${item.path}|${item.title}]]`;
+  const source = snapshot.sources.find((candidate) => candidate.path === item.source);
+  if (!source) throw new Error(`Source is not part of project: ${item.source}`);
+  const trust = isTrustedEvidence(item, source) ? "trusted" : isStaleEvidence(item, source) ? "stale; untrusted" : "untrusted";
+  const locator = item.locatorKind && item.locatorValue ? `${item.locatorKind} ${item.locatorValue}` : "locator missing";
+  const fingerprint = item.sourceFingerprint ?? "fingerprint missing";
+  return `${relation}: [[${item.path}|${item.title}]] (${item.reviewState}; ${trust}; source [[${source.path}|${source.title}]]; ${locator}; ${fingerprint})`;
 }
 
 function renderEvidence(snapshot: ProjectSnapshot, relation: EvidenceRelation, path: string): string[] {
@@ -35,9 +41,9 @@ function claim(snapshot: ProjectSnapshot, path: string): ProjectClaim {
 export function renderSynthesisMatrix(snapshot: ProjectSnapshot): string {
   const rows = snapshot.claims.map((item) => [
     `[[${item.path}|${item.title}]]`,
-    item.supporting.map((path) => link(snapshot, path)).join("<br>") || "—",
-    item.challenging.map((path) => link(snapshot, path)).join("<br>") || "—",
-    item.contextual.map((path) => link(snapshot, path)).join("<br>") || "—",
+    item.supporting.map((path) => matrixEvidence(snapshot, "supports", path)).join("<br>") || "—",
+    item.challenging.map((path) => matrixEvidence(snapshot, "challenges", path)).join("<br>") || "—",
+    item.contextual.map((path) => matrixEvidence(snapshot, "contextualizes", path)).join("<br>") || "—",
   ].map((cell) => cell.replaceAll("|", "\\|")).join(" | "));
   return ["| Claim | Supports | Challenges | Contextualizes |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row} |`)].join("\n");
 }
@@ -55,14 +61,6 @@ export function renderEvidenceOutline(snapshot: ProjectSnapshot, claimPaths: str
     "", "### Challenging evidence", "", ...item.challenging.flatMap((path) => renderEvidence(snapshot, "challenges", path)),
     "", "### Contextual evidence", "", ...item.contextual.flatMap((path) => renderEvidence(snapshot, "contextualizes", path)), "",
   ]);
-  return [
-    "---",
-    `title: ${JSON.stringify(`${snapshot.project.title} — Evidence-backed outline`)}`,
-    "type: research-document",
-    `project: "[[${snapshot.project.path}]]"`,
-    "document_kind: outline",
-    "claims:",
-    ...claims.map(({ path }) => `  - "[[${path}]]"`),
-    "---", "", `# ${snapshot.project.title} — Evidence-backed outline`, "", ...sections,
-  ].join("\n");
+  const frontmatter = buildFrontmatter({ title: `${snapshot.project.title} — Evidence-backed outline`, type: "research-document", project: `[[${snapshot.project.path}]]`, document_kind: "outline", claims: claims.map(({ path }) => `[[${path}]]`) });
+  return [frontmatter, "", `# ${snapshot.project.title} — Evidence-backed outline`, "", ...sections].join("\n");
 }

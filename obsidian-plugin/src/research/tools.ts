@@ -30,15 +30,25 @@ export class ResearchTools {
     switch (name) {
       case "research_project_read": {
         const snapshot = await this.repository.loadProject(project);
-        return JSON.stringify({ project: { path: snapshot.project.path, title: snapshot.project.title, question: snapshot.project.question, stage: snapshot.project.stage, status: snapshot.project.status }, sources: snapshot.sources, evidence: snapshot.evidence, claims: snapshot.claims, questions: snapshot.questions, documents: snapshot.documents, issues: snapshot.issues, health: snapshot.health });
+        return JSON.stringify({
+          project: { path: compactString(snapshot.project.path), title: compactString(snapshot.project.title), question: compactString(snapshot.project.question, 500), stage: snapshot.project.stage, status: snapshot.project.status },
+          health: snapshot.health,
+          counts: { sources: snapshot.sources.length, evidence: snapshot.evidence.length, claims: snapshot.claims.length, questions: snapshot.questions.length, documents: snapshot.documents.length, issues: snapshot.issues.length },
+          paths: {
+            sources: pathSummary(snapshot.sources), evidence: pathSummary(snapshot.evidence), claims: pathSummary(snapshot.claims),
+            questions: pathSummary(snapshot.questions), documents: pathSummary(snapshot.documents), issues: pathSummary(snapshot.issues),
+          },
+        });
       }
-      case "research_audit": return JSON.stringify(auditProject(await this.repository.loadProject(project)));
+      case "research_audit": return JSON.stringify(auditProject(await this.repository.loadProject(project)).map((finding) => ({ rule: finding.code, ...finding })));
       case "research_evidence_create": {
-        const excerpt = requiredString(args.excerpt);
-        if (!excerpt.trim()) throw new Error("Evidence excerpt must not be empty");
+        if (typeof args.excerpt !== "string" || !args.excerpt.trim()) throw new Error("Evidence excerpt must not be empty");
+        const excerpt = args.excerpt;
         const reviewState = args.review_state === undefined ? "proposed" : requiredString(args.review_state);
         if (!isReviewState(reviewState)) throw new Error(`Unsupported review state: ${reviewState}`);
-        const locatorKind = optionalString(args.locator_kind) as SourceLocatorKind | undefined;
+        const locatorKindValue = optionalString(args.locator_kind);
+        if (locatorKindValue && !["page", "section", "paragraph", "timestamp", "quote"].includes(locatorKindValue)) throw new Error(`Unsupported locator kind: ${locatorKindValue}`);
+        const locatorKind = locatorKindValue as SourceLocatorKind | undefined;
         const locatorValue = optionalString(args.locator_value);
         const interpretation = optionalString(args.interpretation);
         if (reviewState === "reviewed" && (!locatorKind || !locatorValue?.trim())) throw new Error("Reviewed evidence requires an exact locator kind and value");
@@ -48,7 +58,9 @@ export class ResearchTools {
       case "research_claim_create": {
         const reviewState = args.review_state === undefined ? "proposed" : requiredString(args.review_state);
         if (!isReviewState(reviewState)) throw new Error(`Unsupported review state: ${reviewState}`);
-        const record = await this.repository.createClaim({ project, title: requiredString(args.title), proposition: requiredString(args.proposition), reviewState, confidence: (optionalString(args.confidence) ?? "moderate") as "low" | "moderate" | "high", supports: strings(args.supports), challenges: strings(args.challenges), contextualizes: strings(args.contextualizes), limitations: strings(args.limitations) });
+        const confidence = optionalString(args.confidence) ?? "moderate";
+        if (!["low", "moderate", "high"].includes(confidence)) throw new Error(`Unsupported confidence: ${confidence}`);
+        const record = await this.repository.createClaim({ project, title: requiredString(args.title), proposition: requiredString(args.proposition), reviewState, confidence: confidence as "low" | "moderate" | "high", supports: stringArray(args.supports, "supports"), challenges: stringArray(args.challenges, "challenges"), contextualizes: stringArray(args.contextualizes, "contextualizes"), limitations: stringArray(args.limitations, "limitations") });
         return JSON.stringify({ path: record.path });
       }
       case "research_claim_link": {
@@ -57,12 +69,21 @@ export class ResearchTools {
         await this.repository.linkClaimEvidence(project, requiredString(args.claim), requiredString(args.evidence), relation);
         return JSON.stringify({ linked: true });
       }
-      case "research_outline_create": return JSON.stringify(await this.repository.createOutline(project, strings(args.claims)));
+      case "research_outline_create": return JSON.stringify(await this.repository.createOutline(project, stringArray(args.claims, "claims", true)));
       default: throw new Error(`Unknown research tool: ${name}`);
     }
   }
 }
 
-function requiredString(value: unknown): string { if (typeof value !== "string") throw new Error("Expected a string argument"); return value; }
-function optionalString(value: unknown): string | undefined { return typeof value === "string" && value.length > 0 ? value : undefined; }
-function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
+function requiredString(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Expected a non-empty string argument"); return value; }
+function optionalString(value: unknown): string | undefined { if (value === undefined) return undefined; return requiredString(value); }
+function stringArray(value: unknown, name: string, required = false): string[] {
+  if (value === undefined && !required) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new Error(`${name} must be an array of non-empty strings`);
+  return value.map((item) => String(item));
+}
+function pathSummary(records: readonly { path: string }[]): { items: string[]; omitted: number } {
+  const items = records.slice(0, 8).map(({ path }) => compactString(path));
+  return { items, omitted: records.length - items.length };
+}
+function compactString(value: string, max = 120): string { return value.length <= max ? value : `${value.slice(0, max - 1)}…`; }

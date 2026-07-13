@@ -3,7 +3,7 @@ import { ResearchTools } from "../../src/research/tools";
 
 function repository() {
   return {
-    loadProject: vi.fn().mockResolvedValue({ project: { path: "P/Project.md", title: "P" }, sources: [], evidence: [], claims: [], questions: [], documents: [], issues: [], health: { claimCount: 0, trustedSupportCount: 0, supportedClaimCount: 0 } }),
+    loadProject: vi.fn().mockResolvedValue({ project: { path: "P/Project.md", title: "P", question: "Why?", stage: "frame", status: "active" }, sources: [], evidence: [], claims: [], questions: [], documents: [], issues: [], health: { claimCount: 0, trustedSupportCount: 0, supportedClaimCount: 0 } }),
     createEvidence: vi.fn().mockResolvedValue({ path: "P/Evidence/E.md" }),
     createClaim: vi.fn().mockResolvedValue({ path: "P/Claims/C.md" }),
     linkClaimEvidence: vi.fn().mockResolvedValue(undefined),
@@ -27,6 +27,23 @@ describe("ResearchTools", () => {
     expect(repo.createEvidence).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["research_evidence_create", { project: " ", source: "S", title: "E", excerpt: "x" }],
+    ["research_evidence_create", { project: "P", source: "S", title: "E", excerpt: "x", locator_kind: "line" }],
+    ["research_claim_create", { project: "P", title: "C", proposition: "x", confidence: "certain" }],
+    ["research_claim_create", { project: "P", title: "C", proposition: "x", supports: "E" }],
+    ["research_claim_create", { project: "P", title: "C", proposition: "x", supports: [" "] }],
+    ["research_claim_link", { project: "P", claim: "C", evidence: "E", relation: "mentions" }],
+    ["research_outline_create", { project: "P", claims: ["C", 4] }],
+  ])("rejects malformed %s input before any repository mutation", async (name, args) => {
+    const repo = repository();
+    await expect(new ResearchTools(repo as never).call(name, args)).rejects.toThrow();
+    expect(repo.createEvidence).not.toHaveBeenCalled();
+    expect(repo.createClaim).not.toHaveBeenCalled();
+    expect(repo.linkClaimEvidence).not.toHaveBeenCalled();
+    expect(repo.createOutline).not.toHaveBeenCalled();
+  });
+
   it("delegates evidence creation and lets the repository enforce project source membership", async () => {
     const repo = repository();
     await new ResearchTools(repo as never).call("research_evidence_create", { project: "P/Project.md", source: "Other/S.md", title: "E", excerpt: "x" });
@@ -35,7 +52,27 @@ describe("ResearchTools", () => {
 
   it("returns compact project and audit JSON", async () => {
     const tools = new ResearchTools(repository() as never);
-    expect(JSON.parse(await tools.call("research_project_read", { project: "P/Project.md" }))).toEqual(expect.objectContaining({ project: { path: "P/Project.md", title: "P" }, health: expect.any(Object) }));
+    expect(JSON.parse(await tools.call("research_project_read", { project: "P/Project.md" }))).toEqual(expect.objectContaining({ project: expect.objectContaining({ path: "P/Project.md", title: "P" }), health: expect.any(Object) }));
     expect(JSON.parse(await tools.call("research_audit", { project: "P/Project.md" }))).toEqual([]);
+  });
+
+  it("bounds large project reads below the agent result limit while retaining counts and paths", async () => {
+    const repo = repository();
+    const paths = Array.from({ length: 2_000 }, (_, index) => ({ path: `P/Evidence/Evidence-${index.toString().padStart(4, "0")}.md`, title: `E ${index}` }));
+    repo.loadProject.mockResolvedValue({ ...(await repo.loadProject()), evidence: paths, sources: paths, claims: paths, questions: paths, documents: paths });
+    const output = await new ResearchTools(repo as never).call("research_project_read", { project: "P/Project.md" });
+    const parsed = JSON.parse(output);
+    expect(output.length).toBeLessThan(8000);
+    expect(parsed.counts.evidence).toBe(2000);
+    expect(parsed.paths.evidence.items[0]).toContain("P/Evidence/");
+    expect(parsed.paths.evidence.omitted).toBeGreaterThan(0);
+  });
+
+  it("returns audit findings with stable rule and exact public shape", async () => {
+    const repo = repository();
+    repo.loadProject.mockResolvedValue({ ...(await repo.loadProject()), claims: [{ path: "P/C.md", trustedSupportCount: 0, supporting: [], challenging: [], contextual: [] }] });
+    const findings = JSON.parse(await new ResearchTools(repo as never).call("research_audit", { project: "P/Project.md" }));
+    expect(Object.keys(findings[0])).toEqual(["rule", "code", "severity", "path", "explanation", "repair"]);
+    expect(findings[0].rule).toBe("unsupported-claim");
   });
 });

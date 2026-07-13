@@ -11,6 +11,7 @@ import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCan
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 import { ResearchRepository } from "../research/repository";
 import { RESEARCH_WRITE_TOOLS, ResearchTools } from "../research/tools";
+import { RESEARCH_TYPE_NAMES } from "../research/types";
 
 /**
  * Normalize a caller-supplied vault path and reject anything that escapes the
@@ -342,13 +343,23 @@ export class VaultTools {
   }
 
   private researchRepository(): ResearchRepository {
+    const readNotes = async (files: TFile[]) => Promise.all(files.map(async (file) => {
+      const content = await this.app.vault.cachedRead(file);
+      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      return { path: file.path, ...(frontmatter ? { frontmatter } : {}), body };
+    }));
     return new ResearchRepository({
-      listMarkdown: async () => Promise.all(this.app.vault.getMarkdownFiles().map(async (file) => {
-        const content = await this.app.vault.cachedRead(file);
-        const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
-        const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-        return { path: file.path, ...(frontmatter ? { frontmatter } : {}), body };
-      })),
+      listMarkdown: async () => readNotes(this.app.vault.getMarkdownFiles()),
+      listProjectMarkdown: async (projectPath) => {
+        const candidates = this.app.vault.getMarkdownFiles().filter((file) => {
+          const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+          const type = frontmatter?.type;
+          const project = typeof frontmatter?.project === "string" ? frontmatter.project.trim().replace(/^\[\[([^\]|]+)(?:\|[^\]]+)?\]\]$/, "$1") : undefined;
+          return (file.path === projectPath || project === projectPath) && typeof type === "string" && (RESEARCH_TYPE_NAMES as readonly string[]).includes(type);
+        });
+        return readNotes(candidates);
+      },
       createWithParents: async (path, content) => {
         const safe = assertVaultPath(path);
         if (this.app.vault.getAbstractFileByPath(safe)) throw new Error(`File already exists: ${safe}`);

@@ -1,5 +1,5 @@
 import { parse } from "yaml";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ResearchRepository, type ImportSourceInput, type ResearchRepositoryIO } from "../../src/research/repository";
 
 class MemoryIO implements ResearchRepositoryIO {
@@ -12,6 +12,12 @@ class MemoryIO implements ResearchRepositoryIO {
       const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
       return { path, frontmatter: match ? parse(match[1] ?? "") : undefined, body: match?.[2] ?? content };
     });
+  }
+  async listProjectMarkdown(projectPath: string) {
+    return [...this.files].filter(([path]) => path.endsWith(".md")).map(([path, content]) => {
+      const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+      return { path, frontmatter: match ? parse(match[1] ?? "") : undefined, body: match?.[2] ?? content };
+    }).filter(({ path, frontmatter }) => path === projectPath || String(frontmatter?.project ?? "").replace(/^\[\[|\]\]$/g, "") === projectPath);
   }
   async createWithParents(path: string, content: string) {
     if (this.failNextCreate) {
@@ -42,6 +48,15 @@ class MemoryIO implements ResearchRepositoryIO {
 const projectInput = { title: "AI Reviews", question: "How reliable are automated reviews?", folder: "Research/AI Reviews" };
 
 describe("ResearchRepository", () => {
+  it("uses project-scoped record listing when the IO provides it", async () => {
+    const io = new MemoryIO();
+    const project = await new ResearchRepository(io).createProject(projectInput);
+    const scoped = vi.spyOn(io, "listProjectMarkdown");
+    const broad = vi.spyOn(io, "listMarkdown");
+    await new ResearchRepository(io).loadProject(project.path);
+    expect(scoped).toHaveBeenCalledWith(project.path);
+    expect(broad).not.toHaveBeenCalled();
+  });
   it("creates a canonical vault-native project without placeholder notes", async () => {
     const io = new MemoryIO();
     const created = await new ResearchRepository(io).createProject(projectInput);

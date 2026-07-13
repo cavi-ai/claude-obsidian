@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { App } from "obsidian";
 import { parse as parseYaml } from "yaml";
 import { VaultTools, assertVaultPath } from "../src/mcp/vaultTools";
@@ -38,6 +38,18 @@ describe("research tools", () => {
 
   it("rejects research mutations when MCP writes are disabled", async () => {
     await expect(tools(false).vt.call("research_claim_create", { project: "P/Project.md", title: "C", proposition: "x" })).rejects.toThrow(/disabled/);
+  });
+
+  it("filters research candidates by metadata before reading note bodies", async () => {
+    const app = new App();
+    const project = "Research/P/Project.md";
+    app.vault.seed(project, "# project", { frontmatter: { title: "P", type: "research-project", project: `[[${project}]]`, question: "Why?", stage: "frame", status: "active" } });
+    app.vault.seed("Research/P/Sources/S.md", "# source", { frontmatter: { title: "S", type: "research-source", project: `[[${project}]]`, source_kind: "web" } });
+    for (let index = 0; index < 100; index += 1) app.vault.seed(`Notes/N${index}.md`, "unrelated body", { frontmatter: { type: "note" } });
+    const read = vi.spyOn(app.vault, "cachedRead");
+    const output = await new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude" }).call("research_project_read", { project });
+    expect(JSON.parse(output).counts.sources).toBe(1);
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });
 
