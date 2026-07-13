@@ -155,8 +155,14 @@ describe("ResearchRepository", () => {
     const original = io.files.get(evidence.path)!;
     const customized = original.replace('review_state: "proposed"', '# keep this comment\ncustom_field: "verbatim"\nreview_state: "proposed"').replace("> Exact quote.", "> Exact quote.\n\nUser-authored body.");
     io.files.set(evidence.path, customized);
-    await repo.setReviewState(evidence.path, "reviewed");
+    const reviewed = await repo.reviewEvidence(evidence.path, "reviewed");
+    expect(reviewed.path).toBe(evidence.path);
+    expect(reviewed.reviewState).toBe("reviewed");
     expect(io.files.get(evidence.path)).toBe(customized.replace('review_state: "proposed"', "review_state: reviewed"));
+
+    await expect(repo.reviewEvidence(evidence.path, "proposed" as never)).rejects.toThrow(/review target/i);
+    await expect(repo.reviewEvidence("Research/Missing/Evidence.md", "reviewed")).rejects.toThrow(/not found/i);
+    await expect(repo.reviewEvidence(project.path, "reviewed")).rejects.toThrow(/not evidence/i);
   });
 
   it("rejects claim evidence relations outside the loaded project", async () => {

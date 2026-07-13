@@ -14,7 +14,6 @@ import type {
   SourceLocatorKind,
   EvidenceRelation,
 } from "./types";
-import { isReviewState } from "./types";
 
 export interface ResearchRepositoryIO {
   listMarkdown(): Promise<ResearchNoteInput[]>;
@@ -268,14 +267,15 @@ export class ResearchRepository {
     }
   }
 
-  async setReviewState(path: string, state: ReviewState): Promise<void> {
+  async reviewEvidence(path: string, state: "reviewed" | "rejected"): Promise<EvidenceRecord> {
     safePath(path);
-    if (!isReviewState(state)) throw new Error(`Invalid review state: ${String(state)}`);
+    if (state !== "reviewed" && state !== "rejected") throw new Error(`Unsupported evidence review target: ${String(state)}`);
     const note = (await this.io.listMarkdown()).find((candidate) => candidate.path === path);
-    if (!note) throw new Error(`Research record not found: ${path}`);
+    if (!note) throw new Error(`Research evidence not found: ${path}`);
     const result = parseResearchRecord(note);
-    if (!result.record || !("reviewState" in result.record)) throw new Error(`Record has no review state: ${path}`);
+    if (!result.record || result.record.type !== "evidence") throw new Error(`Research record is not evidence: ${path}`);
     await this.io.updateFrontmatter(path, (frontmatter) => { frontmatter.review_state = state; });
+    return { ...result.record, reviewState: state };
   }
 
   private async createTyped<T extends ResearchRecord>(record: T): Promise<T> {

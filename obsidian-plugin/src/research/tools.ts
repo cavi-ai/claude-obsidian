@@ -3,9 +3,14 @@ import { auditProject } from "./audit";
 import type { ResearchRepository } from "./repository";
 import { isReviewState, type EvidenceRelation, type SourceLocatorKind } from "./types";
 
-export const RESEARCH_WRITE_TOOLS = new Set(["research_project_create", "research_source_import", "research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]);
+export const RESEARCH_WRITE_TOOLS = new Set([
+  "research_project_create", "research_source_import",
+  "research_evidence_capture", "research_evidence_review",
+  "research_claim_create", "research_claim_link", "research_outline_generate",
+  "research_evidence_create", "research_outline_create",
+]);
 
-type Repository = Pick<ResearchRepository, "loadProject" | "createProject" | "importSource" | "createEvidence" | "createClaim" | "linkClaimEvidence" | "createOutline">;
+type Repository = Pick<ResearchRepository, "loadProject" | "createProject" | "importSource" | "createEvidence" | "reviewEvidence" | "createClaim" | "linkClaimEvidence" | "createOutline">;
 
 const object = (properties: Record<string, unknown>, required: string[]): McpToolDef["inputSchema"] => ({ type: "object", properties, required });
 const text = (description: string) => ({ type: "string", description });
@@ -19,11 +24,12 @@ export class ResearchTools {
       { name: "research_project_create", description: "Create a canonical vault-native research project after user confirmation.", inputSchema: object({ title: text("Project title."), question: text("Research question."), folder: text("Vault-relative project folder."), audience: text("Optional audience.") }, ["title", "question", "folder"]) },
       { name: "research_source_import", description: "Import a canonical text capture or metadata-only source into a research project. Binary sources require an existing vault asset and an adapter-supported path.", inputSchema: object({ ...project, title: text("Source title."), source_kind: text("pdf, web, doi, arxiv, zotero, or vault."), canonical_id: text("Optional stable identifier."), url: text("Optional source URL."), asset: text("Optional existing vault asset path."), captured_text: text("Optional canonical captured text."), doi: text("Optional DOI."), arxiv_id: text("Optional arXiv id."), zotero_key: text("Optional Zotero key."), authors: { type: "array", items: { type: "string" } }, published: text("Optional publication date."), publication: text("Optional publication title.") }, ["project", "title", "source_kind"]) },
       { name: "research_project_read", description: "Read a compact research project snapshot with sources, evidence, claims, issues, and health.", inputSchema: object(project, ["project"]) },
-      { name: "research_evidence_create", description: "Create a provenance-linked evidence card inside a research project.", inputSchema: object({ ...project, source: text("Source record path in this project."), title: text("Evidence title."), excerpt: text("Exact source excerpt."), locator_kind: text("page, section, paragraph, timestamp, or quote."), locator_value: text("Exact locator text."), interpretation: text("Optional interpretation."), review_state: text("proposed, reviewed, or rejected.") }, ["project", "source", "title", "excerpt"]) },
+      { name: "research_evidence_capture", description: "Create a provenance-linked evidence card inside a research project.", inputSchema: object({ ...project, source: text("Source record path in this project."), title: text("Evidence title."), excerpt: text("Exact source excerpt."), locator_kind: text("page, section, paragraph, timestamp, or quote."), locator_value: text("Exact locator text."), interpretation: text("Optional interpretation."), review_state: text("proposed, reviewed, or rejected.") }, ["project", "source", "title", "excerpt"]) },
+      { name: "research_evidence_review", description: "Mark an evidence card as reviewed or rejected.", inputSchema: object({ evidence: text("Evidence record path."), review_state: text("reviewed or rejected.") }, ["evidence", "review_state"]) },
       { name: "research_claim_create", description: "Create a claim with separate supporting, challenging, and contextual evidence relations.", inputSchema: object({ ...project, title: text("Claim title."), proposition: text("Claim proposition."), confidence: text("low, moderate, or high."), review_state: text("proposed, reviewed, or rejected."), supports: { type: "array", items: { type: "string" } }, challenges: { type: "array", items: { type: "string" } }, contextualizes: { type: "array", items: { type: "string" } }, limitations: { type: "array", items: { type: "string" } } }, ["project", "title", "proposition"]) },
       { name: "research_claim_link", description: "Link evidence to a claim as supporting, challenging, or contextualizing.", inputSchema: object({ ...project, claim: text("Claim path."), evidence: text("Evidence path."), relation: text("supports, challenges, or contextualizes.") }, ["project", "claim", "evidence", "relation"]) },
       { name: "research_audit", description: "Audit a research project and return actionable JSON findings.", inputSchema: object(project, ["project"]) },
-      { name: "research_outline_create", description: "Create an evidence-backed outline preserving supporting, challenging, and contextual evidence provenance.", inputSchema: object({ ...project, claims: { type: "array", items: { type: "string" } } }, ["project", "claims"]) },
+      { name: "research_outline_generate", description: "Create an evidence-backed outline preserving supporting, challenging, and contextual evidence provenance.", inputSchema: object({ ...project, claims: { type: "array", items: { type: "string" } } }, ["project", "claims"]) },
     ];
   }
 
@@ -62,6 +68,7 @@ export class ResearchTools {
         });
       }
       case "research_audit": return JSON.stringify(auditProject(await this.repository.loadProject(requiredString(args.project))).map((finding) => ({ rule: finding.code, ...finding })));
+      case "research_evidence_capture":
       case "research_evidence_create": {
         const project = requiredString(args.project);
         if (typeof args.excerpt !== "string" || !args.excerpt.trim()) throw new Error("Evidence excerpt must not be empty");
@@ -76,6 +83,12 @@ export class ResearchTools {
         if (reviewState === "reviewed" && (!locatorKind || !locatorValue?.trim())) throw new Error("Reviewed evidence requires an exact locator kind and value");
         const record = await this.repository.createEvidence({ project, source: requiredString(args.source), title: requiredString(args.title), excerpt, reviewState, ...(locatorKind ? { locatorKind } : {}), ...(locatorValue ? { locatorValue } : {}), ...(interpretation ? { interpretation } : {}) });
         return JSON.stringify({ path: record.path });
+      }
+      case "research_evidence_review": {
+        const state = requiredString(args.review_state);
+        if (state !== "reviewed" && state !== "rejected") throw new Error(`Unsupported evidence review state: ${state}`);
+        const record = await this.repository.reviewEvidence(requiredString(args.evidence), state);
+        return JSON.stringify({ path: record.path, review_state: record.reviewState });
       }
       case "research_claim_create": {
         const project = requiredString(args.project);
@@ -93,6 +106,7 @@ export class ResearchTools {
         await this.repository.linkClaimEvidence(project, requiredString(args.claim), requiredString(args.evidence), relation);
         return JSON.stringify({ linked: true });
       }
+      case "research_outline_generate":
       case "research_outline_create": return JSON.stringify(await this.repository.createOutline(requiredString(args.project), stringArray(args.claims, "claims", true)));
       default: throw new Error(`Unknown research tool: ${name}`);
     }

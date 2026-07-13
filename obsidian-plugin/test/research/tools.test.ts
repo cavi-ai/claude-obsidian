@@ -5,6 +5,7 @@ function repository() {
   return {
     loadProject: vi.fn().mockResolvedValue({ project: { path: "P/Project.md", title: "P", question: "Why?", stage: "frame", status: "active" }, sources: [], evidence: [], claims: [], questions: [], documents: [], issues: [], health: { claimCount: 0, trustedSupportCount: 0, supportedClaimCount: 0 } }),
     createEvidence: vi.fn().mockResolvedValue({ path: "P/Evidence/E.md" }),
+    reviewEvidence: vi.fn(),
     createClaim: vi.fn().mockResolvedValue({ path: "P/Claims/C.md" }),
     linkClaimEvidence: vi.fn().mockResolvedValue(undefined),
     createOutline: vi.fn().mockResolvedValue({ path: "P/Documents/Outline.md" }),
@@ -16,7 +17,27 @@ function repository() {
 describe("ResearchTools", () => {
   it("defines compact read/audit tools and write-gated research mutations", () => {
     const names = new ResearchTools(repository() as never).definitions().map(({ name }) => name);
-    expect(names).toEqual(expect.arrayContaining(["research_project_create", "research_source_import", "research_project_read", "research_evidence_create", "research_claim_create", "research_claim_link", "research_audit", "research_outline_create"]));
+    expect(names).toEqual(expect.arrayContaining(["research_project_create", "research_source_import", "research_project_read", "research_evidence_capture", "research_evidence_review", "research_claim_create", "research_claim_link", "research_audit", "research_outline_generate"]));
+    expect(names).not.toEqual(expect.arrayContaining(["research_evidence_create", "research_outline_create"]));
+  });
+
+  it.each(["research_evidence_capture", "research_evidence_create"])("dispatches %s to evidence creation", async (name) => {
+    const repo = repository();
+    await new ResearchTools(repo as never).call(name, { project: "P/Project.md", source: "P/Sources/S.md", title: "E", excerpt: "x" });
+    expect(repo.createEvidence).toHaveBeenCalledWith(expect.objectContaining({ reviewState: "proposed" }));
+  });
+
+  it.each(["research_outline_generate", "research_outline_create"])("dispatches %s to outline creation", async (name) => {
+    const repo = repository();
+    await new ResearchTools(repo as never).call(name, { project: "P/Project.md", claims: ["P/Claims/C.md"] });
+    expect(repo.createOutline).toHaveBeenCalledWith("P/Project.md", ["P/Claims/C.md"]);
+  });
+
+  it("reviews evidence through the dedicated operation", async () => {
+    const repo = repository();
+    repo.reviewEvidence.mockResolvedValue({ path: "P/Evidence/E.md", reviewState: "reviewed" });
+    expect(JSON.parse(await new ResearchTools(repo as never).call("research_evidence_review", { evidence: "P/Evidence/E.md", review_state: "reviewed" }))).toEqual({ path: "P/Evidence/E.md", review_state: "reviewed" });
+    await expect(new ResearchTools(repo as never).call("research_evidence_review", { evidence: "P/Evidence/E.md", review_state: "proposed" })).rejects.toThrow(/review state/i);
   });
 
   it("validates and delegates project creation and metadata/text source import", async () => {
