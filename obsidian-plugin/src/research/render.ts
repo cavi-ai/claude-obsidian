@@ -29,7 +29,9 @@ export function renderResearchRecord(record: ResearchRecord): string {
       break;
     case "research-source":
       frontmatter = { ...common, source_kind: record.sourceKind, canonical_id: record.canonicalId, url: record.url, asset: record.asset ? wikilink(record.asset) : undefined, content_fingerprint: record.contentFingerprint, doi: record.doi, arxiv_id: record.arxivId, zotero_key: record.zoteroKey, authors: record.authors, published: record.published, publication: record.publication };
-      body = "# Research source\n\n## Notes";
+      body = record.capturedContent === undefined
+        ? "# Research source\n\n## Notes"
+        : `# Research source\n\n## Captured content\n\n<!-- cavi:capture:start -->\n${record.capturedContent}\n<!-- cavi:capture:end -->\n\n## Notes`;
       break;
     case "evidence":
       frontmatter = { ...common, source: wikilink(record.source), source_fingerprint: record.sourceFingerprint, locator_kind: record.locatorKind, locator_value: record.locatorValue, review_state: record.reviewState, model: record.model };

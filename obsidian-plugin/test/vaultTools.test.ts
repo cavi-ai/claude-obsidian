@@ -149,8 +149,8 @@ describe("update_frontmatter", () => {
     const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude" });
     await vt.call("update_frontmatter", { path: "Notes/Tagged.md", tags: ["B", "a"] });
     const read = await vt.call("note_read", { path: "Notes/Tagged.md" });
-    expect(read).toContain("tags:\n  - a\n  - b\n");
-    expect(read).toContain("title: Tagged");
+    expect(read).toContain('tags:\n  - "a"\n  - "b"\n');
+    expect(read).toContain('title: "Tagged"');
     expect(read).toContain("# Tagged\nbody");
   });
 
@@ -252,8 +252,8 @@ describe("note_create with ontology", () => {
     });
     expect(msg).toContain("Created note:");
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
-    expect(read).toContain("type: person");
-    expect(read).toContain("role: engineer");
+    expect(read).toContain('type: "person"');
+    expect(read).toContain('role: "engineer"');
     expect(read).toContain('- "[[CAVI]]"'); // scalar relation wrapped to a list
   });
 
@@ -268,7 +268,7 @@ describe("note_create with ontology", () => {
     expect(msg).toContain("Conformance:");
     expect(msg).toContain("banana");
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
-    expect(read).toContain("type: person");
+    expect(read).toContain('type: "person"');
   });
 
   it("reports an unknown type and creates the note untyped", async () => {
@@ -290,11 +290,11 @@ describe("note_create with ontology", () => {
       properties: { tags: "foo", type: "other", role: "x" },
     });
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
-    expect(read).toContain("type: person");
-    expect(read).toContain("tags:\n  - claude");
+    expect(read).toContain('type: "person"');
+    expect(read).toContain('tags:\n  - "claude"');
     expect(read).not.toContain("foo");
     expect(read).not.toContain("other");
-    expect(read).toContain("role: x");
+    expect(read).toContain('role: "x"');
   });
 
   it("keeps legacy behavior when no ontology is wired", async () => {
@@ -310,8 +310,8 @@ describe("note_create with ontology", () => {
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
     expect(read).not.toContain("type:");
     expect(read).not.toContain("role:");
-    expect(read).toContain("title: Franco");
-    expect(read).toContain("source: claude-mcp");
-    expect(read).toContain("tags:\n  - claude");
+    expect(read).toContain('title: "Franco"');
+    expect(read).toContain('source: "claude-mcp"');
+    expect(read).toContain('tags:\n  - "claude"');
   });
 });

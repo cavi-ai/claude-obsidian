@@ -54,3 +54,40 @@ test vault/runtime.
   preserved and is not part of this task.
 - No release, tag, push, PR, dependency install, runtime service, or version
   change was performed.
+
+## Automated review follow-up
+
+All automated Task 8 findings were addressed in a follow-up hardening pass:
+
+- Captured Markdown/text now lives canonically between explicit markers in the
+  research-source note body. Every repository load derives the source's current
+  SHA-256 fingerprint from that persisted payload and discards the editable
+  frontmatter fingerprint as an authority. A fresh repository reconstruction
+  therefore observes source edits automatically, even if frontmatter is
+  spoofed back to the old fingerprint.
+- The Obsidian repository adapter now reads binary asset bytes. Binary captures
+  require an asset path, and the adapter's asset bytes—not caller-supplied bytes
+  or fingerprint metadata—drive reconstruction. If previously captured bytes
+  become unavailable, evidence holding the old fingerprint is stale rather than
+  trusted. Metadata-only sources remain unfingerprinted.
+- Evidence-backed outlines now emit exact excerpts only for reviewed,
+  locator-valid, non-stale evidence. Proposed, stale, missing-source, or
+  missing-locator evidence appears only in a separated `Excluded evidence`
+  summary without its excerpt.
+- `buildFrontmatter` now quotes every string, including list items. Regression
+  coverage includes hex, octal, infinity, NaN, boolean/null-like, numeric,
+  leading-zero, scientific-notation, and date-like strings, plus parsed tags
+  and wikilinks.
+
+The manual test-vault and screenshot blocker described above is unchanged. No
+safe configured vault/runtime was discovered, so no user vault or runtime
+service was touched.
+
+Fresh follow-up verification:
+
+- `pnpm run typecheck`: exit 0.
+- `pnpm run lint`: exit 0.
+- `pnpm test`: 82 files passed, 777 tests passed.
+- `pnpm run build`: exit 0; production bundle regenerated.
+- `git diff --check`: exit 0.
+- No manifest, package, or versions file changed.

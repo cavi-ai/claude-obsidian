@@ -78,8 +78,8 @@ describe("renderMemoryNote", () => {
   it("renders claude-memory frontmatter with the body", () => {
     const note = renderMemoryNote("## Projects\n- a fact", { updated: "2026-07-05", digestCount: 4, baseTags: ["claude", "memory"] });
     expect(note).toMatch(/^---\n/);
-    expect(note).toContain("type: claude-memory");
-    expect(note).toContain("updated: 2026-07-05");
+    expect(note).toContain('type: "claude-memory"');
+    expect(note).toContain('updated: "2026-07-05"');
     expect(note).toContain("digests: 4");
     expect(note).toContain(`# ${MEMORY_NOTE_BASENAME}`);
     expect(note).toContain("## Projects\n- a fact");

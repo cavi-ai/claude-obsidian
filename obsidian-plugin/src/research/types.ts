@@ -34,6 +34,8 @@ export interface ResearchSourceRecord extends BaseResearchRecord {
   canonicalId?: string;
   url?: string;
   asset?: string;
+  /** Canonical captured Markdown/text persisted in the source note body. */
+  capturedContent?: string;
   contentFingerprint?: string;
   doi?: string;
   arxivId?: string;

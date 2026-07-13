@@ -25,6 +25,8 @@ describe("buildProjectSnapshot", () => {
     expect(buildProjectSnapshot("Projects/P.md", stale, []).claims[0]?.trustedSupportCount).toBe(0);
     const legacy = records.map((record) => record.type === "evidence" ? { ...record, sourceFingerprint: undefined } : record) as ResearchRecord[];
     expect(buildProjectSnapshot("Projects/P.md", legacy, []).claims[0]?.trustedSupportCount).toBe(1);
+    const unavailableCapture = records.map((record) => record.type === "research-source" ? { ...record, contentFingerprint: undefined } : record) as ResearchRecord[];
+    expect(buildProjectSnapshot("Projects/P.md", unavailableCapture, []).claims[0]?.trustedSupportCount).toBe(0);
   });
 
   it("selects a canonical duplicate independent of input order and records an issue", () => {

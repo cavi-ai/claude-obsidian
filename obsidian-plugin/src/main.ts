@@ -1323,6 +1323,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (!(file instanceof TFile)) throw new Error(`Research note not found: ${path}`);
         await this.app.fileManager.processFrontMatter(file, mutator);
       },
+      readBinary: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (!(file instanceof TFile)) throw new Error(`Research source asset not found: ${path}`);
+        return new Uint8Array(await this.app.vault.readBinary(file));
+      },
     });
   }
 

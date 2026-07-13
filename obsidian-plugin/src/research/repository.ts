@@ -21,6 +21,7 @@ export interface ResearchRepositoryIO {
   listProjectMarkdown?(projectPath: string): Promise<ResearchNoteInput[]>;
   createWithParents(path: string, content: string): Promise<void>;
   updateFrontmatter(path: string, mutator: (frontmatter: Record<string, unknown>) => void): Promise<void>;
+  readBinary?(path: string): Promise<Uint8Array>;
 }
 
 export interface CreateProjectInput {
@@ -126,7 +127,18 @@ export class ResearchRepository {
       notes = await this.io.listMarkdown();
     }
     const parsed = notes.map(scoped ? parseResearchCandidate : parseResearchRecord);
-    return buildProjectSnapshot(projectPath, parsed.flatMap(({ record }) => record ? [record] : []), parsed.flatMap(({ issues }) => issues));
+    const records = await Promise.all(parsed.flatMap(({ record }) => record ? [record] : []).map(async (record) => {
+      if (record.type !== "research-source") return record;
+      let currentPayload: string | Uint8Array | undefined = record.capturedContent;
+      if (currentPayload === undefined && record.asset && this.io.readBinary) {
+        try { currentPayload = await this.io.readBinary(record.asset); } catch { currentPayload = undefined; }
+      }
+      const { contentFingerprint: _storedFingerprint, ...withoutStoredFingerprint } = record;
+      return currentPayload === undefined
+        ? withoutStoredFingerprint
+        : { ...withoutStoredFingerprint, contentFingerprint: await contentFingerprint(currentPayload) };
+    }));
+    return buildProjectSnapshot(projectPath, records, parsed.flatMap(({ issues }) => issues));
   }
 
   async createProject(input: CreateProjectInput): Promise<ResearchProjectRecord> {
@@ -150,7 +162,11 @@ export class ResearchRepository {
   async importSource(projectPath: string, input: ImportSourceInput): Promise<ImportSourceResult> {
     const project = await this.loadProject(projectPath);
     if (input.asset) safePath(input.asset);
-    const fingerprint = input.capturedContent === undefined ? undefined : await contentFingerprint(input.capturedContent);
+    if (input.capturedContent instanceof Uint8Array && !input.asset) throw new Error("Binary source capture requires an asset path");
+    const capturedPayload = input.capturedContent instanceof Uint8Array && input.asset && this.io.readBinary
+      ? await this.io.readBinary(input.asset)
+      : input.capturedContent;
+    const fingerprint = capturedPayload === undefined ? undefined : await contentFingerprint(capturedPayload);
     const candidate: ResearchSourceRecord = {
       path: recordPath(projectPath, "research-source", input.title),
       title: safeTitle(input.title),
@@ -160,6 +176,7 @@ export class ResearchRepository {
       ...(input.canonicalId ? { canonicalId: input.canonicalId } : {}),
       ...(input.url ? { url: input.url } : {}),
       ...(input.asset ? { asset: input.asset } : {}),
+      ...(typeof input.capturedContent === "string" ? { capturedContent: input.capturedContent } : {}),
       ...(fingerprint ? { contentFingerprint: fingerprint } : {}),
       ...(input.doi ? { doi: input.doi } : {}),
       ...(input.arxivId ? { arxivId: input.arxivId } : {}),

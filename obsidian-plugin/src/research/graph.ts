@@ -68,7 +68,7 @@ function hasLocator(evidence: EvidenceRecord): boolean {
 }
 
 export function isStaleEvidence(evidence: EvidenceRecord, source: ResearchSourceRecord | undefined): boolean {
-  return Boolean(source?.contentFingerprint && evidence.sourceFingerprint && source.contentFingerprint !== evidence.sourceFingerprint);
+  return Boolean(source && evidence.sourceFingerprint && source.contentFingerprint !== evidence.sourceFingerprint);
 }
 
 export function isTrustedEvidence(evidence: EvidenceRecord | undefined, source: ResearchSourceRecord | undefined): boolean {

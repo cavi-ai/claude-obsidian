@@ -22,7 +22,7 @@ const records: ResearchRecord[] = [
 describe("renderResearchRecord", () => {
   it("uses canonical locator keys and quoted evidence excerpts", () => {
     const rendered = renderResearchRecord(records[2]!);
-    expect(rendered).toContain("locator_kind: page");
+    expect(rendered).toContain('locator_kind: "page"');
     expect(rendered).toContain('source_fingerprint: "sha256:abc"');
     expect(rendered).toContain('locator_value: "14"');
     expect(rendered).not.toContain("locatorKind:");
@@ -45,7 +45,7 @@ describe("renderResearchRecord", () => {
   it("persists canonical scholarly field names as snake_case", () => {
     const rendered = renderResearchRecord(records[1]!);
     expect(rendered).toContain('arxiv_id: "2501.01234"');
-    expect(rendered).toContain("zotero_key: KEY1");
+    expect(rendered).toContain('zotero_key: "KEY1"');
     expect(rendered).not.toContain("arxivId:");
     expect(rendered).not.toContain("zoteroKey:");
   });

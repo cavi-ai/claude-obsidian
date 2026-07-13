@@ -32,6 +32,30 @@ function renderEvidence(snapshot: ProjectSnapshot, relation: EvidenceRelation, p
   ];
 }
 
+function exclusion(snapshot: ProjectSnapshot, relation: EvidenceRelation, path: string): string {
+  const item = evidence(snapshot, path);
+  const source = snapshot.sources.find((candidate) => candidate.path === item.source);
+  const reasons = [
+    item.reviewState !== "reviewed" ? item.reviewState : undefined,
+    !item.locatorKind || !item.locatorValue?.trim() ? "locator missing" : undefined,
+    !source ? "source missing" : undefined,
+    isStaleEvidence(item, source) ? "stale" : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+  return `- [[${item.path}|${item.title}]] (${relation}; excluded: ${reasons.join(", ") || "untrusted"})`;
+}
+
+function renderRelation(snapshot: ProjectSnapshot, relation: EvidenceRelation, paths: string[]): { included: string[]; excluded: string[] } {
+  const included: string[] = [];
+  const excluded: string[] = [];
+  for (const path of paths) {
+    const item = evidence(snapshot, path);
+    const source = snapshot.sources.find((candidate) => candidate.path === item.source);
+    if (isTrustedEvidence(item, source)) included.push(...renderEvidence(snapshot, relation, path));
+    else excluded.push(exclusion(snapshot, relation, path));
+  }
+  return { included, excluded };
+}
+
 function claim(snapshot: ProjectSnapshot, path: string): ProjectClaim {
   const item = snapshot.claims.find((candidate) => candidate.path === path);
   if (!item) throw new Error(`Claim is not part of project: ${path}`);
@@ -50,17 +74,24 @@ export function renderSynthesisMatrix(snapshot: ProjectSnapshot): string {
 
 export function renderEvidenceOutline(snapshot: ProjectSnapshot, claimPaths: string[]): string {
   const claims = claimPaths.map((path) => claim(snapshot, path));
-  const sections = claims.flatMap((item) => [
+  const sections = claims.flatMap((item) => {
+    const supporting = renderRelation(snapshot, "supports", item.supporting);
+    const challenging = renderRelation(snapshot, "challenges", item.challenging);
+    const contextual = renderRelation(snapshot, "contextualizes", item.contextual);
+    const excluded = [...supporting.excluded, ...challenging.excluded, ...contextual.excluded];
+    return [
     `## ${item.title}`,
     "",
     item.proposition,
     "",
     `Confidence: ${item.confidence}; review state: ${item.reviewState}.`,
     ...(item.limitations.length ? ["", `Limitations: ${item.limitations.join("; ")}`] : []),
-    "", "### Supporting evidence", "", ...item.supporting.flatMap((path) => renderEvidence(snapshot, "supports", path)),
-    "", "### Challenging evidence", "", ...item.challenging.flatMap((path) => renderEvidence(snapshot, "challenges", path)),
-    "", "### Contextual evidence", "", ...item.contextual.flatMap((path) => renderEvidence(snapshot, "contextualizes", path)), "",
-  ]);
+    "", "### Supporting evidence", "", ...supporting.included,
+    "", "### Challenging evidence", "", ...challenging.included,
+    "", "### Contextual evidence", "", ...contextual.included,
+    ...(excluded.length ? ["", "### Excluded evidence", "", ...excluded] : []), "",
+    ];
+  });
   const frontmatter = buildFrontmatter({ title: `${snapshot.project.title} — Evidence-backed outline`, type: "research-document", project: `[[${snapshot.project.path}]]`, document_kind: "outline", claims: claims.map(({ path }) => `[[${path}]]`) });
   return [frontmatter, "", `# ${snapshot.project.title} — Evidence-backed outline`, "", ...sections].join("\n");
 }

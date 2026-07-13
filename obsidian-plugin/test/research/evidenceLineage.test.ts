@@ -120,16 +120,29 @@ describe("Phase 1 evidence lineage", () => {
 
   it("invalidates reviewed evidence when the captured source fingerprint changes", async () => {
     const { io, repo, project, source, evidence, claim } = await seededLineage();
+    const originalFingerprint = evidence.sourceFingerprint;
+    const sourceNote = io.files.get(source.path);
+    if (!sourceNote) throw new Error("Expected persisted source note");
+    io.files.set(source.path, sourceNote.replace(
+      "Performance varied substantially across domains.",
+      "Performance was consistent across domains.",
+    ));
     await io.updateFrontmatter(source.path, (frontmatter) => {
-      frontmatter.content_fingerprint = `sha256:${"0".repeat(64)}`;
+      frontmatter.content_fingerprint = originalFingerprint;
     });
 
     const reconstructed = await repo.loadProject(project.path);
+    expect(reconstructed.sources[0]?.contentFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(reconstructed.sources[0]?.contentFingerprint).not.toBe(originalFingerprint);
     expect(reconstructed.claims.find(({ path }) => path === claim.path)?.trustedSupportCount).toBe(0);
     expect(auditProject(reconstructed)).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: "stale-evidence", path: evidence.path }),
       expect.objectContaining({ code: "unsupported-claim", path: claim.path }),
     ]));
+    const outline = await repo.createOutline(project.path, [claim.path]);
+    expect(outline.content).not.toContain("Performance varied substantially across domains.");
+    expect(outline.content).toContain("Excluded evidence");
+    expect(outline.content).toContain("stale");
   });
 
   it("does not count proposed evidence as trusted claim support", async () => {
@@ -141,5 +154,9 @@ describe("Phase 1 evidence lineage", () => {
       expect.objectContaining({ code: "unreviewed-evidence", path: evidence.path }),
       expect.objectContaining({ code: "unsupported-claim", path: claim.path }),
     ]));
+    const outline = await repo.createOutline(project.path, [claim.path]);
+    expect(outline.content).not.toContain("Performance varied substantially across domains.");
+    expect(outline.content).toContain("Excluded evidence");
+    expect(outline.content).toContain("proposed");
   });
 });

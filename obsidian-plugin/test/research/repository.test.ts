@@ -4,6 +4,7 @@ import { ResearchRepository, type ImportSourceInput, type ResearchRepositoryIO }
 
 class MemoryIO implements ResearchRepositoryIO {
   files = new Map<string, string>();
+  binaryFiles = new Map<string, Uint8Array>();
   folders = new Set<string>();
   failNextCreate = false;
 
@@ -28,6 +29,11 @@ class MemoryIO implements ResearchRepositoryIO {
     const parts = path.slice(0, path.lastIndexOf("/")).split("/");
     for (let index = 1; index <= parts.length; index += 1) this.folders.add(parts.slice(0, index).join("/"));
     this.files.set(path, content);
+  }
+  async readBinary(path: string) {
+    const bytes = this.binaryFiles.get(path);
+    if (!bytes) throw new Error(`Binary file not found: ${path}`);
+    return bytes;
   }
   async updateFrontmatter(path: string, mutator: (frontmatter: Record<string, unknown>) => void) {
     const content = this.files.get(path);
@@ -71,6 +77,7 @@ describe("ResearchRepository", () => {
     { title: "Scanned report", sourceKind: "pdf" as const, asset: "Attachments/report.pdf", capturedContent: new Uint8Array([1, 2, 3]) },
   ])("imports $sourceKind sources idempotently", async (sourceInput) => {
     const io = new MemoryIO();
+    if (sourceInput.asset && sourceInput.capturedContent instanceof Uint8Array) io.binaryFiles.set(sourceInput.asset, sourceInput.capturedContent);
     const repo = new ResearchRepository(io);
     const project = await repo.createProject(projectInput);
     const first = await repo.importSource(project.path, sourceInput);
@@ -125,6 +132,19 @@ describe("ResearchRepository", () => {
     expect(snapshot.sources.find(({ title }) => title === "Spoof attempt")?.contentFingerprint).toBeUndefined();
   });
 
+  it("requires a path for binary captures and derives reconstruction from asset bytes", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    await expect(repo.importSource(project.path, { title: "No asset", sourceKind: "pdf", capturedContent: new Uint8Array([9]) })).rejects.toThrow("requires an asset path");
+    io.binaryFiles.set("Files/Paper.pdf", new Uint8Array([1, 2, 3]));
+    const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "pdf", asset: "Files/Paper.pdf", capturedContent: new Uint8Array([9, 9, 9]) });
+    if (source.kind !== "created") throw new Error("expected created source");
+    const expected = await crypto.subtle.digest("SHA-256", new Uint8Array([1, 2, 3]));
+    const expectedFingerprint = `sha256:${[...new Uint8Array(expected)].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+    expect((await new ResearchRepository(io).loadProject(project.path)).sources[0]?.contentFingerprint).toBe(expectedFingerprint);
+  });
+
   it("preserves the note body, comments, and unknown frontmatter when changing review state", async () => {
     const io = new MemoryIO();
     const repo = new ResearchRepository(io);
@@ -133,10 +153,10 @@ describe("ResearchRepository", () => {
     if (source.kind !== "created") throw new Error("expected source");
     const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact quote." });
     const original = io.files.get(evidence.path)!;
-    const customized = original.replace("review_state: proposed", "# keep this comment\ncustom_field: \"verbatim\"\nreview_state: proposed").replace("> Exact quote.", "> Exact quote.\n\nUser-authored body.");
+    const customized = original.replace('review_state: "proposed"', '# keep this comment\ncustom_field: "verbatim"\nreview_state: "proposed"').replace("> Exact quote.", "> Exact quote.\n\nUser-authored body.");
     io.files.set(evidence.path, customized);
     await repo.setReviewState(evidence.path, "reviewed");
-    expect(io.files.get(evidence.path)).toBe(customized.replace("review_state: proposed", "review_state: reviewed"));
+    expect(io.files.get(evidence.path)).toBe(customized.replace('review_state: "proposed"', "review_state: reviewed"));
   });
 
   it("rejects claim evidence relations outside the loaded project", async () => {

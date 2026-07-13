@@ -107,6 +107,10 @@ function interpretationFromBody(body: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 
+function capturedContentFromBody(body: string): string | undefined {
+  return body.match(/<!-- cavi:capture:start -->\n([\s\S]*?)\n<!-- cavi:capture:end -->/)?.[1];
+}
+
 function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issues: ParseIssue[]): ParseResearchResult {
   const title = scalar(input, issues, "title", true);
   const project = wikilink(input, issues, "project", true);
@@ -129,13 +133,14 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
     const url = scalar(input, issues, "url");
     const asset = wikilink(input, issues, "asset");
     const contentFingerprint = scalar(input, issues, "content_fingerprint");
+    const capturedContent = capturedContentFromBody(input.body);
     const doi = scalar(input, issues, "doi");
     const arxivId = scalar(input, issues, "arxiv_id");
     const zoteroKey = scalar(input, issues, "zotero_key");
     const authors = stringList(input, issues, "authors");
     const published = scalar(input, issues, "published");
     const publication = scalar(input, issues, "publication");
-    return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(contentFingerprint ? { contentFingerprint } : {}), ...(doi ? { doi } : {}), ...(arxivId ? { arxivId } : {}), ...(zoteroKey ? { zoteroKey } : {}), ...(authors.length ? { authors } : {}), ...(published ? { published } : {}), ...(publication ? { publication } : {}) }, issues };
+    return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(capturedContent !== undefined ? { capturedContent } : {}), ...(contentFingerprint ? { contentFingerprint } : {}), ...(doi ? { doi } : {}), ...(arxivId ? { arxivId } : {}), ...(zoteroKey ? { zoteroKey } : {}), ...(authors.length ? { authors } : {}), ...(published ? { published } : {}), ...(publication ? { publication } : {}) }, issues };
   }
 
   if (type === "evidence") {
