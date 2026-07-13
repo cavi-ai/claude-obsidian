@@ -190,7 +190,7 @@ describe("ResearchRepository", () => {
     const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "pdf", capturedContent: "bytes" });
     if (source.kind !== "created") throw new Error("expected source");
     const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact quote.", locatorKind: "page", locatorValue: "0014", reviewState: "reviewed" });
-    const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result.", supports: [evidence.path] });
+    const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result.", supports: [evidence.path], reviewState: "reviewed" });
     const outline = await repo.createOutline(project.path, [claim.path]);
     expect(io.files.get(outline.path)).toBe(outline.content);
     expect(outline.content).toContain(`Source: [[${source.path}]]`);

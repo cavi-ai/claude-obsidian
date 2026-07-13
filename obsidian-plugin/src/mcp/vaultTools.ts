@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, getAllTags } from "obsidian";
+import { App, TFile, normalizePath, getAllTags, parseYaml } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
@@ -345,7 +345,9 @@ export class VaultTools {
     const readNotes = async (files: TFile[]) => Promise.all(files.map(async (file) => {
       const content = await this.app.vault.cachedRead(file);
       const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
-      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      const cached = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      const match = /^---\n([\s\S]*?)\n---\n?/.exec(content);
+      const frontmatter = cached ?? (match ? parseYaml(match[1] ?? "") as Record<string, unknown> : undefined);
       return { path: file.path, ...(frontmatter ? { frontmatter } : {}), body };
     }));
     return new ResearchRepository({

@@ -15,8 +15,16 @@ describe("auditProject", () => {
       { path: "Evidence/E.md", title: "E", type: "evidence", project: "Projects/P.md", source: "Sources/S.md", locatorKind: "page", locatorValue: "2", excerpt: "X", reviewState: "proposed" },
       { path: "Claims/C.md", title: "C", type: "claim", project: "Projects/P.md", proposition: "X", confidence: "low", reviewState: "proposed", supports: [], challenges: [], contextualizes: [], limitations: [] },
     ]));
-    expect(findings.map(({ code }) => code)).toEqual(["unsupported-claim", "unreviewed-evidence", "unused-evidence"]);
+    expect(findings.map(({ code }) => code)).toEqual(["unsupported-claim", "unreviewed-claim", "unreviewed-evidence", "unused-evidence"]);
     expect(findings.every(({ explanation, repair }) => explanation.length > 0 && repair.length > 0)).toBe(true);
+  });
+
+  it("explains rejected claims separately from unreviewed claims", () => {
+    const findings = auditProject(project([
+      { path: "Claims/R.md", title: "R", type: "claim", project: "Projects/P.md", proposition: "Do not trust", confidence: "low", reviewState: "rejected", supports: [], challenges: [], contextualizes: [], limitations: [] },
+    ]));
+    expect(findings.map(({ code }) => code)).toEqual(["rejected-claim", "unsupported-claim"]);
+    expect(findings[0]?.repair).toMatch(/remove.*outline|review/i);
   });
 
   it("treats challenging-only claims as unsupported", () => {

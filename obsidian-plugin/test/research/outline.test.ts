@@ -33,6 +33,11 @@ describe("research outline renderers", () => {
     expect(() => renderEvidenceOutline(broken, ["Research/P/Claims/C.md"])).toThrow("Evidence is not part of project");
   });
 
+  it.each(["proposed", "rejected"] as const)("rejects %s claims without leaking proposition or evidence", (reviewState) => {
+    const unsafe = buildProjectSnapshot("Research/P/Project.md", records.map((record) => record.type === "claim" ? { ...record, reviewState } : record), []);
+    expect(() => renderEvidenceOutline(unsafe, ["Research/P/Claims/C.md"])).toThrow(new RegExp(`${reviewState} claim`, "i"));
+  });
+
   it("renders a compact synthesis matrix without collapsing relations", () => {
     const matrix = renderSynthesisMatrix(snapshot);
     expect(matrix).toContain("| Claim | Supports | Challenges | Contextualizes |");

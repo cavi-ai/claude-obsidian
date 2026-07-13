@@ -8,13 +8,36 @@ function repository() {
     createClaim: vi.fn().mockResolvedValue({ path: "P/Claims/C.md" }),
     linkClaimEvidence: vi.fn().mockResolvedValue(undefined),
     createOutline: vi.fn().mockResolvedValue({ path: "P/Documents/Outline.md" }),
+    createProject: vi.fn().mockResolvedValue({ path: "Research/P/Project.md" }),
+    importSource: vi.fn().mockResolvedValue({ kind: "created", path: "Research/P/Sources/S.md" }),
   };
 }
 
 describe("ResearchTools", () => {
   it("defines compact read/audit tools and write-gated research mutations", () => {
     const names = new ResearchTools(repository() as never).definitions().map(({ name }) => name);
-    expect(names).toEqual(expect.arrayContaining(["research_project_read", "research_evidence_create", "research_claim_create", "research_claim_link", "research_audit", "research_outline_create"]));
+    expect(names).toEqual(expect.arrayContaining(["research_project_create", "research_source_import", "research_project_read", "research_evidence_create", "research_claim_create", "research_claim_link", "research_audit", "research_outline_create"]));
+  });
+
+  it("validates and delegates project creation and metadata/text source import", async () => {
+    const repo = repository();
+    const tools = new ResearchTools(repo as never);
+    await tools.call("research_project_create", { title: "Alpha", question: "Why?", folder: "Research/Alpha", audience: "Reviewers" });
+    expect(repo.createProject).toHaveBeenCalledWith({ title: "Alpha", question: "Why?", folder: "Research/Alpha", audience: "Reviewers" });
+    await tools.call("research_source_import", { project: "Research/Alpha/Project.md", title: "Paper", source_kind: "doi", doi: "10.1/x", captured_text: "Canonical text", authors: ["A"] });
+    expect(repo.importSource).toHaveBeenCalledWith("Research/Alpha/Project.md", expect.objectContaining({ sourceKind: "doi", capturedContent: "Canonical text", authors: ["A"] }));
+  });
+
+  it.each([
+    ["research_project_create", { title: "A", question: "", folder: "Research/A" }],
+    ["research_source_import", { project: "P/Project.md", title: "S", source_kind: "invented" }],
+    ["research_source_import", { project: "P/Project.md", title: "S", source_kind: "pdf", captured_text: 4 }],
+    ["research_source_import", { project: "P/Project.md", title: "S", source_kind: "pdf", authors: ["A", 4] }],
+  ])("rejects malformed public mutation %s before repository mutation", async (name, args) => {
+    const repo = repository();
+    await expect(new ResearchTools(repo as never).call(name, args)).rejects.toThrow();
+    expect(repo.createProject).not.toHaveBeenCalled();
+    expect(repo.importSource).not.toHaveBeenCalled();
   });
 
   it.each([

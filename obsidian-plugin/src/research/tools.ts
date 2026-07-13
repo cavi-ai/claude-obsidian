@@ -3,9 +3,9 @@ import { auditProject } from "./audit";
 import type { ResearchRepository } from "./repository";
 import { isReviewState, type EvidenceRelation, type SourceLocatorKind } from "./types";
 
-export const RESEARCH_WRITE_TOOLS = new Set(["research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]);
+export const RESEARCH_WRITE_TOOLS = new Set(["research_project_create", "research_source_import", "research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]);
 
-type Repository = Pick<ResearchRepository, "loadProject" | "createEvidence" | "createClaim" | "linkClaimEvidence" | "createOutline">;
+type Repository = Pick<ResearchRepository, "loadProject" | "createProject" | "importSource" | "createEvidence" | "createClaim" | "linkClaimEvidence" | "createOutline">;
 
 const object = (properties: Record<string, unknown>, required: string[]): McpToolDef["inputSchema"] => ({ type: "object", properties, required });
 const text = (description: string) => ({ type: "string", description });
@@ -16,6 +16,8 @@ export class ResearchTools {
   definitions(): McpToolDef[] {
     const project = { project: text("Vault path to the research Project.md note.") };
     return [
+      { name: "research_project_create", description: "Create a canonical vault-native research project after user confirmation.", inputSchema: object({ title: text("Project title."), question: text("Research question."), folder: text("Vault-relative project folder."), audience: text("Optional audience.") }, ["title", "question", "folder"]) },
+      { name: "research_source_import", description: "Import a canonical text capture or metadata-only source into a research project. Binary sources require an existing vault asset and an adapter-supported path.", inputSchema: object({ ...project, title: text("Source title."), source_kind: text("pdf, web, doi, arxiv, zotero, or vault."), canonical_id: text("Optional stable identifier."), url: text("Optional source URL."), asset: text("Optional existing vault asset path."), captured_text: text("Optional canonical captured text."), doi: text("Optional DOI."), arxiv_id: text("Optional arXiv id."), zotero_key: text("Optional Zotero key."), authors: { type: "array", items: { type: "string" } }, published: text("Optional publication date."), publication: text("Optional publication title.") }, ["project", "title", "source_kind"]) },
       { name: "research_project_read", description: "Read a compact research project snapshot with sources, evidence, claims, issues, and health.", inputSchema: object(project, ["project"]) },
       { name: "research_evidence_create", description: "Create a provenance-linked evidence card inside a research project.", inputSchema: object({ ...project, source: text("Source record path in this project."), title: text("Evidence title."), excerpt: text("Exact source excerpt."), locator_kind: text("page, section, paragraph, timestamp, or quote."), locator_value: text("Exact locator text."), interpretation: text("Optional interpretation."), review_state: text("proposed, reviewed, or rejected.") }, ["project", "source", "title", "excerpt"]) },
       { name: "research_claim_create", description: "Create a claim with separate supporting, challenging, and contextual evidence relations.", inputSchema: object({ ...project, title: text("Claim title."), proposition: text("Claim proposition."), confidence: text("low, moderate, or high."), review_state: text("proposed, reviewed, or rejected."), supports: { type: "array", items: { type: "string" } }, challenges: { type: "array", items: { type: "string" } }, contextualizes: { type: "array", items: { type: "string" } }, limitations: { type: "array", items: { type: "string" } } }, ["project", "title", "proposition"]) },
@@ -26,9 +28,28 @@ export class ResearchTools {
   }
 
   async call(name: string, args: Record<string, unknown>): Promise<string> {
-    const project = requiredString(args.project);
     switch (name) {
+      case "research_project_create": {
+        const audience = optionalString(args.audience);
+        const record = await this.repository.createProject({ title: requiredString(args.title), question: requiredString(args.question), folder: requiredString(args.folder), ...(audience ? { audience } : {}) });
+        return JSON.stringify({ path: record.path });
+      }
+      case "research_source_import": {
+        const sourceKind = requiredString(args.source_kind);
+        if (!["pdf", "web", "doi", "arxiv", "zotero", "vault"].includes(sourceKind)) throw new Error(`Unsupported source kind: ${sourceKind}`);
+        const capturedContent = optionalString(args.captured_text);
+        const authors = stringArray(args.authors, "authors");
+        const result = await this.repository.importSource(requiredString(args.project), {
+          title: requiredString(args.title), sourceKind: sourceKind as "pdf" | "web" | "doi" | "arxiv" | "zotero" | "vault",
+          ...optionalField("canonicalId", args.canonical_id), ...optionalField("url", args.url), ...optionalField("asset", args.asset),
+          ...(capturedContent ? { capturedContent } : {}), ...optionalField("doi", args.doi), ...optionalField("arxivId", args.arxiv_id),
+          ...optionalField("zoteroKey", args.zotero_key), ...(authors.length ? { authors } : {}),
+          ...optionalField("published", args.published), ...optionalField("publication", args.publication),
+        });
+        return JSON.stringify(result);
+      }
       case "research_project_read": {
+        const project = requiredString(args.project);
         const snapshot = await this.repository.loadProject(project);
         return JSON.stringify({
           project: { path: compactString(snapshot.project.path), title: compactString(snapshot.project.title), question: compactString(snapshot.project.question, 500), stage: snapshot.project.stage, status: snapshot.project.status },
@@ -40,8 +61,9 @@ export class ResearchTools {
           },
         });
       }
-      case "research_audit": return JSON.stringify(auditProject(await this.repository.loadProject(project)).map((finding) => ({ rule: finding.code, ...finding })));
+      case "research_audit": return JSON.stringify(auditProject(await this.repository.loadProject(requiredString(args.project))).map((finding) => ({ rule: finding.code, ...finding })));
       case "research_evidence_create": {
+        const project = requiredString(args.project);
         if (typeof args.excerpt !== "string" || !args.excerpt.trim()) throw new Error("Evidence excerpt must not be empty");
         const excerpt = args.excerpt;
         const reviewState = args.review_state === undefined ? "proposed" : requiredString(args.review_state);
@@ -56,6 +78,7 @@ export class ResearchTools {
         return JSON.stringify({ path: record.path });
       }
       case "research_claim_create": {
+        const project = requiredString(args.project);
         const reviewState = args.review_state === undefined ? "proposed" : requiredString(args.review_state);
         if (!isReviewState(reviewState)) throw new Error(`Unsupported review state: ${reviewState}`);
         const confidence = optionalString(args.confidence) ?? "moderate";
@@ -64,12 +87,13 @@ export class ResearchTools {
         return JSON.stringify({ path: record.path });
       }
       case "research_claim_link": {
+        const project = requiredString(args.project);
         const relation = requiredString(args.relation) as EvidenceRelation;
         if (!["supports", "challenges", "contextualizes"].includes(relation)) throw new Error(`Unsupported evidence relation: ${relation}`);
         await this.repository.linkClaimEvidence(project, requiredString(args.claim), requiredString(args.evidence), relation);
         return JSON.stringify({ linked: true });
       }
-      case "research_outline_create": return JSON.stringify(await this.repository.createOutline(project, stringArray(args.claims, "claims", true)));
+      case "research_outline_create": return JSON.stringify(await this.repository.createOutline(requiredString(args.project), stringArray(args.claims, "claims", true)));
       default: throw new Error(`Unknown research tool: ${name}`);
     }
   }
@@ -77,6 +101,7 @@ export class ResearchTools {
 
 function requiredString(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Expected a non-empty string argument"); return value; }
 function optionalString(value: unknown): string | undefined { if (value === undefined) return undefined; return requiredString(value); }
+function optionalField<K extends string>(key: K, value: unknown): Partial<Record<K, string>> { const parsed = optionalString(value); return parsed ? { [key]: parsed } as Record<K, string> : {}; }
 function stringArray(value: unknown, name: string, required = false): string[] {
   if (value === undefined && !required) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new Error(`${name} must be an array of non-empty strings`);

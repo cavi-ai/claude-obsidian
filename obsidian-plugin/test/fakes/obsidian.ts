@@ -7,6 +7,8 @@
 // new dependency on the Obsidian API appears, add it here.
 
 import { buildFrontmatter, type FrontmatterData } from "../../src/indexing/frontmatter";
+import { parse as parseYamlImpl } from "yaml";
+export const parseYaml = (value: string): unknown => parseYamlImpl(value);
 
 export function normalizePath(p: string): string {
   return p
@@ -204,6 +206,43 @@ export class App {
 export class Notice {
   constructor(public message: string) {}
 }
+class FakeElement {
+  tagName: string;
+  children: FakeElement[] = [];
+  attributes = new Map<string, string>();
+  classList = new Set<string>();
+  textContent = "";
+  disabled = false;
+  value = "";
+  private listeners = new Map<string, Array<(event: any) => void>>();
+  constructor(tag = "div") { this.tagName = tag.toUpperCase(); }
+  empty(): void { this.children = []; this.textContent = ""; }
+  addClass(name: string): void { this.classList.add(name); }
+  createEl(tag: string, options: any = {}): FakeElement {
+    const child = new FakeElement(tag);
+    child.textContent = options.text ?? "";
+    for (const name of String(options.cls ?? "").split(/\s+/).filter(Boolean)) child.classList.add(name);
+    for (const [key, value] of Object.entries(options.attr ?? {})) child.attributes.set(key, String(value));
+    this.children.push(child);
+    return child;
+  }
+  createDiv(options: any = {}): FakeElement { return this.createEl("div", options); }
+  createSpan(options: any = {}): FakeElement { return this.createEl("span", options); }
+  addEventListener(type: string, listener: (event: any) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
+  dispatchEvent(event: any): boolean { for (const listener of this.listeners.get(event.type) ?? []) listener(event); return true; }
+  focus(): void { this.attributes.set("data-focused", "true"); }
+  setText(text: string): void { this.textContent = text; }
+  getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+  querySelectorAll(selector: string): FakeElement[] { return this.walk().filter((item) => matches(item, selector)); }
+  querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] ?? null; }
+  private walk(): FakeElement[] { return this.children.flatMap((child) => [child, ...child.walk()]); }
+}
+function matches(item: FakeElement, selector: string): boolean {
+  if (selector.startsWith("#")) return item.getAttribute("id") === selector.slice(1);
+  const role = /^\[role="([^"]+)"\]$/.exec(selector); if (role) return item.getAttribute("role") === role[1];
+  if (selector.startsWith(".")) return item.classList.has(selector.slice(1));
+  return item.tagName === selector.toUpperCase();
+}
 export class Plugin {}
 export class MarkdownView {}
 export class WorkspaceLeaf {
@@ -211,10 +250,17 @@ export class WorkspaceLeaf {
 }
 export class ItemView {
   app: App;
-  contentEl = {} as HTMLElement;
+  contentEl = new FakeElement() as unknown as HTMLElement;
   constructor(public leaf: WorkspaceLeaf) { this.app = leaf.app; }
   getViewType(): string { return ""; }
   getDisplayText(): string { return ""; }
   getIcon(): string { return ""; }
   onOpen(): Promise<void> { return Promise.resolve(); }
+}
+export class Modal {
+  contentEl = new FakeElement() as unknown as HTMLElement;
+  constructor(public app: App) {}
+  open(): void { this.onOpen(); }
+  close(): void {}
+  onOpen(): void {}
 }

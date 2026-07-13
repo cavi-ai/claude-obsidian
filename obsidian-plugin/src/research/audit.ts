@@ -1,7 +1,7 @@
 import { compareCodeUnits, isStaleEvidence, type ProjectSnapshot } from "./graph";
 
 export interface AuditFinding {
-  code: "missing-locator" | "unreviewed-evidence" | "unsupported-claim" | "broken-reference" | "unused-evidence" | "stale-evidence" | "invalid-record";
+  code: "missing-locator" | "unreviewed-evidence" | "unreviewed-claim" | "rejected-claim" | "unsupported-claim" | "broken-reference" | "unused-evidence" | "stale-evidence" | "invalid-record";
   severity: "error" | "warning" | "info";
   path: string;
   explanation: string;
@@ -40,6 +40,8 @@ export function auditProject(snapshot: ProjectSnapshot): AuditFinding[] {
   }
 
   for (const claim of snapshot.claims) {
+    if (claim.reviewState === "proposed") findings.push({ code: "unreviewed-claim", severity: "warning", path: claim.path, explanation: "Proposed claim has not been reviewed and cannot be used in a trusted outline.", repair: "Review the proposition and evidence relationships, then mark the claim reviewed or rejected." });
+    if (claim.reviewState === "rejected") findings.push({ code: "rejected-claim", severity: "error", path: claim.path, explanation: "Rejected claim cannot be used in a trusted outline.", repair: "Remove the claim from outline selections or review it again before marking it reviewed." });
     for (const [relation, paths] of [["supporting", claim.supporting], ["challenging", claim.challenging], ["contextual", claim.contextual]] as const) {
       for (const path of paths) {
         usedEvidence.add(path);

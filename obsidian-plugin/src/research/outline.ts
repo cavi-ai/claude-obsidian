@@ -74,6 +74,8 @@ export function renderSynthesisMatrix(snapshot: ProjectSnapshot): string {
 
 export function renderEvidenceOutline(snapshot: ProjectSnapshot, claimPaths: string[]): string {
   const claims = claimPaths.map((path) => claim(snapshot, path));
+  const unsafe = claims.find(({ reviewState }) => reviewState !== "reviewed");
+  if (unsafe) throw new Error(`Cannot create a trusted outline from ${unsafe.reviewState} claim: ${unsafe.path}. Review the claim first or remove it from the selection.`);
   const sections = claims.flatMap((item) => {
     const supporting = renderRelation(snapshot, "supports", item.supporting);
     const challenging = renderRelation(snapshot, "challenges", item.challenging);

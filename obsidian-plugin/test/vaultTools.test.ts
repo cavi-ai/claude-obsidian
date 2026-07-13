@@ -33,7 +33,26 @@ describe("research tools", () => {
     expect(readNames).toEqual(expect.arrayContaining(["research_project_read", "research_audit"]));
     expect(readNames).not.toContain("research_evidence_create");
     const writeNames = tools(true).vt.definitions().map(({ name }) => name);
-    expect(writeNames).toEqual(expect.arrayContaining(["research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]));
+    expect(writeNames).toEqual(expect.arrayContaining(["research_project_create", "research_source_import", "research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]));
+  });
+
+  it("creates a project and imports a metadata-only source through the public route", async () => {
+    const { app, vt } = tools(true);
+    const created = JSON.parse(await vt.call("research_project_create", { title: "Alpha", question: "Why?", folder: "Research/Alpha" }));
+    expect(created.path).toBe("Research/Alpha/Project.md");
+    const imported = JSON.parse(await vt.call("research_source_import", { project: created.path, title: "Paper", source_kind: "doi", doi: "10.1234/example" }));
+    expect(imported.kind).toBe("created");
+    expect(app.vault.getAbstractFileByPath(imported.path)).not.toBeNull();
+  });
+
+  it("blocks proposed claims at the public outline route without creating a document", async () => {
+    const { app, vt } = tools(true);
+    const project = JSON.parse(await vt.call("research_project_create", { title: "Trust", question: "What is supported?", folder: "Research/Trust" })).path;
+    const source = JSON.parse(await vt.call("research_source_import", { project, title: "Paper", source_kind: "web", url: "https://example.test", captured_text: "Result" })).path;
+    const evidence = JSON.parse(await vt.call("research_evidence_create", { project, source, title: "Result", excerpt: "Result", locator_kind: "section", locator_value: "Results", review_state: "reviewed" })).path;
+    const claim = JSON.parse(await vt.call("research_claim_create", { project, title: "Proposed", proposition: "This must not leak", supports: [evidence], review_state: "proposed" })).path;
+    await expect(vt.call("research_outline_create", { project, claims: [claim] })).rejects.toThrow(/proposed claim.*review.*remove/i);
+    expect(app.vault.getAbstractFileByPath("Research/Trust/Documents/Outline.md")).toBeNull();
   });
 
   it("rejects research mutations when MCP writes are disabled", async () => {
