@@ -94,20 +94,23 @@ Fresh follow-up verification:
 
 ## Final P1 encoding hardening
 
-Captured text is now stored as a collision-safe, reversible UTF-8 percent-
-encoded payload under an explicit `encoding=percent-utf8 version=1` marker.
-The encoded payload occupies one structural line, so source text containing
-either legacy marker literal, Unicode, percent characters, LF, or CRLF cannot
-terminate or reshape the envelope. Reconstruction decodes the complete payload
-before hashing and preserves the original string exactly.
+Captured text is now stored raw and readable in a collision-safe,
+length-addressed envelope. Its start comment declares `version=1` and the exact
+UTF-16 code-unit count. The parser slices precisely that many code units and
+then verifies the delimiter at the computed offset, so embedded start/end
+marker literals cannot truncate the payload. Unicode, percent characters, LF,
+and CRLF remain visibly unchanged in the canonical Markdown.
 
-Malformed encoded payloads, incomplete envelopes, unknown encoding versions,
-and legacy unencoded marker notes yield an `invalid-value` parse issue and no
-captured payload. Repository reconstruction therefore discards their editable
-frontmatter fingerprint and cannot silently trust or hash an ambiguous prefix;
-legacy captures must be re-imported. Focused coverage proves collision-prone
-Unicode and mixed-line-ending round trips plus identical fresh-reconstruction
-fingerprints. The manual test-vault blocker remains unchanged.
+Malformed lengths, insufficient payloads, bad trailing delimiters, unsupported
+versions, the superseded percent-encoded format, and legacy ambiguous marker
+notes yield an `invalid-value` parse issue and no captured payload. Repository
+reconstruction therefore discards their editable frontmatter fingerprint and
+cannot silently trust or hash a prefix; legacy captures must be re-imported.
+Focused coverage proves marker-heavy Unicode and mixed-line-ending round trips,
+readable persisted prose/headings, and identical fresh-reconstruction
+fingerprints. Because the source text remains raw Markdown in the note, it is
+still human-readable with Companion disabled. The manual test-vault blocker is
+unchanged.
 
 Final P1 verification: typecheck and lint exited 0; all 82 test files and 779
 tests passed; the production build exited 0 and regenerated `main.js`; diff

@@ -27,9 +27,19 @@ describe("renderResearchRecord", () => {
     expect(legacy.record).not.toHaveProperty("capturedContent");
     expect(legacy.issues).toContainEqual(expect.objectContaining({ code: "invalid-value", message: expect.stringContaining("Legacy unencoded") }));
 
-    const malformed = parseResearchRecord({ path: "Sources/Malformed.md", frontmatter: common, body: "<!-- cavi:capture encoding=percent-utf8 version=1 -->\n%ZZ\n<!-- cavi:capture:end -->" });
+    const malformed = parseResearchRecord({ path: "Sources/Malformed.md", frontmatter: common, body: "<!-- cavi:capture version=1 chars=9 -->\nshort\n<!-- cavi:capture:end -->" });
     expect(malformed.record).not.toHaveProperty("capturedContent");
-    expect(malformed.issues).toContainEqual(expect.objectContaining({ code: "invalid-value", message: expect.stringContaining("Malformed encoded") }));
+    expect(malformed.issues).toContainEqual(expect.objectContaining({ code: "invalid-value", message: expect.stringContaining("Malformed length-addressed") }));
+
+    for (const body of [
+      "<!-- cavi:capture version=2 chars=3 -->\nraw\n<!-- cavi:capture:end -->",
+      "<!-- cavi:capture version=1 chars=3 -->\nraw\n<!-- wrong:end -->",
+      "<!-- cavi:capture version=1 chars=nope -->\nraw\n<!-- cavi:capture:end -->",
+    ]) {
+      const result = parseResearchRecord({ path: "Sources/Invalid.md", frontmatter: common, body });
+      expect(result.record).not.toHaveProperty("capturedContent");
+      expect(result.issues).toContainEqual(expect.objectContaining({ code: "invalid-value" }));
+    }
   });
 
   it("uses canonical locator keys and quoted evidence excerpts", () => {

@@ -108,8 +108,10 @@ describe("Phase 1 evidence lineage", () => {
     const imported = await repo.importSource(project.path, { title: "Collision source", sourceKind: "vault", capturedContent });
     if (imported.kind !== "created") throw new Error("Expected source creation");
     const persisted = io.files.get(imported.path) ?? "";
-    expect(persisted).toContain("encoding=percent-utf8 version=1");
-    expect(persisted).not.toContain(capturedContent);
+    expect(persisted).toContain(`version=1 chars=${capturedContent.length}`);
+    expect(persisted).toContain(capturedContent);
+    expect(persisted).toContain("Unicode: café 漢字 😀");
+    expect(persisted).not.toContain(encodeURIComponent(capturedContent));
 
     const reconstructed = await new ResearchRepository(io).loadProject(project.path);
     expect(reconstructed.sources[0]?.capturedContent).toBe(capturedContent);
@@ -141,8 +143,8 @@ describe("Phase 1 evidence lineage", () => {
     const sourceNote = io.files.get(source.path);
     if (!sourceNote) throw new Error("Expected persisted source note");
     io.files.set(source.path, sourceNote.replace(
-      encodeURIComponent("Performance varied substantially across domains."),
-      encodeURIComponent("Performance was consistent across domains."),
+      "Performance varied substantially across domains.",
+      "Performance varies substantially across domains.",
     ));
     await io.updateFrontmatter(source.path, (frontmatter) => {
       frontmatter.content_fingerprint = originalFingerprint;

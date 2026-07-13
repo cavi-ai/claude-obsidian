@@ -9,10 +9,6 @@ function wikilink(path: string): string {
   return `[[${path}]]`;
 }
 
-function encodeCapturedContent(content: string): string {
-  return encodeURIComponent(content);
-}
-
 function researchFrontmatter(data: FrontmatterData, exactStrings: Record<string, string | undefined> = {}): string {
   let rendered = buildFrontmatter(data);
   for (const [key, value] of Object.entries(exactStrings)) {
@@ -35,7 +31,7 @@ export function renderResearchRecord(record: ResearchRecord): string {
       frontmatter = { ...common, source_kind: record.sourceKind, canonical_id: record.canonicalId, url: record.url, asset: record.asset ? wikilink(record.asset) : undefined, content_fingerprint: record.contentFingerprint, doi: record.doi, arxiv_id: record.arxivId, zotero_key: record.zoteroKey, authors: record.authors, published: record.published, publication: record.publication };
       body = record.capturedContent === undefined
         ? "# Research source\n\n## Notes"
-        : `# Research source\n\n## Captured content\n\n<!-- cavi:capture encoding=percent-utf8 version=1 -->\n${encodeCapturedContent(record.capturedContent)}\n<!-- cavi:capture:end -->\n\n## Notes`;
+        : `# Research source\n\n## Captured content\n\n<!-- cavi:capture version=1 chars=${record.capturedContent.length} -->\n${record.capturedContent}\n<!-- cavi:capture:end -->\n\n## Notes`;
       break;
     case "evidence":
       frontmatter = { ...common, source: wikilink(record.source), source_fingerprint: record.sourceFingerprint, locator_kind: record.locatorKind, locator_value: record.locatorValue, review_state: record.reviewState, model: record.model };

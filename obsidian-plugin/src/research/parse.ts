@@ -108,24 +108,39 @@ function interpretationFromBody(body: string): string | undefined {
 }
 
 function capturedContentFromBody(input: ResearchNoteInput, issues: ParseIssue[]): string | undefined {
-  const header = "<!-- cavi:capture encoding=percent-utf8 version=1 -->";
-  if (input.body.includes(header)) {
-    const match = input.body.match(/<!-- cavi:capture encoding=percent-utf8 version=1 -->\n([^\n]*)\n<!-- cavi:capture:end -->/);
+  if (input.body.includes("<!-- cavi:capture version=")) {
+    const match = /<!-- cavi:capture version=([^\s]+) chars=([^\s]+) -->\n/.exec(input.body);
     if (!match) {
-      issue(input, issues, "invalid-value", "Malformed encoded captured content envelope");
+      issue(input, issues, "invalid-value", "Malformed length-addressed captured content header");
       return undefined;
     }
-    try {
-      return decodeURIComponent(match[1] ?? "");
-    } catch {
-      issue(input, issues, "invalid-value", "Malformed encoded captured content payload");
+    if (match[1] !== "1") {
+      issue(input, issues, "invalid-value", "Unsupported captured content encoding version");
       return undefined;
     }
+    const rawLength = match[2] ?? "";
+    if (!/^\d+$/.test(rawLength)) {
+      issue(input, issues, "invalid-value", "Malformed length-addressed captured content length");
+      return undefined;
+    }
+    const length = Number(rawLength);
+    if (!Number.isSafeInteger(length)) {
+      issue(input, issues, "invalid-value", "Malformed length-addressed captured content length");
+      return undefined;
+    }
+    const start = match.index + match[0].length;
+    const end = start + length;
+    const delimiter = "\n<!-- cavi:capture:end -->";
+    if (end > input.body.length || input.body.slice(end, end + delimiter.length) !== delimiter) {
+      issue(input, issues, "invalid-value", "Malformed length-addressed captured content payload or delimiter");
+      return undefined;
+    }
+    return input.body.slice(start, end);
   }
   if (input.body.includes("<!-- cavi:capture:start -->")) {
     issue(input, issues, "invalid-value", "Legacy unencoded captured content is ambiguous and untrusted; re-import the source");
   } else if (input.body.includes("<!-- cavi:capture encoding=")) {
-    issue(input, issues, "invalid-value", "Unsupported captured content encoding or version");
+    issue(input, issues, "invalid-value", "Legacy encoded captured content is untrusted; re-import the source");
   }
   return undefined;
 }
