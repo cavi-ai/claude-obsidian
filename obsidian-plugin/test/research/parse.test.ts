@@ -81,6 +81,25 @@ describe("parseResearchRecord", () => {
     expect(malformed.issues.map((entry) => entry.code)).toContain("invalid-value");
   });
 
+  it("retains valid relation links beside malformed array entries", () => {
+    const result = parseResearchRecord({
+      path: "Claim.md",
+      frontmatter: {
+        title: "Claim",
+        type: "claim",
+        project: "[[Projects/P]]",
+        proposition: "P",
+        confidence: "high",
+        review_state: "reviewed",
+        supports: ["[[Evidence/E1]]", 42, "bad"],
+      },
+      body: "",
+    });
+
+    expect(result.record).toMatchObject({ supports: ["Evidence/E1"] });
+    expect(result.issues.filter((entry) => entry.code === "invalid-value")).toHaveLength(2);
+  });
+
   it("uses deterministic fallbacks for malformed mandatory enums", () => {
     const project = parseResearchRecord({
       path: "P.md",

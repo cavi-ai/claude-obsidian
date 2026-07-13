@@ -69,10 +69,15 @@ function wikilink(input: ResearchNoteInput, issues: ParseIssue[], key: string, r
 }
 
 function wikilinkList(input: ResearchNoteInput, issues: ParseIssue[], key: string): string[] {
-  const values = stringList(input, issues, key);
+  const value = input.frontmatter?.[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    issue(input, issues, "invalid-value", `${key} must be a list of wikilinks`);
+    return [];
+  }
   const targets: string[] = [];
-  for (const value of values) {
-    const match = value.match(/^\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]$/);
+  for (const entry of value) {
+    const match = typeof entry === "string" ? entry.trim().match(/^\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]$/) : undefined;
     const target = match?.[1]?.trim();
     if (target) targets.push(target);
     else issue(input, issues, "invalid-value", `${key} entries must be wikilinks`);
