@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildProjectSnapshot } from "../../src/research/graph";
+import { auditProject } from "../../src/research/audit";
 import type { ResearchRecord } from "../../src/research/types";
 
 const records: ResearchRecord[] = [
@@ -26,11 +27,28 @@ describe("buildProjectSnapshot", () => {
     expect(buildProjectSnapshot("Projects/P.md", legacy, []).claims[0]?.trustedSupportCount).toBe(1);
   });
 
-  it("keeps the first duplicate path and records a deterministic issue", () => {
+  it("selects a canonical duplicate independent of input order and records an issue", () => {
     const duplicate = { ...records[1]!, title: "Duplicate" } as ResearchRecord;
-    const snapshot = buildProjectSnapshot("Projects/P.md", [...records, duplicate], []);
+    const forward = buildProjectSnapshot("Projects/P.md", [...records, duplicate], []);
+    const reverse = buildProjectSnapshot("Projects/P.md", [duplicate, ...records].reverse(), []);
+    const snapshot = forward;
     expect(snapshot.sources).toHaveLength(1);
-    expect(snapshot.sources[0]?.title).toBe("S");
+    expect(snapshot).toEqual(reverse);
+    expect(auditProject(snapshot)).toEqual(auditProject(reverse));
     expect(snapshot.issues).toContainEqual(expect.objectContaining({ path: "Sources/S.md", code: "invalid-value" }));
+  });
+
+  it("deduplicates and stably sorts every claim relation before counting support", () => {
+    const duplicated = records.map((record) => record.type === "claim" ? {
+      ...record,
+      supports: ["Evidence/E1.md", "Evidence/E1.md"],
+      challenges: ["Evidence/Z.md", "Evidence/A.md", "Evidence/Z.md"],
+      contextualizes: ["Evidence/Z.md", "Evidence/Z.md"],
+    } : record) as ResearchRecord[];
+    const claim = buildProjectSnapshot("Projects/P.md", duplicated, []).claims[0]!;
+    expect(claim.supporting).toEqual(["Evidence/E1.md"]);
+    expect(claim.challenging).toEqual(["Evidence/A.md", "Evidence/Z.md"]);
+    expect(claim.contextual).toEqual(["Evidence/Z.md"]);
+    expect(claim.trustedSupportCount).toBe(1);
   });
 });

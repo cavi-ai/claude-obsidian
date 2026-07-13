@@ -1,4 +1,4 @@
-import { isStaleEvidence, type ProjectSnapshot } from "./graph";
+import { compareCodeUnits, isStaleEvidence, type ProjectSnapshot } from "./graph";
 
 export interface AuditFinding {
   code: "missing-locator" | "unreviewed-evidence" | "unsupported-claim" | "broken-reference" | "unused-evidence" | "stale-evidence";
@@ -15,6 +15,14 @@ export function auditProject(snapshot: ProjectSnapshot): AuditFinding[] {
   const sources = new Map(snapshot.sources.map((source) => [source.path, source]));
   const evidence = new Map(snapshot.evidence.map((item) => [item.path, item]));
   const claims = new Set(snapshot.claims.map((claim) => claim.path));
+  const projectPaths = new Set([
+    snapshot.project.path,
+    ...snapshot.sources.map(({ path }) => path),
+    ...snapshot.evidence.map(({ path }) => path),
+    ...snapshot.claims.map(({ path }) => path),
+    ...snapshot.questions.map(({ path }) => path),
+    ...snapshot.documents.map(({ path }) => path),
+  ]);
   const usedEvidence = new Set<string>();
 
   for (const item of snapshot.evidence) {
@@ -38,7 +46,10 @@ export function auditProject(snapshot: ProjectSnapshot): AuditFinding[] {
   for (const document of snapshot.documents) {
     for (const path of document.claims) if (!claims.has(path)) findings.push({ code: "broken-reference", severity: "error", path: document.path, explanation: `Document references missing claim ${path}.`, repair: "Link the document to an existing claim or remove the broken reference." });
   }
+  for (const question of snapshot.questions) {
+    if (question.about && !projectPaths.has(question.about)) findings.push({ code: "broken-reference", severity: "error", path: question.path, explanation: `Question references missing or out-of-project target ${question.about}.`, repair: "Link the question to a record in this research project or remove the broken reference." });
+  }
   for (const item of snapshot.evidence) if (!usedEvidence.has(item.path)) findings.push({ code: "unused-evidence", severity: "info", path: item.path, explanation: "Evidence is not connected to any claim.", repair: "Connect the evidence to a claim as supporting, challenging, or contextual, or archive it." });
 
-  return findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || a.path.localeCompare(b.path) || a.code.localeCompare(b.code));
+  return findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || compareCodeUnits(a.path, b.path) || compareCodeUnits(a.code, b.code));
 }
