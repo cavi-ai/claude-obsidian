@@ -27,6 +27,21 @@ describe("SEED_TYPES", () => {
     expect(article.extendsType).toBe("source");
     expect(article.properties.map((p) => p.key)).toContain("site");
   });
+  it("ships the research evidence relation contracts", () => {
+    const relations = (name: string) => SEED_TYPES.find((t) => t.name === name)?.relations;
+    expect(relations("research-source")).toContainEqual(expect.objectContaining({ key: "project", targets: ["research-project"] }));
+    expect(relations("evidence")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "source", targets: ["research-source"] }),
+      expect.objectContaining({ key: "project", targets: ["research-project"] }),
+    ]));
+    expect(relations("claim")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "supports", targets: ["evidence"] }),
+      expect.objectContaining({ key: "challenges", targets: ["evidence"] }),
+      expect.objectContaining({ key: "contextualizes", targets: ["evidence"] }),
+      expect.objectContaining({ key: "project", targets: ["research-project"] }),
+    ]));
+    expect(relations("research-document")).toContainEqual(expect.objectContaining({ key: "claims", targets: ["claim"] }));
+  });
 });
 
 describe("schemaNoteContent round-trip", () => {
