@@ -20,6 +20,18 @@ const records: ResearchRecord[] = [
 ];
 
 describe("renderResearchRecord", () => {
+  it("treats legacy ambiguous and malformed encoded captures as explicitly untrusted", () => {
+    const common = { title: "S", type: "research-source", project: "[[Projects/P]]", source_kind: "vault", content_fingerprint: "sha256:spoofed" };
+    const legacy = parseResearchRecord({ path: "Sources/Legacy.md", frontmatter: common, body: "# Research source\n\n<!-- cavi:capture:start -->\nprefix <!-- cavi:capture:end --> suffix\n<!-- cavi:capture:end -->" });
+    expect(legacy.record).toEqual(expect.objectContaining({ type: "research-source" }));
+    expect(legacy.record).not.toHaveProperty("capturedContent");
+    expect(legacy.issues).toContainEqual(expect.objectContaining({ code: "invalid-value", message: expect.stringContaining("Legacy unencoded") }));
+
+    const malformed = parseResearchRecord({ path: "Sources/Malformed.md", frontmatter: common, body: "<!-- cavi:capture encoding=percent-utf8 version=1 -->\n%ZZ\n<!-- cavi:capture:end -->" });
+    expect(malformed.record).not.toHaveProperty("capturedContent");
+    expect(malformed.issues).toContainEqual(expect.objectContaining({ code: "invalid-value", message: expect.stringContaining("Malformed encoded") }));
+  });
+
   it("uses canonical locator keys and quoted evidence excerpts", () => {
     const rendered = renderResearchRecord(records[2]!);
     expect(rendered).toContain('locator_kind: "page"');

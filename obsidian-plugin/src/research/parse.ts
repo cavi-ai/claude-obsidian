@@ -107,8 +107,27 @@ function interpretationFromBody(body: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 
-function capturedContentFromBody(body: string): string | undefined {
-  return body.match(/<!-- cavi:capture:start -->\n([\s\S]*?)\n<!-- cavi:capture:end -->/)?.[1];
+function capturedContentFromBody(input: ResearchNoteInput, issues: ParseIssue[]): string | undefined {
+  const header = "<!-- cavi:capture encoding=percent-utf8 version=1 -->";
+  if (input.body.includes(header)) {
+    const match = input.body.match(/<!-- cavi:capture encoding=percent-utf8 version=1 -->\n([^\n]*)\n<!-- cavi:capture:end -->/);
+    if (!match) {
+      issue(input, issues, "invalid-value", "Malformed encoded captured content envelope");
+      return undefined;
+    }
+    try {
+      return decodeURIComponent(match[1] ?? "");
+    } catch {
+      issue(input, issues, "invalid-value", "Malformed encoded captured content payload");
+      return undefined;
+    }
+  }
+  if (input.body.includes("<!-- cavi:capture:start -->")) {
+    issue(input, issues, "invalid-value", "Legacy unencoded captured content is ambiguous and untrusted; re-import the source");
+  } else if (input.body.includes("<!-- cavi:capture encoding=")) {
+    issue(input, issues, "invalid-value", "Unsupported captured content encoding or version");
+  }
+  return undefined;
 }
 
 function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issues: ParseIssue[]): ParseResearchResult {
@@ -133,7 +152,7 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
     const url = scalar(input, issues, "url");
     const asset = wikilink(input, issues, "asset");
     const contentFingerprint = scalar(input, issues, "content_fingerprint");
-    const capturedContent = capturedContentFromBody(input.body);
+    const capturedContent = capturedContentFromBody(input, issues);
     const doi = scalar(input, issues, "doi");
     const arxivId = scalar(input, issues, "arxiv_id");
     const zoteroKey = scalar(input, issues, "zotero_key");

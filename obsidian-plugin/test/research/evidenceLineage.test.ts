@@ -100,6 +100,23 @@ async function seededLineage(reviewState: "proposed" | "reviewed" = "reviewed") 
 }
 
 describe("Phase 1 evidence lineage", () => {
+  it("round-trips collision-prone captured text and reconstructs the same fingerprint", async () => {
+    const io = new FixtureVault();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject({ title: "Encoding", question: "Exact?", folder: "Research/Encoding" });
+    const capturedContent = "prefix <!-- cavi:capture:start -->\r\nUnicode: café 漢字 😀\n100% literal\r\n<!-- cavi:capture:end --> suffix";
+    const imported = await repo.importSource(project.path, { title: "Collision source", sourceKind: "vault", capturedContent });
+    if (imported.kind !== "created") throw new Error("Expected source creation");
+    const persisted = io.files.get(imported.path) ?? "";
+    expect(persisted).toContain("encoding=percent-utf8 version=1");
+    expect(persisted).not.toContain(capturedContent);
+
+    const reconstructed = await new ResearchRepository(io).loadProject(project.path);
+    expect(reconstructed.sources[0]?.capturedContent).toBe(capturedContent);
+    expect(reconstructed.sources[0]?.contentFingerprint).toBe((await repo.loadProject(project.path)).sources[0]?.contentFingerprint);
+    expect(reconstructed.issues).toEqual([]);
+  });
+
   it("preserves exact reviewed evidence lineage through a native relation, outline, clean audit, and canonical reconstruction", async () => {
     const { io, repo, project, source, evidence, claim } = await seededLineage();
     const outline = await repo.createOutline(project.path, [claim.path]);
@@ -124,8 +141,8 @@ describe("Phase 1 evidence lineage", () => {
     const sourceNote = io.files.get(source.path);
     if (!sourceNote) throw new Error("Expected persisted source note");
     io.files.set(source.path, sourceNote.replace(
-      "Performance varied substantially across domains.",
-      "Performance was consistent across domains.",
+      encodeURIComponent("Performance varied substantially across domains."),
+      encodeURIComponent("Performance was consistent across domains."),
     ));
     await io.updateFrontmatter(source.path, (frontmatter) => {
       frontmatter.content_fingerprint = originalFingerprint;
