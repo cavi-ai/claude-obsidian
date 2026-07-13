@@ -101,7 +101,8 @@ export const SEED_TYPES: TypeDef[] = [
   {
     name: "evidence", version: 1, extendsType: "entity",
     properties: [
-      { key: "locator", type: "string", required: false },
+      { key: "locator_kind", type: "string", required: false },
+      { key: "locator_value", type: "string", required: false },
       { key: "excerpt", type: "string", required: true },
       { key: "interpretation", type: "string", required: false },
       { key: "reviewState", type: "string", required: true },

@@ -37,15 +37,13 @@ export interface ResearchSourceRecord extends BaseResearchRecord {
   contentFingerprint?: string;
 }
 
-export interface SourceLocator {
-  kind: "page" | "section" | "paragraph" | "timestamp" | "quote";
-  value: string;
-}
+export type SourceLocatorKind = "page" | "section" | "paragraph" | "timestamp" | "quote";
 
 export interface EvidenceRecord extends BaseResearchRecord {
   type: "evidence";
   source: string;
-  locator?: SourceLocator;
+  locatorKind?: SourceLocatorKind;
+  locatorValue?: string;
   excerpt: string;
   interpretation?: string;
   reviewState: ReviewState;
