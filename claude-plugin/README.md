@@ -36,6 +36,9 @@ Claude Code the commands and skills to use it well.
   annotates the notes on a topic or folder.
 - **`source-digest`** — digest research source notes into a cited evidence /
   comparison table artifact with conflicts and gaps.
+- **`research-workbench`** — frame a research project, capture and review
+  provenance-linked evidence, build claims, audit support, and generate an
+  evidence-backed outline.
 - **`task-harvester`** — collect open tasks scattered across the vault into one
   consolidated, source-linked, prioritized action list.
 - **`build-from-spec`** — read an Obsidian "build spec" note, implement its task
@@ -47,7 +50,8 @@ Claude Code the commands and skills to use it well.
   write-safe) and `vault-routines` (offer editable scheduled routines).
 - **Knowledge** — `vault-synthesis` (grounded, cited "what do I know about X"),
   `connection-finder` (surface non-obvious, unlinked relationships),
-  `source-digest` (cited evidence table from source notes).
+  `source-digest` (cited evidence table from source notes), and
+  `research-workbench` (the canonical evidence-backed research workflow).
 - **Hygiene** — `consistent-tagging`, `wikilink-weaver`, `moc-builder`,
   `frontmatter-normalizer` (consistent metadata schema), `note-splitter` (break
   up bloated notes), `dedup-merge` (consolidate duplicates).
@@ -83,8 +87,9 @@ create, append, update, frontmatter merge, move/rename, Base, Canvas).
    /plugin marketplace add cavi-ai/claude-obsidian
    /plugin install claude-obsidian@claude-obsidian
    ```
-4. Open Obsidian (the bridge only runs while Obsidian is open), then try
-   `/claude-obsidian:note-to-artifact "My Note.md"`.
+4. Open Obsidian (the bridge only runs while Obsidian is open).
+5. Try the research workflow with
+   `/claude-obsidian:research-workbench "Investigate this project's sources"`.
 
 The bridge binds to `127.0.0.1` only — your vault is never exposed to the
 network.

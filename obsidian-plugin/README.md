@@ -57,7 +57,7 @@ vault stays the single source of truth.
   a model would reject is hidden, not broken.
 - **Slash commands** — type `/` in the composer for a fuzzy palette:
   summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
-  and more.
+  research, and more.
 - **Conversation history** — chats persist across restarts; resume any past
   conversation from a fuzzy picker.
 - **Prompt caching** — repeated context (system prompt, tools, conversation
@@ -104,9 +104,11 @@ attribution.
 
 ### Evidence-backed research workflow (Phase 1)
 
-Use the command palette action **Open research workbench** to inspect a
-canonical research project and move through its Overview, Sources, Evidence,
-Claims, Outline, and Audit views. The end-to-end workflow is:
+Use `/research` in the Companion composer to begin the evidence-backed workflow.
+As an alternate route, use the command palette action **Open research
+workbench** to open the visual cockpit and inspect a canonical research project
+across its Overview, Sources, Evidence, Claims, Outline, and Audit views. The
+end-to-end workflow is:
 
 1. Create a project with a focused research question.
 2. Import a source so its metadata and captured-content fingerprint are saved.

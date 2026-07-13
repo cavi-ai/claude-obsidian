@@ -70,7 +70,7 @@ A full Claude chat experience that lives in your vault and speaks its language.
   not broken.
 - **Slash commands** — type `/` in the composer for a fuzzy palette:
   summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
-  and more.
+  research, and more.
 - **Interactive artifacts** — Claude emits a `claude-html` block;
   Companion renders it inline in a **sandboxed iframe** and can open it in your
   real browser or save it as a portable note.
@@ -90,6 +90,11 @@ A full Claude chat experience that lives in your vault and speaks its language.
 
 ### Evidence-backed research workflow (Phase 1)
 
+Use `/research` in Companion or
+`/claude-obsidian:research-workbench` in Claude Code to open the same
+evidence-backed workflow. Companion also provides a visual research cockpit
+from the command palette.
+
 The Phase 1 path is **Create project → Import source → Capture evidence →
 Review → Build claims → Generate outline → Audit**. Source captures receive a
 content fingerprint; evidence records preserve the exact excerpt, locator, and
@@ -105,13 +110,13 @@ complete paper.
 ## claude-obsidian (the Claude Code plugin)
 
 Commands and skills that let Claude Code operate on your vault through the
-Companion MCP bridge — turning a chat agent into a vault collaborator. **14
-commands and 29 skills** across seven areas, all built on a shared grounding
+Companion MCP bridge — turning a chat agent into a vault collaborator. **16
+commands and 30 skills** across seven areas, all built on a shared grounding
 discipline (cite real notes, never fabricate, writes confirmed):
 
 | Area | Commands / skills |
 |---|---|
-| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest` |
+| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest`, `research-workbench` |
 | **Hygiene** | `consistent-tagging`, `wikilink-weaver`, `moc-builder`, `frontmatter-normalizer`, `note-splitter`, `dedup-merge` |
 | **Writing** | `outline-to-draft`, `daily-rollup`, `session-to-note`, `meeting-cleanup`, `summarize-and-link` |
 | **Build** | `plan-to-spec`, `tracker-driver`, `build-retrospective`, `task-harvester` (plus the `build-from-spec` command) |
@@ -133,7 +138,7 @@ session memory into persistent knowledge-graph points.
 flowchart LR
     companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
     bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>15 vault tools"])
-    code["claude-obsidian<br/>Claude Code plugin<br/>14 commands · 29 skills"]
+    code["claude-obsidian<br/>Claude Code plugin<br/>16 commands · 30 skills"]
 
     companion <-->|"exposes vault tools"| bridge
     code <-->|"connects and drives the same vault"| bridge
