@@ -16,10 +16,8 @@ import { isReviewState } from "./types";
 
 export interface ResearchRepositoryIO {
   listMarkdown(): Promise<ResearchNoteInput[]>;
-  exists(path: string): boolean;
-  ensureFolder(path: string): Promise<void>;
-  create(path: string, content: string): Promise<void>;
-  modify(path: string, content: string): Promise<void>;
+  createWithParents(path: string, content: string): Promise<void>;
+  updateFrontmatter(path: string, mutator: (frontmatter: Record<string, unknown>) => void): Promise<void>;
 }
 
 export interface CreateProjectInput {
@@ -35,7 +33,7 @@ export interface ImportSourceInput {
   canonicalId?: string;
   url?: string;
   asset?: string;
-  contentFingerprint?: string;
+  capturedContent?: string | Uint8Array;
   doi?: string;
   arxivId?: string;
   zoteroKey?: string;
@@ -105,6 +103,12 @@ function parentFolder(path: string): string {
   return path.slice(0, path.lastIndexOf("/"));
 }
 
+async function contentFingerprint(content: string | Uint8Array): Promise<string> {
+  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : Uint8Array.from(content);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${[...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
 export class ResearchRepository {
   constructor(private readonly io: ResearchRepositoryIO) {}
 
@@ -135,6 +139,7 @@ export class ResearchRepository {
   async importSource(projectPath: string, input: ImportSourceInput): Promise<ImportSourceResult> {
     const project = await this.loadProject(projectPath);
     if (input.asset) safePath(input.asset);
+    const fingerprint = input.capturedContent === undefined ? undefined : await contentFingerprint(input.capturedContent);
     const candidate: ResearchSourceRecord = {
       path: recordPath(projectPath, "research-source", input.title),
       title: safeTitle(input.title),
@@ -144,7 +149,7 @@ export class ResearchRepository {
       ...(input.canonicalId ? { canonicalId: input.canonicalId } : {}),
       ...(input.url ? { url: input.url } : {}),
       ...(input.asset ? { asset: input.asset } : {}),
-      ...(input.contentFingerprint ? { contentFingerprint: input.contentFingerprint } : {}),
+      ...(fingerprint ? { contentFingerprint: fingerprint } : {}),
       ...(input.doi ? { doi: input.doi } : {}),
       ...(input.arxivId ? { arxivId: input.arxivId } : {}),
       ...(input.zoteroKey ? { zoteroKey: input.zoteroKey } : {}),
@@ -178,6 +183,11 @@ export class ResearchRepository {
 
   async createClaim(input: CreateClaimInput): Promise<ClaimRecord> {
     if (!input.proposition.trim()) throw new Error("Claim proposition must not be empty");
+    const snapshot = await this.loadProject(input.project);
+    const evidencePaths = new Set(snapshot.evidence.map(({ path }) => path));
+    for (const path of [...(input.supports ?? []), ...(input.challenges ?? []), ...(input.contextualizes ?? [])]) {
+      if (!evidencePaths.has(path)) throw new Error(`Evidence is not part of project: ${path}`);
+    }
     return this.createTyped({
       path: recordPath(input.project, "claim", input.title), title: safeTitle(input.title), type: "claim", project: input.project,
       proposition: input.proposition, confidence: input.confidence ?? "moderate", reviewState: input.reviewState ?? "proposed",
@@ -193,19 +203,23 @@ export class ResearchRepository {
       return claim;
     });
     const record: ResearchDocumentRecord = { path: `${projectFolder(projectPath)}/Documents/Outline.md`, title: "Outline", type: "research-document", project: projectPath, documentKind: "outline", claims: claims.map(({ path }) => path) };
-    const content = `${renderResearchRecord(record).trimEnd()}\n\n${claims.map((claim) => `## ${claim.title}\n\n${claim.proposition}\n\n${[...claim.supporting, ...claim.challenging, ...claim.contextual].map((path) => `- [[${path}]]`).join("\n")}`.trim()).join("\n\n")}\n`;
-    await this.createRecord(record, content);
+    const content = renderResearchRecord(record);
+    await this.createRecord(record);
     return { path: record.path, content };
   }
 
-  async createRecord(record: ResearchRecord, content = renderResearchRecord(record)): Promise<void> {
+  private async createRecord(record: ResearchRecord): Promise<void> {
     safePath(record.path);
     const folder = projectFolder(record.type === "research-project" ? record.path : record.project);
     const expectedParent = record.type === "research-project" ? folder : `${folder}/${LAYOUT[record.type]}`;
     if (parentFolder(record.path) !== expectedParent) throw new Error(`Research record is outside canonical layout: ${record.path}`);
-    if (this.io.exists(record.path)) throw new Error(`Research record already exists: ${record.path}`);
-    await this.io.ensureFolder(expectedParent);
-    await this.io.create(record.path, content);
+    if (record.type === "research-project" && record.project !== record.path) throw new Error(`Research project must link to itself: ${record.path}`);
+    try {
+      await this.io.createWithParents(record.path, renderResearchRecord(record));
+    } catch (error) {
+      if (error instanceof Error && /already exists/i.test(error.message)) throw new Error(`Research record already exists: ${record.path}`);
+      throw error;
+    }
   }
 
   async setReviewState(path: string, state: ReviewState): Promise<void> {
@@ -215,7 +229,7 @@ export class ResearchRepository {
     if (!note) throw new Error(`Research record not found: ${path}`);
     const result = parseResearchRecord(note);
     if (!result.record || !("reviewState" in result.record)) throw new Error(`Record has no review state: ${path}`);
-    await this.io.modify(path, renderResearchRecord({ ...result.record, reviewState: state }));
+    await this.io.updateFrontmatter(path, (frontmatter) => { frontmatter.review_state = state; });
   }
 
   private async createTyped<T extends ResearchRecord>(record: T): Promise<T> {

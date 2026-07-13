@@ -1,10 +1,11 @@
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
-import { ResearchRepository, type ResearchRepositoryIO } from "../../src/research/repository";
+import { ResearchRepository, type ImportSourceInput, type ResearchRepositoryIO } from "../../src/research/repository";
 
 class MemoryIO implements ResearchRepositoryIO {
   files = new Map<string, string>();
   folders = new Set<string>();
+  failNextCreate = false;
 
   async listMarkdown() {
     return [...this.files].filter(([path]) => path.endsWith(".md")).map(([path, content]) => {
@@ -12,15 +13,29 @@ class MemoryIO implements ResearchRepositoryIO {
       return { path, frontmatter: match ? parse(match[1] ?? "") : undefined, body: match?.[2] ?? content };
     });
   }
-  exists(path: string) { return this.files.has(path) || this.folders.has(path); }
-  async ensureFolder(path: string) { this.folders.add(path); }
-  async create(path: string, content: string) {
-    if (this.exists(path)) throw new Error(`File already exists: ${path}`);
+  async createWithParents(path: string, content: string) {
+    if (this.failNextCreate) {
+      this.failNextCreate = false;
+      throw new Error("atomic create failed");
+    }
+    if (this.files.has(path) || this.folders.has(path)) throw new Error(`File already exists: ${path}`);
+    const parts = path.slice(0, path.lastIndexOf("/")).split("/");
+    for (let index = 1; index <= parts.length; index += 1) this.folders.add(parts.slice(0, index).join("/"));
     this.files.set(path, content);
   }
-  async modify(path: string, content: string) {
-    if (!this.files.has(path)) throw new Error(`File not found: ${path}`);
-    this.files.set(path, content);
+  async updateFrontmatter(path: string, mutator: (frontmatter: Record<string, unknown>) => void) {
+    const content = this.files.get(path);
+    if (!content) throw new Error(`File not found: ${path}`);
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!match) throw new Error(`No frontmatter: ${path}`);
+    const frontmatter = parse(match[1] ?? "") as Record<string, unknown>;
+    const before = { ...frontmatter };
+    mutator(frontmatter);
+    let block = match[1] ?? "";
+    for (const [key, value] of Object.entries(frontmatter)) {
+      if (before[key] !== value) block = block.replace(new RegExp(`^${key}:.*$`, "m"), `${key}: ${String(value)}`);
+    }
+    this.files.set(path, content.replace(match[0], `---\n${block}\n---`));
   }
 }
 
@@ -33,12 +48,12 @@ describe("ResearchRepository", () => {
     expect(created.path).toBe("Research/AI Reviews/Project.md");
     expect(created.project).toBe(created.path);
     expect([...io.files.keys()]).toEqual([created.path]);
-    expect(io.folders).toEqual(new Set(["Research/AI Reviews"]));
+    expect(io.folders).toEqual(new Set(["Research", "Research/AI Reviews"]));
   });
 
   it.each([
-    { title: "Review article", sourceKind: "web" as const, url: "https://example.test/review", contentFingerprint: "sha256:web" },
-    { title: "Scanned report", sourceKind: "pdf" as const, asset: "Attachments/report.pdf", contentFingerprint: "sha256:pdf" },
+    { title: "Review article", sourceKind: "web" as const, url: "https://example.test/review", capturedContent: "web capture" },
+    { title: "Scanned report", sourceKind: "pdf" as const, asset: "Attachments/report.pdf", capturedContent: new Uint8Array([1, 2, 3]) },
   ])("imports $sourceKind sources idempotently", async (sourceInput) => {
     const io = new MemoryIO();
     const repo = new ResearchRepository(io);
@@ -53,7 +68,7 @@ describe("ResearchRepository", () => {
     const io = new MemoryIO();
     const first = new ResearchRepository(io);
     const project = await first.createProject(projectInput);
-    await first.importSource(project.path, { title: "Paper", sourceKind: "doi", doi: "10.1/test", contentFingerprint: "sha256:one" });
+    await first.importSource(project.path, { title: "Paper", sourceKind: "doi", doi: "10.1/test", capturedContent: "paper" });
     const snapshot = await new ResearchRepository(io).loadProject(project.path);
     expect(snapshot.project).toEqual(project);
     expect(snapshot.sources).toHaveLength(1);
@@ -63,11 +78,66 @@ describe("ResearchRepository", () => {
     const io = new MemoryIO();
     const repo = new ResearchRepository(io);
     const project = await repo.createProject(projectInput);
-    const imported = await repo.importSource(project.path, { title: "Paper", sourceKind: "pdf", asset: "Files/Paper.pdf", contentFingerprint: "sha256:trusted" });
+    const imported = await repo.importSource(project.path, { title: "Paper", sourceKind: "pdf", asset: "Files/Paper.pdf", capturedContent: "trusted source bytes" });
     if (imported.kind !== "created") throw new Error("expected created source");
     const evidence = await repo.createEvidence({ project: project.path, source: imported.path, title: "Result", excerpt: "It worked.", locatorKind: "page", locatorValue: "4", sourceFingerprint: "sha256:spoofed" } as never);
-    expect(evidence.sourceFingerprint).toBe("sha256:trusted");
+    expect(evidence.sourceFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(evidence.sourceFingerprint).not.toBe("sha256:spoofed");
     await expect(repo.createEvidence({ project: project.path, source: "Elsewhere/Source.md", title: "Bad", excerpt: "No." })).rejects.toThrow("Source is not part of project");
+  });
+
+  it("computes fingerprints from captured payloads and leaves metadata-only imports unfingerprinted", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    const first = await repo.importSource(project.path, { title: "Capture A", sourceKind: "vault", capturedContent: "same payload" });
+    const same = await repo.importSource(project.path, { title: "Capture B", sourceKind: "vault", capturedContent: "same payload" });
+    const different = await repo.importSource(project.path, { title: "Capture C", sourceKind: "vault", capturedContent: "different payload" });
+    await repo.importSource(project.path, { title: "Metadata only", sourceKind: "doi", doi: "10.2/metadata" });
+    const spoofed: ImportSourceInput = {
+      title: "Spoof attempt", sourceKind: "vault",
+      // @ts-expect-error fingerprints are derived by the repository, never supplied by callers
+      contentFingerprint: "sha256:caller-controlled",
+    };
+    await repo.importSource(project.path, spoofed);
+    expect(first.kind).toBe("created");
+    expect(same).toEqual({ kind: "duplicate", path: first.path });
+    expect(different.kind).toBe("created");
+    const snapshot = await repo.loadProject(project.path);
+    expect(snapshot.sources.find(({ title }) => title === "Capture A")?.contentFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(snapshot.sources.find(({ title }) => title === "Capture C")?.contentFingerprint).not.toBe(snapshot.sources.find(({ title }) => title === "Capture A")?.contentFingerprint);
+    expect(snapshot.sources.find(({ title }) => title === "Metadata only")?.contentFingerprint).toBeUndefined();
+    expect(snapshot.sources.find(({ title }) => title === "Spoof attempt")?.contentFingerprint).toBeUndefined();
+  });
+
+  it("preserves the note body, comments, and unknown frontmatter when changing review state", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "vault" });
+    if (source.kind !== "created") throw new Error("expected source");
+    const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact quote." });
+    const original = io.files.get(evidence.path)!;
+    const customized = original.replace("review_state: proposed", "# keep this comment\ncustom_field: \"verbatim\"\nreview_state: proposed").replace("> Exact quote.", "> Exact quote.\n\nUser-authored body.");
+    io.files.set(evidence.path, customized);
+    await repo.setReviewState(evidence.path, "reviewed");
+    expect(io.files.get(evidence.path)).toBe(customized.replace("review_state: proposed", "review_state: reviewed"));
+  });
+
+  it("rejects claim evidence relations outside the loaded project", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    await expect(repo.createClaim({ project: project.path, title: "Claim", proposition: "A result", supports: ["Other/Evidence.md"] })).rejects.toThrow("Evidence is not part of project");
+    expect(io.files.has("Research/AI Reviews/Claims/Claim.md")).toBe(false);
+  });
+
+  it("leaves no folder or record behind when atomic creation fails", async () => {
+    const io = new MemoryIO();
+    io.failNextCreate = true;
+    await expect(new ResearchRepository(io).createProject(projectInput)).rejects.toThrow("atomic create failed");
+    expect(io.files.size).toBe(0);
+    expect(io.folders.size).toBe(0);
   });
 
   it("rejects traversal, noncanonical project paths, and existing user-file collisions", async () => {
