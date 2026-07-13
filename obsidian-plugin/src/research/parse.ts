@@ -44,6 +44,10 @@ function oneOf<T extends string>(input: ResearchNoteInput, issues: ParseIssue[],
   return undefined;
 }
 
+function recoveredOneOf<T extends string>(input: ResearchNoteInput, issues: ParseIssue[], key: string, values: readonly T[], fallback: T): T {
+  return oneOf(input, issues, key, values) ?? fallback;
+}
+
 function stringList(input: ResearchNoteInput, issues: ParseIssue[], key: string): string[] {
   const value = input.frontmatter?.[key];
   if (value === undefined) return [];
@@ -52,6 +56,28 @@ function stringList(input: ResearchNoteInput, issues: ParseIssue[], key: string)
   }
   issue(input, issues, "invalid-value", `${key} must be a list of non-empty strings`);
   return [];
+}
+
+function wikilink(input: ResearchNoteInput, issues: ParseIssue[], key: string, required = false): string | undefined {
+  const value = scalar(input, issues, key, required);
+  if (value === undefined) return undefined;
+  const match = value.match(/^\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]$/);
+  const target = match?.[1]?.trim();
+  if (target) return target;
+  issue(input, issues, "invalid-value", `${key} must be a wikilink`);
+  return undefined;
+}
+
+function wikilinkList(input: ResearchNoteInput, issues: ParseIssue[], key: string): string[] {
+  const values = stringList(input, issues, key);
+  const targets: string[] = [];
+  for (const value of values) {
+    const match = value.match(/^\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]$/);
+    const target = match?.[1]?.trim();
+    if (target) targets.push(target);
+    else issue(input, issues, "invalid-value", `${key} entries must be wikilinks`);
+  }
+  return targets;
 }
 
 function locatorValue(input: ResearchNoteInput, issues: ParseIssue[]): string | undefined {
@@ -78,38 +104,38 @@ function interpretationFromBody(body: string): string | undefined {
 
 function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issues: ParseIssue[]): ParseResearchResult {
   const title = scalar(input, issues, "title", true);
-  const project = scalar(input, issues, "project", true);
+  const project = wikilink(input, issues, "project", true);
   if (!title || !project) return { issues };
 
   if (type === "research-project") {
     const question = scalar(input, issues, "question", true);
-    const stage = oneOf(input, issues, "stage", ["frame", "gather", "read", "reason", "shape", "write", "assure"] as const);
-    const status = oneOf(input, issues, "status", ["active", "paused", "complete"] as const);
+    const stage = recoveredOneOf(input, issues, "stage", ["frame", "gather", "read", "reason", "shape", "write", "assure"] as const, "frame");
+    const status = recoveredOneOf(input, issues, "status", ["active", "paused", "complete"] as const, "active");
     if (!question) return { issues };
-    if (!stage || !status) return { issues };
     const audience = scalar(input, issues, "audience");
     return { record: { path: input.path, title, type, project, question, ...(audience ? { audience } : {}), stage, status }, issues };
   }
 
   if (type === "research-source") {
-    const sourceKind = oneOf(input, issues, "source_kind", ["pdf", "web", "doi", "arxiv", "zotero", "vault"] as const);
-    if (!sourceKind) return { issues };
+    const rawSourceKind = scalar(input, issues, "source_kind", true);
+    if (!rawSourceKind) return { issues };
+    const sourceKind = recoveredOneOf(input, issues, "source_kind", ["pdf", "web", "doi", "arxiv", "zotero", "vault"] as const, "vault");
     const canonicalId = scalar(input, issues, "canonical_id");
     const url = scalar(input, issues, "url");
-    const asset = scalar(input, issues, "asset");
+    const asset = wikilink(input, issues, "asset");
     const contentFingerprint = scalar(input, issues, "content_fingerprint");
     return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(contentFingerprint ? { contentFingerprint } : {}) }, issues };
   }
 
   if (type === "evidence") {
-    const source = scalar(input, issues, "source", true);
+    const source = wikilink(input, issues, "source", true);
     const excerpt = excerptFromBody(input.body);
     if (!excerpt) issue(input, issues, "missing-field", "Missing required evidence excerpt");
-    const reviewState = oneOf(input, issues, "review_state", REVIEW_STATES);
+    const reviewState = recoveredOneOf(input, issues, "review_state", REVIEW_STATES, "proposed");
     const locatorKind = oneOf(input, issues, "locator_kind", ["page", "section", "paragraph", "timestamp", "quote"] as const, false);
     const parsedLocatorValue = locatorValue(input, issues);
     if (!locatorKind || !parsedLocatorValue) issue(input, issues, "missing-locator", "Evidence should identify both locator_kind and locator_value");
-    if (!source || !excerpt || !reviewState) return { issues };
+    if (!source || !excerpt) return { issues };
     const interpretation = interpretationFromBody(input.body);
     const model = scalar(input, issues, "model");
     return { record: { path: input.path, title, type, project, source, ...(locatorKind ? { locatorKind } : {}), ...(parsedLocatorValue ? { locatorValue: parsedLocatorValue } : {}), excerpt, ...(interpretation ? { interpretation } : {}), reviewState, ...(model ? { model } : {}) }, issues };
@@ -117,23 +143,24 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
 
   if (type === "claim") {
     const proposition = scalar(input, issues, "proposition", true);
-    const confidence = oneOf(input, issues, "confidence", ["low", "moderate", "high"] as const);
-    const reviewState = oneOf(input, issues, "review_state", REVIEW_STATES);
-    if (!proposition || !confidence || !reviewState) return { issues };
-    return { record: { path: input.path, title, type, project, proposition, confidence, reviewState, supports: stringList(input, issues, "supports"), challenges: stringList(input, issues, "challenges"), contextualizes: stringList(input, issues, "contextualizes"), limitations: stringList(input, issues, "limitations") }, issues };
+    const confidence = recoveredOneOf(input, issues, "confidence", ["low", "moderate", "high"] as const, "moderate");
+    const reviewState = recoveredOneOf(input, issues, "review_state", REVIEW_STATES, "proposed");
+    if (!proposition) return { issues };
+    return { record: { path: input.path, title, type, project, proposition, confidence, reviewState, supports: wikilinkList(input, issues, "supports"), challenges: wikilinkList(input, issues, "challenges"), contextualizes: wikilinkList(input, issues, "contextualizes"), limitations: stringList(input, issues, "limitations") }, issues };
   }
 
   if (type === "research-question") {
     const question = scalar(input, issues, "question", true);
-    const status = oneOf(input, issues, "status", ["open", "resolved"] as const);
-    if (!question || !status) return { issues };
-    const about = scalar(input, issues, "about");
+    const status = recoveredOneOf(input, issues, "status", ["open", "resolved"] as const, "open");
+    if (!question) return { issues };
+    const about = wikilink(input, issues, "about");
     return { record: { path: input.path, title, type, project, question, status, ...(about ? { about } : {}) }, issues };
   }
 
-  const documentKind = oneOf(input, issues, "document_kind", ["outline", "draft"] as const);
-  if (!documentKind) return { issues };
-  return { record: { path: input.path, title, type, project, documentKind, claims: stringList(input, issues, "claims") }, issues };
+  const rawDocumentKind = scalar(input, issues, "document_kind", true);
+  if (!rawDocumentKind) return { issues };
+  const documentKind = recoveredOneOf(input, issues, "document_kind", ["outline", "draft"] as const, "outline");
+  return { record: { path: input.path, title, type, project, documentKind, claims: wikilinkList(input, issues, "claims") }, issues };
 }
 
 export function parseResearchRecord(input: ResearchNoteInput): ParseResearchResult {

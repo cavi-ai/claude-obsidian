@@ -19,6 +19,8 @@ describe("parseResearchRecord", () => {
 
     expect(result.record).toMatchObject({
       type: "evidence",
+      project: "Project",
+      source: "Paper",
       excerpt: "Performance varied by domain.",
       interpretation: "external validity is limited.",
       reviewState: "reviewed",
@@ -39,7 +41,7 @@ describe("parseResearchRecord", () => {
     expect(result.issues.map((issue) => issue.code)).toContain("missing-locator");
   });
 
-  it("omits records without their identity field and reports invalid values", () => {
+  it("omits records without their identity field", () => {
     const result = parseResearchRecord({
       path: "Claim.md",
       frontmatter: { title: "Claim", type: "claim", project: "[[P]]", confidence: "certain", review_state: "reviewed" },
@@ -48,6 +50,91 @@ describe("parseResearchRecord", () => {
 
     expect(result.record).toBeUndefined();
     expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(["missing-field", "invalid-value"]));
+  });
+
+  it("normalizes valid wikilinks and reports malformed singular and array relations", () => {
+    const valid = parseResearchRecord({
+      path: "Claim.md",
+      frontmatter: {
+        title: "Claim",
+        type: "claim",
+        project: "[[Projects/P|Project]]",
+        proposition: "P",
+        confidence: "high",
+        review_state: "reviewed",
+        supports: ["[[Evidence/E1|E1]]"],
+        challenges: ["not-a-link"],
+        contextualizes: [],
+      },
+      body: "",
+    });
+
+    expect(valid.record).toMatchObject({ project: "Projects/P", supports: ["Evidence/E1"], challenges: [] });
+    expect(valid.issues).toEqual([expect.objectContaining({ code: "invalid-value" })]);
+
+    const malformed = parseResearchRecord({
+      path: "E.md",
+      frontmatter: { title: "E", type: "evidence", project: "P", source: "[[S]]", review_state: "reviewed" },
+      body: "> excerpt",
+    });
+    expect(malformed.record).toBeUndefined();
+    expect(malformed.issues.map((entry) => entry.code)).toContain("invalid-value");
+  });
+
+  it("uses deterministic fallbacks for malformed mandatory enums", () => {
+    const project = parseResearchRecord({
+      path: "P.md",
+      frontmatter: { title: "P", type: "research-project", project: "[[P]]", question: "Q?", stage: "bogus", status: "bogus" },
+      body: "",
+    });
+    expect(project.record).toMatchObject({ stage: "frame", status: "active" });
+
+    const question = parseResearchRecord({
+      path: "Q.md",
+      frontmatter: { title: "Q", type: "research-question", project: "[[P]]", question: "Q?", status: "bogus" },
+      body: "",
+    });
+    expect(question.record).toMatchObject({ status: "open" });
+
+    const claim = parseResearchRecord({
+      path: "C.md",
+      frontmatter: { title: "C", type: "claim", project: "[[P]]", proposition: "P", confidence: "bogus", review_state: "bogus" },
+      body: "",
+    });
+    expect(claim.record).toMatchObject({ confidence: "moderate", reviewState: "proposed" });
+    expect([...project.issues, ...question.issues, ...claim.issues].every((entry) => entry.code === "invalid-value")).toBe(true);
+  });
+
+  it("validates source, asset, about, and claims wikilinks", () => {
+    const evidence = parseResearchRecord({
+      path: "E.md",
+      frontmatter: { title: "E", type: "evidence", project: "[[P]]", source: "S", review_state: "reviewed" },
+      body: "> excerpt",
+    });
+    expect(evidence.record).toBeUndefined();
+
+    const source = parseResearchRecord({
+      path: "S.md",
+      frontmatter: { title: "S", type: "research-source", project: "[[P]]", source_kind: "pdf", asset: "file.pdf" },
+      body: "",
+    });
+    expect(source.record).toMatchObject({ type: "research-source" });
+    expect(source.record).not.toHaveProperty("asset");
+
+    const question = parseResearchRecord({
+      path: "Q.md",
+      frontmatter: { title: "Q", type: "research-question", project: "[[P]]", question: "Q?", status: "open", about: "C" },
+      body: "",
+    });
+    expect(question.record).not.toHaveProperty("about");
+
+    const document = parseResearchRecord({
+      path: "D.md",
+      frontmatter: { title: "D", type: "research-document", project: "[[P]]", document_kind: "outline", claims: ["C"] },
+      body: "",
+    });
+    expect(document.record).toMatchObject({ claims: [] });
+    expect([evidence, source, question, document].every((result) => result.issues.some((entry) => entry.code === "invalid-value"))).toBe(true);
   });
 
   it("ignores non-research notes and unknown types without throwing", () => {
