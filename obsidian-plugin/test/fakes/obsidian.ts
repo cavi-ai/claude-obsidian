@@ -79,6 +79,10 @@ class FakeVault {
     return [...this.files.values()].filter((f) => f.extension === "md");
   }
 
+  getFiles(): TFile[] {
+    return [...this.files.values()];
+  }
+
   getAbstractFileByPath(path: string): TFile | TFolder | null {
     const p = normalizePath(path);
     const f = this.files.get(p);
@@ -92,7 +96,8 @@ class FakeVault {
   }
 
   createFolder(path: string): Promise<void> {
-    this.folders.add(normalizePath(path));
+    const parts = normalizePath(path).split("/");
+    for (let index = 1; index <= parts.length; index += 1) this.folders.add(parts.slice(0, index).join("/"));
     return Promise.resolve();
   }
 
