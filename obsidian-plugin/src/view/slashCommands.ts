@@ -71,6 +71,9 @@ export function filterCommands(commands: SlashCommand[], query: string): SlashCo
 /** Action-id prefix for a slash command that runs a vault workflow. */
 export const WORKFLOW_ACTION_PREFIX = "workflow:";
 
+export const RESEARCH_WORKBENCH_PROMPT =
+  "Use the Research Workbench tools for this request. Identify or create the research project; import sources with computed fingerprints; capture exact evidence with locators and review it; build claims with supporting, challenging, and contextual relations; run the audit for stale or broken provenance; and generate an evidence-backed outline using only reviewed, locatable, non-stale support. Do not hand-edit canonical research records or treat proposed, rejected, stale, disconnected, or unsupported material as trusted. Request: ";
+
 /**
  * Derive slash commands from the workflow catalog, so every workflow is also
  * reachable by typing "/" (the browsable picker stays available via /workflows).
@@ -139,6 +142,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Brainstorm options from the active note or a typed topic",
     kind: "prompt",
     prompt: "Brainstorm strong, concrete ideas for: ",
+    awaitsInput: true,
+  },
+  {
+    name: "research",
+    aliases: ["paper", "evidence", "workbench", "literature"],
+    description: "Run the evidence-backed Research Workbench",
+    kind: "prompt",
+    prompt: RESEARCH_WORKBENCH_PROMPT,
     awaitsInput: true,
   },
   {
