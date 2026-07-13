@@ -1,0 +1,56 @@
+# Task 8 report — evidence lineage and release proof
+
+## Outcome
+
+Added an end-to-end fixture that exercises the public Phase 1 repository path:
+captured Markdown plus Zotero metadata → SHA-256-fingerprinted source → exact
+reviewed evidence → native `supports` claim relation → evidence-backed outline
+→ clean audit. The fixture also reconstructs the graph from canonical Markdown
+using a fresh repository instance.
+
+Companion cases prove that a changed source fingerprint makes reviewed evidence
+stale and leaves its claim unsupported, and that proposed evidence is visible
+but does not count as trusted claim support.
+
+The first fixture run exposed a canonical serialization mismatch for the
+year-only string `published: "2026"`: it round-tripped through YAML as a number
+and was rejected by the research parser. `buildFrontmatter` now quotes
+numeric-looking strings while continuing to emit actual number values
+unquoted. A focused serializer regression test covers year, leading-zero, and
+scientific-notation strings.
+
+Both READMEs now describe the Phase 1 workflow and boundary accurately: only
+reviewed, locatable, non-stale evidence linked to a valid source is trusted,
+and Phase 1 stops at an evidence-backed outline rather than a complete paper.
+
+## Verification evidence
+
+- `pnpm exec vitest run test/research/evidenceLineage.test.ts` initially ran 3
+  tests with 1 expected contract failure: `published must be a non-empty string`.
+- `pnpm exec vitest run test/frontmatter.test.ts test/research/evidenceLineage.test.ts`
+  after the repair: 2 files passed, 21 tests passed.
+- `pnpm run typecheck`: exit 0.
+- `pnpm run lint`: exit 0.
+- `pnpm test`: 82 files passed, 775 tests passed.
+- `pnpm run build`: exit 0; TypeScript validation and production esbuild bundle
+  completed, regenerating tracked `obsidian-plugin/main.js`.
+- `git diff --check`: exit 0.
+- No changes to `manifest.json`, `versions.json`, or `package.json`.
+
+## Manual proof status
+
+No configured development/test vault path or safe test-vault runtime was
+discoverable in this checkout. Per the task safety boundary, no user vault was
+modified and no runtime service or installation was attempted. The automated
+substitute uses an in-memory canonical Markdown vault and proves persisted-file
+reconstruction, readable outline content, exact provenance, clean audit,
+staleness invalidation, and reviewed-only trust. Screenshots of Overview,
+Claim, and Audit states therefore remain blocked on an explicitly provided safe
+test vault/runtime.
+
+## Scope and concerns
+
+- The pre-existing modified `upstream/html-effectiveness` submodule was
+  preserved and is not part of this task.
+- No release, tag, push, PR, dependency install, runtime service, or version
+  change was performed.

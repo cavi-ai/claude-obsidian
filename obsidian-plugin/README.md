@@ -102,6 +102,28 @@ attribution.
 - **Spec → build handoff** — turn a plan note into a **build spec** + a live
   **tracker** (a `claude-html` progress board) and hand it to **Claude Code**.
 
+### Evidence-backed research workflow (Phase 1)
+
+Use the command palette action **Open research workbench** to inspect a
+canonical research project and move through its Overview, Sources, Evidence,
+Claims, Outline, and Audit views. The end-to-end workflow is:
+
+1. Create a project with a focused research question.
+2. Import a source so its metadata and captured-content fingerprint are saved.
+3. Capture an exact excerpt with a source locator as evidence.
+4. Review the excerpt and locator, then mark the evidence reviewed or rejected.
+5. Build claims with separate supporting, challenging, and contextual evidence
+   relations.
+6. Generate an evidence-backed outline that carries the excerpt, source,
+   locator, and fingerprint forward.
+7. Run the audit and repair stale sources, broken references, missing locators,
+   and unsupported claims.
+
+The vault's Markdown records are canonical and remain readable without the
+plugin. Only **reviewed**, locatable, non-stale evidence linked to a valid source
+counts as trusted support; proposed evidence never satisfies a claim. Phase 1
+stops at the evidence-backed outline and does **not** generate a complete paper.
+
 ![A claude-html artifact rendered inline in a note](assets/artifact-inline.png)
 *A `claude-html` artifact rendered inline — interactive, sandboxed, and saved as a plain Markdown note.*
 

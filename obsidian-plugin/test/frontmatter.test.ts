@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { normalizeTag, normalizeTags, buildFrontmatter, parseTagSuggestions, datedTitleBase } from "../src/indexing/frontmatter";
 import { parseTaggerOutput } from "../src/indexing/taggerParse";
 
@@ -45,6 +46,11 @@ describe("normalizeTags", () => {
 });
 
 describe("buildFrontmatter", () => {
+  it("round-trips numeric-looking strings as strings", () => {
+    const yaml = buildFrontmatter({ published: "2026", locator: "0014", estimate: "1e3" }).split("\n").slice(1, -1).join("\n");
+    const parsed = parseYaml(yaml);
+    expect(parsed).toMatchObject({ published: "2026", locator: "0014", estimate: "1e3" });
+  });
   it("emits a fenced YAML block with a tag list", () => {
     const fm = buildFrontmatter({ title: "Hi", type: "artifact", tags: ["claude", "plan"] });
     expect(fm).toBe(["---", "title: Hi", "type: artifact", "tags:", "  - claude", "  - plan", "---"].join("\n"));

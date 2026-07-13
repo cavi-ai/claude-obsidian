@@ -30,7 +30,7 @@ export function normalizeTags(raw: string[]): string[] {
 
 /** Quote a YAML scalar only when needed. */
 function yamlScalar(v: string): string {
-  if (v === "" || /[:#[\]{}&*!|>'"%@`,]/.test(v) || /^\s|\s$/.test(v) || /^(true|false|null|yes|no)$/i.test(v)) {
+  if (v === "" || /[:#[\]{}&*!|>'"%@`,]/.test(v) || /^\s|\s$/.test(v) || /^(?:true|false|null|yes|no|~)$/i.test(v) || /^[+-]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(v)) {
     return JSON.stringify(v);
   }
   return v;

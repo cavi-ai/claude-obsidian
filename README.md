@@ -54,6 +54,9 @@ A full Claude chat experience that lives in your vault and speaks its language.
 - **Native Canvas & Bases output** — Claude builds `.canvas` mind maps wired to
   real notes and `.base` database views over your frontmatter, write-gated like
   every other mutation.
+- **Evidence-backed research, Phase 1** — a vault-native research workbench
+  keeps sources, exact excerpts, review state, claims, and audit findings linked
+  in readable Markdown, then produces an evidence-backed outline.
 - **Prompt caching built in** — repeated context is cached server-side (reads at
   0.1× the input rate); the cost gauge accounts for it.
 - **Three auth modes** — your Anthropic **API key** (default, community-store
@@ -84,6 +87,20 @@ A full Claude chat experience that lives in your vault and speaks its language.
   notes conform to).
 
 → Full details: [`obsidian-plugin/README.md`](obsidian-plugin/README.md)
+
+### Evidence-backed research workflow (Phase 1)
+
+The Phase 1 path is **Create project → Import source → Capture evidence →
+Review → Build claims → Generate outline → Audit**. Source captures receive a
+content fingerprint; evidence records preserve the exact excerpt, locator, and
+captured fingerprint; claims keep supporting, challenging, and contextual
+relations distinct. The research workbench presents the resulting canonical
+Markdown records and their audit health.
+
+Only **reviewed**, locatable, non-stale evidence linked to a valid source counts
+as trusted claim support. Proposed evidence remains visible but does not satisfy
+the audit. Phase 1 stops at an evidence-backed outline—it does not generate a
+complete paper.
 
 ## claude-obsidian (the Claude Code plugin)
 
