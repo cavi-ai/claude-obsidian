@@ -207,7 +207,26 @@ The server binds to **127.0.0.1 only** (never the network), requires a
 | `list_titles` | `note_move` |
 | `get_backlinks` | `base_create` |
 | `get_outgoing_links` | `canvas_create` |
-| `frontmatter_query` | |
+| `frontmatter_query` | `research_project_create` |
+| `research_project_read` | `research_source_import` |
+| `research_audit` | `research_evidence_capture` |
+| | `research_evidence_review` |
+| | `research_claim_create` |
+| | `research_claim_link` |
+| | `research_outline_generate` |
+
+That is 10 always-available read/audit tools and 14 write-gated mutation tools
+(24 advertised tools when writes are enabled). Research Workbench reads and
+audits remain available with writes disabled. Creating projects, importing
+sources, capturing or reviewing evidence, creating or linking claims, and
+generating outlines requires *Allow writes*; agent mode also keeps its normal
+per-action confirmation gate. Evidence review applies only to evidence records
+and accepts `reviewed` or `rejected`.
+
+Permanent legacy aliases remain callable for compatibility, but are
+intentionally not advertised as user-facing commands. This does not change the
+bridge security boundary: it remains loopback-only and requires a non-empty
+bearer token.
 
 With *Vault ontology* enabled, `note_create` also accepts `type` / `properties`
 for schema-conformant typed notes.

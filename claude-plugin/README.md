@@ -69,8 +69,23 @@ Claude Code the commands and skills to use it well.
 - **`note-to-artifact`** — the design system Claude uses for artifacts.
 
 **`obsidian-vault` MCP server** — pre-wired HTTP connection to the Companion
-bridge (15 tools: search, read, list, tags, backlinks, titles, frontmatter query,
-create, append, update, frontmatter merge, move/rename, Base, Canvas).
+bridge. Its 10 always-available reads/audits are `vault_search`, `note_read`,
+`list_recent`, `vault_tags`, `list_titles`, `get_backlinks`,
+`get_outgoing_links`, `frontmatter_query`, `research_project_read`, and
+`research_audit`. Enabling Companion's *Allow MCP writes* adds 14 advertised
+mutations: `note_create`, `note_append`, `note_update`, `update_frontmatter`,
+`note_move`, `base_create`, `canvas_create`, `research_project_create`,
+`research_source_import`, `research_evidence_capture`,
+`research_evidence_review`, `research_claim_create`, `research_claim_link`, and
+`research_outline_generate`.
+
+Research Workbench reads and audits are always available. Project, source,
+evidence, evidence-review, claim, link, and outline mutations require writes to
+be enabled and retain confirmation gating in Companion agent mode. Evidence
+review applies only to evidence records and accepts `reviewed` or `rejected`.
+Permanent legacy aliases remain callable for compatibility, but are
+intentionally not listed as user-facing commands. The bridge remains bound to
+loopback and protected by its required bearer token.
 
 ## Setup
 

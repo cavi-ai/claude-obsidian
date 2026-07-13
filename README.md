@@ -137,19 +137,31 @@ session memory into persistent knowledge-graph points.
 ```mermaid
 flowchart LR
     companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
-    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>15 vault tools"])
+    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>10 reads · 14 write-gated tools"])
     code["claude-obsidian<br/>Claude Code plugin<br/>16 commands · 30 skills"]
 
     companion <-->|"exposes vault tools"| bridge
     code <-->|"connects and drives the same vault"| bridge
 ```
 
-**Vault tools exposed over the bridge (15 total)** — read (always):
+**Vault tools exposed over the bridge** — 10 reads/audits (always):
 `vault_search`, `note_read`, `list_recent`, `vault_tags`, `list_titles`,
-`get_backlinks`, `get_outgoing_links`, `frontmatter_query`; write (gated behind
-a setting): `note_create`, `note_append`, `note_update`, `update_frontmatter`,
-`note_move` (rename/move with automatic backlink rewrite), `base_create`,
-`canvas_create`.
+`get_backlinks`, `get_outgoing_links`, `frontmatter_query`,
+`research_project_read`, `research_audit`; 14 mutations (gated behind *Allow
+MCP writes*): `note_create`, `note_append`, `note_update`,
+`update_frontmatter`, `note_move` (rename/move with automatic backlink
+rewrite), `base_create`, `canvas_create`, `research_project_create`,
+`research_source_import`, `research_evidence_capture`,
+`research_evidence_review`, `research_claim_create`, `research_claim_link`,
+`research_outline_generate`.
+
+Research Workbench project reads and audits are therefore available even when
+writes are disabled. Project, source, evidence, evidence-review, claim, link,
+and outline mutations require *Allow MCP writes*; in Companion agent mode they
+also retain the normal confirmation gate. Review mutates evidence records only,
+and accepts the terminal states `reviewed` or `rejected`. Permanent legacy
+aliases remain callable for compatibility but are intentionally omitted from
+the advertised command catalog.
 
 Companion runs a local MCP server (`obsidian-vault`, bound to `127.0.0.1`,
 bearer-token auth, default port **22360**). The Claude Code plugin connects to
