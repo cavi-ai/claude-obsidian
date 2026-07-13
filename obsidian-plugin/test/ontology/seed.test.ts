@@ -41,6 +41,9 @@ describe("SEED_TYPES", () => {
       expect.objectContaining({ key: "project", targets: ["research-project"] }),
     ]));
     expect(relations("research-document")).toContainEqual(expect.objectContaining({ key: "claims", targets: ["claim"] }));
+    expect(SEED_TYPES.find((t) => t.name === "evidence")?.properties).toContainEqual(
+      expect.objectContaining({ key: "source_fingerprint", type: "string", required: false }),
+    );
   });
 });
 

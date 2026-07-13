@@ -48,6 +48,7 @@ export type SourceLocatorKind = "page" | "section" | "paragraph" | "timestamp" |
 export interface EvidenceRecord extends BaseResearchRecord {
   type: "evidence";
   source: string;
+  sourceFingerprint?: string;
   locatorKind?: SourceLocatorKind;
   locatorValue?: string;
   excerpt: string;

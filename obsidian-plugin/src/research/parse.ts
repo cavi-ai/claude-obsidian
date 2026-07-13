@@ -140,6 +140,7 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
 
   if (type === "evidence") {
     const source = wikilink(input, issues, "source", true);
+    const sourceFingerprint = scalar(input, issues, "source_fingerprint");
     const excerpt = excerptFromBody(input.body);
     if (!excerpt) issue(input, issues, "missing-field", "Missing required evidence excerpt");
     const reviewState = recoveredOneOf(input, issues, "review_state", REVIEW_STATES, "proposed");
@@ -149,7 +150,7 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
     if (!source || !excerpt) return { issues };
     const interpretation = interpretationFromBody(input.body);
     const model = scalar(input, issues, "model");
-    return { record: { path: input.path, title, type, project, source, ...(locatorKind ? { locatorKind } : {}), ...(parsedLocatorValue ? { locatorValue: parsedLocatorValue } : {}), excerpt, ...(interpretation ? { interpretation } : {}), reviewState, ...(model ? { model } : {}) }, issues };
+    return { record: { path: input.path, title, type, project, source, ...(sourceFingerprint ? { sourceFingerprint } : {}), ...(locatorKind ? { locatorKind } : {}), ...(parsedLocatorValue ? { locatorValue: parsedLocatorValue } : {}), excerpt, ...(interpretation ? { interpretation } : {}), reviewState, ...(model ? { model } : {}) }, issues };
   }
 
   if (type === "claim") {

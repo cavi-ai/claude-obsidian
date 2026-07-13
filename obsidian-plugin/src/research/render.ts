@@ -32,7 +32,7 @@ export function renderResearchRecord(record: ResearchRecord): string {
       body = "# Research source\n\n## Notes";
       break;
     case "evidence":
-      frontmatter = { ...common, source: wikilink(record.source), locator_kind: record.locatorKind, locator_value: record.locatorValue, review_state: record.reviewState, model: record.model };
+      frontmatter = { ...common, source: wikilink(record.source), source_fingerprint: record.sourceFingerprint, locator_kind: record.locatorKind, locator_value: record.locatorValue, review_state: record.reviewState, model: record.model };
       body = `# Evidence\n\n${quoteExcerpt(record.excerpt)}${record.interpretation ? `\n\nInterpretation: ${record.interpretation}` : ""}`;
       break;
     case "claim":

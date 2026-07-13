@@ -13,7 +13,7 @@ function parseRendered(path: string, markdown: string) {
 const records: ResearchRecord[] = [
   { path: "Projects/P.md", title: "P", type: "research-project", project: "Projects/P", question: "What works?", audience: "Researchers", stage: "gather", status: "active" },
   { path: "Sources/S.md", title: "S", type: "research-source", project: "Projects/P", sourceKind: "doi", canonicalId: "10.1/x", url: "https://example.test", asset: "Files/S.pdf", contentFingerprint: "sha256:abc", doi: "10.1/x", arxivId: "2501.01234", zoteroKey: "KEY1", authors: ["Ada Lovelace"], published: "2025-04-02", publication: "Journal of Tests" },
-  { path: "Evidence/E.md", title: "E", type: "evidence", project: "Projects/P", source: "Sources/S", locatorKind: "page", locatorValue: "14", excerpt: "Measured effect.\nAcross cohorts.", interpretation: "Useful result.", reviewState: "reviewed", model: "claude" },
+  { path: "Evidence/E.md", title: "E", type: "evidence", project: "Projects/P", source: "Sources/S", sourceFingerprint: "sha256:abc", locatorKind: "page", locatorValue: "14", excerpt: "Measured effect.\nAcross cohorts.", interpretation: "Useful result.", reviewState: "reviewed", model: "claude" },
   { path: "Claims/C.md", title: "C", type: "claim", project: "Projects/P", proposition: "The effect generalizes.", confidence: "moderate", reviewState: "proposed", supports: ["Evidence/E1"], challenges: ["Evidence/E2"], contextualizes: ["Evidence/E3"], limitations: ["Small sample"] },
   { path: "Questions/Q.md", title: "Q", type: "research-question", project: "Projects/P", question: "Does it generalize?", status: "open", about: "Claims/C" },
   { path: "Documents/D.md", title: "D", type: "research-document", project: "Projects/P", documentKind: "outline", claims: ["Claims/C"] },
@@ -23,6 +23,7 @@ describe("renderResearchRecord", () => {
   it("uses canonical locator keys and quoted evidence excerpts", () => {
     const rendered = renderResearchRecord(records[2]!);
     expect(rendered).toContain("locator_kind: page");
+    expect(rendered).toContain('source_fingerprint: "sha256:abc"');
     expect(rendered).toContain('locator_value: "14"');
     expect(rendered).not.toContain("locatorKind:");
     expect(rendered).toContain("> Measured effect.\n> Across cohorts.");

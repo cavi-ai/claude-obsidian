@@ -1,0 +1,44 @@
+import { isStaleEvidence, type ProjectSnapshot } from "./graph";
+
+export interface AuditFinding {
+  code: "missing-locator" | "unreviewed-evidence" | "unsupported-claim" | "broken-reference" | "unused-evidence" | "stale-evidence";
+  severity: "error" | "warning" | "info";
+  path: string;
+  explanation: string;
+  repair: string;
+}
+
+const severityOrder: Record<AuditFinding["severity"], number> = { error: 0, warning: 1, info: 2 };
+
+export function auditProject(snapshot: ProjectSnapshot): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const sources = new Map(snapshot.sources.map((source) => [source.path, source]));
+  const evidence = new Map(snapshot.evidence.map((item) => [item.path, item]));
+  const claims = new Set(snapshot.claims.map((claim) => claim.path));
+  const usedEvidence = new Set<string>();
+
+  for (const item of snapshot.evidence) {
+    const source = sources.get(item.source);
+    if (!source) findings.push({ code: "broken-reference", severity: "error", path: item.path, explanation: `Evidence references missing source ${item.source}.`, repair: "Link the evidence to an existing source record or restore the missing source." });
+    if (!item.locatorKind || !item.locatorValue?.trim()) findings.push({ code: "missing-locator", severity: "warning", path: item.path, explanation: "Evidence does not have both a locator kind and locator value.", repair: "Add an exact locator kind and value that lets a reviewer find the excerpt." });
+    if (item.reviewState === "proposed") findings.push({ code: "unreviewed-evidence", severity: "warning", path: item.path, explanation: "Proposed evidence has not been reviewed by a person.", repair: "Verify the excerpt and locator, then mark the evidence reviewed or rejected." });
+    if (isStaleEvidence(item, source)) findings.push({ code: "stale-evidence", severity: "warning", path: item.path, explanation: "The source content fingerprint differs from the fingerprint captured with this evidence.", repair: "Re-open the current source, verify the excerpt and locator, and update the captured fingerprint." });
+  }
+
+  for (const claim of snapshot.claims) {
+    for (const [relation, paths] of [["supporting", claim.supporting], ["challenging", claim.challenging], ["contextual", claim.contextual]] as const) {
+      for (const path of paths) {
+        usedEvidence.add(path);
+        if (!evidence.has(path)) findings.push({ code: "broken-reference", severity: "error", path: claim.path, explanation: `Claim has a ${relation} reference to missing evidence ${path}.`, repair: "Link the claim to an existing evidence card or remove the broken reference." });
+      }
+    }
+    if (claim.trustedSupportCount === 0) findings.push({ code: "unsupported-claim", severity: "error", path: claim.path, explanation: "Claim has no trusted supporting evidence.", repair: "Add supporting evidence that is reviewed, locatable, linked to a valid source, and not stale." });
+  }
+
+  for (const document of snapshot.documents) {
+    for (const path of document.claims) if (!claims.has(path)) findings.push({ code: "broken-reference", severity: "error", path: document.path, explanation: `Document references missing claim ${path}.`, repair: "Link the document to an existing claim or remove the broken reference." });
+  }
+  for (const item of snapshot.evidence) if (!usedEvidence.has(item.path)) findings.push({ code: "unused-evidence", severity: "info", path: item.path, explanation: "Evidence is not connected to any claim.", repair: "Connect the evidence to a claim as supporting, challenging, or contextual, or archive it." });
+
+  return findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || a.path.localeCompare(b.path) || a.code.localeCompare(b.code));
+}
