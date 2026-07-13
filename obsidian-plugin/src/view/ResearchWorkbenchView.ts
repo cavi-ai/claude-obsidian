@@ -3,6 +3,7 @@ import { auditProject } from "../research/audit";
 import type { ProjectSnapshot } from "../research/graph";
 import type { ResearchRepository } from "../research/repository";
 import { buildWorkbenchViewModel } from "../research/viewModel";
+import { isResearchProjectChange, resolveResearchProjectLink } from "../research/workbenchRouting";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
 type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit";
@@ -22,8 +23,14 @@ export class ResearchWorkbenchView extends ItemView {
   override getIcon(): string { return "microscope"; }
 
   async setProjectPath(projectPath?: string): Promise<void> {
-    this.projectPath = projectPath;
+    this.projectPath = resolveResearchProjectLink(projectPath);
     await this.render();
+  }
+
+  getProjectPath(): string | undefined { return this.projectPath; }
+
+  isRelevantChange(path: string, oldPath?: string): boolean {
+    return isResearchProjectChange(this.projectPath, path, oldPath);
   }
 
   override async onOpen(): Promise<void> { await this.render(); }
@@ -74,6 +81,13 @@ export class ResearchWorkbenchView extends ItemView {
         const card = grid.createEl("button", { cls: "cc-research-metric", attr: { "aria-label": `Open ${label.toLowerCase()}` } });
         card.createEl("strong", { text: String(value) }); card.createSpan({ text: label });
         card.addEventListener("click", () => { this.activeTab = label === "Open questions" ? "Overview" : label; void this.render(); });
+      }
+      root.createEl("h3", { text: "Audit health" });
+      const health = root.createDiv({ cls: "cc-research-health", attr: { role: "status", "aria-label": "Research audit health" } });
+      for (const [label, value] of [["Unsupported claims", vm.health.unsupportedClaims], ["Unreviewed evidence", vm.health.unreviewedEvidence], ["Missing locators", vm.health.missingLocators], ["Broken references", vm.health.brokenReferences]] as const) {
+        const metric = health.createDiv({ cls: "cc-research-health-metric", attr: { "aria-label": `${label}: ${value}` } });
+        metric.createEl("strong", { text: String(value) });
+        metric.createSpan({ text: label });
       }
       root.createEl("h3", { text: "Next actions" });
       for (const action of vm.nextActions) this.openButton(root, action.label, action.path);

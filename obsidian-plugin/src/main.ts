@@ -4,7 +4,7 @@ import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchWorkbenchView";
 import { ResearchRepository } from "./research/repository";
-import { RESEARCH_TYPE_NAMES } from "./research/types";
+import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
@@ -107,6 +107,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _ontologyReloadTimer: number | null = null;
   /** Debounces research-only metadata changes without reacting to unrelated vault notes. */
   private researchRefreshTimer: number | null = null;
+  private researchRefreshChanges: Array<{ path: string; oldPath?: string }> = [];
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -349,6 +350,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.renameNote(oldPath, f.path); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleResearchRefresh(f.path, oldPath); }));
 
       // Reload the ontology when schema notes under the ontology folder change
       // (debounced; no-op while the feature is off).
@@ -364,8 +368,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
-      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-      if (typeof frontmatter?.type === "string" && (RESEARCH_TYPE_NAMES as readonly string[]).includes(frontmatter.type)) this.scheduleResearchRefresh();
+      this.scheduleResearchRefresh(file.path);
     }));
   }
 
@@ -1266,23 +1269,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async activateResearchWorkbench(projectPath?: string): Promise<void> {
     const active = this.app.workspace.getActiveFile();
     const frontmatter = active ? this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined : undefined;
-    const inferred = frontmatter?.type === "research-project" ? active?.path : typeof frontmatter?.project === "string" ? frontmatter.project : undefined;
+    const inferred = active ? inferResearchProjectPath(active.path, frontmatter) : undefined;
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)[0] ?? null;
     if (!leaf) {
       leaf = workspace.getRightLeaf(false);
       if (leaf) await leaf.setViewState({ type: RESEARCH_WORKBENCH_VIEW_TYPE, active: true });
     }
-    if (leaf?.view instanceof ResearchWorkbenchView) await leaf.view.setProjectPath(projectPath ?? inferred);
+    if (leaf?.view instanceof ResearchWorkbenchView) {
+      const selected = leaf.view.getProjectPath();
+      const next = projectPathForActivation(projectPath, inferred, selected);
+      if (next && next !== selected) await leaf.view.setProjectPath(next);
+    }
     if (leaf) await workspace.revealLeaf(leaf);
   }
 
-  private scheduleResearchRefresh(): void {
+  private scheduleResearchRefresh(path: string, oldPath?: string): void {
+    this.researchRefreshChanges.push({ path, ...(oldPath ? { oldPath } : {}) });
     if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
     this.researchRefreshTimer = window.setTimeout(() => {
       this.researchRefreshTimer = null;
+      const changes = this.researchRefreshChanges;
+      this.researchRefreshChanges = [];
       for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) {
-        if (leaf.view instanceof ResearchWorkbenchView) void leaf.view.render();
+        const view = leaf.view;
+        if (view instanceof ResearchWorkbenchView && changes.some(({ path, oldPath }) => view.isRelevantChange(path, oldPath))) void view.render();
       }
     }, 250);
   }
