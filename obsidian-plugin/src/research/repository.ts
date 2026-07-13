@@ -2,6 +2,7 @@ import { buildProjectSnapshot, type ProjectSnapshot } from "./graph";
 import { canonicalSourceId, findDuplicate } from "./identity";
 import { parseResearchRecord, type ResearchNoteInput } from "./parse";
 import { renderResearchRecord } from "./render";
+import { renderEvidenceOutline } from "./outline";
 import type {
   ClaimRecord,
   EvidenceRecord,
@@ -11,6 +12,7 @@ import type {
   ResearchSourceRecord,
   ReviewState,
   SourceLocatorKind,
+  EvidenceRelation,
 } from "./types";
 import { isReviewState } from "./types";
 
@@ -195,6 +197,18 @@ export class ResearchRepository {
     });
   }
 
+  async linkClaimEvidence(projectPath: string, claimPath: string, evidencePath: string, relation: EvidenceRelation): Promise<void> {
+    const snapshot = await this.loadProject(projectPath);
+    const claim = snapshot.claims.find((candidate) => candidate.path === claimPath);
+    if (!claim) throw new Error(`Claim is not part of project: ${claimPath}`);
+    if (!snapshot.evidence.some((candidate) => candidate.path === evidencePath)) throw new Error(`Evidence is not part of project: ${evidencePath}`);
+    if (!["supports", "challenges", "contextualizes"].includes(relation)) throw new Error(`Unsupported evidence relation: ${relation}`);
+    await this.io.updateFrontmatter(claim.path, (frontmatter) => {
+      const current = Array.isArray(frontmatter[relation]) ? (frontmatter[relation] as unknown[]).filter((value): value is string => typeof value === "string") : [];
+      frontmatter[relation] = [...new Set([...current, `[[${evidencePath}]]`])];
+    });
+  }
+
   async createOutline(projectPath: string, claimPaths: string[]): Promise<{ path: string; content: string }> {
     const snapshot = await this.loadProject(projectPath);
     const claims = claimPaths.map((path) => {
@@ -203,8 +217,14 @@ export class ResearchRepository {
       return claim;
     });
     const record: ResearchDocumentRecord = { path: `${projectFolder(projectPath)}/Documents/Outline.md`, title: "Outline", type: "research-document", project: projectPath, documentKind: "outline", claims: claims.map(({ path }) => path) };
-    const content = renderResearchRecord(record);
-    await this.createRecord(record);
+    const content = renderEvidenceOutline(snapshot, claims.map(({ path }) => path));
+    safePath(record.path);
+    try {
+      await this.io.createWithParents(record.path, content);
+    } catch (error) {
+      if (error instanceof Error && /already exists/i.test(error.message)) throw new Error(`Research record already exists: ${record.path}`);
+      throw error;
+    }
     return { path: record.path, content };
   }
 

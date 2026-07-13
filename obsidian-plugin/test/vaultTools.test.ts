@@ -27,6 +27,20 @@ describe("assertVaultPath — vault-escape guard", () => {
   });
 });
 
+describe("research tools", () => {
+  it("always defines reads/audit but only advertises mutations when writes are enabled", () => {
+    const readNames = tools(false).vt.definitions().map(({ name }) => name);
+    expect(readNames).toEqual(expect.arrayContaining(["research_project_read", "research_audit"]));
+    expect(readNames).not.toContain("research_evidence_create");
+    const writeNames = tools(true).vt.definitions().map(({ name }) => name);
+    expect(writeNames).toEqual(expect.arrayContaining(["research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]));
+  });
+
+  it("rejects research mutations when MCP writes are disabled", async () => {
+    await expect(tools(false).vt.call("research_claim_create", { project: "P/Project.md", title: "C", proposition: "x" })).rejects.toThrow(/disabled/);
+  });
+});
+
 describe("write tools reject vault escapes", () => {
   it("note_create with a traversal folder is refused", async () => {
     const { vt } = tools();

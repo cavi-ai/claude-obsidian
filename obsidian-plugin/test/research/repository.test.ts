@@ -33,7 +33,7 @@ class MemoryIO implements ResearchRepositoryIO {
     mutator(frontmatter);
     let block = match[1] ?? "";
     for (const [key, value] of Object.entries(frontmatter)) {
-      if (before[key] !== value) block = block.replace(new RegExp(`^${key}:.*$`, "m"), `${key}: ${String(value)}`);
+      if (before[key] !== value) block = block.replace(new RegExp(`^${key}:.*(?:\n  - .*)*`, "m"), `${key}: ${Array.isArray(value) ? JSON.stringify(value) : String(value)}`);
     }
     this.files.set(path, content.replace(match[0], `---\n${block}\n---`));
   }
@@ -130,6 +130,39 @@ describe("ResearchRepository", () => {
     const project = await repo.createProject(projectInput);
     await expect(repo.createClaim({ project: project.path, title: "Claim", proposition: "A result", supports: ["Other/Evidence.md"] })).rejects.toThrow("Evidence is not part of project");
     expect(io.files.has("Research/AI Reviews/Claims/Claim.md")).toBe(false);
+  });
+
+  it("links evidence through exactly one native relation without disturbing the others", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "pdf" });
+    if (source.kind !== "created") throw new Error("expected source");
+    const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact." });
+    const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result.", challenges: [evidence.path] });
+    await repo.linkClaimEvidence(project.path, claim.path, evidence.path, "supports");
+    await repo.linkClaimEvidence(project.path, claim.path, evidence.path, "supports");
+    const reloaded = await repo.loadProject(project.path);
+    expect(reloaded.claims[0]?.supports).toEqual([evidence.path]);
+    expect(reloaded.claims[0]?.challenges).toEqual([evidence.path]);
+    expect(reloaded.claims[0]?.contextualizes).toEqual([]);
+  });
+
+  it("persists an outline with exact source, locator, fingerprint, and excerpt provenance", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "pdf", capturedContent: "bytes" });
+    if (source.kind !== "created") throw new Error("expected source");
+    const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact quote.", locatorKind: "page", locatorValue: "0014", reviewState: "reviewed" });
+    const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result.", supports: [evidence.path] });
+    const outline = await repo.createOutline(project.path, [claim.path]);
+    expect(io.files.get(outline.path)).toBe(outline.content);
+    expect(outline.content).toContain(`Source: [[${source.path}]]`);
+    expect(outline.content).toContain("Locator: page 0014");
+    expect(outline.content).toContain("Source fingerprint: `sha256:");
+    expect(outline.content).toContain("> Exact quote.");
+    expect((await repo.loadProject(project.path)).documents[0]?.claims).toEqual([claim.path]);
   });
 
   it("leaves no folder or record behind when atomic creation fails", async () => {

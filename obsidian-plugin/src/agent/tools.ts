@@ -4,12 +4,13 @@
 
 import type { McpToolDef } from "../mcp/protocol";
 import type { AnthropicToolDef, ToolResultBlock, ToolUseBlock } from "../providers/types";
+import { RESEARCH_WRITE_TOOLS } from "../research/tools";
 
 /** Cap on a single tool result sent back to the model (spec §7, Franco-approved). */
 export const TOOL_RESULT_MAX_CHARS = 8000;
 
 /** The vault tools that mutate the vault; everything else is read-only. */
-const WRITE_TOOLS = new Set(["note_create", "note_append", "note_update", "update_frontmatter", "note_move", "canvas_create", "base_create"]);
+const WRITE_TOOLS = new Set(["note_create", "note_append", "note_update", "update_frontmatter", "note_move", "canvas_create", "base_create", ...RESEARCH_WRITE_TOOLS]);
 
 export function isWriteTool(name: string): boolean {
   return WRITE_TOOLS.has(name);

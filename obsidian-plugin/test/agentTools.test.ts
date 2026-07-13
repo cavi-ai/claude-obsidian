@@ -34,6 +34,18 @@ describe("isWriteTool", () => {
       expect(isWriteTool(t)).toBe(false);
     }
   });
+
+  it("fails closed for every research mutation while keeping project reads and audits read-only", async () => {
+    for (const name of ["research_evidence_create", "research_claim_create", "research_claim_link", "research_outline_create"]) {
+      expect(isWriteTool(name)).toBe(true);
+      const call = vi.fn();
+      const result = await executeTool({ call }, use(name));
+      expect(call).not.toHaveBeenCalled();
+      expect(result.is_error).toBe(true);
+    }
+    expect(isWriteTool("research_project_read")).toBe(false);
+    expect(isWriteTool("research_audit")).toBe(false);
+  });
 });
 
 describe("executeTool", () => {
