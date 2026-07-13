@@ -30,9 +30,21 @@ describe("assertVaultPath — vault-escape guard", () => {
 describe("research tools", () => {
   it("always defines reads/audit but only advertises mutations when writes are enabled", () => {
     const readNames = tools(false).vt.definitions().map(({ name }) => name);
-    expect(readNames).toEqual(expect.arrayContaining(["research_project_read", "research_audit"]));
+    expect(new Set(readNames).size).toBe(readNames.length);
+    expect(readNames.filter((name) => name.startsWith("research_"))).toEqual(["research_project_read", "research_audit"]);
     const writeNames = tools(true).vt.definitions().map(({ name }) => name);
-    expect(writeNames).toEqual(expect.arrayContaining(["research_project_create", "research_source_import", "research_evidence_capture", "research_evidence_review", "research_claim_create", "research_claim_link", "research_outline_generate"]));
+    expect(new Set(writeNames).size).toBe(writeNames.length);
+    expect(writeNames.filter((name) => name.startsWith("research_"))).toEqual([
+      "research_project_read",
+      "research_audit",
+      "research_project_create",
+      "research_source_import",
+      "research_evidence_capture",
+      "research_evidence_review",
+      "research_claim_create",
+      "research_claim_link",
+      "research_outline_generate",
+    ]);
     for (const name of ["research_evidence_create", "research_outline_create"]) {
       expect(readNames).not.toContain(name);
       expect(writeNames).not.toContain(name);

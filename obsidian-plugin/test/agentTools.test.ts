@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { toAnthropicTools, executeTool, isWriteTool, TOOL_RESULT_MAX_CHARS, PROPOSE_EDIT_TOOL } from "../src/agent/tools";
 import type { McpToolDef } from "../src/mcp/protocol";
 import type { ToolUseBlock } from "../src/providers/types";
-import { ResearchTools } from "../src/research/tools";
+import { VaultTools } from "../src/mcp/vaultTools";
+import { App } from "obsidian";
 
 const defs: McpToolDef[] = [
   { name: "vault_search", description: "Search.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
@@ -49,8 +50,20 @@ describe("isWriteTool", () => {
   });
 
   it("transforms only canonical research definitions for the model", () => {
-    const names = toAnthropicTools(new ResearchTools({} as never).definitions()).map(({ name }) => name);
-    expect(names).toEqual(expect.arrayContaining(["research_evidence_capture", "research_evidence_review", "research_outline_generate"]));
+    const advertised = new VaultTools(new App() as never, { allowWrites: true, defaultFolder: "Claude" }).definitions();
+    const names = toAnthropicTools(advertised).map(({ name }) => name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.filter((name) => name.startsWith("research_"))).toEqual([
+      "research_project_read",
+      "research_audit",
+      "research_project_create",
+      "research_source_import",
+      "research_evidence_capture",
+      "research_evidence_review",
+      "research_claim_create",
+      "research_claim_link",
+      "research_outline_generate",
+    ]);
     expect(names).not.toContain("research_evidence_create");
     expect(names).not.toContain("research_outline_create");
   });
