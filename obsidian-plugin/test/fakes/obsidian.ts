@@ -206,4 +206,15 @@ export class Notice {
 }
 export class Plugin {}
 export class MarkdownView {}
-export class WorkspaceLeaf {}
+export class WorkspaceLeaf {
+  constructor(public app: App = new App()) {}
+}
+export class ItemView {
+  app: App;
+  contentEl = {} as HTMLElement;
+  constructor(public leaf: WorkspaceLeaf) { this.app = leaf.app; }
+  getViewType(): string { return ""; }
+  getDisplayText(): string { return ""; }
+  getIcon(): string { return ""; }
+  onOpen(): Promise<void> { return Promise.resolve(); }
+}

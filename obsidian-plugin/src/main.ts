@@ -2,6 +2,9 @@ import { App, FileSystemAdapter, MarkdownView, Modal, Notice, parseYaml, Platfor
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
+import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchWorkbenchView";
+import { ResearchRepository } from "./research/repository";
+import { RESEARCH_TYPE_NAMES } from "./research/types";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
@@ -102,6 +105,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _ontology: OntologyRegistry | null = null;
   /** Debounce timer for ontology reloads on schema-note changes. */
   private _ontologyReloadTimer: number | null = null;
+  /** Debounces research-only metadata changes without reacting to unrelated vault notes. */
+  private researchRefreshTimer: number | null = null;
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -109,6 +114,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
     if (!Platform.isMobile) this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
+    this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(leaf, this.researchRepository()));
 
     // Inline interactive artifacts: ```claude-html ... ```
     this.registerMarkdownCodeBlockProcessor("claude-html", (source, el, ctx) => {
@@ -187,6 +193,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "open-related-notes",
       name: "Open related notes panel",
       callback: () => void this.activateRelatedView(),
+    });
+
+    this.addCommand({
+      id: "open-research-workbench",
+      name: "Open research workbench",
+      callback: () => void this.activateResearchWorkbench(),
     });
 
     this.addCommand({
@@ -351,6 +363,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("file-open", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => {
+      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      if (typeof frontmatter?.type === "string" && (RESEARCH_TYPE_NAMES as readonly string[]).includes(frontmatter.type)) this.scheduleResearchRefresh();
+    }));
   }
 
   private enrichDeps(): EnrichDeps {
@@ -444,6 +460,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._builtinEmbedder = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
     if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
+    if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
   }
 
   // ---------- settings ----------
@@ -1244,6 +1261,58 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (leaf) await leaf.setViewState({ type: RELATED_VIEW_TYPE, active: true });
     }
     if (leaf) await workspace.revealLeaf(leaf);
+  }
+
+  async activateResearchWorkbench(projectPath?: string): Promise<void> {
+    const active = this.app.workspace.getActiveFile();
+    const frontmatter = active ? this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined : undefined;
+    const inferred = frontmatter?.type === "research-project" ? active?.path : typeof frontmatter?.project === "string" ? frontmatter.project : undefined;
+    const { workspace } = this.app;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)[0] ?? null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) await leaf.setViewState({ type: RESEARCH_WORKBENCH_VIEW_TYPE, active: true });
+    }
+    if (leaf?.view instanceof ResearchWorkbenchView) await leaf.view.setProjectPath(projectPath ?? inferred);
+    if (leaf) await workspace.revealLeaf(leaf);
+  }
+
+  private scheduleResearchRefresh(): void {
+    if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
+    this.researchRefreshTimer = window.setTimeout(() => {
+      this.researchRefreshTimer = null;
+      for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) {
+        if (leaf.view instanceof ResearchWorkbenchView) void leaf.view.render();
+      }
+    }, 250);
+  }
+
+  private researchRepository(): ResearchRepository {
+    const readNotes = async (files: TFile[]) => Promise.all(files.map(async (file) => {
+      const content = await this.app.vault.cachedRead(file);
+      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      return { path: file.path, ...(frontmatter ? { frontmatter } : {}), body };
+    }));
+    return new ResearchRepository({
+      listMarkdown: async () => readNotes(this.app.vault.getMarkdownFiles()),
+      listProjectMarkdown: async (projectPath) => {
+        const folder = projectPath.slice(0, -"/Project.md".length);
+        const prefixes = ["Sources", "Evidence", "Claims", "Questions", "Documents"].map((name) => `${folder}/${name}/`);
+        return readNotes(this.app.vault.getMarkdownFiles().filter((file) => file.path === projectPath || prefixes.some((prefix) => file.path.startsWith(prefix))));
+      },
+      createWithParents: async (path, content) => {
+        const normalized = normalizePath(path);
+        if (this.app.vault.getAbstractFileByPath(normalized)) throw new Error(`File already exists: ${normalized}`);
+        await this.ensureFolder(normalized.slice(0, normalized.lastIndexOf("/")));
+        await this.app.vault.create(normalized, content);
+      },
+      updateFrontmatter: async (path, mutator) => {
+        const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (!(file instanceof TFile)) throw new Error(`Research note not found: ${path}`);
+        await this.app.fileManager.processFrontMatter(file, mutator);
+      },
+    });
   }
 
   // ---------- command helpers ----------
