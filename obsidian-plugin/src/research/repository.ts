@@ -1,6 +1,6 @@
 import { buildProjectSnapshot, type ProjectSnapshot } from "./graph";
 import { canonicalSourceId, findDuplicate } from "./identity";
-import { parseResearchRecord, type ResearchNoteInput } from "./parse";
+import { parseResearchCandidate, parseResearchRecord, type ResearchNoteInput } from "./parse";
 import { renderResearchRecord } from "./render";
 import { renderEvidenceOutline } from "./outline";
 import type {
@@ -117,8 +117,15 @@ export class ResearchRepository {
 
   async loadProject(projectPath: string): Promise<ProjectSnapshot> {
     projectFolder(projectPath);
-    const notes = this.io.listProjectMarkdown ? await this.io.listProjectMarkdown(projectPath) : await this.io.listMarkdown();
-    const parsed = notes.map(parseResearchRecord);
+    let scoped = false;
+    let notes: ResearchNoteInput[];
+    if (this.io.listProjectMarkdown) {
+      scoped = true;
+      notes = await this.io.listProjectMarkdown(projectPath);
+    } else {
+      notes = await this.io.listMarkdown();
+    }
+    const parsed = notes.map(scoped ? parseResearchCandidate : parseResearchRecord);
     return buildProjectSnapshot(projectPath, parsed.flatMap(({ record }) => record ? [record] : []), parsed.flatMap(({ issues }) => issues));
   }
 

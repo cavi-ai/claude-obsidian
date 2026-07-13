@@ -40,16 +40,26 @@ describe("research tools", () => {
     await expect(tools(false).vt.call("research_claim_create", { project: "P/Project.md", title: "C", proposition: "x" })).rejects.toThrow(/disabled/);
   });
 
-  it("filters research candidates by metadata before reading note bodies", async () => {
+  it("reads only the canonical project tree and surfaces damaged research metadata", async () => {
     const app = new App();
     const project = "Research/P/Project.md";
     app.vault.seed(project, "# project", { frontmatter: { title: "P", type: "research-project", project: `[[${project}]]`, question: "Why?", stage: "frame", status: "active" } });
     app.vault.seed("Research/P/Sources/S.md", "# source", { frontmatter: { title: "S", type: "research-source", project: `[[${project}]]`, source_kind: "web" } });
+    app.vault.seed("Research/P/Evidence/Damaged type.md", "# damaged", { frontmatter: { title: "Damaged", type: "not-research", project: `[[${project}]]` } });
+    app.vault.seed("Research/P/Claims/Damaged project.md", "# damaged", { frontmatter: { title: "Damaged", type: "claim", project: 42, proposition: "X", confidence: "low", review_state: "proposed" } });
+    app.vault.seed("Research/P/Loose.md", "not in canonical layout", { frontmatter: { type: "not-research" } });
     for (let index = 0; index < 100; index += 1) app.vault.seed(`Notes/N${index}.md`, "unrelated body", { frontmatter: { type: "note" } });
     const read = vi.spyOn(app.vault, "cachedRead");
     const output = await new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude" }).call("research_project_read", { project });
-    expect(JSON.parse(output).counts.sources).toBe(1);
-    expect(read).toHaveBeenCalledTimes(2);
+    const summary = JSON.parse(output);
+    expect(summary.counts.sources).toBe(1);
+    expect(summary.counts.issues).toBe(2);
+    expect(summary.paths.issues.items).toEqual(expect.arrayContaining(["Research/P/Evidence/Damaged type.md", "Research/P/Claims/Damaged project.md"]));
+    expect(read).toHaveBeenCalledTimes(4);
+    read.mockClear();
+    const findings = JSON.parse(await new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude" }).call("research_audit", { project }));
+    expect(findings.filter(({ rule }: { rule: string }) => rule === "invalid-record")).toHaveLength(2);
+    expect(read).toHaveBeenCalledTimes(4);
   });
 });
 

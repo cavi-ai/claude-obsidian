@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseResearchRecord } from "../../src/research/parse";
+import { parseResearchCandidate, parseResearchRecord } from "../../src/research/parse";
 
 describe("parseResearchRecord", () => {
+  it("explains invalid types for canonical scoped candidates without flagging ordinary broad-scan notes", () => {
+    const input = { path: "P/Evidence/Damaged.md", frontmatter: { type: "ordinary-note" }, body: "" };
+    expect(parseResearchRecord(input).issues).toEqual([]);
+    expect(parseResearchCandidate(input).issues).toEqual([{ path: input.path, code: "unknown-type", message: "Unknown research type: ordinary-note" }]);
+  });
   it("parses reviewed evidence with a page locator", () => {
     const result = parseResearchRecord({
       path: "Research/Evidence/E1.md",

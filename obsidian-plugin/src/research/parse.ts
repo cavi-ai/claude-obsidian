@@ -180,3 +180,12 @@ export function parseResearchRecord(input: ResearchNoteInput): ParseResearchResu
   if (typeof type !== "string" || !(RESEARCH_TYPE_NAMES as readonly string[]).includes(type)) return { issues: [] };
   return parseTypedRecord(type as ResearchTypeName, input, []);
 }
+
+/** Parse a note already selected by canonical research layout, reporting damaged metadata. */
+export function parseResearchCandidate(input: ResearchNoteInput): ParseResearchResult {
+  const type = input.frontmatter?.type;
+  if (type === undefined) return { issues: [{ path: input.path, code: "missing-field", message: "Missing required field: type" }] };
+  if (typeof type !== "string") return { issues: [{ path: input.path, code: "invalid-value", message: "type must be a non-empty string" }] };
+  if (!(RESEARCH_TYPE_NAMES as readonly string[]).includes(type)) return { issues: [{ path: input.path, code: "unknown-type", message: `Unknown research type: ${type}` }] };
+  return parseTypedRecord(type as ResearchTypeName, input, []);
+}

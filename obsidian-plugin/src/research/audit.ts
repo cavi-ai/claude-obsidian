@@ -1,7 +1,7 @@
 import { compareCodeUnits, isStaleEvidence, type ProjectSnapshot } from "./graph";
 
 export interface AuditFinding {
-  code: "missing-locator" | "unreviewed-evidence" | "unsupported-claim" | "broken-reference" | "unused-evidence" | "stale-evidence";
+  code: "missing-locator" | "unreviewed-evidence" | "unsupported-claim" | "broken-reference" | "unused-evidence" | "stale-evidence" | "invalid-record";
   severity: "error" | "warning" | "info";
   path: string;
   explanation: string;
@@ -11,7 +11,13 @@ export interface AuditFinding {
 const severityOrder: Record<AuditFinding["severity"], number> = { error: 0, warning: 1, info: 2 };
 
 export function auditProject(snapshot: ProjectSnapshot): AuditFinding[] {
-  const findings: AuditFinding[] = [];
+  const findings: AuditFinding[] = snapshot.issues.map((issue) => ({
+    code: "invalid-record",
+    severity: "error",
+    path: issue.path,
+    explanation: `${issue.code}: ${issue.message}`,
+    repair: "Repair the research frontmatter so the note can be parsed into the project graph.",
+  }));
   const sources = new Map(snapshot.sources.map((source) => [source.path, source]));
   const evidence = new Map(snapshot.evidence.map((item) => [item.path, item]));
   const claims = new Set(snapshot.claims.map((claim) => claim.path));
