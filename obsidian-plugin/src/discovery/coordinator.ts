@@ -1,4 +1,5 @@
-import type { Provider } from "../providers/types";
+import { isOfflineOrUsageError, shouldFallbackToLocal, type ChatBackend } from "../providers/fallback";
+import type { Provider, ProviderId } from "../providers/types";
 import type { ProjectSnapshot } from "../research/graph";
 import type { ImportSourceInput, ImportSourceResult, ResearchRepository } from "../research/repository";
 import type { ArxivAdapter } from "./adapters/arxiv";
@@ -16,7 +17,13 @@ export interface DiscoveryCoordinatorDeps {
   crossref: Pick<CrossrefAdapter, "lookupDoi">;
   arxiv: Pick<ArxivAdapter, "lookup">;
   repository: Pick<ResearchRepository, "importSource">;
-  resolveRerankProvider: () => { provider: Provider; model: string } | undefined;
+  enabled: () => boolean;
+  cacheHours: () => number;
+  rerankerMode: () => "current" | "claude" | "local" | "disabled";
+  chatBackend: () => ChatBackend;
+  anthropic: () => { provider: Provider; model: string };
+  local: () => { provider: Provider; model: string };
+  localAvailable: () => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -27,12 +34,16 @@ export interface DiscoveryValidState {
   deterministicOrder: string[];
   modelOrder?: string[];
   modelRanked?: ModelRankedCandidate[];
+  providerId?: ProviderId;
+  model?: string;
+  usedFallback?: boolean;
   partialAdapters: DiscoveryAdapterId[];
   cursor?: string;
   fingerprint: string;
 }
 
 export type DiscoveryState =
+  | { status: "disabled"; query: DiscoveryQuery }
   | { status: "idle"; query: DiscoveryQuery }
   | { status: "searching"; query: DiscoveryQuery; requestId: number; previous?: DiscoveryValidState }
   | DiscoveryValidState
@@ -47,6 +58,7 @@ interface CacheEntry {
   projectPath: string;
   sequence: number;
   state: DiscoveryValidState;
+  cachedAt: number;
 }
 
 interface ActiveRequest {
@@ -107,12 +119,18 @@ export class DiscoveryCoordinator {
 
   stateFor(snapshot: ProjectSnapshot): DiscoveryState {
     const query = deriveDiscoveryQuery(snapshot);
+    if (!this.deps.enabled()) return { status: "disabled", query };
     const fingerprint = snapshotFingerprint(snapshot);
     if (this.active && this.active.fingerprint === fingerprint && this.active.query.projectPath === query.projectPath && this.active.key === this.desiredKey) {
       return { status: "searching", query: this.active.query, requestId: this.active.sequence, ...(this.active.previous ? { previous: validCopy(this.active.previous) } : {}) };
     }
     if (this.current?.projectPath === query.projectPath) {
-      if (this.current.fingerprint === fingerprint) return this.current.state;
+      if (this.current.fingerprint === fingerprint) {
+        const state = this.current.state;
+        if ((state.status === "ready" || state.status === "stale") && this.expired(this.current.key)) return validCopy(state, "stale");
+        if (state.status === "failed" && state.previous && this.expired(this.current.key)) return { ...state, previous: validCopy(state.previous, "stale") };
+        return state;
+      }
       const valid = this.current.state.status === "ready" || this.current.state.status === "stale"
         ? this.current.state
         : this.current.state.status === "failed" ? this.current.state.previous : undefined;
@@ -122,7 +140,7 @@ export class DiscoveryCoordinator {
     }
     const desired = this.desiredKey ? this.cache.get(this.desiredKey) : undefined;
     if (desired?.projectPath === query.projectPath) {
-      return validCopy(desired.state, desired.state.fingerprint === fingerprint ? "ready" : "stale");
+      return validCopy(desired.state, desired.state.fingerprint === fingerprint && !this.expired(desired.key) ? "ready" : "stale");
     }
     if (this.desiredProjectPath === query.projectPath && this.desiredFingerprint !== undefined && this.desiredFingerprint !== fingerprint) {
       return { status: "stale", query, ranked: [], deterministicOrder: [], partialAdapters: [], fingerprint: this.desiredFingerprint };
@@ -132,10 +150,12 @@ export class DiscoveryCoordinator {
 
   async search(snapshot: ProjectSnapshot, text: string, cursor?: string): Promise<DiscoveryState> {
     const query = { text: text.trim(), projectPath: snapshot.project.path };
+    if (!this.deps.enabled()) return { status: "disabled", query };
     return this.request(snapshot, query, "search", cursor, (signal) => this.deps.openAlex.search(query, cursor, signal));
   }
 
   async expand(snapshot: ProjectSnapshot, candidateId: string, direction: CitationDirection, cursor?: string): Promise<DiscoveryState> {
+    if (!this.deps.enabled()) return { status: "disabled", query: deriveDiscoveryQuery(snapshot) };
     const current = this.currentValid(snapshot.project.path);
     const seed = current?.state.ranked.find(({ candidate }) => candidate.id === candidateId)?.candidate;
     const query = current?.state.query ?? deriveDiscoveryQuery(snapshot);
@@ -148,25 +168,49 @@ export class DiscoveryCoordinator {
   }
 
   async rerank(snapshot: ProjectSnapshot): Promise<DiscoveryState> {
+    if (!this.deps.enabled()) return { status: "disabled", query: deriveDiscoveryQuery(snapshot) };
     const current = this.currentValid(snapshot.project.path);
     const query = current?.state.query ?? deriveDiscoveryQuery(snapshot);
-    if (!current || current.state.fingerprint !== snapshotFingerprint(snapshot)) return current ? validCopy(current.state, "stale") : { status: "idle", query };
-    const resolved = this.deps.resolveRerankProvider();
-    if (!resolved) {
+    if (!current || current.state.fingerprint !== snapshotFingerprint(snapshot) || this.expired(current.key)) return current ? validCopy(current.state, "stale") : { status: "idle", query };
+    const mode = this.deps.rerankerMode();
+    const chatBackend = this.deps.chatBackend();
+    if (mode === "disabled") {
       const state: DiscoveryState = { status: "failed", query, message: safeFailure("rerank"), previous: validCopy(current.state) };
       this.setCurrent(current.key, current.state.fingerprint, state);
       return state;
     }
+    const resolved = mode === "claude" ? this.deps.anthropic()
+      : mode === "local" ? this.deps.local()
+      : chatBackend === "local" ? this.deps.local()
+      : this.deps.anthropic();
     const controller = new AbortController();
     const sequence = ++this.sequence;
     this.active = { key: current.key, sequence, controller, query, fingerprint: current.state.fingerprint, previous: current.state };
     this.controllers.set(sequence, controller);
     this.notify();
     try {
-      const modelRanked = await rerankCandidates(resolved.provider, query, current.state.ranked, resolved.model, controller.signal);
+      let chosen = resolved;
+      let usedFallback = false;
+      let modelRanked: ModelRankedCandidate[];
+      try {
+        if (!chosen.provider.hasCredentials()) throw Object.assign(new Error("Provider credential unavailable"), { status: 401 });
+        modelRanked = await rerankCandidates(chosen.provider, query, current.state.ranked, chosen.model, controller.signal);
+      } catch (error) {
+        const classified = this.fallbackError(error);
+        const eligible = mode === "current" && chatBackend === "auto" && isOfflineOrUsageError(classified) && shouldFallbackToLocal({
+          backend: "auto",
+          localAvailable: await this.deps.localAvailable(),
+          error: classified,
+        });
+        if (!eligible || controller.signal.aborted) throw error;
+        chosen = this.deps.local();
+        if (!chosen.provider.hasCredentials()) throw error;
+        usedFallback = true;
+        modelRanked = await rerankCandidates(chosen.provider, query, current.state.ranked, chosen.model, controller.signal);
+      }
       if (controller.signal.aborted || sequence !== this.sequence) return validCopy(current.state, "stale");
-      const state: DiscoveryValidState = { ...validCopy(current.state, "ready"), modelRanked, modelOrder: modelRanked.map(({ candidate }) => candidate.id) };
-      this.cache.set(current.key, { ...current, sequence, state });
+      const state: DiscoveryValidState = { ...validCopy(current.state, "ready"), modelRanked, modelOrder: modelRanked.map(({ candidate }) => candidate.id), providerId: chosen.provider.id, model: chosen.model, usedFallback };
+      this.cache.set(current.key, { ...current, sequence, state, cachedAt: this.nowMs() });
       this.setCurrent(current.key, current.state.fingerprint, state, false);
       return state;
     } catch {
@@ -290,7 +334,7 @@ export class DiscoveryCoordinator {
       const state: DiscoveryValidState = { status, query, ranked, deterministicOrder: ranked.map(({ candidate }) => candidate.id), partialAdapters: [...partial].sort(compare), ...(page.nextCursor ? { cursor: page.nextCursor } : {}), fingerprint };
       const existing = this.cache.get(key);
       if (!controller.signal.aborted && (!existing || existing.sequence <= sequence)) {
-        this.cache.set(key, { key, projectPath: query.projectPath, sequence, state: { ...state, status: "ready" } });
+        this.cache.set(key, { key, projectPath: query.projectPath, sequence, state: { ...state, status: "ready" }, cachedAt: this.nowMs() });
       }
       if (status === "ready") this.setCurrent(key, fingerprint, state, false);
       return state;
@@ -330,6 +374,26 @@ export class DiscoveryCoordinator {
   private currentValid(projectPath: string): CacheEntry | undefined {
     const desired = this.desiredKey ? this.cache.get(this.desiredKey) : undefined;
     return desired?.projectPath === projectPath ? desired : undefined;
+  }
+
+  private nowMs(): number { return (this.deps.now ?? (() => new Date()))().getTime(); }
+
+  private cacheTtlMs(): number {
+    const configured = this.deps.cacheHours();
+    const hours = Number.isFinite(configured) ? Math.min(168, Math.max(1, Math.floor(configured))) : 24;
+    return hours * 60 * 60 * 1000;
+  }
+
+  private expired(key: string): boolean {
+    const entry = this.cache.get(key);
+    return entry !== undefined && this.nowMs() - entry.cachedAt > this.cacheTtlMs();
+  }
+
+  private fallbackError(error: unknown): { message?: string; status?: number } {
+    if (!error || typeof error !== "object") return {};
+    const message = "message" in error && typeof error.message === "string" ? error.message : undefined;
+    const status = "status" in error && typeof error.status === "number" ? error.status : undefined;
+    return { ...(message ? { message } : {}), ...(status !== undefined ? { status } : {}) };
   }
 
   private setCurrent(key: string, fingerprint: string, state: DiscoveryState, notify = true): void {

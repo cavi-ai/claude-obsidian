@@ -20,7 +20,6 @@ import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
 import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
-import type { Provider } from "./providers/types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, type LinkCandidate } from "./links/unlinkedMentions";
@@ -739,20 +738,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._intelligenceCoordinator;
   }
 
-  discoveryRerankProvider(): { provider: Provider; model: string } | undefined {
-    if (!this.settings.discoveryEnabled || this.settings.discoveryReranker === "disabled") return undefined;
-    const router = this.router();
-    const anthropic = { provider: router.anthropic as Provider, model: resolveModelId(this.settings.model, this.settings.customModel) };
-    const local = { provider: router.ollama as Provider, model: this.settings.ollamaModel };
-    const eligible = (choice: { provider: Provider; model: string }): typeof choice | undefined =>
-      choice.provider.hasCredentials() ? choice : undefined;
-    if (this.settings.discoveryReranker === "claude") return eligible(anthropic);
-    if (this.settings.discoveryReranker === "local") return eligible(local);
-    if (this.settings.chatBackend === "local") return eligible(local);
-    const current = eligible(anthropic);
-    return current ?? (this.settings.chatBackend === "auto" ? eligible(local) : undefined);
-  }
-
   /** One lazy coordinator shared by every discovery surface. */
   discoveryCoordinator(): DiscoveryCoordinator {
     if (!this._discoveryCoordinator) {
@@ -774,7 +759,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
         crossref: new CrossrefAdapter(http),
         arxiv: new ArxivAdapter(http),
         repository: this.researchRepository(),
-        resolveRerankProvider: () => this.discoveryRerankProvider(),
+        enabled: () => this.settings.discoveryEnabled,
+        cacheHours: () => normalizeDiscoverySettings(this.settings).discoveryCacheHours,
+        rerankerMode: () => this.settings.discoveryReranker,
+        chatBackend: () => this.settings.chatBackend,
+        anthropic: () => ({ provider: this.router().anthropic, model: resolveModelId(this.settings.model, this.settings.customModel) }),
+        local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
+        localAvailable: () => this.router().localAvailable(),
       });
     }
     return this._discoveryCoordinator;

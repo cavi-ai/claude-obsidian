@@ -28,10 +28,10 @@ function provider(id: "anthropic" | "ollama", credentials = true): Provider {
   };
 }
 
-function pluginHarness(anthropic = provider("anthropic"), ollama = provider("ollama")): ClaudeCompanionPlugin {
+function pluginHarness(anthropic = provider("anthropic"), ollama = provider("ollama"), localAvailable = async () => true): ClaudeCompanionPlugin {
   const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   plugin.settings = { ...DEFAULT_SETTINGS };
-  Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable: async () => true }) });
+  Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable }) });
   Object.defineProperty(plugin, "researchRepository", { value: () => ({ importSource: vi.fn() }) });
   return plugin;
 }
@@ -65,44 +65,59 @@ describe("scholarly discovery plugin wiring", () => {
     expect(requestUrl).not.toHaveBeenCalled();
   });
 
-  it("resolves every reranker mode with strict credential gates and disclosed provider/model", () => {
+  it("routes live strict/current modes and discloses the actual provider/model", async () => {
     const anthropic = provider("anthropic");
     const ollama = provider("ollama");
     const plugin = pluginHarness(anthropic, ollama);
     plugin.settings.model = "claude-sonnet-4-6";
     plugin.settings.ollamaModel = "local-model";
 
-    plugin.settings.discoveryReranker = "disabled";
-    expect(plugin.discoveryRerankProvider()).toBeUndefined();
+    const coordinator = plugin.discoveryCoordinator();
+    await coordinator.search(snapshot, "q");
     plugin.settings.discoveryReranker = "claude";
-    expect(plugin.discoveryRerankProvider()).toEqual({ provider: anthropic, model: "claude-sonnet-4-6" });
+    expect(await coordinator.rerank(snapshot)).toEqual(expect.objectContaining({ providerId: "anthropic", model: "claude-sonnet-4-6", usedFallback: false }));
     plugin.settings.discoveryReranker = "local";
-    expect(plugin.discoveryRerankProvider()).toEqual({ provider: ollama, model: "local-model" });
+    expect(await coordinator.rerank(snapshot)).toEqual(expect.objectContaining({ providerId: "ollama", model: "local-model", usedFallback: false }));
     plugin.settings.discoveryReranker = "current";
     plugin.settings.chatBackend = "local";
-    expect(plugin.discoveryRerankProvider()).toEqual({ provider: ollama, model: "local-model" });
+    await coordinator.rerank(snapshot);
+    expect(ollama.complete).toHaveBeenCalled();
     plugin.settings.chatBackend = "claude";
-    expect(plugin.discoveryRerankProvider()).toEqual({ provider: anthropic, model: "claude-sonnet-4-6" });
+    await coordinator.rerank(snapshot);
+    expect(anthropic.complete).toHaveBeenCalled();
   });
 
-  it("allows credential fallback only for Current plus Auto", () => {
+  it("uses Current plus Auto credential fallback only when local is reachable", async () => {
     const anthropic = provider("anthropic", false);
     const ollama = provider("ollama", true);
     const plugin = pluginHarness(anthropic, ollama);
+    const coordinator = plugin.discoveryCoordinator();
+    await coordinator.search(snapshot, "q");
     plugin.settings.chatBackend = "auto";
     plugin.settings.discoveryReranker = "current";
-    expect(plugin.discoveryRerankProvider()).toEqual({ provider: ollama, model: plugin.settings.ollamaModel });
+    expect(await coordinator.rerank(snapshot)).toEqual(expect.objectContaining({ status: "ready", providerId: "ollama", usedFallback: true }));
     plugin.settings.discoveryReranker = "claude";
-    expect(plugin.discoveryRerankProvider()).toBeUndefined();
-    plugin.settings.discoveryReranker = "local";
-    expect(plugin.discoveryRerankProvider()?.provider).toBe(ollama);
+    expect((await coordinator.rerank(snapshot)).status).toBe("failed");
 
-    const noLocal = pluginHarness(provider("anthropic"), provider("ollama", false));
-    noLocal.settings.discoveryReranker = "local";
-    expect(noLocal.discoveryRerankProvider()).toBeUndefined();
+    const noLocalProvider = provider("ollama");
+    const noLocal = pluginHarness(provider("anthropic", false), noLocalProvider, async () => false);
     noLocal.settings.discoveryReranker = "current";
     noLocal.settings.chatBackend = "auto";
-    expect(noLocal.discoveryRerankProvider()?.provider.id).toBe("anthropic");
+    await noLocal.discoveryCoordinator().search(snapshot, "q");
+    expect((await noLocal.discoveryCoordinator().rerank(snapshot)).status).toBe("failed");
+    expect(noLocalProvider.complete).not.toHaveBeenCalled();
+  });
+
+  it("honors live discovery disablement with zero adapter/provider calls", async () => {
+    const anthropic = provider("anthropic");
+    const plugin = pluginHarness(anthropic);
+    const coordinator = plugin.discoveryCoordinator();
+    plugin.settings.discoveryEnabled = false;
+    expect((await coordinator.search(snapshot, "q")).status).toBe("disabled");
+    expect((await coordinator.expand(snapshot, "openalex:W1", "references")).status).toBe("disabled");
+    expect((await coordinator.rerank(snapshot)).status).toBe("disabled");
+    expect(requestUrl).not.toHaveBeenCalled();
+    expect(anthropic.complete).not.toHaveBeenCalled();
   });
 
   it("clears only derived coordinator state and unload cancels, clears, and releases it", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DiscoveryCoordinator, type DiscoveryCoordinatorDeps } from "../../src/discovery/coordinator";
 import { buildProjectSnapshot } from "../../src/research/graph";
 import type { ResearchRecord } from "../../src/research/types";
+import type { Provider } from "../../src/providers/types";
 
 const work = (id: string, extra: Record<string, unknown> = {}) => ({
   adapter: "openalex" as const, externalId: id, openAlexId: id, title: `Paper ${id}`, authors: ["Ada"], ...extra,
@@ -27,12 +28,22 @@ function harness(overrides: Partial<DiscoveryCoordinatorDeps> = {}) {
     crossref: { lookupDoi: vi.fn(async () => ({ adapter: "crossref", externalId: "10.1/x", doi: "10.1/x", title: "Enriched", authors: ["Ada"] })) },
     arxiv: { lookup: vi.fn(async () => undefined) },
     repository: { importSource: vi.fn(async (_path, input) => { imports.push(input); return { kind: "created" as const, path: "Sources/X.md" }; }) },
-    resolveRerankProvider: () => undefined,
+    enabled: () => true,
+    cacheHours: () => 24,
+    rerankerMode: () => "disabled",
+    chatBackend: () => "claude",
+    anthropic: () => ({ provider: { id: "anthropic", hasCredentials: () => false } as never, model: "claude" }),
+    local: () => ({ provider: { id: "ollama", hasCredentials: () => false } as never, model: "local" }),
+    localAvailable: async () => false,
     now: () => new Date("2026-01-01T00:00:00Z"),
     ...overrides,
   };
   return { deps, coordinator: new DiscoveryCoordinator(deps), imports };
 }
+
+const modelProvider = (id: "anthropic" | "ollama", complete: ReturnType<typeof vi.fn>, credentials = true) => ({
+  id, label: id, hasCredentials: () => credentials, complete, stream: async () => undefined, test: async () => ({ ok: true, detail: "ok" }),
+}) as Provider;
 
 describe("DiscoveryCoordinator", () => {
   it("derives idle state without HTTP or repository work", () => {
@@ -40,6 +51,27 @@ describe("DiscoveryCoordinator", () => {
     expect(h.coordinator.stateFor(snapshot())).toEqual(expect.objectContaining({ status: "idle", query: { text: "How does discovery work?", projectPath: "Research/P/Project.md" } }));
     expect(h.deps.openAlex.search).not.toHaveBeenCalled();
     expect(h.deps.repository.importSource).not.toHaveBeenCalled();
+  });
+
+  it("enforces live disabled state at search, expand, and rerank boundaries with zero calls", async () => {
+    let enabled = false;
+    const complete = vi.fn();
+    const h = harness({
+      enabled: () => enabled,
+      rerankerMode: () => "claude",
+      anthropic: () => ({ provider: modelProvider("anthropic", complete), model: "claude" }),
+    });
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("disabled");
+    expect((await h.coordinator.search(snapshot(), "q")).status).toBe("disabled");
+    expect((await h.coordinator.expand(snapshot(), "openalex:W1", "references")).status).toBe("disabled");
+    expect((await h.coordinator.rerank(snapshot())).status).toBe("disabled");
+    expect(h.deps.openAlex.search).not.toHaveBeenCalled();
+    expect(h.deps.openAlex.expand).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    enabled = true;
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("idle");
+    await h.coordinator.search(snapshot(), "q");
+    expect(h.deps.openAlex.search).toHaveBeenCalledOnce();
   });
 
   it("searches explicitly, enriches partially, ranks, and never writes", async () => {
@@ -96,8 +128,8 @@ describe("DiscoveryCoordinator", () => {
   });
 
   it("uses exact-set reranking and preserves results on provider failure", async () => {
-    const provider = { id: "anthropic" as const, complete: vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Only"}]}') };
-    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    const provider = modelProvider("anthropic", vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Only"}]}'));
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, rerankerMode: () => "claude", anthropic: () => ({ provider, model: "explicit" }) });
     await h.coordinator.search(snapshot(), "q");
     const reranked = await h.coordinator.rerank(snapshot());
     expect(reranked).toEqual(expect.objectContaining({ status: "ready", modelOrder: ["openalex:W1"] }));
@@ -106,9 +138,76 @@ describe("DiscoveryCoordinator", () => {
     expect(fallback).toEqual(expect.objectContaining({ status: "failed", message: "The discovery rerank could not be completed.", previous: expect.objectContaining({ modelOrder: ["openalex:W1"] }) }));
   });
 
+  it("falls back at runtime only for Current plus Auto and discloses the actual local provider/model", async () => {
+    const claudeComplete = vi.fn().mockRejectedValue(Object.assign(new Error("rate limited"), { status: 429 }));
+    const localComplete = vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Local"}]}');
+    const h = harness({
+      openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() },
+      rerankerMode: () => "current", chatBackend: () => "auto",
+      anthropic: () => ({ provider: modelProvider("anthropic", claudeComplete), model: "claude-model" }),
+      local: () => ({ provider: modelProvider("ollama", localComplete), model: "local-model" }),
+      localAvailable: async () => true,
+    });
+    await h.coordinator.search(snapshot(), "q");
+    const state = await h.coordinator.rerank(snapshot());
+    expect(state).toEqual(expect.objectContaining({ status: "ready", providerId: "ollama", model: "local-model", usedFallback: true }));
+    expect(claudeComplete).toHaveBeenCalledOnce();
+    expect(localComplete).toHaveBeenCalledWith(expect.objectContaining({ model: "local-model" }));
+  });
+
+  it("does not fall back when local is unreachable or the reranker mode is strict", async () => {
+    const claudeComplete = vi.fn().mockRejectedValue(Object.assign(new Error("offline"), { status: 503 }));
+    const localComplete = vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Local"}]}');
+    const base = {
+      openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() },
+      anthropic: () => ({ provider: modelProvider("anthropic", claudeComplete), model: "claude-model" }),
+      local: () => ({ provider: modelProvider("ollama", localComplete), model: "local-model" }),
+    };
+    const unreachable = harness({ ...base, rerankerMode: () => "current", chatBackend: () => "auto", localAvailable: async () => false });
+    await unreachable.coordinator.search(snapshot(), "q");
+    expect((await unreachable.coordinator.rerank(snapshot())).status).toBe("failed");
+    expect(localComplete).not.toHaveBeenCalled();
+
+    claudeComplete.mockClear();
+    const strict = harness({ ...base, rerankerMode: () => "claude", chatBackend: () => "auto", localAvailable: async () => true });
+    await strict.coordinator.search(snapshot(), "q");
+    expect((await strict.coordinator.rerank(snapshot())).status).toBe("failed");
+    expect(localComplete).not.toHaveBeenCalled();
+  });
+
+  it("does not probe local availability for a non-fallback Claude failure", async () => {
+    const localAvailable = vi.fn(async () => true);
+    const h = harness({
+      openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() },
+      rerankerMode: () => "current", chatBackend: () => "auto", localAvailable,
+      anthropic: () => ({ provider: modelProvider("anthropic", vi.fn().mockRejectedValue(Object.assign(new Error("bad request"), { status: 400 }))), model: "claude" }),
+      local: () => ({ provider: modelProvider("ollama", vi.fn()), model: "local" }),
+    });
+    await h.coordinator.search(snapshot(), "q");
+    expect((await h.coordinator.rerank(snapshot())).status).toBe("failed");
+    expect(localAvailable).not.toHaveBeenCalled();
+  });
+
+  it("honors the exact cache TTL boundary, expiry, and live cache-hour changes without network", async () => {
+    let now = new Date("2026-01-01T00:00:00Z");
+    let hours = 2;
+    const h = harness({ now: () => now, cacheHours: () => hours });
+    await h.coordinator.search(snapshot(), "q");
+    const calls = vi.mocked(h.deps.openAlex.search).mock.calls.length;
+    now = new Date("2026-01-01T02:00:00Z");
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("ready");
+    now = new Date("2026-01-01T02:00:00.001Z");
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("stale");
+    hours = 3;
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("ready");
+    hours = 1;
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("stale");
+    expect(h.deps.openAlex.search).toHaveBeenCalledTimes(calls);
+  });
+
   it("preserves valid results when exact-set model output is invalid and exposes failure to subscribers", async () => {
-    const provider = { id: "anthropic" as const, complete: vi.fn(async () => '{"order":[]}') };
-    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    const provider = modelProvider("anthropic", vi.fn(async () => '{"order":[]}'));
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, rerankerMode: () => "claude", anthropic: () => ({ provider, model: "explicit" }) });
     await h.coordinator.search(snapshot(), "q");
     const states: string[] = [];
     h.coordinator.subscribe(() => states.push(h.coordinator.stateFor(snapshot()).status));
@@ -122,8 +221,8 @@ describe("DiscoveryCoordinator", () => {
     const complete = vi.fn((request: { signal?: AbortSignal }) => new Promise<string>((_resolve, reject) => {
       request.signal?.addEventListener("abort", () => reject(new DOMException("private", "AbortError")));
     }));
-    const provider = { id: "anthropic" as const, complete };
-    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    const provider = modelProvider("anthropic", complete);
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, rerankerMode: () => "claude", anthropic: () => ({ provider, model: "explicit" }) });
     await h.coordinator.search(snapshot(), "q");
     const pending = h.coordinator.rerank(snapshot());
     h.coordinator.cancel();
@@ -180,8 +279,8 @@ describe("DiscoveryCoordinator", () => {
     ];
     const rich = buildProjectSnapshot("Research/P/Project.md", records, []);
     const complete = vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Only"}]}');
-    const provider = { id: "anthropic" as const, complete };
-    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    const provider = modelProvider("anthropic", complete);
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, rerankerMode: () => "claude", anthropic: () => ({ provider, model: "explicit" }) });
     await h.coordinator.search(rich, "Safe query");
     await h.coordinator.rerank(rich);
     const request = JSON.stringify(complete.mock.calls[0]?.[0]);
