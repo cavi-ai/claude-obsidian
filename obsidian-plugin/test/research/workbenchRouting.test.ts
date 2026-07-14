@@ -8,10 +8,22 @@ describe("research workbench routing", () => {
     expect(resolveResearchProjectLink("Research/Alpha/Notes.md")).toBeUndefined();
   });
 
-  it("infers projects from project and child records", () => {
-    expect(inferResearchProjectPath("Research/Alpha/Project.md", { type: "research-project" })).toBe("Research/Alpha/Project.md");
-    expect(inferResearchProjectPath("Research/Alpha/Evidence/E1.md", { type: "evidence", project: "[[Research/Alpha/Project.md|Alpha]]" })).toBe("Research/Alpha/Project.md");
-    expect(inferResearchProjectPath("Research/Alpha/Evidence/E1.md", {})).toBe("Research/Alpha/Project.md");
+  it("resolves project notes and canonically linked research records", () => {
+    expect(inferResearchProjectPath("Research/Alpha/Project.md", { type: "research-project" }))
+      .toBe("Research/Alpha/Project.md");
+    for (const type of ["research-source", "evidence", "claim", "research-question", "research-document"]) {
+      expect(inferResearchProjectPath("Anywhere/Record.md", {
+        type,
+        project: "[[Research/Alpha/Project.md|Alpha]]",
+      })).toBe("Research/Alpha/Project.md");
+    }
+  });
+
+  it("does not guess an owning project from folders or unrelated metadata", () => {
+    expect(inferResearchProjectPath("Research/Alpha/Evidence/E1.md", {})).toBeUndefined();
+    expect(inferResearchProjectPath("Research/Alpha/Evidence/E1.md", { type: "ordinary-note", project: "Research/Alpha/Project.md" })).toBeUndefined();
+    expect(inferResearchProjectPath("Research/Alpha/Evidence/E1.md", { type: "evidence", project: "Elsewhere.md" })).toBeUndefined();
+    expect(inferResearchProjectPath("Research/Alpha/Project.md", { type: "research-project", project: "Elsewhere.md" })).toBe("Research/Alpha/Project.md");
   });
 
   it("preserves the selected project when activation has no new project", () => {
