@@ -10,6 +10,12 @@ export const RESEARCH_WRITE_TOOLS = new Set([
   "research_evidence_create", "research_outline_create",
 ]);
 
+/** Legacy call names accepted by MCP dispatch but intentionally omitted from discovery. */
+export const HIDDEN_RESEARCH_TOOL_ALIASES: ReadonlySet<string> = new Set([
+  "research_evidence_create",
+  "research_outline_create",
+]);
+
 type Repository = Pick<ResearchRepository, "loadProject" | "createProject" | "importSource" | "createEvidence" | "reviewEvidence" | "createClaim" | "linkClaimEvidence" | "createOutline">;
 
 const object = (properties: Record<string, unknown>, required: string[]): McpToolDef["inputSchema"] => ({ type: "object", properties, required });
