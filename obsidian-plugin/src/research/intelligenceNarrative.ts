@@ -175,8 +175,8 @@ export function parseNarrativeResponse(raw: string, allowedPaths: ReadonlySet<st
     const insights: NarrativeInsight[] = [];
     for (const value of candidate.insights) {
       if (!isObject(value) || typeof value.text !== "string" || value.text.trim() === "" || !isEpistemicLabel(value.epistemicStatus) || !Array.isArray(value.paths)) continue;
-      const paths = sortedUnique(value.paths.filter((path): path is string => typeof path === "string" && allowedPaths.has(path)));
-      if (paths.length === 0) continue;
+      if (value.paths.length === 0 || !value.paths.every((path) => typeof path === "string" && path.trim() !== "" && allowedPaths.has(path))) continue;
+      const paths = sortedUnique(value.paths);
       insights.push({ text: value.text.trim(), epistemicStatus: value.epistemicStatus, paths });
     }
     if (insights.length > 0) groups.push({ title: candidate.title, insights });

@@ -117,6 +117,41 @@ describe("research intelligence narrative trust boundary", () => {
     }), new Set(["C.md"]))).toThrow(/verified|allowed path/i);
   });
 
+  it("discards an entire insight when any citation is unknown", () => {
+    const mixedInsight = {
+      text: "This mixes project evidence with an outside citation.",
+      epistemicStatus: "observation",
+      paths: ["C.md", "Outside.md"],
+    };
+    const validInsight = {
+      text: "This is supported by project evidence.",
+      epistemicStatus: "inference",
+      paths: ["C.md"],
+    };
+
+    const result = parseNarrativeResponse(JSON.stringify({
+      briefing: "Only verified insights survive.",
+      groups: [{ title: "Trust boundary", insights: [mixedInsight, validInsight] }],
+    }), new Set(["C.md"]));
+
+    expect(result.groups[0]?.insights).toEqual([validInsight]);
+    expect(() => parseNarrativeResponse(JSON.stringify({
+      briefing: "No verified insight.",
+      groups: [{ title: "Trust boundary", insights: [mixedInsight] }],
+    }), new Set(["C.md"]))).toThrow(/verified|allowed path/i);
+  });
+
+  it.each([
+    ["empty path list", []],
+    ["empty path", ["C.md", ""]],
+    ["non-string path", ["C.md", 42]],
+  ])("rejects an insight with an invalid %s", (_label, paths) => {
+    expect(() => parseNarrativeResponse(JSON.stringify({
+      briefing: "Malformed citations.",
+      groups: [{ title: "Trust boundary", insights: [{ text: "Malformed", epistemicStatus: "observation", paths }] }],
+    }), new Set(["C.md"]))).toThrow(/verified|allowed path/i);
+  });
+
   it("rejects free-form prose and unsupported epistemic labels", () => {
     expect(() => parseNarrativeResponse("ordinary prose", new Set(["C.md"]))).toThrow(/JSON/i);
     expect(() => parseNarrativeResponse(JSON.stringify({ briefing: "x", groups: [{ title: "x", insights: [{ text: "x", epistemicStatus: "fact", paths: ["C.md"] }] }] }), new Set(["C.md"]))).toThrow(/verified|schema/i);
