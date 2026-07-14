@@ -16,9 +16,8 @@ function snapshot(question = "How does discovery work?") {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
+  const promise = new Promise<T>((yes) => { resolve = yes; });
+  return { promise, resolve };
 }
 
 function harness(overrides: Partial<DiscoveryCoordinatorDeps> = {}) {
@@ -57,7 +56,7 @@ describe("DiscoveryCoordinator", () => {
   it("keeps late same-key results stale and caches cross-key results under their own keys", async () => {
     const first = deferred<{ items: ReturnType<typeof work>[] }>();
     const second = deferred<{ items: ReturnType<typeof work>[] }>();
-    const search = vi.fn().mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    const search = vi.fn().mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise).mockResolvedValueOnce({ items: [work("other")] });
     const h = harness({ openAlex: { search, expand: vi.fn() } });
     const a = h.coordinator.search(snapshot(), "one");
     const b = h.coordinator.search(snapshot(), "one");
@@ -70,6 +69,20 @@ describe("DiscoveryCoordinator", () => {
     const c = h.coordinator.search(snapshot(), "other");
     await c;
     expect(h.coordinator.stateFor(snapshot()).status).toBe("ready");
+  });
+
+  it("never promotes a late cross-key result when the desired request fails", async () => {
+    const first = deferred<{ items: ReturnType<typeof work>[] }>();
+    const second = deferred<{ items: ReturnType<typeof work>[] }>();
+    const search = vi.fn().mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    const h = harness({ openAlex: { search, expand: vi.fn() } });
+    const a = h.coordinator.search(snapshot(), "A");
+    const b = h.coordinator.search(snapshot(), "B");
+    first.resolve({ items: [work("A")] });
+    expect((await a).status).toBe("stale");
+    second.resolve(Promise.reject(new Error("remote body")) as never);
+    expect((await b).status).toBe("failed");
+    expect(h.coordinator.stateFor(snapshot())).toEqual(expect.objectContaining({ status: "failed", query: expect.objectContaining({ text: "B" }) }));
   });
 
   it.each(["references", "cited-by"] as const)("expands exactly one hop with %s provenance", async (direction) => {
@@ -93,6 +106,50 @@ describe("DiscoveryCoordinator", () => {
     expect(fallback).toEqual(expect.objectContaining({ status: "failed", message: "The discovery rerank could not be completed.", previous: expect.objectContaining({ modelOrder: ["openalex:W1"] }) }));
   });
 
+  it("preserves valid results when exact-set model output is invalid and exposes failure to subscribers", async () => {
+    const provider = { id: "anthropic" as const, complete: vi.fn(async () => '{"order":[]}') };
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    await h.coordinator.search(snapshot(), "q");
+    const states: string[] = [];
+    h.coordinator.subscribe(() => states.push(h.coordinator.stateFor(snapshot()).status));
+    const failed = await h.coordinator.rerank(snapshot());
+    expect(failed).toEqual(expect.objectContaining({ status: "failed", previous: expect.objectContaining({ deterministicOrder: ["openalex:W1"] }) }));
+    expect(h.coordinator.stateFor(snapshot())).toEqual(failed);
+    expect(states).toContain("failed");
+  });
+
+  it("returns stale preserved results when cancellation aborts reranking", async () => {
+    const complete = vi.fn((request: { signal?: AbortSignal }) => new Promise<string>((_resolve, reject) => {
+      request.signal?.addEventListener("abort", () => reject(new DOMException("private", "AbortError")));
+    }));
+    const provider = { id: "anthropic" as const, complete };
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    await h.coordinator.search(snapshot(), "q");
+    const pending = h.coordinator.rerank(snapshot());
+    h.coordinator.cancel();
+    expect(await pending).toEqual(expect.objectContaining({ status: "stale", deterministicOrder: ["openalex:W1"] }));
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("stale");
+  });
+
+  it("stores failed search, missing-provider, and invalid-seed states for stateFor and subscribers", async () => {
+    const h = harness({ openAlex: { search: vi.fn(async () => { throw new Error("<html>private</html>"); }), expand: vi.fn() } });
+    const observed: string[] = [];
+    h.coordinator.subscribe(() => observed.push(h.coordinator.stateFor(snapshot()).status));
+    const failed = await h.coordinator.search(snapshot(), "q");
+    expect(h.coordinator.stateFor(snapshot())).toEqual(failed);
+    expect(observed).toContain("failed");
+
+    const seeded = harness();
+    await seeded.coordinator.search(snapshot(), "q");
+    const seededObserved: string[] = [];
+    seeded.coordinator.subscribe(() => seededObserved.push(seeded.coordinator.stateFor(snapshot()).status));
+    const noProvider = await seeded.coordinator.rerank(snapshot());
+    expect(seeded.coordinator.stateFor(snapshot())).toEqual(noProvider);
+    const invalidSeed = await seeded.coordinator.expand(snapshot(), "missing", "references");
+    expect(seeded.coordinator.stateFor(snapshot())).toEqual(invalidSeed);
+    expect(seededObserved.filter((status) => status === "failed")).toHaveLength(2);
+  });
+
   it("imports metadata only with duplicate-safe per-item outcomes", async () => {
     const importSource = vi.fn().mockResolvedValueOnce({ kind: "created", path: "A.md" }).mockResolvedValueOnce({ kind: "duplicate", path: "A.md" }).mockRejectedValueOnce(new Error("private"));
     const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("A"), work("B"), work("C")] })), expand: vi.fn() }, repository: { importSource } });
@@ -101,6 +158,45 @@ describe("DiscoveryCoordinator", () => {
     const outcomes = await h.coordinator.importCandidates(snapshot(), ready.ranked.map(({ candidate }) => candidate.id));
     expect(outcomes.map(({ status }) => status)).toEqual(["created", "duplicate", "failed"]);
     expect(importSource.mock.calls[0]?.[1]).not.toHaveProperty("capturedContent");
+  });
+
+  it("rechecks repeated imports and duplicate IDs within one batch", async () => {
+    const importSource = vi.fn().mockResolvedValueOnce({ kind: "created", path: "A.md" }).mockResolvedValue({ kind: "duplicate", path: "A.md" });
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("A")] })), expand: vi.fn() }, repository: { importSource } });
+    const ready = await h.coordinator.search(snapshot(), "q");
+    if (ready.status !== "ready") throw new Error("expected ready");
+    const id = ready.ranked[0]!.candidate.id;
+    expect((await h.coordinator.importCandidates(snapshot(), [id, id])).map(({ status }) => status)).toEqual(["created", "duplicate"]);
+    expect((await h.coordinator.importCandidates(snapshot(), [id])).map(({ status }) => status)).toEqual(["duplicate"]);
+    expect(importSource).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps captured source, evidence, documents, and unrelated data out of rerank", async () => {
+    const records: ResearchRecord[] = [
+      { path: "Research/P/Project.md", title: "P", type: "research-project", project: "Research/P/Project.md", question: "Safe question", stage: "reason", status: "active" },
+      { path: "S.md", title: "Source", type: "research-source", project: "Research/P/Project.md", sourceKind: "web", capturedContent: "CAPTURE_SECRET" },
+      { path: "E.md", title: "Evidence", type: "evidence", project: "Research/P/Project.md", source: "S.md", excerpt: "EVIDENCE_SECRET", reviewState: "reviewed" },
+      { path: "D.md", title: "Document", type: "research-document", project: "Research/P/Project.md", documentKind: "memo", claims: [], content: "DOCUMENT_SECRET" },
+    ];
+    const rich = buildProjectSnapshot("Research/P/Project.md", records, []);
+    const complete = vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Only"}]}');
+    const provider = { id: "anthropic" as const, complete };
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, resolveRerankProvider: () => ({ provider: provider as never, model: "explicit" }) });
+    await h.coordinator.search(rich, "Safe query");
+    await h.coordinator.rerank(rich);
+    const request = JSON.stringify(complete.mock.calls[0]?.[0]);
+    expect(request).not.toMatch(/CAPTURE_SECRET|EVIDENCE_SECRET|DOCUMENT_SECRET/);
+  });
+
+  it("marks snapshot changes stale without HTTP and clearCache deletes only derived state", async () => {
+    const h = harness();
+    await h.coordinator.search(snapshot(), "q");
+    const calls = vi.mocked(h.deps.openAlex.search).mock.calls.length;
+    expect(h.coordinator.stateFor(snapshot("changed")).status).toBe("stale");
+    expect(h.deps.openAlex.search).toHaveBeenCalledTimes(calls);
+    h.coordinator.clearCache();
+    expect(h.coordinator.stateFor(snapshot()).status).toBe("idle");
+    expect(h.deps.repository.importSource).not.toHaveBeenCalled();
   });
 
   it("dismisses a result only from derived session state", async () => {

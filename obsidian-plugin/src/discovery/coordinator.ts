@@ -79,11 +79,10 @@ function validCopy(state: DiscoveryValidState, status: "ready" | "stale" = state
     ...(state.modelRanked ? { modelRanked: [...state.modelRanked] } : {}), partialAdapters: [...state.partialAdapters] };
 }
 
-function safeFailure(kind: "search" | "rerank" | "import" | "seed" | "cancel"): string {
+function safeFailure(kind: "search" | "rerank" | "import" | "seed"): string {
   if (kind === "rerank") return "The discovery rerank could not be completed.";
   if (kind === "import") return "The source could not be imported.";
   if (kind === "seed") return "The selected discovery candidate cannot be expanded.";
-  if (kind === "cancel") return "Discovery was canceled.";
   return "Scholarly discovery could not be completed.";
 }
 
@@ -93,6 +92,7 @@ export class DiscoveryCoordinator {
   private readonly dismissed = new Set<string>();
   private readonly controllers = new Map<number, AbortController>();
   private active: ActiveRequest | undefined;
+  private current: { key: string; projectPath: string; fingerprint: string; state: DiscoveryState } | undefined;
   private desiredKey: string | undefined;
   private desiredProjectPath: string | undefined;
   private desiredFingerprint: string | undefined;
@@ -111,12 +111,19 @@ export class DiscoveryCoordinator {
     if (this.active && this.active.fingerprint === fingerprint && this.active.query.projectPath === query.projectPath && this.active.key === this.desiredKey) {
       return { status: "searching", query: this.active.query, requestId: this.active.sequence, ...(this.active.previous ? { previous: validCopy(this.active.previous) } : {}) };
     }
+    if (this.current?.projectPath === query.projectPath) {
+      if (this.current.fingerprint === fingerprint) return this.current.state;
+      const valid = this.current.state.status === "ready" || this.current.state.status === "stale"
+        ? this.current.state
+        : this.current.state.status === "failed" ? this.current.state.previous : undefined;
+      return valid
+        ? validCopy(valid, "stale")
+        : { status: "stale", query, ranked: [], deterministicOrder: [], partialAdapters: [], fingerprint: this.current.fingerprint };
+    }
     const desired = this.desiredKey ? this.cache.get(this.desiredKey) : undefined;
     if (desired?.projectPath === query.projectPath) {
       return validCopy(desired.state, desired.state.fingerprint === fingerprint ? "ready" : "stale");
     }
-    const previous = this.latestForProject(query.projectPath);
-    if (previous) return validCopy(previous.state, previous.state.fingerprint === fingerprint ? "ready" : "stale");
     if (this.desiredProjectPath === query.projectPath && this.desiredFingerprint !== undefined && this.desiredFingerprint !== fingerprint) {
       return { status: "stale", query, ranked: [], deterministicOrder: [], partialAdapters: [], fingerprint: this.desiredFingerprint };
     }
@@ -132,7 +139,11 @@ export class DiscoveryCoordinator {
     const current = this.currentValid(snapshot.project.path);
     const seed = current?.state.ranked.find(({ candidate }) => candidate.id === candidateId)?.candidate;
     const query = current?.state.query ?? deriveDiscoveryQuery(snapshot);
-    if (!seed?.openAlexId) return { status: "failed", query, message: safeFailure("seed"), ...(current ? { previous: validCopy(current.state) } : {}) };
+    if (!seed?.openAlexId) {
+      const state: DiscoveryState = { status: "failed", query, message: safeFailure("seed"), ...(current ? { previous: validCopy(current.state) } : {}) };
+      this.setCurrent(operationKey("expand", query, snapshotFingerprint(snapshot), cursor, `${candidateId}:${direction}`), snapshotFingerprint(snapshot), state);
+      return state;
+    }
     return this.request(snapshot, query, "expand", cursor, (signal) => this.deps.openAlex.expand({ seedOpenAlexId: seed.openAlexId!, direction, ...(cursor ? { cursor } : {}) }, signal), `${candidateId}:${direction}`, { seedId: candidateId, direction });
   }
 
@@ -141,7 +152,11 @@ export class DiscoveryCoordinator {
     const query = current?.state.query ?? deriveDiscoveryQuery(snapshot);
     if (!current || current.state.fingerprint !== snapshotFingerprint(snapshot)) return current ? validCopy(current.state, "stale") : { status: "idle", query };
     const resolved = this.deps.resolveRerankProvider();
-    if (!resolved) return { status: "failed", query, message: safeFailure("rerank"), previous: validCopy(current.state) };
+    if (!resolved) {
+      const state: DiscoveryState = { status: "failed", query, message: safeFailure("rerank"), previous: validCopy(current.state) };
+      this.setCurrent(current.key, current.state.fingerprint, state);
+      return state;
+    }
     const controller = new AbortController();
     const sequence = ++this.sequence;
     this.active = { key: current.key, sequence, controller, query, fingerprint: current.state.fingerprint, previous: current.state };
@@ -152,9 +167,17 @@ export class DiscoveryCoordinator {
       if (controller.signal.aborted || sequence !== this.sequence) return validCopy(current.state, "stale");
       const state: DiscoveryValidState = { ...validCopy(current.state, "ready"), modelRanked, modelOrder: modelRanked.map(({ candidate }) => candidate.id) };
       this.cache.set(current.key, { ...current, sequence, state });
+      this.setCurrent(current.key, current.state.fingerprint, state, false);
       return state;
     } catch {
-      return { status: "failed", query, message: safeFailure("rerank"), previous: validCopy(current.state) };
+      if (controller.signal.aborted || sequence !== this.sequence) {
+        const state = validCopy(current.state, "stale");
+        this.setCurrent(current.key, current.state.fingerprint, state, false);
+        return state;
+      }
+      const state: DiscoveryState = { status: "failed", query, message: safeFailure("rerank"), previous: validCopy(current.state) };
+      this.setCurrent(current.key, current.state.fingerprint, state, false);
+      return state;
     } finally {
       this.controllers.delete(sequence);
       if (this.active?.sequence === sequence) this.active = undefined;
@@ -194,6 +217,9 @@ export class DiscoveryCoordinator {
         ...(entry.state.modelOrder ? { modelOrder: entry.state.modelOrder.filter((id) => id !== candidateId) } : {}),
         ...(entry.state.modelRanked ? { modelRanked: entry.state.modelRanked.filter(({ candidate }) => candidate.id !== candidateId) } : {}) };
       this.cache.set(key, { ...entry, state });
+      if (this.current?.key === key && (this.current.state.status === "ready" || this.current.state.status === "stale")) {
+        this.current = { ...this.current, state };
+      }
     }
     if (changed) this.notify();
   }
@@ -203,17 +229,24 @@ export class DiscoveryCoordinator {
     this.sequence += 1;
     for (const controller of this.controllers.values()) controller.abort();
     this.controllers.clear();
+    if (this.active) {
+      const state = this.active.previous
+        ? validCopy(this.active.previous, "stale")
+        : { status: "stale" as const, query: this.active.query, ranked: [], deterministicOrder: [], partialAdapters: [], fingerprint: this.active.fingerprint };
+      this.current = { key: this.active.key, projectPath: this.active.query.projectPath, fingerprint: this.active.fingerprint, state };
+    }
     this.active = undefined;
     this.notify();
   }
 
   clearCache(): void {
-    const changed = this.cache.size > 0 || this.dismissed.size > 0 || this.desiredKey !== undefined;
+    const changed = this.cache.size > 0 || this.dismissed.size > 0 || this.desiredKey !== undefined || this.current !== undefined;
     this.cache.clear();
     this.dismissed.clear();
     this.desiredKey = undefined;
     this.desiredProjectPath = undefined;
     this.desiredFingerprint = undefined;
+    this.current = undefined;
     if (changed) this.notify();
   }
 
@@ -223,7 +256,7 @@ export class DiscoveryCoordinator {
     const key = operationKey(kind, query, fingerprint, cursor, extra);
     const controller = new AbortController();
     const sequence = ++this.sequence;
-    const previous = this.latestForProject(query.projectPath)?.state;
+    const previous = this.currentValid(query.projectPath)?.state;
     this.desiredKey = key;
     this.desiredProjectPath = query.projectPath;
     this.desiredFingerprint = fingerprint;
@@ -259,13 +292,16 @@ export class DiscoveryCoordinator {
       if (!controller.signal.aborted && (!existing || existing.sequence <= sequence)) {
         this.cache.set(key, { key, projectPath: query.projectPath, sequence, state: { ...state, status: "ready" } });
       }
+      if (status === "ready") this.setCurrent(key, fingerprint, state, false);
       return state;
     } catch {
       if (controller.signal.aborted || sequence !== this.sequence || key !== this.desiredKey) {
         const cached = this.cache.get(key)?.state ?? previous;
         return cached ? validCopy(cached, "stale") : { status: "stale", query, ranked: [], deterministicOrder: [], partialAdapters: [], fingerprint };
       }
-      return { status: "failed", query, message: safeFailure("search"), ...(previous ? { previous: validCopy(previous) } : {}) };
+      const state: DiscoveryState = { status: "failed", query, message: safeFailure("search"), ...(previous ? { previous: validCopy(previous) } : {}) };
+      this.setCurrent(key, fingerprint, state, false);
+      return state;
     } finally {
       this.controllers.delete(sequence);
       if (this.active?.sequence === sequence) this.active = undefined;
@@ -293,11 +329,12 @@ export class DiscoveryCoordinator {
 
   private currentValid(projectPath: string): CacheEntry | undefined {
     const desired = this.desiredKey ? this.cache.get(this.desiredKey) : undefined;
-    return desired?.projectPath === projectPath ? desired : this.latestForProject(projectPath);
+    return desired?.projectPath === projectPath ? desired : undefined;
   }
 
-  private latestForProject(projectPath: string): CacheEntry | undefined {
-    return [...this.cache.values()].filter((entry) => entry.projectPath === projectPath).sort((a, b) => b.sequence - a.sequence)[0];
+  private setCurrent(key: string, fingerprint: string, state: DiscoveryState, notify = true): void {
+    this.current = { key, projectPath: state.query.projectPath, fingerprint, state };
+    if (notify) this.notify();
   }
 
   private notify(): void { for (const listener of this.listeners) listener(); }
