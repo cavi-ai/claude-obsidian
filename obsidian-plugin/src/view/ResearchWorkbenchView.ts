@@ -5,10 +5,11 @@ import type { ResearchRepository } from "../research/repository";
 import { buildWorkbenchViewModel } from "../research/viewModel";
 import { isResearchProjectChange, resolveResearchProjectLink } from "../research/workbenchRouting";
 import type { IntelligenceCoordinator, IntelligenceNarratorMode } from "../research/intelligenceCoordinator";
+import { ResearchIntelligencePanel } from "./ResearchIntelligencePanel";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
-type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit";
-const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Audit"];
+type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit" | "Intelligence";
+const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Audit", "Intelligence"];
 
 export interface ResearchWorkbenchDependencies {
   coordinator: IntelligenceCoordinator;
@@ -19,9 +20,17 @@ export class ResearchWorkbenchView extends ItemView {
   private projectPath: string | undefined;
   private activeTab: Tab = "Overview";
   private renderSequence = 0;
+  private readonly intelligencePanel: ResearchIntelligencePanel | undefined;
 
   constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository, private readonly dependencies?: ResearchWorkbenchDependencies) {
     super(leaf);
+    if (dependencies) {
+      this.intelligencePanel = new ResearchIntelligencePanel({
+        coordinator: dependencies.coordinator,
+        openPath: (path) => this.openPath(path),
+        rerender: () => this.render(),
+      });
+    }
   }
 
   getViewType(): string { return RESEARCH_WORKBENCH_VIEW_TYPE; }
@@ -29,7 +38,9 @@ export class ResearchWorkbenchView extends ItemView {
   override getIcon(): string { return "microscope"; }
 
   async setProjectPath(projectPath?: string): Promise<void> {
-    this.projectPath = resolveResearchProjectLink(projectPath);
+    const nextPath = resolveResearchProjectLink(projectPath);
+    if (this.projectPath !== undefined && this.projectPath !== nextPath) this.cancelIntelligence();
+    this.projectPath = nextPath;
     await this.render();
   }
 
@@ -40,6 +51,7 @@ export class ResearchWorkbenchView extends ItemView {
   }
 
   override async onOpen(): Promise<void> { await this.render(); }
+  override async onClose(): Promise<void> { this.cancelIntelligence(); }
 
   async render(): Promise<void> {
     const sequence = ++this.renderSequence;
@@ -100,6 +112,11 @@ export class ResearchWorkbenchView extends ItemView {
 
   private renderTab(root: HTMLElement, snapshot: ProjectSnapshot, findings: ReturnType<typeof auditProject>): void {
     const vm = buildWorkbenchViewModel(snapshot, findings);
+    if (this.activeTab === "Intelligence") {
+      if (this.intelligencePanel) this.intelligencePanel.render(root, snapshot);
+      else root.createEl("p", { text: "Research intelligence is unavailable." });
+      return;
+    }
     if (this.activeTab === "Overview") {
       const grid = root.createDiv({ cls: "cc-research-metrics" });
       for (const [label, value] of [["Sources", vm.counts.sources], ["Evidence", vm.counts.evidence], ["Claims", vm.counts.claims], ["Open questions", vm.counts.openQuestions]] as const) {
@@ -154,6 +171,11 @@ export class ResearchWorkbenchView extends ItemView {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
     else new Notice(`Research note not found: ${path}`);
+  }
+
+  private cancelIntelligence(): void {
+    if (this.intelligencePanel) this.intelligencePanel.cancel();
+    else this.dependencies?.coordinator.cancel();
   }
 
   private openCreateProject(): void {

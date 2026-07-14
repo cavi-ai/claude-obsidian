@@ -1561,8 +1561,18 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   border-top: 1px solid var(--background-modifier-border);
 }
 .cc-research-actions button { min-width: 0; white-space: normal; }
+.cc-intelligence-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cc-intelligence-category, .cc-intelligence-finding, .cc-intelligence-narrative { border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 10px; }
+.cc-intelligence-category { display: flex; justify-content: space-between; gap: 8px; }
+.cc-intelligence-finding { margin-block: 8px; background: var(--background-secondary); }
+.cc-intelligence-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.cc-intelligence-paths { display: flex; flex-wrap: wrap; gap: 6px; }
+.cc-intelligence-paths button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.cc-intelligence-stale { border-color: var(--color-orange); }
 
 @media (max-width: 480px) {
   .cc-research-workbench { padding: 10px; }
   .cc-research-metrics, .cc-research-health, .cc-research-actions { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 520px) { .cc-intelligence-categories { grid-template-columns: 1fr; } }

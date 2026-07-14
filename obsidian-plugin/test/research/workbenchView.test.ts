@@ -10,6 +10,25 @@ const snapshot = {
 };
 
 function elements(view: ResearchWorkbenchView, selector: string): any[] { return [...view.contentEl.querySelectorAll(selector)]; }
+function click(element: any): void { element.dispatchEvent({ type: "click" }); }
+
+function intelligenceDependencies(overrides: Record<string, unknown> = {}) {
+  let analyzeCalls = 0;
+  let cancelCalls = 0;
+  return {
+    dependencies: {
+      narratorMode: () => "current" as const,
+      coordinator: {
+        stateFor: () => ({ status: "not-analyzed" as const }),
+        analyze: async () => { analyzeCalls += 1; return { status: "not-analyzed" as const }; },
+        cancel: () => { cancelCalls += 1; },
+        ...overrides,
+      } as never,
+    },
+    get analyzeCalls() { return analyzeCalls; },
+    get cancelCalls() { return cancelCalls; },
+  };
+}
 
 describe("ResearchWorkbenchView", () => {
   it("registers stable accessible view metadata", () => {
@@ -57,7 +76,7 @@ describe("ResearchWorkbenchView", () => {
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
     await view.setProjectPath(snapshot.project.path);
     let tabs = elements(view, '[role="tab"]');
-    expect(tabs).toHaveLength(6);
+    expect(tabs).toHaveLength(7);
     expect(tabs[0].getAttribute("tabindex")).toBe("0");
     expect(tabs.slice(1).every((tab) => tab.getAttribute("tabindex") === "-1")).toBe(true);
     const panel = elements(view, '[role="tabpanel"]')[0];
@@ -66,7 +85,31 @@ describe("ResearchWorkbenchView", () => {
     tabs[0].dispatchEvent({ type: "keydown", key: "End", preventDefault() {} });
     await Promise.resolve(); await Promise.resolve();
     tabs = elements(view, '[role="tab"]');
-    expect(tabs[5].getAttribute("tabindex")).toBe("0");
-    expect(tabs[5].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[6].getAttribute("tabindex")).toBe("0");
+    expect(tabs[6].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("renders deterministic intelligence only when selected and refreshes it without implicit model analysis", async () => {
+    let current = snapshot;
+    const h = intelligenceDependencies();
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => current } as never, h.dependencies);
+    await view.setProjectPath(snapshot.project.path);
+    click(elements(view, '[role="tab"]')[6]);
+    await Promise.resolve(); await Promise.resolve();
+    expect(elements(view, ".cc-intelligence-category")).toHaveLength(4);
+    expect(h.analyzeCalls).toBe(0);
+    current = { ...snapshot, questions: [{ path: "Q.md", title: "Open", question: "What changed?", status: "open", about: "C.md" }] } as never;
+    await view.render();
+    expect(elements(view, ".cc-intelligence-finding")).toHaveLength(2);
+    expect(h.analyzeCalls).toBe(0);
+  });
+
+  it("cancels active intelligence on project replacement and close", async () => {
+    const h = intelligenceDependencies();
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never, h.dependencies);
+    await view.setProjectPath("Research/One/Project.md");
+    await view.setProjectPath("Research/Two/Project.md");
+    await view.onClose();
+    expect(h.cancelCalls).toBe(2);
   });
 });

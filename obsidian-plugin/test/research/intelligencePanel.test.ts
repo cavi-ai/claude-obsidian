@@ -1,0 +1,134 @@
+import { describe, expect, it } from "vitest";
+import { ItemView, WorkspaceLeaf } from "obsidian";
+import { buildProjectSnapshot } from "../../src/research/graph";
+import type { IntelligenceNarrativeState } from "../../src/research/intelligenceCoordinator";
+import { ResearchIntelligencePanel } from "../../src/view/ResearchIntelligencePanel";
+
+const snapshot = buildProjectSnapshot("P.md", [
+  { path: "P.md", title: "Project", type: "research-project", project: "P.md", question: "Why?", stage: "reason", status: "active" },
+  { path: "S1.md", title: "Trial", type: "research-source", project: "P.md", sourceKind: "pdf", contentFingerprint: "sha256:1" },
+  { path: "S2.md", title: "Review", type: "research-source", project: "P.md", sourceKind: "doi", contentFingerprint: "sha256:2" },
+  { path: "E1.md", title: "Support", type: "evidence", project: "P.md", source: "S1.md", locatorKind: "page", locatorValue: "1", excerpt: "Yes", reviewState: "reviewed", sourceFingerprint: "sha256:1" },
+  { path: "E2.md", title: "Challenge", type: "evidence", project: "P.md", source: "S2.md", locatorKind: "page", locatorValue: "2", excerpt: "No", reviewState: "reviewed", sourceFingerprint: "sha256:2" },
+  { path: "C.md", title: "Claim", type: "claim", project: "P.md", proposition: "It works", confidence: "moderate", reviewState: "reviewed", supports: ["E1.md"], challenges: ["E2.md"], contextualizes: [], limitations: [] },
+], []);
+
+function root(): HTMLElement {
+  return new ItemView(new WorkspaceLeaf()).contentEl;
+}
+
+function allText(root: HTMLElement): string {
+  const visit = (item: any): string => [item.textContent ?? "", ...(item.children ?? []).map(visit)].join(" ");
+  return visit(root);
+}
+
+function pathButton(root: HTMLElement, path: string): Element | null {
+  return [...root.querySelectorAll("button")].find((item) => item.getAttribute("data-path") === path) ?? null;
+}
+
+function click(element: Element | null): void {
+  if (!element) throw new Error("element not found");
+  element.dispatchEvent(new Event("click"));
+}
+
+function harness(initial: IntelligenceNarrativeState = { status: "not-analyzed" }) {
+  let state = initial;
+  let analyzeCalls = 0;
+  const opened: string[] = [];
+  const panel = new ResearchIntelligencePanel({
+    coordinator: {
+      stateFor: () => state,
+      analyze: async () => { analyzeCalls += 1; return state; },
+      cancel: () => undefined,
+    } as never,
+    openPath: async (path) => { opened.push(path); },
+    rerender: async () => undefined,
+  });
+  return { panel, opened, get analyzeCalls() { return analyzeCalls; }, setState: (next: IntelligenceNarrativeState) => { state = next; } };
+}
+
+describe("ResearchIntelligencePanel", () => {
+  it("renders category counts and traceable finding cards", async () => {
+    const h = harness();
+    const container = root();
+    h.panel.render(container, snapshot);
+    expect([...container.querySelectorAll(".cc-intelligence-category")].map((item) => allText(item as HTMLElement))).toEqual(expect.arrayContaining([expect.stringMatching(/Contradictions\s+1/)]));
+    expect([...container.querySelectorAll(".cc-intelligence-epistemic")].map((item) => item.textContent)).toContain("Observation");
+    click(pathButton(container, "C.md"));
+    await Promise.resolve();
+    expect(h.opened).toEqual(["C.md"]);
+  });
+
+  it.each([
+    ["not-analyzed", "Analyze this project"], ["analyzing", "Analyzing"], ["stale", "Out of date"],
+    ["disabled", "Model analysis is disabled"], ["failed", "could not be verified"],
+  ] as const)("renders %s", (status, copy) => {
+    const result = { briefing: "Brief", groups: [] };
+    const state = status === "analyzing" ? { status, cacheKey: "k", providerId: "anthropic", model: "claude-test" }
+      : status === "stale" ? { status, cacheKey: "k", providerId: "anthropic", model: "claude-test", usedFallback: false, result }
+      : status === "failed" ? { status, message: "The analysis could not be verified." }
+      : { status };
+    const container = root();
+    harness(state as IntelligenceNarrativeState).panel.render(container, snapshot);
+    expect(allText(container)).toContain(copy);
+  });
+
+  it("calls Analyze only after the button is selected and prevents duplicate clicks", async () => {
+    let resolve!: () => void;
+    let calls = 0;
+    const panel = new ResearchIntelligencePanel({
+      coordinator: { stateFor: () => ({ status: "not-analyzed" }), analyze: () => { calls += 1; return new Promise((done) => { resolve = () => done({ status: "not-analyzed" }); }); } } as never,
+      openPath: async () => undefined, rerender: async () => undefined,
+    });
+    const container = root();
+    panel.render(container, snapshot);
+    expect(calls).toBe(0);
+    const button = [...container.querySelectorAll("button")].find(({ textContent }) => textContent?.includes("Analyze")) ?? null;
+    click(button); click(button);
+    expect(calls).toBe(1);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    resolve();
+    await Promise.resolve(); await Promise.resolve();
+  });
+
+  it("shows provider, model, fallback, narrative links, and failed previous content as stale", async () => {
+    const previous = {
+      status: "stale", cacheKey: "k", providerId: "ollama", model: "qwen-test", usedFallback: true,
+      result: { briefing: "Prior briefing", groups: [{ title: "Priority", insights: [{ text: "Inspect this", epistemicStatus: "inference", paths: ["C.md"] }] }] },
+    } as const;
+    const container = root();
+    const h = harness({ status: "failed", message: "The analysis could not be verified.", previous });
+    h.panel.render(container, snapshot);
+    expect(allText(container)).toContain("Ollama");
+    expect(allText(container)).toContain("qwen-test");
+    expect(allText(container)).toContain("Fallback");
+    expect(allText(container)).toContain("Prior briefing");
+    expect(container.querySelector(".cc-intelligence-stale")).not.toBeNull();
+    click([...container.querySelectorAll("button")].filter((item) => item.getAttribute("data-path") === "C.md")[1] ?? null);
+    await Promise.resolve();
+    expect(h.opened).toEqual(["C.md"]);
+  });
+
+  it("discards a pending analysis rerender after cancellation", async () => {
+    let finish!: (state: IntelligenceNarrativeState) => void;
+    let rerenders = 0;
+    const panel = new ResearchIntelligencePanel({
+      coordinator: {
+        stateFor: () => ({ status: "not-analyzed" }),
+        analyze: () => new Promise((resolve) => { finish = resolve; }),
+        cancel: () => undefined,
+      } as never,
+      openPath: async () => undefined,
+      rerender: async () => { rerenders += 1; },
+    });
+    const container = root();
+    panel.render(container, snapshot);
+    click([...container.querySelectorAll("button")].find(({ textContent }) => textContent === "Analyze") ?? null);
+    await Promise.resolve();
+    expect(rerenders).toBe(1);
+    panel.cancel();
+    finish({ status: "failed", message: "Analysis canceled." });
+    await Promise.resolve(); await Promise.resolve();
+    expect(rerenders).toBe(1);
+  });
+});
