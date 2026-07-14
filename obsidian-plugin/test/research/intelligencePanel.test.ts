@@ -40,6 +40,7 @@ function harness(initial: IntelligenceNarrativeState = { status: "not-analyzed" 
       stateFor: () => state,
       analyze: async () => { analyzeCalls += 1; return state; },
       cancel: () => undefined,
+      subscribe: () => () => undefined,
     } as never,
     openPath: async (path) => { opened.push(path); },
     rerender: async () => undefined,
@@ -77,7 +78,7 @@ describe("ResearchIntelligencePanel", () => {
     let resolve!: () => void;
     let calls = 0;
     const panel = new ResearchIntelligencePanel({
-      coordinator: { stateFor: () => ({ status: "not-analyzed" }), analyze: () => { calls += 1; return new Promise((done) => { resolve = () => done({ status: "not-analyzed" }); }); } } as never,
+      coordinator: { stateFor: () => ({ status: "not-analyzed" }), analyze: () => { calls += 1; return new Promise((done) => { resolve = () => done({ status: "not-analyzed" }); }); }, subscribe: () => () => undefined } as never,
       openPath: async () => undefined, rerender: async () => undefined,
     });
     const container = root();
@@ -109,14 +110,56 @@ describe("ResearchIntelligencePanel", () => {
     expect(h.opened).toEqual(["C.md"]);
   });
 
+  it("renders explicit semantic status copy for a current narrative", () => {
+    const container = root();
+    harness({
+      status: "current", cacheKey: "k", providerId: "anthropic", model: "claude-test", usedFallback: false,
+      result: { briefing: "Brief", groups: [] },
+    }).panel.render(container, snapshot);
+    const status = container.querySelector('[role="status"]');
+    expect(status?.textContent).toBe("Analysis current");
+  });
+
+  it("rerenders while a deferred fallback is active and unsubscribes on dispose", async () => {
+    let listener: (() => void) | undefined;
+    let unsubscribed = false;
+    let state: IntelligenceNarrativeState = { status: "analyzing", cacheKey: "a", providerId: "anthropic", model: "claude-test", usedFallback: false };
+    let rerenders = 0;
+    const panel = new ResearchIntelligencePanel({
+      coordinator: {
+        stateFor: () => state,
+        analyze: async () => state,
+        cancel: () => { listener?.(); },
+        subscribe: (next: () => void) => { listener = next; return () => { unsubscribed = true; listener = undefined; }; },
+      } as never,
+      openPath: async () => undefined,
+      rerender: async () => { rerenders += 1; },
+    });
+    state = { status: "analyzing", cacheKey: "b", providerId: "ollama", model: "qwen-test", usedFallback: true };
+    listener?.();
+    await Promise.resolve();
+    const container = root();
+    panel.render(container, snapshot);
+    expect(rerenders).toBe(1);
+    expect(allText(container)).toContain("Ollama");
+    expect(allText(container)).toContain("qwen-test");
+    expect(allText(container)).toContain("Fallback");
+    const beforeDispose = rerenders;
+    panel.dispose();
+    expect(unsubscribed).toBe(true);
+    expect(rerenders).toBe(beforeDispose);
+  });
+
   it("discards a pending analysis rerender after cancellation", async () => {
     let finish!: (state: IntelligenceNarrativeState) => void;
+    let listener: (() => void) | undefined;
     let rerenders = 0;
     const panel = new ResearchIntelligencePanel({
       coordinator: {
         stateFor: () => ({ status: "not-analyzed" }),
-        analyze: () => new Promise((resolve) => { finish = resolve; }),
+        analyze: () => { listener?.(); return new Promise((resolve) => { finish = resolve; }); },
         cancel: () => undefined,
+        subscribe: (next: () => void) => { listener = next; return () => undefined; },
       } as never,
       openPath: async () => undefined,
       rerender: async () => { rerenders += 1; },

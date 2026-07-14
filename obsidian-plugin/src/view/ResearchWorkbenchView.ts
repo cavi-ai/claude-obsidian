@@ -38,9 +38,7 @@ export class ResearchWorkbenchView extends ItemView {
   override getIcon(): string { return "microscope"; }
 
   async setProjectPath(projectPath?: string): Promise<void> {
-    const nextPath = resolveResearchProjectLink(projectPath);
-    if (this.projectPath !== undefined && this.projectPath !== nextPath) this.cancelIntelligence();
-    this.projectPath = nextPath;
+    this.projectPath = replaceResearchProjectPath(this.projectPath, projectPath, () => this.cancelIntelligence());
     await this.render();
   }
 
@@ -51,7 +49,10 @@ export class ResearchWorkbenchView extends ItemView {
   }
 
   override async onOpen(): Promise<void> { await this.render(); }
-  override async onClose(): Promise<void> { this.cancelIntelligence(); }
+  override async onClose(): Promise<void> {
+    if (this.intelligencePanel) this.intelligencePanel.dispose();
+    else this.dependencies?.coordinator.cancel();
+  }
 
   async render(): Promise<void> {
     const sequence = ++this.renderSequence;
@@ -181,8 +182,7 @@ export class ResearchWorkbenchView extends ItemView {
   private openCreateProject(): void {
     new ResearchInputModal(this.app, "Create research project", ["Title", "Research question", "Project folder"], async ([title, question, folder]) => {
       const record = await this.repository.createProject({ title: title ?? "", question: question ?? "", folder: folder ?? "" });
-      this.projectPath = record.path;
-      await this.render();
+      await this.setProjectPath(record.path);
     }).open();
   }
 
@@ -197,6 +197,11 @@ export class ResearchWorkbenchView extends ItemView {
 }
 
 function tabId(tab: Tab): string { return `cc-research-tab-${tab.toLowerCase()}`; }
+export function replaceResearchProjectPath(currentPath: string | undefined, requestedPath: string | undefined, cancel: () => void): string | undefined {
+  const nextPath = resolveResearchProjectLink(requestedPath);
+  if (currentPath !== undefined && currentPath !== nextPath) cancel();
+  return nextPath;
+}
 function sanitizeLoadError(error: unknown): string {
   const raw = error instanceof Error ? error.message : "Unknown project load error";
   return raw.replace(/\b(?:sk-ant-[A-Za-z0-9_-]+|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+)/gi, "[redacted]").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "Unknown project load error";

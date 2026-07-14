@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WorkspaceLeaf } from "obsidian";
 import type { ResearchRepository } from "../../src/research/repository";
-import { RESEARCH_WORKBENCH_VIEW_TYPE, ResearchWorkbenchView } from "../../src/view/ResearchWorkbenchView";
+import { RESEARCH_WORKBENCH_VIEW_TYPE, ResearchWorkbenchView, replaceResearchProjectPath } from "../../src/view/ResearchWorkbenchView";
 
 const snapshot = {
   project: { path: "Research/P/Project.md", title: "Project P", question: "Why?", stage: "reason", status: "active" },
@@ -22,6 +22,7 @@ function intelligenceDependencies(overrides: Record<string, unknown> = {}) {
         stateFor: () => ({ status: "not-analyzed" as const }),
         analyze: async () => { analyzeCalls += 1; return { status: "not-analyzed" as const }; },
         cancel: () => { cancelCalls += 1; },
+        subscribe: () => () => undefined,
         ...overrides,
       } as never,
     },
@@ -111,5 +112,14 @@ describe("ResearchWorkbenchView", () => {
     await view.setProjectPath("Research/Two/Project.md");
     await view.onClose();
     expect(h.cancelCalls).toBe(2);
+  });
+
+  it("uses one replacement helper to cancel every changed project identity", () => {
+    let cancels = 0;
+    expect(replaceResearchProjectPath("Research/One/Project.md", "[[Research/Two/Project.md|Two]]", () => { cancels += 1; }))
+      .toBe("Research/Two/Project.md");
+    expect(replaceResearchProjectPath("Research/Two/Project.md", "Research/Two/Project.md", () => { cancels += 1; }))
+      .toBe("Research/Two/Project.md");
+    expect(cancels).toBe(1);
   });
 });

@@ -84,6 +84,25 @@ describe("IntelligenceCoordinator", () => {
     expect(h.calls).toEqual(["anthropic", "ollama"]);
   });
 
+  it("notifies subscribers when an active Auto analysis switches to local fallback", async () => {
+    let resolveLocal!: (value: string) => void;
+    const h = harness({ mode: "current", chatBackend: "auto", anthropicResults: [{ status: 429, message: "rate limit" }] });
+    h.deps.local().provider.complete = () => new Promise<string>((resolve) => { resolveLocal = resolve; });
+    const states: string[] = [];
+    const unsubscribe = h.coordinator.subscribe(() => {
+      const state = h.coordinator.stateFor(h.snapshot, h.findings);
+      if (state.status === "analyzing") states.push(`${state.providerId}:${state.model}:${state.usedFallback}`);
+    });
+
+    const pending = h.coordinator.analyze(h.snapshot, h.findings);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(states).toContain("ollama:local-test:true");
+    resolveLocal(valid);
+    await pending;
+    unsubscribe();
+  });
+
   it("keeps an unchanged Auto fallback current and makes it stale when the local model changes", async () => {
     const h = harness({ mode: "current", chatBackend: "auto", anthropicResults: [{ status: 429, message: "rate limit" }] });
     await h.coordinator.analyze(h.snapshot, h.findings);

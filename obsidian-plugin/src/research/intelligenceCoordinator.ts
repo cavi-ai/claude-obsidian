@@ -22,7 +22,7 @@ type ValidNarrativeState = {
 
 export type IntelligenceNarrativeState =
   | { status: "not-analyzed" }
-  | { status: "analyzing"; cacheKey: string; providerId: ProviderId; model: string }
+  | { status: "analyzing"; cacheKey: string; providerId: ProviderId; model: string; usedFallback: boolean }
   | ValidNarrativeState
   | { status: "disabled" }
   | { status: "failed"; message: string; previous?: ValidNarrativeState };
@@ -91,10 +91,16 @@ export class IntelligenceCoordinator {
   private latestRequestedContextKeys = new Set<string>();
   private latestRequestedSequence = 0;
   private readonly latestSequenceByCacheKey = new Map<string, number>();
-  private active: { controller: AbortController; sequence: number; contextKey: string; cacheKey: string; providerId: ProviderId; model: string } | undefined;
+  private active: { controller: AbortController; sequence: number; contextKey: string; cacheKey: string; providerId: ProviderId; model: string; usedFallback: boolean } | undefined;
   private sequence = 0;
+  private readonly listeners = new Set<() => void>();
 
   constructor(private readonly deps: IntelligenceCoordinatorDeps) {}
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
 
   stateFor(snapshot: ProjectSnapshot, findings: IntelligenceFinding[]): IntelligenceNarrativeState {
     const mode = this.deps.mode();
@@ -105,7 +111,7 @@ export class IntelligenceCoordinator {
     const selection = this.selection(snapshot.project.path, request.snapshotFingerprint, mode);
     const displayContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
     if (this.active && displayContextKeys.has(this.active.contextKey)) {
-      return { status: "analyzing", cacheKey: this.active.cacheKey, providerId: this.active.providerId, model: this.active.model };
+      return { status: "analyzing", cacheKey: this.active.cacheKey, providerId: this.active.providerId, model: this.active.model, usedFallback: this.active.usedFallback };
     }
     const exact = [...this.cache.values()]
       .filter((entry) => displayContextKeys.has(entry.contextKey))
@@ -138,7 +144,9 @@ export class IntelligenceCoordinator {
       cacheKey: selection.cacheKey,
       providerId: selection.provider.id,
       model: selection.model,
+      usedFallback: false,
     };
+    this.notify();
 
     try {
       let chosen = { provider: selection.provider, model: selection.model };
@@ -162,7 +170,8 @@ export class IntelligenceCoordinator {
         this.recordSequence(fallbackCacheKey, sequence);
         const fallbackContextKey = this.contextKey(fallbackCacheKey, selection.chatBackend);
         if (this.active?.sequence === sequence) {
-          this.active = { ...this.active, contextKey: fallbackContextKey, cacheKey: fallbackCacheKey, providerId: chosen.provider.id, model: chosen.model };
+          this.active = { ...this.active, contextKey: fallbackContextKey, cacheKey: fallbackCacheKey, providerId: chosen.provider.id, model: chosen.model, usedFallback: true };
+          this.notify();
         }
         raw = await this.complete(chosen, request.system, request.messages, controller.signal);
       }
@@ -197,13 +206,22 @@ export class IntelligenceCoordinator {
       const previous = this.latestForProject(snapshot.project.path);
       return { status: "failed", message: safeMessage(error), ...(previous ? { previous: this.validState(previous, "stale") } : {}) };
     } finally {
-      if (this.active?.sequence === sequence) this.active = undefined;
+      if (this.active?.sequence === sequence) {
+        this.active = undefined;
+        this.notify();
+      }
     }
   }
 
   cancel(): void {
+    const wasActive = Boolean(this.active);
     this.active?.controller.abort();
     this.active = undefined;
+    if (wasActive) this.notify();
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener();
   }
 
   private selection(projectPath: string, snapshotFingerprint: string, mode: Exclude<IntelligenceNarratorMode, "disabled">): Selection {

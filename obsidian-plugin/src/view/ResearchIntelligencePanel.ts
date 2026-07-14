@@ -20,8 +20,16 @@ export class ResearchIntelligencePanel {
   private analyzing = false;
   private generation = 0;
   private failed: { projectPath: string; state: Extract<IntelligenceNarrativeState, { status: "failed" }> } | undefined;
+  private readonly unsubscribe: () => void;
 
-  constructor(private readonly deps: ResearchIntelligencePanelDeps) {}
+  constructor(private readonly deps: ResearchIntelligencePanelDeps) {
+    this.unsubscribe = deps.coordinator.subscribe(() => { void this.deps.rerender(); });
+  }
+
+  dispose(): void {
+    this.unsubscribe();
+    this.cancel();
+  }
 
   cancel(): void {
     this.generation += 1;
@@ -74,12 +82,13 @@ export class ResearchIntelligencePanel {
     if (state.status === "not-analyzed") section.createEl("p", { text: "Analyze this project when you want a model-written briefing." });
     if (state.status === "analyzing") {
       section.createEl("p", { text: "Analyzing…" });
-      this.renderProvider(section, state.providerId, state.model, false);
+      this.renderProvider(section, state.providerId, state.model, state.usedFallback);
     }
     if (state.status === "stale") section.createEl("p", { text: "Out of date — analyze again to refresh this narrative." });
     if (state.status === "failed") section.createEl("p", { cls: "cc-research-error", attr: { role: "alert" }, text: `The model narrative could not be verified: ${state.message}` });
     const valid = state.status === "current" || state.status === "stale" ? state : state.status === "failed" ? state.previous : undefined;
     if (valid) {
+      if (state.status === "current") section.createEl("p", { attr: { role: "status" }, text: "Analysis current" });
       this.renderProvider(section, valid.providerId, valid.model, valid.usedFallback);
       this.renderResult(section, valid.result);
     }
@@ -97,7 +106,6 @@ export class ResearchIntelligencePanel {
     this.failed = undefined;
     button.disabled = true;
     const pending = this.deps.coordinator.analyze(snapshot, findings);
-    await this.deps.rerender();
     try {
       const state = await pending;
       if (generation === this.generation && state.status === "failed") this.failed = { projectPath: snapshot.project.path, state };
