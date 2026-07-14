@@ -365,10 +365,13 @@ export class DiscoveryCoordinator {
   }
 
   private importInput(candidate: DiscoveryCandidate): ImportSourceInput {
+    const discoveryProvenance = [...new Map(Object.values(candidate.provenance).flat().map(({ adapter, externalId }) => [`${adapter}\u0000${externalId}`, { adapter, externalId }])).values()];
     return { title: candidate.title, sourceKind: candidate.doi ? "doi" : candidate.arxivId ? "arxiv" : "web", canonicalId: candidate.id,
       ...(candidate.url || candidate.openAccessUrl ? { url: candidate.url ?? candidate.openAccessUrl } : {}), ...(candidate.doi ? { doi: candidate.doi } : {}),
       ...(candidate.arxivId ? { arxivId: candidate.arxivId } : {}), ...(candidate.authors.length ? { authors: [...candidate.authors] } : {}),
-      ...(candidate.published ? { published: candidate.published } : {}), ...(candidate.publication ? { publication: candidate.publication } : {}) };
+      ...(candidate.published ? { published: candidate.published } : {}), ...(candidate.publication ? { publication: candidate.publication } : {}),
+      ...(candidate.abstract ? { abstract: candidate.abstract } : {}), ...(candidate.openAccessUrl ? { openAccessUrl: candidate.openAccessUrl } : {}),
+      ...(discoveryProvenance.length ? { discoveryProvenance } : {}) };
   }
 
   private currentValid(projectPath: string): CacheEntry | undefined {
