@@ -57,7 +57,7 @@ vault stays the single source of truth.
   a model would reject is hidden, not broken.
 - **Slash commands** — type `/` in the composer for a fuzzy palette:
   summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
-  and more.
+  research, and more.
 - **Conversation history** — chats persist across restarts; resume any past
   conversation from a fuzzy picker.
 - **Prompt caching** — repeated context (system prompt, tools, conversation
@@ -101,6 +101,30 @@ attribution.
   and Dataview, with optional local-model **auto-tagging**.
 - **Spec → build handoff** — turn a plan note into a **build spec** + a live
   **tracker** (a `claude-html` progress board) and hand it to **Claude Code**.
+
+### Evidence-backed research workflow (Phase 1)
+
+Use `/research` in the Companion composer to begin the evidence-backed workflow.
+As an alternate route, use the command palette action **Open research
+workbench** to open the visual cockpit and inspect a canonical research project
+across its Overview, Sources, Evidence, Claims, Outline, and Audit views. The
+end-to-end workflow is:
+
+1. Create a project with a focused research question.
+2. Import a source so its metadata and captured-content fingerprint are saved.
+3. Capture an exact excerpt with a source locator as evidence.
+4. Review the excerpt and locator, then mark the evidence reviewed or rejected.
+5. Build claims with separate supporting, challenging, and contextual evidence
+   relations.
+6. Generate an evidence-backed outline that carries the excerpt, source,
+   locator, and fingerprint forward.
+7. Run the audit and repair stale sources, broken references, missing locators,
+   and unsupported claims.
+
+The vault's Markdown records are canonical and remain readable without the
+plugin. Only **reviewed**, locatable, non-stale evidence linked to a valid source
+counts as trusted support; proposed evidence never satisfies a claim. Phase 1
+stops at the evidence-backed outline and does **not** generate a complete paper.
 
 ![A claude-html artifact rendered inline in a note](assets/artifact-inline.png)
 *A `claude-html` artifact rendered inline — interactive, sandboxed, and saved as a plain Markdown note.*
@@ -183,7 +207,26 @@ The server binds to **127.0.0.1 only** (never the network), requires a
 | `list_titles` | `note_move` |
 | `get_backlinks` | `base_create` |
 | `get_outgoing_links` | `canvas_create` |
-| `frontmatter_query` | |
+| `frontmatter_query` | `research_project_create` |
+| `research_project_read` | `research_source_import` |
+| `research_audit` | `research_evidence_capture` |
+| | `research_evidence_review` |
+| | `research_claim_create` |
+| | `research_claim_link` |
+| | `research_outline_generate` |
+
+That is 10 always-available read/audit tools and 14 write-gated mutation tools
+(24 advertised tools when writes are enabled). Research Workbench reads and
+audits remain available with writes disabled. Creating projects, importing
+sources, capturing or reviewing evidence, creating or linking claims, and
+generating outlines requires *Allow writes*; agent mode also keeps its normal
+per-action confirmation gate. Evidence review applies only to evidence records
+and accepts `reviewed` or `rejected`.
+
+Permanent legacy aliases remain callable for compatibility, but are
+intentionally not advertised as user-facing commands. This does not change the
+bridge security boundary: it remains loopback-only and requires a non-empty
+bearer token.
 
 With *Vault ontology* enabled, `note_create` also accepts `type` / `properties`
 for schema-conformant typed notes.

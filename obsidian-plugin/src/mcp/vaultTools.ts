@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, getAllTags } from "obsidian";
+import { App, TFile, normalizePath, getAllTags, parseYaml } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
@@ -9,6 +9,8 @@ import type { ResolvedType } from "../ontology/types";
 import { replaceSection } from "./edit";
 import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
+import { ResearchRepository } from "../research/repository";
+import { RESEARCH_WRITE_TOOLS, ResearchTools } from "../research/tools";
 
 /**
  * Normalize a caller-supplied vault path and reject anything that escapes the
@@ -125,6 +127,9 @@ export class VaultTools {
         },
       },
     ];
+
+    const researchDefinitions = new ResearchTools(this.researchRepository()).definitions();
+    defs.push(...researchDefinitions.filter(({ name }) => !RESEARCH_WRITE_TOOLS.has(name)));
 
     if (this.opts.allowWrites) {
       defs.push(
@@ -279,11 +284,16 @@ export class VaultTools {
           },
         },
       );
+      defs.push(...researchDefinitions.filter(({ name }) => RESEARCH_WRITE_TOOLS.has(name)));
     }
     return defs;
   }
 
   async call(name: string, args: Record<string, unknown>): Promise<string> {
+    if (name.startsWith("research_")) {
+      if (RESEARCH_WRITE_TOOLS.has(name)) this.assertWrites();
+      return new ResearchTools(this.researchRepository()).call(name, args);
+    }
     switch (name) {
       case "vault_search":
         return this.search(str(args.query), num(args.limit, 8));
@@ -329,6 +339,38 @@ export class VaultTools {
 
   private assertWrites(): void {
     if (!this.opts.allowWrites) throw new Error("Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.");
+  }
+
+  private researchRepository(): ResearchRepository {
+    const readNotes = async (files: TFile[]) => Promise.all(files.map(async (file) => {
+      const content = await this.app.vault.cachedRead(file);
+      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+      const cached = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      const match = /^---\n([\s\S]*?)\n---\n?/.exec(content);
+      const frontmatter = cached ?? (match ? parseYaml(match[1] ?? "") as Record<string, unknown> : undefined);
+      return { path: file.path, ...(frontmatter ? { frontmatter } : {}), body };
+    }));
+    return new ResearchRepository({
+      listMarkdown: async () => readNotes(this.app.vault.getMarkdownFiles()),
+      listProjectMarkdown: async (projectPath) => {
+        const folder = projectPath.slice(0, -"/Project.md".length);
+        const canonicalPrefixes = ["Sources", "Evidence", "Claims", "Questions", "Documents"].map((name) => `${folder}/${name}/`);
+        const candidates = this.app.vault.getMarkdownFiles().filter((file) => {
+          return file.path === projectPath || canonicalPrefixes.some((prefix) => file.path.startsWith(prefix));
+        });
+        return readNotes(candidates);
+      },
+      createWithParents: async (path, content) => {
+        const safe = assertVaultPath(path);
+        if (this.app.vault.getAbstractFileByPath(safe)) throw new Error(`File already exists: ${safe}`);
+        await this.ensureFolder(safe.slice(0, safe.lastIndexOf("/")));
+        await this.app.vault.create(safe, content);
+      },
+      updateFrontmatter: async (path, mutator) => {
+        const file = this.resolveFile(path);
+        await this.app.fileManager.processFrontMatter(file, mutator);
+      },
+    });
   }
 
   private async search(query: string, limit: number): Promise<string> {

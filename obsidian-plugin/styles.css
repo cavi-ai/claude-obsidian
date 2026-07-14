@@ -1504,3 +1504,65 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 
 .cc-related-link-all:hover { background: var(--background-modifier-hover); }
+
+/* ===== Research workbench: canonical-note navigator ===== */
+.cc-research-workbench { padding: 14px; color: var(--text-normal); }
+.cc-research-header h2 { margin: 4px 0; }
+.cc-research-question { margin: 6px 0; color: var(--text-muted); }
+.cc-research-stage {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+}
+.cc-research-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.cc-research-tabs button { flex: 0 0 auto; font-size: var(--font-ui-smaller); }
+.cc-research-tabs button.is-active { color: var(--text-on-accent); background: var(--interactive-accent); }
+.cc-research-panel { min-height: 160px; }
+.cc-research-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cc-research-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.cc-research-metric strong { font-size: var(--font-ui-large); }
+.cc-research-health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.cc-research-health-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.cc-research-health-metric strong { color: var(--text-normal); font-size: var(--font-ui-medium); }
+.cc-research-open { width: 100%; margin-bottom: 6px; text-align: left; white-space: normal; }
+.cc-research-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.cc-research-actions button { min-width: 0; white-space: normal; }
+
+@media (max-width: 480px) {
+  .cc-research-workbench { padding: 10px; }
+  .cc-research-metrics, .cc-research-health, .cc-research-actions { grid-template-columns: 1fr; }
+}

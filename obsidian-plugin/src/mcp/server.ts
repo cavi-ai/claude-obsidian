@@ -1,5 +1,6 @@
 import { handleRpc, validateRequest, err, RPC, type JsonRpcResponse, type ServerInfo } from "./protocol";
 import type { VaultTools } from "./vaultTools";
+import { HIDDEN_RESEARCH_TOOL_ALIASES } from "../research/tools";
 
 // The MCP server is desktop-only and reached via a guarded dynamic import (see
 // main.ts). Its `http` types are inline `import("http")` references (erased at
@@ -190,6 +191,7 @@ export class McpHttpServer {
       return await handleRpc(req, {
         serverInfo: this.config.serverInfo,
         tools: this.tools.definitions(),
+        hiddenTools: HIDDEN_RESEARCH_TOOL_ALIASES,
         call: (name, args) => this.tools.call(name, args),
       });
     } catch (e) {

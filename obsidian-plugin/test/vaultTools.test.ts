@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { App } from "obsidian";
 import { parse as parseYaml } from "yaml";
 import { VaultTools, assertVaultPath } from "../src/mcp/vaultTools";
@@ -24,6 +24,79 @@ describe("assertVaultPath — vault-escape guard", () => {
   it("rejects `..` traversal", () => {
     expect(() => assertVaultPath("../../../etc/passwd")).toThrow(/escapes the vault/);
     expect(() => assertVaultPath("Notes/../../secret.md")).toThrow(/escapes the vault/);
+  });
+});
+
+describe("research tools", () => {
+  it("always defines reads/audit but only advertises mutations when writes are enabled", () => {
+    const readNames = tools(false).vt.definitions().map(({ name }) => name);
+    expect(new Set(readNames).size).toBe(readNames.length);
+    expect(readNames.filter((name) => name.startsWith("research_"))).toEqual(["research_project_read", "research_audit"]);
+    const writeNames = tools(true).vt.definitions().map(({ name }) => name);
+    expect(new Set(writeNames).size).toBe(writeNames.length);
+    expect(writeNames.filter((name) => name.startsWith("research_"))).toEqual([
+      "research_project_read",
+      "research_audit",
+      "research_project_create",
+      "research_source_import",
+      "research_evidence_capture",
+      "research_evidence_review",
+      "research_claim_create",
+      "research_claim_link",
+      "research_outline_generate",
+    ]);
+    for (const name of ["research_evidence_create", "research_outline_create"]) {
+      expect(readNames).not.toContain(name);
+      expect(writeNames).not.toContain(name);
+    }
+  });
+
+  it("creates a project and imports a metadata-only source through the public route", async () => {
+    const { app, vt } = tools(true);
+    const created = JSON.parse(await vt.call("research_project_create", { title: "Alpha", question: "Why?", folder: "Research/Alpha" }));
+    expect(created.path).toBe("Research/Alpha/Project.md");
+    const imported = JSON.parse(await vt.call("research_source_import", { project: created.path, title: "Paper", source_kind: "doi", doi: "10.1234/example" }));
+    expect(imported.kind).toBe("created");
+    expect(app.vault.getAbstractFileByPath(imported.path)).not.toBeNull();
+  });
+
+  it("blocks proposed claims at the public outline route without creating a document", async () => {
+    const { app, vt } = tools(true);
+    const project = JSON.parse(await vt.call("research_project_create", { title: "Trust", question: "What is supported?", folder: "Research/Trust" })).path;
+    const source = JSON.parse(await vt.call("research_source_import", { project, title: "Paper", source_kind: "web", url: "https://example.test", captured_text: "Result" })).path;
+    const evidence = JSON.parse(await vt.call("research_evidence_capture", { project, source, title: "Result", excerpt: "Result", locator_kind: "section", locator_value: "Results", review_state: "reviewed" })).path;
+    const claim = JSON.parse(await vt.call("research_claim_create", { project, title: "Proposed", proposition: "This must not leak", supports: [evidence], review_state: "proposed" })).path;
+    await expect(vt.call("research_outline_generate", { project, claims: [claim] })).rejects.toThrow(/proposed claim.*review.*remove/i);
+    expect(app.vault.getAbstractFileByPath("Research/Trust/Documents/Outline.md")).toBeNull();
+  });
+
+  it("rejects research mutations when MCP writes are disabled", async () => {
+    await expect(tools(false).vt.call("research_claim_create", { project: "P/Project.md", title: "C", proposition: "x" })).rejects.toThrow(/disabled/);
+    for (const name of ["research_evidence_create", "research_outline_create"]) {
+      await expect(tools(false).vt.call(name, {})).rejects.toThrow(/disabled/);
+    }
+  });
+
+  it("reads only the canonical project tree and surfaces damaged research metadata", async () => {
+    const app = new App();
+    const project = "Research/P/Project.md";
+    app.vault.seed(project, "# project", { frontmatter: { title: "P", type: "research-project", project: `[[${project}]]`, question: "Why?", stage: "frame", status: "active" } });
+    app.vault.seed("Research/P/Sources/S.md", "# source", { frontmatter: { title: "S", type: "research-source", project: `[[${project}]]`, source_kind: "web" } });
+    app.vault.seed("Research/P/Evidence/Damaged type.md", "# damaged", { frontmatter: { title: "Damaged", type: "not-research", project: `[[${project}]]` } });
+    app.vault.seed("Research/P/Claims/Damaged project.md", "# damaged", { frontmatter: { title: "Damaged", type: "claim", project: 42, proposition: "X", confidence: "low", review_state: "proposed" } });
+    app.vault.seed("Research/P/Loose.md", "not in canonical layout", { frontmatter: { type: "not-research" } });
+    for (let index = 0; index < 100; index += 1) app.vault.seed(`Notes/N${index}.md`, "unrelated body", { frontmatter: { type: "note" } });
+    const read = vi.spyOn(app.vault, "cachedRead");
+    const output = await new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude" }).call("research_project_read", { project });
+    const summary = JSON.parse(output);
+    expect(summary.counts.sources).toBe(1);
+    expect(summary.counts.issues).toBe(2);
+    expect(summary.paths.issues.items).toEqual(expect.arrayContaining(["Research/P/Evidence/Damaged type.md", "Research/P/Claims/Damaged project.md"]));
+    expect(read).toHaveBeenCalledTimes(4);
+    read.mockClear();
+    const findings = JSON.parse(await new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude" }).call("research_audit", { project }));
+    expect(findings.filter(({ rule }: { rule: string }) => rule === "invalid-record")).toHaveLength(2);
+    expect(read).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -113,8 +186,8 @@ describe("update_frontmatter", () => {
     const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude" });
     await vt.call("update_frontmatter", { path: "Notes/Tagged.md", tags: ["B", "a"] });
     const read = await vt.call("note_read", { path: "Notes/Tagged.md" });
-    expect(read).toContain("tags:\n  - a\n  - b\n");
-    expect(read).toContain("title: Tagged");
+    expect(read).toContain('tags:\n  - "a"\n  - "b"\n');
+    expect(read).toContain('title: "Tagged"');
     expect(read).toContain("# Tagged\nbody");
   });
 
@@ -216,8 +289,8 @@ describe("note_create with ontology", () => {
     });
     expect(msg).toContain("Created note:");
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
-    expect(read).toContain("type: person");
-    expect(read).toContain("role: engineer");
+    expect(read).toContain('type: "person"');
+    expect(read).toContain('role: "engineer"');
     expect(read).toContain('- "[[CAVI]]"'); // scalar relation wrapped to a list
   });
 
@@ -232,7 +305,7 @@ describe("note_create with ontology", () => {
     expect(msg).toContain("Conformance:");
     expect(msg).toContain("banana");
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
-    expect(read).toContain("type: person");
+    expect(read).toContain('type: "person"');
   });
 
   it("reports an unknown type and creates the note untyped", async () => {
@@ -254,11 +327,11 @@ describe("note_create with ontology", () => {
       properties: { tags: "foo", type: "other", role: "x" },
     });
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
-    expect(read).toContain("type: person");
-    expect(read).toContain("tags:\n  - claude");
+    expect(read).toContain('type: "person"');
+    expect(read).toContain('tags:\n  - "claude"');
     expect(read).not.toContain("foo");
     expect(read).not.toContain("other");
-    expect(read).toContain("role: x");
+    expect(read).toContain('role: "x"');
   });
 
   it("keeps legacy behavior when no ontology is wired", async () => {
@@ -274,8 +347,8 @@ describe("note_create with ontology", () => {
     const read = await vt.call("note_read", { path: "Claude/Franco.md" });
     expect(read).not.toContain("type:");
     expect(read).not.toContain("role:");
-    expect(read).toContain("title: Franco");
-    expect(read).toContain("source: claude-mcp");
-    expect(read).toContain("tags:\n  - claude");
+    expect(read).toContain('title: "Franco"');
+    expect(read).toContain('source: "claude-mcp"');
+    expect(read).toContain('tags:\n  - "claude"');
   });
 });

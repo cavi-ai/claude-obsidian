@@ -54,6 +54,9 @@ A full Claude chat experience that lives in your vault and speaks its language.
 - **Native Canvas & Bases output** — Claude builds `.canvas` mind maps wired to
   real notes and `.base` database views over your frontmatter, write-gated like
   every other mutation.
+- **Evidence-backed research, Phase 1** — a vault-native research workbench
+  keeps sources, exact excerpts, review state, claims, and audit findings linked
+  in readable Markdown, then produces an evidence-backed outline.
 - **Prompt caching built in** — repeated context is cached server-side (reads at
   0.1× the input rate); the cost gauge accounts for it.
 - **Three auth modes** — your Anthropic **API key** (default, community-store
@@ -67,7 +70,7 @@ A full Claude chat experience that lives in your vault and speaks its language.
   not broken.
 - **Slash commands** — type `/` in the composer for a fuzzy palette:
   summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
-  and more.
+  research, and more.
 - **Interactive artifacts** — Claude emits a `claude-html` block;
   Companion renders it inline in a **sandboxed iframe** and can open it in your
   real browser or save it as a portable note.
@@ -85,16 +88,35 @@ A full Claude chat experience that lives in your vault and speaks its language.
 
 → Full details: [`obsidian-plugin/README.md`](obsidian-plugin/README.md)
 
+### Evidence-backed research workflow (Phase 1)
+
+Use `/research` in Companion or
+`/claude-obsidian:research-workbench` in Claude Code to open the same
+evidence-backed workflow. Companion also provides a visual research cockpit
+from the command palette.
+
+The Phase 1 path is **Create project → Import source → Capture evidence →
+Review → Build claims → Generate outline → Audit**. Source captures receive a
+content fingerprint; evidence records preserve the exact excerpt, locator, and
+captured fingerprint; claims keep supporting, challenging, and contextual
+relations distinct. The research workbench presents the resulting canonical
+Markdown records and their audit health.
+
+Only **reviewed**, locatable, non-stale evidence linked to a valid source counts
+as trusted claim support. Proposed evidence remains visible but does not satisfy
+the audit. Phase 1 stops at an evidence-backed outline—it does not generate a
+complete paper.
+
 ## claude-obsidian (the Claude Code plugin)
 
 Commands and skills that let Claude Code operate on your vault through the
-Companion MCP bridge — turning a chat agent into a vault collaborator. **14
-commands and 29 skills** across seven areas, all built on a shared grounding
+Companion MCP bridge — turning a chat agent into a vault collaborator. **16
+commands and 30 skills** across seven areas, all built on a shared grounding
 discipline (cite real notes, never fabricate, writes confirmed):
 
 | Area | Commands / skills |
 |---|---|
-| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest` |
+| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest`, `research-workbench` |
 | **Hygiene** | `consistent-tagging`, `wikilink-weaver`, `moc-builder`, `frontmatter-normalizer`, `note-splitter`, `dedup-merge` |
 | **Writing** | `outline-to-draft`, `daily-rollup`, `session-to-note`, `meeting-cleanup`, `summarize-and-link` |
 | **Build** | `plan-to-spec`, `tracker-driver`, `build-retrospective`, `task-harvester` (plus the `build-from-spec` command) |
@@ -115,19 +137,31 @@ session memory into persistent knowledge-graph points.
 ```mermaid
 flowchart LR
     companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
-    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>15 vault tools"])
-    code["claude-obsidian<br/>Claude Code plugin<br/>14 commands · 29 skills"]
+    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>10 reads · 14 write-gated tools"])
+    code["claude-obsidian<br/>Claude Code plugin<br/>16 commands · 30 skills"]
 
     companion <-->|"exposes vault tools"| bridge
     code <-->|"connects and drives the same vault"| bridge
 ```
 
-**Vault tools exposed over the bridge (15 total)** — read (always):
+**Vault tools exposed over the bridge** — 10 reads/audits (always):
 `vault_search`, `note_read`, `list_recent`, `vault_tags`, `list_titles`,
-`get_backlinks`, `get_outgoing_links`, `frontmatter_query`; write (gated behind
-a setting): `note_create`, `note_append`, `note_update`, `update_frontmatter`,
-`note_move` (rename/move with automatic backlink rewrite), `base_create`,
-`canvas_create`.
+`get_backlinks`, `get_outgoing_links`, `frontmatter_query`,
+`research_project_read`, `research_audit`; 14 mutations (gated behind *Allow
+MCP writes*): `note_create`, `note_append`, `note_update`,
+`update_frontmatter`, `note_move` (rename/move with automatic backlink
+rewrite), `base_create`, `canvas_create`, `research_project_create`,
+`research_source_import`, `research_evidence_capture`,
+`research_evidence_review`, `research_claim_create`, `research_claim_link`,
+`research_outline_generate`.
+
+Research Workbench project reads and audits are therefore available even when
+writes are disabled. Project, source, evidence, evidence-review, claim, link,
+and outline mutations require *Allow MCP writes*; in Companion agent mode they
+also retain the normal confirmation gate. Review mutates evidence records only,
+and accepts the terminal states `reviewed` or `rejected`. Permanent legacy
+aliases remain callable for compatibility but are intentionally omitted from
+the advertised command catalog.
 
 Companion runs a local MCP server (`obsidian-vault`, bound to `127.0.0.1`,
 bearer-token auth, default port **22360**). The Claude Code plugin connects to

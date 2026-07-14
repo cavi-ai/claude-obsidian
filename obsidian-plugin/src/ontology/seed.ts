@@ -78,6 +78,77 @@ export const SEED_TYPES: TypeDef[] = [
   { name: "build-spec", version: 1, extendsType: "entity", properties: [], relations: [] },
   { name: "build-tracker", version: 1, extendsType: "entity", properties: [], relations: [] },
   {
+    name: "research-project", version: 1, extendsType: "entity",
+    properties: [
+      { key: "question", type: "string", required: true },
+      { key: "audience", type: "string", required: false },
+      { key: "stage", type: "string", required: true },
+      { key: "status", type: "string", required: true },
+    ],
+    relations: [{ key: "project", targets: ["research-project"], description: "owning research project" }],
+  },
+  {
+    name: "research-source", version: 1, extendsType: "entity",
+    properties: [
+      { key: "sourceKind", type: "string", required: true },
+      { key: "canonicalId", type: "string", required: false },
+      { key: "url", type: "string", required: false },
+      { key: "asset", type: "string", required: false },
+      { key: "contentFingerprint", type: "string", required: false },
+    ],
+    relations: [{ key: "project", targets: ["research-project"], description: "owning research project" }],
+  },
+  {
+    name: "evidence", version: 1, extendsType: "entity",
+    properties: [
+      { key: "source_fingerprint", type: "string", required: false },
+      { key: "locator_kind", type: "string", required: false },
+      { key: "locator_value", type: "string", required: false },
+      { key: "excerpt", type: "string", required: true },
+      { key: "interpretation", type: "string", required: false },
+      { key: "reviewState", type: "string", required: true },
+      { key: "model", type: "string", required: false },
+    ],
+    relations: [
+      { key: "source", targets: ["research-source"], description: "source record this evidence came from" },
+      { key: "project", targets: ["research-project"], description: "owning research project" },
+    ],
+  },
+  {
+    name: "claim", version: 1, extendsType: "entity",
+    properties: [
+      { key: "proposition", type: "string", required: true },
+      { key: "confidence", type: "string", required: true },
+      { key: "reviewState", type: "string", required: true },
+      { key: "limitations", type: "string[]", required: true },
+    ],
+    relations: [
+      { key: "supports", targets: ["evidence"], description: "evidence supporting this claim" },
+      { key: "challenges", targets: ["evidence"], description: "evidence challenging this claim" },
+      { key: "contextualizes", targets: ["evidence"], description: "evidence providing context for this claim" },
+      { key: "project", targets: ["research-project"], description: "owning research project" },
+    ],
+  },
+  {
+    name: "research-question", version: 1, extendsType: "entity",
+    properties: [
+      { key: "question", type: "string", required: true },
+      { key: "status", type: "string", required: true },
+    ],
+    relations: [
+      { key: "about", targets: ["entity"], description: "subject of the question" },
+      { key: "project", targets: ["research-project"], description: "owning research project" },
+    ],
+  },
+  {
+    name: "research-document", version: 1, extendsType: "entity",
+    properties: [{ key: "documentKind", type: "string", required: true }],
+    relations: [
+      { key: "claims", targets: ["claim"], description: "claims used by this document" },
+      { key: "project", targets: ["research-project"], description: "owning research project" },
+    ],
+  },
+  {
     // Mirrors renderMemoryNote (src/memory/consolidate.ts): updated + digests
     // alongside the universal base keys.
     name: "claude-memory", version: 1, extendsType: "entity",

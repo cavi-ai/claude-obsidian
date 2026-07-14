@@ -1,6 +1,46 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect } from "vitest";
-import { parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "../src/view/slashCommands";
+import { parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, RESEARCH_WORKBENCH_PROMPT, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "../src/view/slashCommands";
 import { WORKFLOWS } from "../src/workflows/catalog";
+
+describe("research workbench command parity", () => {
+  it("discovers /research and inserts the native workflow prompt", () => {
+    const command = SLASH_COMMANDS.find((item) => item.name === "research");
+    expect(command).toMatchObject({
+      kind: "prompt",
+      prompt: RESEARCH_WORKBENCH_PROMPT,
+    });
+    expect(filterCommands(SLASH_COMMANDS, "paper").map((item) => item.name)).toContain("research");
+  });
+
+  it("keeps native and Claude Code entry points aligned on stages and trust", () => {
+    const skill = readFileSync(
+      resolve(__dirname, "../../claude-plugin/skills/research-workbench/SKILL.md"),
+      "utf8",
+    );
+    const command = readFileSync(
+      resolve(__dirname, "../../claude-plugin/commands/research-workbench.md"),
+      "utf8",
+    );
+    for (const term of ["project", "source", "evidence", "claim", "audit", "outline", "reviewed", "stale"]) {
+      expect(RESEARCH_WORKBENCH_PROMPT.toLowerCase(), term).toContain(term);
+      expect(skill.toLowerCase(), term).toContain(term);
+    }
+    for (const tool of [
+      "research_project_create", "research_source_import", "research_evidence_capture",
+      "research_evidence_review", "research_claim_create", "research_audit", "research_outline_generate",
+    ]) {
+      expect(RESEARCH_WORKBENCH_PROMPT).toContain(tool);
+      expect(skill).toContain(tool);
+    }
+    for (const legacy of ["research_evidence_create", "research_outline_create"]) {
+      expect(RESEARCH_WORKBENCH_PROMPT).not.toContain(legacy);
+      expect(skill).not.toContain(legacy);
+    }
+    expect(command).toContain("claude-obsidian:research-workbench");
+  });
+});
 
 describe("workflowSlashCommands", () => {
   it("derives one action command per workflow, dispatched via the workflow: prefix", () => {
