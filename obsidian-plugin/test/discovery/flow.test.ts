@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { DiscoveryCoordinator, type DiscoveryCoordinatorDeps, type DiscoveryValidState } from "../../src/discovery/coordinator";
+import { deriveDiscoveryQuery } from "../../src/discovery/query";
 import type { AdapterWork } from "../../src/discovery/types";
 import type { Provider } from "../../src/providers/types";
 import { buildProjectSnapshot } from "../../src/research/graph";
@@ -84,14 +85,32 @@ describe("scholarly discovery end-to-end contract", () => {
     const coordinator = new DiscoveryCoordinator(deps);
 
     expect(coordinator.stateFor(snapshot).status).toBe("idle");
-    const searched = valid(await coordinator.search(snapshot, "scholarly provenance discovery"));
+    const derivedQuery = deriveDiscoveryQuery(snapshot);
+    const searched = valid(await coordinator.search(snapshot, derivedQuery.text));
     expect(searched.ranked).toHaveLength(2);
     expect(searched.partialAdapters).toEqual([]);
+    expect(openAlex.search).toHaveBeenCalledWith(derivedQuery, undefined, expect.any(AbortSignal));
     expect(crossref.lookupDoi).toHaveBeenCalledWith("10.5555/discovery", expect.any(AbortSignal));
     expect(arxiv.lookup).toHaveBeenCalledWith("2401.01234", expect.any(AbortSignal));
     expect(vault.writes).toHaveLength(0);
 
+    const rerankedSearch = valid(await coordinator.rerank(snapshot));
+    expect(rerankedSearch.modelOrder).toEqual([...searched.deterministicOrder].reverse());
+    expect(rerankedSearch.modelOrder).not.toEqual(searched.deterministicOrder);
+    expect(new Set(rerankedSearch.modelOrder)).toEqual(new Set(searched.deterministicOrder));
+    expect(rerankedSearch.ranked.map(({ candidate, deterministicRank, factors }) => ({ id: candidate.id, deterministicRank, factors })))
+      .toEqual(searched.ranked.map(({ candidate, deterministicRank, factors }) => ({ id: candidate.id, deterministicRank, factors })));
+    expect(rerankedSearch).toEqual(expect.objectContaining({ providerId: "anthropic", model: "claude-contract", usedFallback: false }));
+
     const seedId = searched.ranked.find(({ candidate }) => candidate.openAlexId === "W1")!.candidate.id;
+    const dismissedId = searched.ranked.find(({ candidate }) => candidate.openAlexId === "W2")!.candidate.id;
+    coordinator.dismiss(dismissedId);
+    const afterDismiss = valid(coordinator.stateFor(snapshot));
+    expect(afterDismiss.ranked.map(({ candidate }) => candidate.id)).not.toContain(dismissedId);
+    expect(afterDismiss.modelOrder).not.toContain(dismissedId);
+    expect(afterDismiss.ranked.map(({ candidate }) => candidate.id)).toEqual([seedId]);
+    expect(vault.writes).toHaveLength(0);
+
     const expanded = valid(await coordinator.expand(snapshot, seedId, "references"));
     expect(expanded.ranked).toHaveLength(1);
     expect(expanded.ranked[0]!.candidate.relationship).toEqual({ seedId, direction: "references", adapter: "openalex" });
@@ -103,7 +122,6 @@ describe("scholarly discovery end-to-end contract", () => {
       .toEqual(expanded.ranked.map(({ candidate, deterministicRank, factors }) => ({ id: candidate.id, deterministicRank, factors })));
     expect(reranked).toEqual(expect.objectContaining({ providerId: "anthropic", model: "claude-contract", usedFallback: false }));
     coordinator.stateFor(snapshot);
-    coordinator.dismiss("not-present");
     expect(vault.writes).toHaveLength(0);
 
     const importId = reranked.ranked[0]!.candidate.id;
@@ -119,6 +137,22 @@ describe("scholarly discovery end-to-end contract", () => {
     expect(await coordinator.importCandidates(snapshot, [importId])).toEqual([{ candidateId: importId, status: "duplicate", path: "Research/Discovery/Sources/Expanded provenance paper.md" }]);
     expect(vault.writes).toHaveLength(1);
     const afterImport = await vault.repository.loadProject(projectPath);
+    const imported = afterImport.sources.find(({ path }) => path === "Research/Discovery/Sources/Expanded provenance paper.md");
+    expect(imported).toEqual(expect.objectContaining({
+      title: "Expanded provenance paper",
+      canonicalId: "doi:10.5555/expanded",
+      doi: "10.5555/expanded",
+      authors: ["Ada Lovelace"],
+      published: "2025",
+      publication: "Journal of Open Research",
+      abstract: "Crossref abstract",
+      url: "https://oa.example/expanded",
+      openAccessUrl: "https://oa.example/expanded",
+      discoveryProvenance: [
+        { adapter: "openalex", externalId: "W3" },
+        { adapter: "crossref", externalId: "10.5555/expanded" },
+      ],
+    }));
     expect({ evidence: afterImport.evidence, claims: afterImport.claims, questions: afterImport.questions }).toEqual(baseline);
 
     const networkCalls = openAlex.search.mock.calls.length + openAlex.expand.mock.calls.length + crossref.lookupDoi.mock.calls.length + arxiv.lookup.mock.calls.length;
