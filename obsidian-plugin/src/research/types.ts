@@ -12,6 +12,11 @@ export const RESEARCH_TYPE_NAMES = [
 export type ResearchTypeName = (typeof RESEARCH_TYPE_NAMES)[number];
 export type EvidenceRelation = "supports" | "challenges" | "contextualizes";
 
+export interface DiscoverySourceProvenance {
+  adapter: "openalex" | "crossref" | "arxiv";
+  externalId: string;
+}
+
 export interface BaseResearchRecord {
   path: string;
   title: string;
@@ -43,6 +48,9 @@ export interface ResearchSourceRecord extends BaseResearchRecord {
   authors?: string[];
   published?: string;
   publication?: string;
+  abstract?: string;
+  openAccessUrl?: string;
+  discoveryProvenance?: DiscoverySourceProvenance[];
 }
 
 export type SourceLocatorKind = "page" | "section" | "paragraph" | "timestamp" | "quote";

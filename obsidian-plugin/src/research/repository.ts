@@ -13,6 +13,7 @@ import type {
   ReviewState,
   SourceLocatorKind,
   EvidenceRelation,
+  DiscoverySourceProvenance,
 } from "./types";
 
 export interface ResearchRepositoryIO {
@@ -43,6 +44,9 @@ export interface ImportSourceInput {
   authors?: string[];
   published?: string;
   publication?: string;
+  abstract?: string;
+  openAccessUrl?: string;
+  discoveryProvenance?: DiscoverySourceProvenance[];
 }
 
 export type ImportSourceResult = { kind: "created"; path: string } | { kind: "duplicate"; path: string };
@@ -159,9 +163,16 @@ export class ResearchRepository {
   }
 
   async importSource(projectPath: string, input: ImportSourceInput): Promise<ImportSourceResult> {
+    const authors = input.authors ? [...input.authors] : undefined;
+    const provenance = input.discoveryProvenance?.map(({ adapter, externalId }) => ({ adapter, externalId }));
     const project = await this.loadProject(projectPath);
     if (input.asset) safePath(input.asset);
     if (input.capturedContent instanceof Uint8Array && !input.asset) throw new Error("Binary source capture requires an asset path");
+    if (input.openAccessUrl) {
+      let protocol: string;
+      try { protocol = new URL(input.openAccessUrl).protocol; } catch { throw new Error("Open access URL must be a valid http: or https: URL"); }
+      if (protocol !== "http:" && protocol !== "https:") throw new Error("Open access URL must use http: or https:");
+    }
     const capturedPayload = input.capturedContent instanceof Uint8Array && input.asset && this.io.readBinary
       ? await this.io.readBinary(input.asset)
       : input.capturedContent;
@@ -180,9 +191,12 @@ export class ResearchRepository {
       ...(input.doi ? { doi: input.doi } : {}),
       ...(input.arxivId ? { arxivId: input.arxivId } : {}),
       ...(input.zoteroKey ? { zoteroKey: input.zoteroKey } : {}),
-      ...(input.authors?.length ? { authors: [...input.authors] } : {}),
+      ...(authors?.length ? { authors } : {}),
       ...(input.published ? { published: input.published } : {}),
       ...(input.publication ? { publication: input.publication } : {}),
+      ...(input.abstract !== undefined ? { abstract: input.abstract.slice(0, 20_000) } : {}),
+      ...(input.openAccessUrl ? { openAccessUrl: input.openAccessUrl } : {}),
+      ...(provenance?.length ? { discoveryProvenance: provenance } : {}),
     };
     const canonicalId = canonicalSourceId(candidate);
     if (canonicalId) candidate.canonicalId = canonicalId;
