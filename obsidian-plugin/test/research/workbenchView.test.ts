@@ -136,6 +136,26 @@ describe("ResearchWorkbenchView", () => {
     expect(h.cancelCalls).toBe(2);
   });
 
+  it("cancels discovery on project replacement and close, suppresses late rerank render, and resubscribes on reopen", async () => {
+    let subscriptions = 0; let unsubscriptions = 0; let cancels = 0; let resolve!: () => void;
+    const coordinator = discoveryCoordinator({
+      subscribe: () => { subscriptions += 1; return () => { unsubscriptions += 1; }; },
+      cancel: () => { cancels += 1; },
+      stateFor: (current: typeof snapshot) => ({ status: "ready", query: { text: "q", projectPath: current.project.path }, ranked: [{ candidate: { id: "W1", title: "Candidate", authors: [], openAlexId: "W1", provenance: {}, disagreements: [], verification: "verified" }, deterministicRank: 1, totalScore: 1, factors: { queryRelevance: 1, projectOverlap: 0, citationRelationship: 0, recency: 0, openAccess: 0, metadataCompleteness: 1 } }], deterministicOrder: ["W1"], partialAdapters: [], fingerprint: "f" }),
+      rerank: () => new Promise((done) => { resolve = () => done({}); }),
+    });
+    const h = intelligenceDependencies();
+    const repository = { loadProject: async (path: string) => ({ ...snapshot, project: { ...snapshot.project, path } }) } as never;
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository, { ...h.dependencies, discoveryCoordinator: coordinator });
+    await view.setProjectPath("Research/One/Project.md"); click(elements(view, '[role="tab"]')[7]); await Promise.resolve(); await Promise.resolve();
+    click(elements(view, "button").find(({ textContent }) => textContent === "Rerank with model")); await Promise.resolve();
+    await view.setProjectPath("Research/Two/Project.md"); const afterReplacement = view.contentEl.textContent;
+    resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(view.contentEl.textContent).toBe(afterReplacement); expect(cancels).toBe(1);
+    await view.onClose(); expect(unsubscriptions).toBe(1); expect(cancels).toBe(2);
+    await view.onOpen(); expect(subscriptions).toBe(2);
+  });
+
   it("does not commit a deferred render after close and can render after reopening", async () => {
     const pending = deferred<typeof snapshot>();
     let load = () => pending.promise;

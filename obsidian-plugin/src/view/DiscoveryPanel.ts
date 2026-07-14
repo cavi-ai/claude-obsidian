@@ -16,6 +16,7 @@ export class DiscoveryPanel {
   private expanded = new Set<string>();
   private outcomes = new Map<string, ImportCandidateOutcome>();
   private busy = new Set<string>();
+  private importing = new Set<string>();
   private generation = 0;
   private unsubscribe: (() => void) | undefined;
 
@@ -26,10 +27,11 @@ export class DiscoveryPanel {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.busy.clear();
+    this.importing.clear();
     this.deps.coordinator.cancel();
   }
 
-  cancel(): void { this.generation += 1; this.busy.clear(); this.deps.coordinator.cancel(); }
+  cancel(): void { this.generation += 1; this.busy.clear(); this.importing.clear(); this.deps.coordinator.cancel(); }
 
   render(root: HTMLElement, snapshot: ProjectSnapshot): void {
     const state = this.deps.coordinator.stateFor(snapshot);
@@ -60,13 +62,14 @@ export class DiscoveryPanel {
     if (state.status === "stale") status.setText("Out of date — search again to refresh these results.");
     if (state.status === "failed") status.setText(state.message);
     if ([...this.busy].some((key) => key === "rerank")) status.createDiv({ text: "Reranking… Deterministic order and factors remain visible." });
-    if ([...this.busy].some((key) => key.startsWith("import"))) status.createDiv({ text: "Importing…" });
+    if (this.importing.size) status.createDiv({ text: "Importing…" });
     const valid = state.status === "ready" || state.status === "stale" ? state : state.status === "searching" || state.status === "failed" ? state.previous : undefined;
     if (!valid) return;
     if (valid.partialAdapters.length) status.createDiv({ text: `Partial metadata: ${valid.partialAdapters.map(label).join(", ")}` });
     if (valid.providerId && valid.model) status.createDiv({ text: `${providerLabel(valid.providerId)} · ${valid.model}${valid.usedFallback ? " · Fallback" : ""}` });
     if (valid.ranked.length) this.action(root, "Rerank with model", "rerank", () => this.deps.coordinator.rerank(snapshot));
-    const importSelected = this.action(root, "Import selected", "import-selected", async () => this.record(await this.deps.coordinator.importCandidates(snapshot, [...this.selected])));
+    const selectedIds = [...this.selected];
+    const importSelected = this.action(root, "Import selected", "import-selected", () => this.deps.coordinator.importCandidates(snapshot, selectedIds), selectedIds, (outcomes) => this.record(outcomes));
     if (!this.selected.size) importSelected.disabled = true;
     const modelById = new Map(valid.modelRanked?.map((item) => [item.candidate.id, item]));
     for (const ranked of valid.ranked) this.renderCandidate(root, snapshot, ranked, modelById.get(ranked.candidate.id));
@@ -83,7 +86,7 @@ export class DiscoveryPanel {
     card.createEl("p", { text: [candidate.published, candidate.publication].filter(Boolean).join(" · ") || "Publication details unavailable" });
     if (candidate.abstract) card.createEl("p", { cls: "cc-discovery-abstract", text: candidate.abstract.slice(0, 600) });
     card.createEl("p", { text: identifiers(candidate) || "No additional identifiers" });
-    if (candidate.openAccessUrl) card.createEl("a", { text: "Open access link", href: candidate.openAccessUrl, attr: { target: "_blank", rel: "noopener noreferrer", "aria-label": `Open external article: ${candidate.title}` } });
+    if (candidate.openAccessUrl) card.createEl("a", { text: "Open access link", attr: { href: candidate.openAccessUrl, target: "_blank", rel: "noopener noreferrer", "aria-label": `Open external article: ${candidate.title}` } });
     if (candidate.existingSourcePath) card.createEl("p", { text: `Existing source: ${candidate.existingSourcePath}` });
     if (candidate.relationship) card.createEl("p", { text: `Seed ${candidate.relationship.seedId} · ${directionLabel(candidate.relationship.direction)}` });
     card.createEl("p", { text: `Deterministic rank ${ranked.deterministicRank} · Score ${format(ranked.totalScore)}` });
@@ -96,7 +99,7 @@ export class DiscoveryPanel {
     const actions = card.createDiv({ cls: "cc-discovery-actions" });
     this.action(actions, "References", `expand:${candidate.id}:references`, () => this.deps.coordinator.expand(snapshot, candidate.id, "references"));
     this.action(actions, "Cited by", `expand:${candidate.id}:cited-by`, () => this.deps.coordinator.expand(snapshot, candidate.id, "cited-by"));
-    this.action(actions, "Import", `import:${candidate.id}`, async () => this.record(await this.deps.coordinator.importCandidates(snapshot, [candidate.id])));
+    this.action(actions, "Import", `import:${candidate.id}`, () => this.deps.coordinator.importCandidates(snapshot, [candidate.id]), [candidate.id], (outcomes) => this.record(outcomes));
     if (candidate.existingSourcePath) this.pathButton(actions, "Open source", candidate.existingSourcePath);
     this.action(actions, "Dismiss", `dismiss:${candidate.id}`, async () => { this.deps.coordinator.dismiss(candidate.id); });
     const outcome = this.outcomes.get(candidate.id);
@@ -117,10 +120,25 @@ export class DiscoveryPanel {
     for (const disagreement of candidate.disagreements) detail.createEl("p", { text: `${factorLabel(disagreement.field)}: ${disagreement.values.map(provenance).join("; ")}` });
   }
 
-  private action(root: HTMLElement, labelText: string, key: string, operation: () => Promise<unknown>): HTMLButtonElement {
-    const button = root.createEl("button", { text: labelText }); button.disabled = this.busy.has(key);
-    button.addEventListener("click", () => { if (this.busy.has(key)) return; this.busy.add(key); button.disabled = true; const generation = this.generation;
-      void operation().finally(() => { if (generation === this.generation) { this.busy.delete(key); void this.deps.rerender(); } }); });
+  private action<T>(root: HTMLElement, labelText: string, key: string, operation: () => Promise<T>, candidateIds: readonly string[] = [], complete?: (result: T) => void): HTMLButtonElement {
+    const overlapsImport = candidateIds.some((id) => this.importing.has(id));
+    const button = root.createEl("button", { text: labelText }); button.disabled = this.busy.has(key) || overlapsImport;
+    button.addEventListener("click", () => {
+      if (this.busy.has(key) || candidateIds.some((id) => this.importing.has(id))) return;
+      this.busy.add(key); for (const id of candidateIds) this.importing.add(id); button.disabled = true;
+      const generation = this.generation;
+      const pending = operation();
+      void (async () => {
+        await this.deps.rerender();
+        const result = await pending;
+        if (generation === this.generation) complete?.(result);
+      })().finally(() => {
+        if (generation === this.generation) {
+          this.busy.delete(key); for (const id of candidateIds) this.importing.delete(id);
+          void this.deps.rerender();
+        }
+      });
+    });
     return button;
   }
 

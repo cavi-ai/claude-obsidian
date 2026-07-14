@@ -29,9 +29,11 @@ function harness(state: any = { status: "idle", query: { text: "climate adaptati
     importCandidates: vi.fn(async (_s, ids) => { calls.imports.push([...ids]); return ids.map((candidateId: string) => ({ candidateId, status: "created", path: "S.md" })); }),
     dismiss: vi.fn(() => { calls.dismiss += 1; }), cancel: vi.fn(() => { calls.cancel += 1; }),
   };
-  const panel = new DiscoveryPanel({ coordinator: coordinator as never, openPath: vi.fn(async () => undefined), rerender: vi.fn(async () => undefined) });
+  const openPath = vi.fn(async () => undefined);
+  const rerender = vi.fn(async () => undefined);
+  const panel = new DiscoveryPanel({ coordinator: coordinator as never, openPath, rerender });
   const root = new ItemView(new WorkspaceLeaf()).contentEl;
-  return { panel, root, calls, coordinator, notify: () => listener() };
+  return { panel, root, calls, coordinator, openPath, rerender, notify: () => listener() };
 }
 
 const buttons = (root: HTMLElement) => [...root.querySelectorAll("button")];
@@ -84,7 +86,36 @@ describe("DiscoveryPanel", () => {
     h.root.empty(); h.panel.render(h.root, snapshot);
     for (const label of ["References", "Cited by", "Rerank with model", "Import", "Import selected", "Open source", "Dismiss"]) { click(button(h.root, label)); await Promise.resolve(); }
     expect(h.calls.expand).toEqual(["references", "cited-by"]); expect(h.calls.rerank).toBe(1);
-    expect(h.calls.imports).toEqual([[candidate.id], [candidate.id]]); expect(h.calls.dismiss).toBe(1);
+    expect(h.calls.imports).toEqual([[candidate.id]]); expect(h.calls.dismiss).toBe(1);
+    expect(h.openPath).toHaveBeenCalledWith(candidate.existingSourcePath);
+    expect(h.root.querySelector("a")?.getAttribute("href")).toBe(candidate.openAccessUrl);
+  });
+
+  it("renders Importing immediately, prevents overlapping shared-candidate imports, then renders the outcome", async () => {
+    const state = { status: "ready", query: { text: "q", projectPath: snapshot.project.path }, ranked: [ranked], deterministicOrder: [candidate.id], partialAdapters: [], fingerprint: "f" };
+    const h = harness(state);
+    let resolve!: (value: any) => void;
+    h.coordinator.importCandidates = vi.fn(() => new Promise((done) => { resolve = done; }));
+    h.rerender.mockImplementation(async () => { h.root.empty(); h.panel.render(h.root, snapshot); });
+    h.panel.render(h.root, snapshot);
+    const checkbox = [...h.root.querySelectorAll("input")][1] as HTMLInputElement; checkbox.checked = true; checkbox.dispatchEvent({ type: "change" } as never);
+    await Promise.resolve();
+    click(button(h.root, "Import")); await Promise.resolve(); await Promise.resolve();
+    expect(text(h.root)).toContain("Importing…");
+    expect(button(h.root, "Import").disabled).toBe(true); expect(button(h.root, "Import selected").disabled).toBe(true);
+    click(button(h.root, "Import selected"));
+    expect(h.coordinator.importCandidates).toHaveBeenCalledTimes(1);
+    resolve([{ candidateId: candidate.id, status: "created", path: "S.md" }]); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(text(h.root)).toContain("Created");
+  });
+
+  it("discards a late rerank completion after disposal", async () => {
+    const state = { status: "ready", query: { text: "q", projectPath: snapshot.project.path }, ranked: [ranked], deterministicOrder: [candidate.id], partialAdapters: [], fingerprint: "f" };
+    const h = harness(state); let resolve!: () => void;
+    h.coordinator.rerank = vi.fn(() => new Promise<any>((done) => { resolve = () => done(state); }));
+    h.panel.render(h.root, snapshot); click(button(h.root, "Rerank with model")); await Promise.resolve();
+    h.panel.dispose(); resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(h.rerender).toHaveBeenCalledTimes(1);
   });
 
   it("unsubscribes before cancel and discards late action completion after disposal", async () => {
@@ -96,6 +127,6 @@ describe("DiscoveryPanel", () => {
     h.coordinator.search = vi.fn(() => new Promise<any>((done) => { resolve = () => done({}); }));
     const panel = new DiscoveryPanel({ coordinator: h.coordinator as never, openPath: vi.fn(), rerender: vi.fn(async () => { order.push("rerender"); }) });
     panel.render(h.root, snapshot); click(button(h.root, "Search")); panel.dispose(); resolve(); await Promise.resolve(); await Promise.resolve();
-    expect(order.slice(0, 2)).toEqual(["unsubscribe", "cancel"]); expect(order).not.toContain("rerender");
+    expect(order.filter((item) => item !== "rerender")).toEqual(["unsubscribe", "cancel"]); expect(order.filter((item) => item === "rerender")).toHaveLength(1);
   });
 });
