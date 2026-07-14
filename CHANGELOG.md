@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Research Intelligence is now documented and covered end to end.** The
+  Research Workbench's Intelligence tab provides automatically refreshed,
+  local deterministic findings across contradictions, method differences,
+  research gaps, and evidence quality. Optional, explicit model narratives show
+  their provider and model, validate project-path citations, become stale after
+  project edits, and never write to the vault. The narrator can follow the
+  Current chat backend, use Claude only, use Local only, or be Disabled.
+
 ### Fixed
 - **`/research` now opens the native Research Workbench.** Selecting the slash
   command no longer inserts internal research-tool instructions or sends a chat
