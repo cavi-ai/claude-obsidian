@@ -7,6 +7,7 @@ import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskT
 import { configError } from "./cloud/routines";
 import { configError as repliesConfigError } from "./cloud/replies";
 import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
+import type { PluginSettings } from "./types";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -372,6 +373,21 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         dd.addOption("local", "Local only (offline)");
         dd.setValue(this.plugin.settings.chatBackend).onChange(async (v) => {
           this.plugin.settings.chatBackend = v as "claude" | "local" | "auto";
+          await this.plugin.saveSettings();
+          this.plugin.refreshViews();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Research intelligence narrator")
+      .setDesc("Choose the provider used only when you click Analyze in a Research Intelligence view. Deterministic findings stay local and always remain available.")
+      .addDropdown((dd) => {
+        dd.addOption("current", "Current chat backend");
+        dd.addOption("claude", "Claude only");
+        dd.addOption("local", "Local only");
+        dd.addOption("disabled", "Disabled");
+        dd.setValue(this.plugin.settings.intelligenceNarrator).onChange(async (value) => {
+          this.plugin.settings.intelligenceNarrator = value as PluginSettings["intelligenceNarrator"];
           await this.plugin.saveSettings();
           this.plugin.refreshViews();
         });

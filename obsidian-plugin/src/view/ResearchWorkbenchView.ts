@@ -4,17 +4,23 @@ import type { ProjectSnapshot } from "../research/graph";
 import type { ResearchRepository } from "../research/repository";
 import { buildWorkbenchViewModel } from "../research/viewModel";
 import { isResearchProjectChange, resolveResearchProjectLink } from "../research/workbenchRouting";
+import type { IntelligenceCoordinator, IntelligenceNarratorMode } from "../research/intelligenceCoordinator";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
 type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit";
 const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Audit"];
+
+export interface ResearchWorkbenchDependencies {
+  coordinator: IntelligenceCoordinator;
+  narratorMode: () => IntelligenceNarratorMode;
+}
 
 export class ResearchWorkbenchView extends ItemView {
   private projectPath: string | undefined;
   private activeTab: Tab = "Overview";
   private renderSequence = 0;
 
-  constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository) {
+  constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository, private readonly dependencies?: ResearchWorkbenchDependencies) {
     super(leaf);
   }
 

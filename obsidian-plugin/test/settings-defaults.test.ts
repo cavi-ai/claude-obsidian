@@ -57,3 +57,9 @@ describe("embedding engine defaults", () => {
     expect(DEFAULT_SETTINGS.embeddingModel).toBe("nomic-embed-text"); // still the Ollama model
   });
 });
+
+describe("research intelligence defaults", () => {
+  it("defaults research intelligence to the current chat backend", () => {
+    expect(DEFAULT_SETTINGS.intelligenceNarrator).toBe("current");
+  });
+});
