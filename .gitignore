@@ -14,6 +14,7 @@ pnpm-store/
 .cursorrules
 .cursorignore
 .code-review-graph/
+.worktrees/
 
 # Claude Code working state & plans — never ship in the open-source repo
 .claude/
