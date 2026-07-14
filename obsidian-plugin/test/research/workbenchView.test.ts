@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { WorkspaceLeaf } from "obsidian";
 import type { ResearchRepository } from "../../src/research/repository";
 import { RESEARCH_WORKBENCH_VIEW_TYPE, ResearchWorkbenchView, replaceResearchProjectPath } from "../../src/view/ResearchWorkbenchView";
@@ -33,6 +33,14 @@ function intelligenceDependencies(overrides: Record<string, unknown> = {}) {
     get analyzeCalls() { return analyzeCalls; },
     get cancelCalls() { return cancelCalls; },
   };
+}
+
+function discoveryCoordinator(overrides: Record<string, unknown> = {}) {
+  return {
+    stateFor: () => ({ status: "idle", query: { text: "Why?", projectPath: snapshot.project.path } }),
+    subscribe: () => () => undefined, search: vi.fn(), expand: vi.fn(), rerank: vi.fn(), importCandidates: vi.fn(), dismiss: vi.fn(), cancel: vi.fn(),
+    ...overrides,
+  } as never;
 }
 
 describe("ResearchWorkbenchView", () => {
@@ -81,7 +89,7 @@ describe("ResearchWorkbenchView", () => {
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
     await view.setProjectPath(snapshot.project.path);
     let tabs = elements(view, '[role="tab"]');
-    expect(tabs).toHaveLength(7);
+    expect(tabs).toHaveLength(8);
     expect(tabs[0].getAttribute("tabindex")).toBe("0");
     expect(tabs.slice(1).every((tab) => tab.getAttribute("tabindex") === "-1")).toBe(true);
     const panel = elements(view, '[role="tabpanel"]')[0];
@@ -90,8 +98,18 @@ describe("ResearchWorkbenchView", () => {
     tabs[0].dispatchEvent({ type: "keydown", key: "End", preventDefault() {} });
     await Promise.resolve(); await Promise.resolve();
     tabs = elements(view, '[role="tab"]');
-    expect(tabs[6].getAttribute("tabindex")).toBe("0");
-    expect(tabs[6].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[7].getAttribute("tabindex")).toBe("0");
+    expect(tabs[7].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("selects Discover without implicit network or model work", async () => {
+    const coordinator = discoveryCoordinator();
+    const h = intelligenceDependencies();
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never, { ...h.dependencies, discoveryCoordinator: coordinator });
+    await view.setProjectPath(snapshot.project.path);
+    click(elements(view, '[role="tab"]')[7]); await Promise.resolve(); await Promise.resolve();
+    expect(elements(view, "button").map(({ textContent }) => textContent)).toContain("Search");
+    expect(coordinator.search).not.toHaveBeenCalled(); expect(coordinator.rerank).not.toHaveBeenCalled();
   });
 
   it("renders deterministic intelligence only when selected and refreshes it without implicit model analysis", async () => {

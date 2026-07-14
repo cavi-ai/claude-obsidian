@@ -127,7 +127,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
       this.researchRepository(),
-      { coordinator: this.intelligenceCoordinator(), narratorMode: () => this.settings.intelligenceNarrator },
+      { coordinator: this.intelligenceCoordinator(), narratorMode: () => this.settings.intelligenceNarrator, discoveryCoordinator: this.discoveryCoordinator() },
     ));
 
     // Inline interactive artifacts: ```claude-html ... ```
