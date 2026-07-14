@@ -259,6 +259,28 @@ describe("DiscoveryCoordinator", () => {
     expect(importSource.mock.calls[0]?.[1]).not.toHaveProperty("capturedContent");
   });
 
+  it.each(["javascript:alert(1)", "file:///private/secret", "not a URL"])("omits unsafe URLs before import: %s", async (unsafeUrl) => {
+    const importSource = vi.fn(async () => ({ kind: "created" as const, path: "A.md" }));
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("A", { url: unsafeUrl, openAccessUrl: unsafeUrl })] })), expand: vi.fn() }, repository: { importSource } });
+    const ready = await h.coordinator.search(snapshot(), "q");
+    if (ready.status !== "ready") throw new Error("expected ready");
+    await h.coordinator.importCandidates(snapshot(), [ready.ranked[0]!.candidate.id]);
+    expect(importSource.mock.calls[0]?.[1]).not.toHaveProperty("url");
+    expect(importSource.mock.calls[0]?.[1]).not.toHaveProperty("openAccessUrl");
+  });
+
+  it("removes model order immediately when reranker policy or model identity changes", async () => {
+    let mode: "claude" | "local" = "claude"; let model = "model-one";
+    const provider = modelProvider("anthropic", vi.fn(async () => '{"order":[{"id":"openalex:W1","reason":"Only"}]}'));
+    const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("W1")] })), expand: vi.fn() }, rerankerMode: () => mode, anthropic: () => ({ provider, model }), local: () => ({ provider: modelProvider("ollama"), model: "local-one" }) });
+    await h.coordinator.search(snapshot(), "q"); await h.coordinator.rerank(snapshot());
+    expect(h.coordinator.stateFor(snapshot())).toHaveProperty("modelOrder");
+    model = "model-two";
+    expect(h.coordinator.stateFor(snapshot())).not.toHaveProperty("modelOrder");
+    await h.coordinator.rerank(snapshot()); mode = "local";
+    expect(h.coordinator.stateFor(snapshot())).not.toHaveProperty("modelOrder");
+  });
+
   it("rechecks repeated imports and duplicate IDs within one batch", async () => {
     const importSource = vi.fn().mockResolvedValueOnce({ kind: "created", path: "A.md" }).mockResolvedValue({ kind: "duplicate", path: "A.md" });
     const h = harness({ openAlex: { search: vi.fn(async () => ({ items: [work("A")] })), expand: vi.fn() }, repository: { importSource } });

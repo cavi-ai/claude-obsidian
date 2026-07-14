@@ -37,7 +37,7 @@ function pluginHarness(anthropic = provider("anthropic"), ollama = provider("oll
 }
 
 describe("scholarly discovery plugin wiring", () => {
-  beforeEach(() => requestUrl.mockClear());
+  beforeEach(() => { requestUrl.mockReset().mockResolvedValue({ status: 200, headers: {}, text: JSON.stringify({ results: [], meta: {} }) }); });
 
   it("owns one lazy coordinator with live adapter settings and no construction/state network work", async () => {
     const plugin = pluginHarness();
@@ -53,6 +53,28 @@ describe("scholarly discovery plugin wiring", () => {
     const url = new URL(requestUrl.mock.calls[0]![0].url);
     expect(url.searchParams.get("per-page")).toBe("100");
     expect(url.searchParams.get("mailto")).toBe("person@example.test");
+  });
+
+  it("creates isolated view coordinators and unload cancels all of them", () => {
+    const plugin = pluginHarness();
+    const first = plugin.createDiscoveryCoordinator(); const second = plugin.createDiscoveryCoordinator();
+    expect(first).not.toBe(second);
+    const firstCancel = vi.spyOn(first, "cancel"); const secondCancel = vi.spyOn(second, "cancel");
+    first.cancel();
+    expect(firstCancel).toHaveBeenCalledOnce(); expect(secondCancel).not.toHaveBeenCalled();
+    plugin.onunload();
+    expect(secondCancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps simultaneous view searches independent when one view is cancelled", async () => {
+    const pending: Array<{ resolve(): void }> = [];
+    requestUrl.mockImplementation(() => new Promise((resolve) => pending.push({ resolve: () => resolve({ status: 200, headers: {}, text: JSON.stringify({ results: [], meta: {} }) }) })));
+    const plugin = pluginHarness(); const first = plugin.createDiscoveryCoordinator(); const second = plugin.createDiscoveryCoordinator();
+    const firstSearch = first.search(snapshot, "first"); const secondSearch = second.search(snapshot, "second");
+    await Promise.resolve(); await Promise.resolve(); first.cancel();
+    expect(pending).toHaveLength(2);
+    pending.forEach(({ resolve }) => resolve());
+    expect((await firstSearch).status).toBe("stale"); expect((await secondSearch).status).toBe("ready");
   });
 
   it("does no discovery work while loading settings or refreshing views", async () => {

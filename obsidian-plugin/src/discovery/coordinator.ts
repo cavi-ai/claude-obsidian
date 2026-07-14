@@ -37,6 +37,7 @@ export interface DiscoveryValidState {
   providerId?: ProviderId;
   model?: string;
   usedFallback?: boolean;
+  rerankIdentity?: string;
   partialAdapters: DiscoveryAdapterId[];
   cursor?: string;
   fingerprint: string;
@@ -126,7 +127,8 @@ export class DiscoveryCoordinator {
     }
     if (this.current?.projectPath === query.projectPath) {
       if (this.current.fingerprint === fingerprint) {
-        const state = this.current.state;
+        const currentState = this.current.state;
+        const state = currentState.status === "ready" || currentState.status === "stale" ? this.withCurrentRerank(currentState) : currentState;
         if ((state.status === "ready" || state.status === "stale") && this.expired(this.current.key)) return validCopy(state, "stale");
         if (state.status === "failed" && state.previous && this.expired(this.current.key)) return { ...state, previous: validCopy(state.previous, "stale") };
         return state;
@@ -140,7 +142,7 @@ export class DiscoveryCoordinator {
     }
     const desired = this.desiredKey ? this.cache.get(this.desiredKey) : undefined;
     if (desired?.projectPath === query.projectPath) {
-      return validCopy(desired.state, desired.state.fingerprint === fingerprint && !this.expired(desired.key) ? "ready" : "stale");
+      return validCopy(this.withCurrentRerank(desired.state), desired.state.fingerprint === fingerprint && !this.expired(desired.key) ? "ready" : "stale");
     }
     if (this.desiredProjectPath === query.projectPath && this.desiredFingerprint !== undefined && this.desiredFingerprint !== fingerprint) {
       return { status: "stale", query, ranked: [], deterministicOrder: [], partialAdapters: [], fingerprint: this.desiredFingerprint };
@@ -209,7 +211,7 @@ export class DiscoveryCoordinator {
         modelRanked = await rerankCandidates(chosen.provider, query, current.state.ranked, chosen.model, controller.signal);
       }
       if (controller.signal.aborted || sequence !== this.sequence) return validCopy(current.state, "stale");
-      const state: DiscoveryValidState = { ...validCopy(current.state, "ready"), modelRanked, modelOrder: modelRanked.map(({ candidate }) => candidate.id), providerId: chosen.provider.id, model: chosen.model, usedFallback };
+      const state: DiscoveryValidState = { ...validCopy(current.state, "ready"), modelRanked, modelOrder: modelRanked.map(({ candidate }) => candidate.id), providerId: chosen.provider.id, model: chosen.model, usedFallback, rerankIdentity: this.rerankIdentity(current.state, chosen.provider.id, chosen.model) };
       this.cache.set(current.key, { ...current, sequence, state, cachedAt: this.nowMs() });
       this.setCurrent(current.key, current.state.fingerprint, state, false);
       return state;
@@ -260,6 +262,7 @@ export class DiscoveryCoordinator {
       const state = { ...entry.state, ranked, deterministicOrder: ranked.map(({ candidate }) => candidate.id),
         ...(entry.state.modelOrder ? { modelOrder: entry.state.modelOrder.filter((id) => id !== candidateId) } : {}),
         ...(entry.state.modelRanked ? { modelRanked: entry.state.modelRanked.filter(({ candidate }) => candidate.id !== candidateId) } : {}) };
+      if (state.modelOrder) state.rerankIdentity = this.rerankIdentity(state, state.providerId, state.model);
       this.cache.set(key, { ...entry, state });
       if (this.current?.key === key && (this.current.state.status === "ready" || this.current.state.status === "stale")) {
         this.current = { ...this.current, state };
@@ -380,6 +383,20 @@ export class DiscoveryCoordinator {
   }
 
   private nowMs(): number { return (this.deps.now ?? (() => new Date()))().getTime(); }
+
+  private rerankIdentity(state: DiscoveryValidState, providerId?: ProviderId, model?: string): string {
+    return JSON.stringify([this.deps.rerankerMode(), this.deps.chatBackend(), providerId ?? "", model ?? "", state.deterministicOrder]);
+  }
+
+  private withCurrentRerank(state: DiscoveryValidState): DiscoveryValidState {
+    if (!state.modelOrder) return state;
+    const mode = this.deps.rerankerMode(); const backend = this.deps.chatBackend();
+    const resolved = mode === "local" || (mode === "current" && backend === "local") ? this.deps.local() : this.deps.anthropic();
+    const expected = this.rerankIdentity(state, state.usedFallback ? this.deps.local().provider.id : resolved.provider.id, state.usedFallback ? this.deps.local().model : resolved.model);
+    if (state.rerankIdentity === expected) return state;
+    const { modelOrder: _order, modelRanked: _ranked, providerId: _provider, model: _model, usedFallback: _fallback, rerankIdentity: _identity, ...deterministic } = state;
+    return deterministic;
+  }
 
   private cacheTtlMs(): number {
     const configured = this.deps.cacheHours();

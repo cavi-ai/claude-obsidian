@@ -21,6 +21,13 @@ describe("OpenAlexAdapter", () => {
     expect(JSON.stringify(page.items[0])).not.toContain("raw_secret");
   });
 
+  it.each(["javascript:alert(1)", "file:///private/secret", "not a URL"])("omits unsafe result URLs: %s", async (unsafeUrl) => {
+    const body = JSON.stringify({ results: [{ id: "https://openalex.org/W1", display_name: "Safe title", authorships: [], primary_location: { landing_page_url: unsafeUrl }, best_oa_location: { pdf_url: unsafeUrl } }], meta: {} });
+    const page = await new OpenAlexAdapter(async () => response(body), { maxResults: 20 }).search({ text: "safe", projectPath: "P.md" });
+    expect(page.items[0]).not.toHaveProperty("url");
+    expect(page.items[0]).not.toHaveProperty("openAccessUrl");
+  });
+
   it.each(["references", "cited-by"] as const)("maps one-hop %s expansion", async (direction) => {
     const requestedUrls: string[] = [];
     const http: DiscoveryHttp = async ({ url }) => {

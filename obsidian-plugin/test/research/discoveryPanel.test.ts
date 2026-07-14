@@ -91,6 +91,21 @@ describe("DiscoveryPanel", () => {
     expect(h.root.querySelector("a")?.getAttribute("href")).toBe(candidate.openAccessUrl);
   });
 
+  it.each(["javascript:alert(1)", "file:///private/secret", "not a URL"])("does not render unsafe external links: %s", (unsafeUrl) => {
+    const state = { status: "ready", query: { text: "q", projectPath: snapshot.project.path }, ranked: [{ ...ranked, candidate: { ...candidate, openAccessUrl: unsafeUrl } }], deterministicOrder: [candidate.id], partialAdapters: [], fingerprint: "f" };
+    const h = harness(state as never); h.panel.render(h.root, snapshot);
+    expect(h.root.querySelector("a")).toBeNull();
+  });
+
+  it("uses a unique query input id per panel and connects each label", () => {
+    const first = harness(); const second = harness();
+    first.panel.render(first.root, snapshot); second.panel.render(second.root, snapshot);
+    const firstInput = first.root.querySelector("input")!; const secondInput = second.root.querySelector("input")!;
+    expect(firstInput.getAttribute("id")).not.toBe(secondInput.getAttribute("id"));
+    expect(first.root.querySelector("label")?.getAttribute("for")).toBe(firstInput.getAttribute("id"));
+    expect(second.root.querySelector("label")?.getAttribute("for")).toBe(secondInput.getAttribute("id"));
+  });
+
   it("renders Importing immediately, prevents overlapping shared-candidate imports, then renders the outcome", async () => {
     const state = { status: "ready", query: { text: "q", projectPath: snapshot.project.path }, ranked: [ranked], deterministicOrder: [candidate.id], partialAdapters: [], fingerprint: "f" };
     const h = harness(state);

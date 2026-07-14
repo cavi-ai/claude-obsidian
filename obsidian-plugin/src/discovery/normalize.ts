@@ -2,6 +2,7 @@ import { findDuplicate, normalizeArxivId, normalizeDoi } from "../research/ident
 import type { ResearchSourceRecord } from "../research/types";
 import { candidateId } from "./identity";
 import type { AdapterWork, DiscoveryAdapterId, DiscoveryCandidate, FieldProvenance, MetadataDisagreement } from "./types";
+import { safeWebUrl } from "./safeUrl";
 
 const MERGED_FIELDS = [
   "title", "authors", "doi", "arxivId", "openAlexId", "published", "publication", "abstract", "url",
@@ -84,6 +85,10 @@ export function mergeAdapterWorks(works: readonly AdapterWork[], existingSources
   }
 
   const selected = Object.fromEntries(MERGED_FIELDS.map((field) => [field, selectWork(works, field)?.[field]])) as Partial<AdapterWork>;
+  const selectedUrl = safeWebUrl(selected.url);
+  const selectedOpenAccessUrl = safeWebUrl(selected.openAccessUrl);
+  if (selectedUrl) selected.url = selectedUrl; else delete selected.url;
+  if (selectedOpenAccessUrl) selected.openAccessUrl = selectedOpenAccessUrl; else delete selected.openAccessUrl;
   const openAlexId = selected.openAlexId ?? works.find((work) => work.adapter === "openalex")?.externalId.trim();
   const identityWork: AdapterWork = {
     adapter: works[0]!.adapter,

@@ -87,6 +87,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _router: ProviderRouter | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
+  private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
+  private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
   private mcpServer: McpHttpServer | null = null;
   private vaultTools: VaultTools | null = null;
   /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
@@ -127,7 +129,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
       this.researchRepository(),
-      { coordinator: this.intelligenceCoordinator(), narratorMode: () => this.settings.intelligenceNarrator, discoveryCoordinator: this.discoveryCoordinator() },
+      { coordinator: this.createIntelligenceCoordinator(), narratorMode: () => this.settings.intelligenceNarrator, discoveryCoordinator: this.createDiscoveryCoordinator() },
     ));
 
     // Inline interactive artifacts: ```claude-html ... ```
@@ -475,6 +477,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._discoveryCoordinator?.cancel();
     this._discoveryCoordinator?.clearCache();
     this._discoveryCoordinator = null;
+    for (const coordinator of this._viewIntelligenceCoordinators ?? []) coordinator.cancel();
+    this._viewIntelligenceCoordinators?.clear();
+    for (const coordinator of this._viewDiscoveryCoordinators ?? []) { coordinator.cancel(); coordinator.clearCache(); }
+    this._viewDiscoveryCoordinators?.clear();
     void this.mcpServer?.stop();
     this.mcpServer = null;
     this._builtinEmbedder?.terminate();
@@ -723,7 +729,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   intelligenceCoordinator(): IntelligenceCoordinator {
     if (!this._intelligenceCoordinator) {
-      this._intelligenceCoordinator = new IntelligenceCoordinator({
+      this._intelligenceCoordinator = this.buildIntelligenceCoordinator();
+    }
+    return this._intelligenceCoordinator;
+  }
+
+  createIntelligenceCoordinator(): IntelligenceCoordinator {
+    const coordinator = this.buildIntelligenceCoordinator();
+    (this._viewIntelligenceCoordinators ??= new Set()).add(coordinator);
+    return coordinator;
+  }
+
+  private buildIntelligenceCoordinator(): IntelligenceCoordinator {
+      return new IntelligenceCoordinator({
         mode: () => this.settings.intelligenceNarrator,
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({
@@ -734,13 +752,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
         localAvailable: () => this.router().localAvailable(),
         maxTokens: () => this.settings.maxTokens,
       });
-    }
-    return this._intelligenceCoordinator;
   }
 
   /** One lazy coordinator shared by every discovery surface. */
   discoveryCoordinator(): DiscoveryCoordinator {
     if (!this._discoveryCoordinator) {
+      this._discoveryCoordinator = this.buildDiscoveryCoordinator();
+    }
+    return this._discoveryCoordinator;
+  }
+
+  createDiscoveryCoordinator(): DiscoveryCoordinator {
+    const coordinator = this.buildDiscoveryCoordinator();
+    (this._viewDiscoveryCoordinators ??= new Set()).add(coordinator);
+    return coordinator;
+  }
+
+  private buildDiscoveryCoordinator(): DiscoveryCoordinator {
       const http = createObsidianDiscoveryHttp();
       const openAlex = {
         search: (query: Parameters<OpenAlexAdapter["search"]>[0], cursor?: string, signal?: AbortSignal) =>
@@ -754,7 +782,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
             ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
           }).expand(input, signal),
       };
-      this._discoveryCoordinator = new DiscoveryCoordinator({
+      return new DiscoveryCoordinator({
         openAlex,
         crossref: new CrossrefAdapter(http),
         arxiv: new ArxivAdapter(http),
@@ -767,8 +795,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
         local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
         localAvailable: () => this.router().localAvailable(),
       });
-    }
-    return this._discoveryCoordinator;
   }
 
   clearDiscoveryCache(): void {

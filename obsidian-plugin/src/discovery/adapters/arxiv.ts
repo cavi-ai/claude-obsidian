@@ -1,5 +1,6 @@
 import type { AdapterWork } from "../types";
 import { assertSuccessful, DiscoveryAdapterError, type DiscoveryHttp } from "./http";
+import { safeWebUrl } from "../safeUrl";
 
 const normalizeSpace = (value: string | null | undefined): string | undefined => value?.replace(/\s+/g, " ").trim() || undefined;
 const normalizeLookupId = (value: string): string => value.trim().replace(/^arxiv:/i, "").replace(/v\d+$/i, "");
@@ -45,8 +46,8 @@ export class ArxivAdapter {
       ["doi", childText(entry, "doi")?.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "").toLowerCase()],
       ["published", childText(entry, "published")?.slice(0, 10)],
       ["abstract", childText(entry, "summary")],
-      ["url", links.find((link) => link.getAttribute("rel") === "alternate")?.getAttribute("href") ?? undefined],
-      ["openAccessUrl", links.find((link) => link.getAttribute("type") === "application/pdf" || link.getAttribute("title") === "pdf")?.getAttribute("href") ?? undefined],
+      ["url", safeWebUrl(links.find((link) => link.getAttribute("rel") === "alternate")?.getAttribute("href"))],
+      ["openAccessUrl", safeWebUrl(links.find((link) => link.getAttribute("type") === "application/pdf" || link.getAttribute("title") === "pdf")?.getAttribute("href"))],
     ];
     for (const [key, field] of fields) if (field !== undefined) Object.assign(result, { [key]: field });
     return result;

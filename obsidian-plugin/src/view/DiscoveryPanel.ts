@@ -2,6 +2,9 @@ import type { DiscoveryCoordinator, DiscoveryState, ImportCandidateOutcome } fro
 import type { RankedCandidate, RankingFactors } from "../discovery/rank";
 import type { DiscoveryCandidate, FieldProvenance } from "../discovery/types";
 import type { ProjectSnapshot } from "../research/graph";
+import { safeWebUrl } from "../discovery/safeUrl";
+
+let nextPanelId = 0;
 
 export interface DiscoveryPanelDeps {
   coordinator: DiscoveryCoordinator;
@@ -10,6 +13,7 @@ export interface DiscoveryPanelDeps {
 }
 
 export class DiscoveryPanel {
+  private readonly queryInputId = `cc-discovery-query-${++nextPanelId}`;
   private query = "";
   private queryProject = "";
   private selected = new Set<string>();
@@ -41,8 +45,8 @@ export class DiscoveryPanel {
       this.selected.clear(); this.expanded.clear(); this.outcomes.clear();
     }
     const setup = root.createDiv({ cls: "cc-discovery-setup" });
-    setup.createEl("label", { text: "Discovery query", attr: { for: "cc-discovery-query" } });
-    const input = setup.createEl("input", { attr: { id: "cc-discovery-query", type: "search" } });
+    setup.createEl("label", { text: "Discovery query", attr: { for: this.queryInputId } });
+    const input = setup.createEl("input", { attr: { id: this.queryInputId, type: "search" } });
     input.value = this.query;
     input.addEventListener("input", () => { this.query = input.value; });
     this.action(setup, "Search", "search", () => this.deps.coordinator.search(snapshot, this.query));
@@ -86,7 +90,8 @@ export class DiscoveryPanel {
     card.createEl("p", { text: [candidate.published, candidate.publication].filter(Boolean).join(" · ") || "Publication details unavailable" });
     if (candidate.abstract) card.createEl("p", { cls: "cc-discovery-abstract", text: candidate.abstract.slice(0, 600) });
     card.createEl("p", { text: identifiers(candidate) || "No additional identifiers" });
-    if (candidate.openAccessUrl) card.createEl("a", { text: "Open access link", attr: { href: candidate.openAccessUrl, target: "_blank", rel: "noopener noreferrer", "aria-label": `Open external article: ${candidate.title}` } });
+    const openAccessUrl = safeWebUrl(candidate.openAccessUrl);
+    if (openAccessUrl) card.createEl("a", { text: "Open access link", attr: { href: openAccessUrl, target: "_blank", rel: "noopener noreferrer", "aria-label": `Open external article: ${candidate.title}` } });
     if (candidate.existingSourcePath) card.createEl("p", { text: `Existing source: ${candidate.existingSourcePath}` });
     if (candidate.relationship) card.createEl("p", { text: `Seed ${candidate.relationship.seedId} · ${directionLabel(candidate.relationship.direction)}` });
     card.createEl("p", { text: `Deterministic rank ${ranked.deterministicRank} · Score ${format(ranked.totalScore)}` });

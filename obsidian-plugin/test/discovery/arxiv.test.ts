@@ -30,4 +30,11 @@ describe("ArxivAdapter", () => {
       expect(String(error)).not.toContain(body);
     }
   });
+
+  it.each(["javascript:alert(1)", "file:///private/secret", "not a URL"])("omits unsafe feed URLs: %s", async (unsafeUrl) => {
+    const body = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><id>https://arxiv.org/abs/2401.1</id><title>Safe</title><link rel="alternate" href="${unsafeUrl}"/><link title="pdf" href="${unsafeUrl}"/></entry></feed>`;
+    const work = await new ArxivAdapter(async () => response(body)).lookup("2401.1");
+    expect(work).not.toHaveProperty("url");
+    expect(work).not.toHaveProperty("openAccessUrl");
+  });
 });

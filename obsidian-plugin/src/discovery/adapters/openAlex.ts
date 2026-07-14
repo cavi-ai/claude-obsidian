@@ -1,5 +1,6 @@
 import type { AdapterWork, CitationDirection, DiscoveryQuery } from "../types";
 import { assertSuccessful, DiscoveryAdapterError, parseJson, type DiscoveryHttp } from "./http";
+import { safeWebUrl } from "../safeUrl";
 
 const API_ROOT = "https://api.openalex.org";
 const MAX_RESULTS = 200;
@@ -66,8 +67,8 @@ function mapWork(value: unknown): AdapterWork | undefined {
     ["published", published],
     ["publication", publication],
     ["abstract", abstractFromIndex(work.abstract_inverted_index)],
-    ["url", text(primaryLocation?.landing_page_url)],
-    ["openAccessUrl", text(bestOpenLocation?.pdf_url) ?? text(bestOpenLocation?.landing_page_url)],
+    ["url", safeWebUrl(primaryLocation?.landing_page_url)],
+    ["openAccessUrl", safeWebUrl(bestOpenLocation?.pdf_url) ?? safeWebUrl(bestOpenLocation?.landing_page_url)],
     ["referencedWorkIds", referencedWorkIds],
     ["citedByCount", typeof work.cited_by_count === "number" ? work.cited_by_count : undefined],
   ];
