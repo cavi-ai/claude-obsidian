@@ -200,6 +200,23 @@ describe("IntelligenceCoordinator", () => {
     }));
   });
 
+  it("keeps an older cross-key result stale when stateFor inspects its key after a newer request starts", async () => {
+    const resolvers: Array<(value: string) => void> = [];
+    const h = harness({ mode: "current", chatBackend: "claude" });
+    h.deps.anthropic().provider.complete = () => new Promise<string>((resolve) => { resolvers.push(resolve); });
+
+    const older = h.coordinator.analyze(h.snapshot, h.findings);
+    const newer = h.coordinator.analyze(h.changedSnapshot, h.findings);
+    expect(h.coordinator.stateFor(h.snapshot, h.findings).status).toBe("not-analyzed");
+    resolvers[0]?.(validWithBriefing("Older A"));
+    const olderState = await older;
+    resolvers[1]?.(validWithBriefing("Newer B"));
+    const newerState = await newer;
+
+    expect(olderState).toEqual(expect.objectContaining({ status: "stale", result: expect.objectContaining({ briefing: "Older A" }) }));
+    expect(newerState).toEqual(expect.objectContaining({ status: "current", result: expect.objectContaining({ briefing: "Newer B" }) }));
+  });
+
   it("aborts the live request on cancel", async () => {
     const h = harness({ mode: "current", chatBackend: "claude" });
     let signal: AbortSignal | undefined;

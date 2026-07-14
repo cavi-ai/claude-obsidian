@@ -131,3 +131,32 @@ Command: `cd obsidian-plugin && pnpm run typecheck`
 > claude-companion@0.10.1 typecheck /Volumes/MIRZA/workspace/CAVI/plugins/claude-obsidian/obsidian-plugin
 > tsc --noEmit --skipLibCheck
 ```
+
+## Review fix: cross-key inspection race
+
+### RED
+
+Command: `cd obsidian-plugin && pnpm exec vitest run test/research/intelligenceCoordinator.test.ts`
+
+```text
+Test Files  1 failed (1)
+Tests  1 failed | 21 passed (22)
+```
+
+The deferred cross-key regression started analysis A, then analysis B, inspected A with `stateFor()`, and resolved A before B. A incorrectly returned `current`, proving that display inspection could overwrite the desired context used for asynchronous completion currentness.
+
+### GREEN
+
+Command: `cd obsidian-plugin && pnpm exec vitest run test/research/intelligenceCoordinator.test.ts`
+
+```text
+Test Files  1 passed (1)
+Tests  22 passed (22)
+```
+
+Command: `cd obsidian-plugin && pnpm run typecheck`
+
+```text
+> claude-companion@0.10.1 typecheck /Volumes/MIRZA/workspace/CAVI/plugins/claude-obsidian/obsidian-plugin
+> tsc --noEmit --skipLibCheck
+```

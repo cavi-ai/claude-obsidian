@@ -88,7 +88,8 @@ function safeMessage(error: unknown): string {
 
 export class IntelligenceCoordinator {
   private readonly cache = new Map<string, CachedNarrative>();
-  private desiredContextKeys = new Set<string>();
+  private latestRequestedContextKeys = new Set<string>();
+  private latestRequestedSequence = 0;
   private readonly latestSequenceByCacheKey = new Map<string, number>();
   private active: { controller: AbortController; sequence: number; contextKey: string; cacheKey: string; providerId: ProviderId; model: string } | undefined;
   private sequence = 0;
@@ -98,17 +99,16 @@ export class IntelligenceCoordinator {
   stateFor(snapshot: ProjectSnapshot, findings: IntelligenceFinding[]): IntelligenceNarrativeState {
     const mode = this.deps.mode();
     if (mode === "disabled") {
-      this.desiredContextKeys.clear();
       return { status: "disabled" };
     }
     const request = buildNarrativeRequest(snapshot, findings);
     const selection = this.selection(snapshot.project.path, request.snapshotFingerprint, mode);
-    this.desiredContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
-    if (this.active && this.desiredContextKeys.has(this.active.contextKey)) {
+    const displayContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
+    if (this.active && displayContextKeys.has(this.active.contextKey)) {
       return { status: "analyzing", cacheKey: this.active.cacheKey, providerId: this.active.providerId, model: this.active.model };
     }
     const exact = [...this.cache.values()]
-      .filter((entry) => this.desiredContextKeys.has(entry.contextKey))
+      .filter((entry) => displayContextKeys.has(entry.contextKey))
       .sort((left, right) => right.sequence - left.sequence)[0];
     if (exact) return this.validState(exact, "current");
     const previous = this.latestForProject(snapshot.project.path);
@@ -119,16 +119,17 @@ export class IntelligenceCoordinator {
     const mode = this.deps.mode();
     if (mode === "disabled") {
       this.cancel();
-      this.desiredContextKeys.clear();
+      this.latestRequestedContextKeys.clear();
       return { status: "disabled" };
     }
 
     const request = buildNarrativeRequest(snapshot, findings);
     const selection = this.selection(snapshot.project.path, request.snapshotFingerprint, mode);
-    this.desiredContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
     this.active?.controller.abort();
     const controller = new AbortController();
     const sequence = ++this.sequence;
+    this.latestRequestedSequence = sequence;
+    this.latestRequestedContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
     this.recordSequence(selection.cacheKey, sequence);
     this.active = {
       controller,
@@ -188,7 +189,9 @@ export class IntelligenceCoordinator {
       if (sequence >= latestSequence && (!existing || sequence > existing.sequence)) {
         this.cache.set(cacheKey, cached);
       }
-      const isCurrent = sequence >= latestSequence && this.desiredContextKeys.has(cached.contextKey);
+      const isCurrent = sequence === this.latestRequestedSequence
+        && sequence >= latestSequence
+        && this.latestRequestedContextKeys.has(cached.contextKey);
       return this.validState(cached, isCurrent ? "current" : "stale");
     } catch (error) {
       const previous = this.latestForProject(snapshot.project.path);
