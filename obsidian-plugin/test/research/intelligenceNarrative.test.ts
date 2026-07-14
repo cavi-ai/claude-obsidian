@@ -43,12 +43,34 @@ describe("research intelligence narrative trust boundary", () => {
     expect(fingerprintIntelligenceSnapshot(left)).not.toBe(fingerprintIntelligenceSnapshot(right));
   });
 
+  it("fingerprints parse issues independent of issue ordering", () => {
+    const base = makeSnapshot();
+    const issues = [
+      { path: "Broken.md", code: "missing-field" as const, message: "Missing required field: title" },
+      { path: "Other.md", code: "invalid-value" as const, message: "stage must be one of: frame, collect, reason, draft" },
+    ];
+    const reordered = { ...base, issues: [...issues].reverse() };
+    const changed = { ...base, issues: [{ ...issues[0]!, message: "Missing required field: project" }, issues[1]!] };
+
+    expect(fingerprintIntelligenceSnapshot({ ...base, issues })).toBe(fingerprintIntelligenceSnapshot(reordered));
+    expect(fingerprintIntelligenceSnapshot({ ...base, issues })).not.toBe(fingerprintIntelligenceSnapshot(changed));
+  });
+
   it("sends only allowed paths and bounded captured context", () => {
     const request = buildNarrativeRequest(makeSnapshot(), makeFindings());
     expect(request.allowedPaths).toEqual([...request.allowedPaths].sort());
     expect(request.messages).toHaveLength(1);
     expect(request.messages[0]?.content).toContain("E1.md");
     expect(request.messages[0]?.content).not.toContain("unrelated vault note");
+  });
+
+  it("builds the same request for reversed findings with duplicate ids", () => {
+    const first = makeFindings()[0]!;
+    const second = { ...first, title: "A second interpretation", rationale: "Different content under the same id." };
+
+    expect(buildNarrativeRequest(makeSnapshot(), [first, second])).toEqual(
+      buildNarrativeRequest(makeSnapshot(), [second, first]),
+    );
   });
 
   it("accepts structured insights with allowed citations", () => {

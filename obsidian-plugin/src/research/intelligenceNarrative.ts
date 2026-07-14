@@ -100,6 +100,9 @@ function canonicalSnapshot(snapshot: ProjectSnapshot): unknown {
       documentKind: document.documentKind,
       claims: sortedUnique(document.claims),
     })),
+    issues: [...snapshot.issues]
+      .map(({ path, code, message }) => ({ path, code, message }))
+      .sort((left, right) => compareCodeUnits(stableSerialize(left), stableSerialize(right))),
   };
 }
 
@@ -132,9 +135,12 @@ export function buildNarrativeRequest(snapshot: ProjectSnapshot, findings: Intel
     ...snapshot.documents.filter(({ path }) => referenced.has(path)).map(({ path, title, documentKind, claims }) => ({ path, title, type: "research-document", documentKind, claims: sortedUnique(claims) })),
   ].sort((a, b) => compareCodeUnits(a.path, b.path));
   const allowedPaths = records.map(({ path }) => path);
+  const canonicalFindings = findings
+    .map((finding) => ({ ...finding, paths: sortedUnique(finding.paths) }))
+    .sort((left, right) => compareCodeUnits(stableSerialize(left), stableSerialize(right)));
   const payload = {
     project: { path: snapshot.project.path, title: snapshot.project.title, question: snapshot.project.question, audience: snapshot.project.audience, stage: snapshot.project.stage },
-    findings: [...findings].sort((a, b) => compareCodeUnits(a.id, b.id)).map((finding) => ({ ...finding, paths: sortedUnique(finding.paths) })),
+    findings: canonicalFindings,
     records,
   };
   return {
