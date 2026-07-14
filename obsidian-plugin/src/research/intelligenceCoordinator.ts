@@ -56,7 +56,16 @@ interface CachedNarrative {
   sequence: number;
 }
 
+class ProviderSetupError extends Error {
+  constructor(readonly providerId: ProviderId) {
+    super(providerId === "anthropic"
+      ? "Add your Anthropic credential in Claude Companion settings first."
+      : "Start Ollama (`ollama serve`) or set the host in settings.");
+  }
+}
+
 function errorStatus(error: unknown): number | undefined {
+  if (error instanceof ProviderSetupError && error.providerId === "anthropic") return 401;
   if (!error || typeof error !== "object" || !("status" in error)) return undefined;
   return typeof error.status === "number" ? error.status : undefined;
 }
@@ -67,6 +76,7 @@ function errorMessage(error: unknown): string | undefined {
 }
 
 function safeMessage(error: unknown): string {
+  if (error instanceof ProviderSetupError) return error.message;
   if (error instanceof DOMException && error.name === "AbortError") return "Analysis canceled.";
   const status = errorStatus(error);
   if (status === 401 || status === 403) return "The selected provider rejected its credentials.";
@@ -78,7 +88,7 @@ function safeMessage(error: unknown): string {
 
 export class IntelligenceCoordinator {
   private readonly cache = new Map<string, CachedNarrative>();
-  private desiredContextKey: string | undefined;
+  private desiredContextKeys = new Set<string>();
   private active: { controller: AbortController; sequence: number; contextKey: string; cacheKey: string; providerId: ProviderId; model: string } | undefined;
   private sequence = 0;
 
@@ -87,16 +97,16 @@ export class IntelligenceCoordinator {
   stateFor(snapshot: ProjectSnapshot, findings: IntelligenceFinding[]): IntelligenceNarrativeState {
     const mode = this.deps.mode();
     if (mode === "disabled") {
-      this.desiredContextKey = undefined;
+      this.desiredContextKeys.clear();
       return { status: "disabled" };
     }
     const request = buildNarrativeRequest(snapshot, findings);
     const selection = this.selection(snapshot.project.path, request.snapshotFingerprint, mode);
-    this.desiredContextKey = selection.contextKey;
-    if (this.active?.contextKey === selection.contextKey) {
+    this.desiredContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
+    if (this.active && this.desiredContextKeys.has(this.active.contextKey)) {
       return { status: "analyzing", cacheKey: this.active.cacheKey, providerId: this.active.providerId, model: this.active.model };
     }
-    const exact = [...this.cache.values()].find((entry) => entry.contextKey === selection.contextKey);
+    const exact = [...this.cache.values()].find((entry) => this.desiredContextKeys.has(entry.contextKey));
     if (exact) return this.validState(exact, "current");
     const previous = this.latestForProject(snapshot.project.path);
     return previous ? this.validState(previous, "stale") : { status: "not-analyzed" };
@@ -106,13 +116,13 @@ export class IntelligenceCoordinator {
     const mode = this.deps.mode();
     if (mode === "disabled") {
       this.cancel();
-      this.desiredContextKey = undefined;
+      this.desiredContextKeys.clear();
       return { status: "disabled" };
     }
 
     const request = buildNarrativeRequest(snapshot, findings);
     const selection = this.selection(snapshot.project.path, request.snapshotFingerprint, mode);
-    this.desiredContextKey = selection.contextKey;
+    this.desiredContextKeys = this.currentContextKeys(snapshot.project.path, request.snapshotFingerprint, selection);
     this.active?.controller.abort();
     const controller = new AbortController();
     const sequence = ++this.sequence;
@@ -143,6 +153,11 @@ export class IntelligenceCoordinator {
         if (!eligible || controller.signal.aborted) throw error;
         chosen = this.deps.local();
         usedFallback = true;
+        const fallbackCacheKey = this.cacheKey(snapshot.project.path, request.snapshotFingerprint, mode, chosen);
+        const fallbackContextKey = this.contextKey(fallbackCacheKey, selection.chatBackend);
+        if (this.active?.sequence === sequence) {
+          this.active = { ...this.active, contextKey: fallbackContextKey, cacheKey: fallbackCacheKey, providerId: chosen.provider.id, model: chosen.model };
+        }
         raw = await this.complete(chosen, request.system, request.messages, controller.signal);
       }
       const result = parseNarrativeResponse(raw, new Set(request.allowedPaths));
@@ -155,7 +170,7 @@ export class IntelligenceCoordinator {
       });
       const cached: CachedNarrative = {
         projectPath: snapshot.project.path,
-        contextKey: selection.contextKey,
+        contextKey: this.contextKey(cacheKey, selection.chatBackend),
         cacheKey,
         providerId: chosen.provider.id,
         model: chosen.model,
@@ -164,7 +179,7 @@ export class IntelligenceCoordinator {
         sequence,
       };
       this.cache.set(cacheKey, cached);
-      return this.validState(cached, this.desiredContextKey === selection.contextKey ? "current" : "stale");
+      return this.validState(cached, this.desiredContextKeys.has(cached.contextKey) ? "current" : "stale");
     } catch (error) {
       const previous = this.latestForProject(snapshot.project.path);
       return { status: "failed", message: safeMessage(error), ...(previous ? { previous: this.validState(previous, "stale") } : {}) };
@@ -184,12 +199,30 @@ export class IntelligenceCoordinator {
       : mode === "local" ? this.deps.local()
       : chatBackend === "local" ? this.deps.local()
       : this.deps.anthropic();
-    const cacheKey = buildNarrativeCacheKey({ projectPath, snapshotFingerprint, narratorMode: mode, providerId: chosen.provider.id, model: chosen.model });
-    return { mode, chatBackend, ...chosen, cacheKey, contextKey: `${cacheKey}:${chatBackend}` };
+    const cacheKey = this.cacheKey(projectPath, snapshotFingerprint, mode, chosen);
+    return { mode, chatBackend, ...chosen, cacheKey, contextKey: this.contextKey(cacheKey, chatBackend) };
   }
 
   private complete(chosen: { provider: Provider; model: string }, system: string, messages: Parameters<Provider["complete"]>[0]["messages"], signal: AbortSignal): Promise<string> {
+    if (!chosen.provider.hasCredentials()) throw new ProviderSetupError(chosen.provider.id);
     return chosen.provider.complete({ system, messages, model: chosen.model, maxTokens: this.deps.maxTokens(), temperature: 0, signal });
+  }
+
+  private currentContextKeys(projectPath: string, snapshotFingerprint: string, selection: Selection): Set<string> {
+    const keys = new Set([selection.contextKey]);
+    if (selection.mode === "current" && selection.chatBackend === "auto") {
+      const local = this.deps.local();
+      keys.add(this.contextKey(this.cacheKey(projectPath, snapshotFingerprint, selection.mode, local), selection.chatBackend));
+    }
+    return keys;
+  }
+
+  private cacheKey(projectPath: string, snapshotFingerprint: string, mode: Exclude<IntelligenceNarratorMode, "disabled">, chosen: { provider: Provider; model: string }): string {
+    return buildNarrativeCacheKey({ projectPath, snapshotFingerprint, narratorMode: mode, providerId: chosen.provider.id, model: chosen.model });
+  }
+
+  private contextKey(cacheKey: string, chatBackend: ChatBackend): string {
+    return `${cacheKey}:${chatBackend}`;
   }
 
   private latestForProject(projectPath: string): CachedNarrative | undefined {

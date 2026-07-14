@@ -26,6 +26,8 @@ type HarnessOptions = {
   anthropicResults?: Array<string | Error | { status: number; message: string }>;
   ollamaResults?: Array<string | Error | { status: number; message: string }>;
   localAvailable?: boolean;
+  anthropicCredentials?: boolean;
+  ollamaCredentials?: boolean;
 };
 
 function harness(options: HarnessOptions) {
@@ -33,8 +35,9 @@ function harness(options: HarnessOptions) {
   const requests: Array<{ provider: string; request: Parameters<Provider["complete"]>[0] }> = [];
   let mode = options.mode;
   let anthropicModel = "claude-test";
+  let localModel = "local-test";
   const provider = (id: "anthropic" | "ollama", results: Array<string | Error | { status: number; message: string }> = [valid]): Provider => ({
-    id, label: id, hasCredentials: () => true, stream: async () => undefined, test: async () => ({ ok: true, detail: "ok" }),
+    id, label: id, hasCredentials: () => id === "anthropic" ? options.anthropicCredentials ?? true : options.ollamaCredentials ?? true, stream: async () => undefined, test: async () => ({ ok: true, detail: "ok" }),
     complete: async (request) => {
       calls.push(id);
       requests.push({ provider: id, request });
@@ -48,7 +51,7 @@ function harness(options: HarnessOptions) {
   const deps: IntelligenceCoordinatorDeps = {
     mode: () => mode, chatBackend: () => options.chatBackend,
     anthropic: () => ({ provider: anthropic, model: anthropicModel }),
-    local: () => ({ provider: ollama, model: "local-test" }),
+    local: () => ({ provider: ollama, model: localModel }),
     localAvailable: async () => options.localAvailable ?? true,
     maxTokens: () => 777,
   };
@@ -56,6 +59,7 @@ function harness(options: HarnessOptions) {
     coordinator: new IntelligenceCoordinator(deps), deps, calls, requests, snapshot: makeSnapshot(), changedSnapshot: makeSnapshot("Changed"), findings,
     setMode: (value: IntelligenceNarratorMode) => { mode = value; },
     setAnthropicModel: (value: string) => { anthropicModel = value; },
+    setLocalModel: (value: string) => { localModel = value; },
   };
 }
 
@@ -74,6 +78,32 @@ describe("IntelligenceCoordinator", () => {
     const h = harness({ mode: "current", chatBackend: "auto", anthropicResults: [{ status: 429, message: "rate limit" }], ollamaResults: [valid] });
     expect(await h.coordinator.analyze(h.snapshot, h.findings)).toEqual(expect.objectContaining({ status: "current", providerId: "ollama", usedFallback: true }));
     expect(h.calls).toEqual(["anthropic", "ollama"]);
+  });
+
+  it("keeps an unchanged Auto fallback current and makes it stale when the local model changes", async () => {
+    const h = harness({ mode: "current", chatBackend: "auto", anthropicResults: [{ status: 429, message: "rate limit" }] });
+    await h.coordinator.analyze(h.snapshot, h.findings);
+    expect(h.coordinator.stateFor(h.snapshot, h.findings)).toEqual(expect.objectContaining({ status: "current", providerId: "ollama", model: "local-test" }));
+    h.setLocalModel("local-new");
+    expect(h.coordinator.stateFor(h.snapshot, h.findings)).toEqual(expect.objectContaining({ status: "stale", providerId: "ollama", model: "local-test" }));
+  });
+
+  it.each([
+    ["claude", "claude", "Add your Anthropic credential"],
+    ["local", "claude", "ollama serve"],
+    ["current", "claude", "Add your Anthropic credential"],
+    ["current", "local", "ollama serve"],
+  ] as const)("does not call an unavailable provider in %s mode with %s chat and gives setup guidance", async (mode, chatBackend, message) => {
+    const h = harness({ mode, chatBackend, anthropicCredentials: false, ollamaCredentials: false });
+    const state = await h.coordinator.analyze(h.snapshot, h.findings);
+    expect(state).toEqual(expect.objectContaining({ status: "failed", message: expect.stringContaining(message) }));
+    expect(h.calls).toEqual([]);
+  });
+
+  it("uses eligible local fallback when current plus Auto has no primary credential", async () => {
+    const h = harness({ mode: "current", chatBackend: "auto", anthropicCredentials: false, ollamaCredentials: true, localAvailable: true });
+    expect(await h.coordinator.analyze(h.snapshot, h.findings)).toEqual(expect.objectContaining({ status: "current", providerId: "ollama", usedFallback: true }));
+    expect(h.calls).toEqual(["ollama"]);
   });
 
   it.each(["claude", "local"] as const)("does not cross-provider fallback in explicit %s mode", async (mode) => {
