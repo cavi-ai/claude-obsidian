@@ -104,7 +104,9 @@ attribution.
 
 ### Evidence-backed research workflow (Phase 1)
 
-Use `/research` in the Companion composer to begin the evidence-backed workflow.
+Use `/research` in the Companion composer to open the native Research Workbench.
+The cockpit and deterministic audit work with Claude, Auto, or Local-only mode
+and do not send the slash command to a model.
 As an alternate route, use the command palette action **Open research
 workbench** to open the visual cockpit and inspect a canonical research project
 across its Overview, Sources, Evidence, Claims, Outline, and Audit views. The

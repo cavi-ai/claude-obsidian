@@ -90,10 +90,10 @@ A full Claude chat experience that lives in your vault and speaks its language.
 
 ### Evidence-backed research workflow (Phase 1)
 
-Use `/research` in Companion or
-`/claude-obsidian:research-workbench` in Claude Code to open the same
-evidence-backed workflow. Companion also provides a visual research cockpit
-from the command palette.
+Use `/research` in Companion to open the native Research Workbench. It shows
+project state, evidence health, audits, and next actions without requiring a
+model request. In Claude Code, use `/claude-obsidian:research-workbench` for the
+skill-driven MCP workflow over the same canonical vault records.
 
 The Phase 1 path is **Create project → Import source → Capture evidence →
 Review → Build claims → Generate outline → Audit**. Source captures receive a

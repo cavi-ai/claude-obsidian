@@ -1,4 +1,9 @@
+import { RESEARCH_TYPE_NAMES } from "./types";
+
 const CANONICAL_COLLECTIONS = ["Sources", "Evidence", "Claims", "Questions", "Documents"] as const;
+const LINKED_RESEARCH_TYPES: ReadonlySet<string> = new Set(
+  RESEARCH_TYPE_NAMES.filter((type) => type !== "research-project"),
+);
 
 function normalizeCandidate(value: string): string | undefined {
   const normalized = value.trim().replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -28,8 +33,14 @@ function projectFromCanonicalRecord(path: string): string | undefined {
   return undefined;
 }
 
-export function inferResearchProjectPath(filePath: string, frontmatter?: Record<string, unknown>): string | undefined {
-  return resolveResearchProjectLink(frontmatter?.project) ?? (frontmatter?.type === "research-project" ? resolveResearchProjectLink(filePath) : undefined) ?? projectFromCanonicalRecord(filePath);
+export function inferResearchProjectPath(
+  filePath: string,
+  frontmatter?: Record<string, unknown>,
+): string | undefined {
+  const type = frontmatter?.type;
+  if (type === "research-project") return resolveResearchProjectLink(filePath);
+  if (typeof type !== "string" || !LINKED_RESEARCH_TYPES.has(type)) return undefined;
+  return resolveResearchProjectLink(frontmatter?.project);
 }
 
 export function projectPathForActivation(explicit: unknown, inferred: unknown, selected: unknown): string | undefined {
