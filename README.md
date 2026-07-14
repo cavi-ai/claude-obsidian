@@ -107,6 +107,43 @@ as trusted claim support. Proposed evidence remains visible but does not satisfy
 the audit. Phase 1 stops at an evidence-backed outline—it does not generate a
 complete paper.
 
+### Research Intelligence
+
+Open the Research Workbench with `/research`, select a project, then choose the
+**Intelligence** tab. Its deterministic analysis reads the project's canonical
+records locally, refreshes automatically when those records change, and groups
+traceable findings into four categories:
+
+- **Contradictions** identify a claim linked to both trusted supporting and
+  challenging evidence; they do not decide which evidence is stronger.
+- **Method differences** identify captured differences such as the source kinds
+  behind supporting and challenging evidence; they do not infer uncaptured
+  methodology.
+- **Research gaps** identify open questions, unsupported claims, or places where
+  counterevidence or independent sources should be investigated.
+- **Evidence quality** surfaces deterministic audit problems such as stale or
+  unreviewed evidence, missing locators, and broken references.
+
+The separate **Model narrative** is optional and runs only when you click
+**Analyze**. The result names the provider and model that produced it, and its
+citations are validated against paths in the current project before display.
+Choose its provider under *Settings → Research intelligence narrator*:
+
+- **Current chat backend** follows the chat setting. Local starts with Ollama;
+  Claude starts with Anthropic; Auto starts with Anthropic and retries with
+  Ollama only when Claude is unavailable, rejects credentials, is rate-limited
+  or out of usage, or returns a server error, and a local model is available.
+- **Claude only** uses Anthropic without a local fallback.
+- **Local only** uses Ollama.
+- **Disabled** removes the Analyze action while deterministic findings remain
+  available.
+
+Narratives are derived summaries, not vault records: they perform no vault
+writes and may be marked **Out of date** after the project changes. Neither the
+deterministic findings nor model narrative is a judgment of scientific validity;
+follow each finding's cited paths and verification guidance before drawing a
+conclusion.
+
 ## claude-obsidian (the Claude Code plugin)
 
 Commands and skills that let Claude Code operate on your vault through the

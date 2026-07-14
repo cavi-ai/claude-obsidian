@@ -4,6 +4,8 @@ import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchWorkbenchView";
 import { ResearchRepository } from "./research/repository";
+import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
+import { resolveModelId } from "./claude/models";
 import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
@@ -78,6 +80,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private convState: ConversationState = emptyState();
   private convSeq = 0;
   private _router: ProviderRouter | null = null;
+  private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private mcpServer: McpHttpServer | null = null;
   private vaultTools: VaultTools | null = null;
   /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
@@ -115,7 +118,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
     if (!Platform.isMobile) this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
-    this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(leaf, this.researchRepository()));
+    this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
+      leaf,
+      this.researchRepository(),
+      { coordinator: this.intelligenceCoordinator(), narratorMode: () => this.settings.intelligenceNarrator },
+    ));
 
     // Inline interactive artifacts: ```claude-html ... ```
     this.registerMarkdownCodeBlockProcessor("claude-html", (source, el, ctx) => {
@@ -457,6 +464,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this._intelligenceCoordinator?.cancel();
+    this._intelligenceCoordinator = null;
     void this.mcpServer?.stop();
     this.mcpServer = null;
     this._builtinEmbedder?.terminate();
@@ -689,6 +698,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         void v.refreshContextStatus();
       }
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) {
+      const v = leaf.view;
+      if (v instanceof ResearchWorkbenchView) void v.render();
+    }
   }
 
   // ---------- providers ----------
@@ -696,6 +709,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
   router(): ProviderRouter {
     if (!this._router) this._router = new ProviderRouter(this.settings);
     return this._router;
+  }
+
+  intelligenceCoordinator(): IntelligenceCoordinator {
+    if (!this._intelligenceCoordinator) {
+      this._intelligenceCoordinator = new IntelligenceCoordinator({
+        mode: () => this.settings.intelligenceNarrator,
+        chatBackend: () => this.settings.chatBackend,
+        anthropic: () => ({
+          provider: this.router().anthropic,
+          model: resolveModelId(this.settings.model, this.settings.customModel),
+        }),
+        local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
+        localAvailable: () => this.router().localAvailable(),
+        maxTokens: () => this.settings.maxTokens,
+      });
+    }
+    return this._intelligenceCoordinator;
   }
 
   /** The built-in engine's embedder (worker-backed); created lazily, torn down on unload. */

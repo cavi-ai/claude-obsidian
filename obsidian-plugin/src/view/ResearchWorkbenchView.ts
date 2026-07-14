@@ -4,18 +4,27 @@ import type { ProjectSnapshot } from "../research/graph";
 import type { ResearchRepository } from "../research/repository";
 import { buildWorkbenchViewModel } from "../research/viewModel";
 import { isResearchProjectChange, resolveResearchProjectLink } from "../research/workbenchRouting";
+import type { IntelligenceCoordinator, IntelligenceNarratorMode } from "../research/intelligenceCoordinator";
+import { ResearchIntelligencePanel } from "./ResearchIntelligencePanel";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
-type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit";
-const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Audit"];
+type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit" | "Intelligence";
+const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Audit", "Intelligence"];
+
+export interface ResearchWorkbenchDependencies {
+  coordinator: IntelligenceCoordinator;
+  narratorMode: () => IntelligenceNarratorMode;
+}
 
 export class ResearchWorkbenchView extends ItemView {
   private projectPath: string | undefined;
   private activeTab: Tab = "Overview";
   private renderSequence = 0;
+  private intelligencePanel: ResearchIntelligencePanel | undefined;
 
-  constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository) {
+  constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository, private readonly dependencies?: ResearchWorkbenchDependencies) {
     super(leaf);
+    this.intelligencePanel = this.createIntelligencePanel();
   }
 
   getViewType(): string { return RESEARCH_WORKBENCH_VIEW_TYPE; }
@@ -23,7 +32,7 @@ export class ResearchWorkbenchView extends ItemView {
   override getIcon(): string { return "microscope"; }
 
   async setProjectPath(projectPath?: string): Promise<void> {
-    this.projectPath = resolveResearchProjectLink(projectPath);
+    this.projectPath = replaceResearchProjectPath(this.projectPath, projectPath, () => this.cancelIntelligence());
     await this.render();
   }
 
@@ -33,7 +42,18 @@ export class ResearchWorkbenchView extends ItemView {
     return isResearchProjectChange(this.projectPath, path, oldPath);
   }
 
-  override async onOpen(): Promise<void> { await this.render(); }
+  override async onOpen(): Promise<void> {
+    this.intelligencePanel ??= this.createIntelligencePanel();
+    await this.render();
+  }
+  override async onClose(): Promise<void> {
+    this.renderSequence += 1;
+    if (this.intelligencePanel) {
+      this.intelligencePanel.dispose();
+      this.intelligencePanel = undefined;
+    }
+    else this.dependencies?.coordinator.cancel();
+  }
 
   async render(): Promise<void> {
     const sequence = ++this.renderSequence;
@@ -94,6 +114,11 @@ export class ResearchWorkbenchView extends ItemView {
 
   private renderTab(root: HTMLElement, snapshot: ProjectSnapshot, findings: ReturnType<typeof auditProject>): void {
     const vm = buildWorkbenchViewModel(snapshot, findings);
+    if (this.activeTab === "Intelligence") {
+      if (this.intelligencePanel) this.intelligencePanel.render(root, snapshot);
+      else root.createEl("p", { text: "Research intelligence is unavailable." });
+      return;
+    }
     if (this.activeTab === "Overview") {
       const grid = root.createDiv({ cls: "cc-research-metrics" });
       for (const [label, value] of [["Sources", vm.counts.sources], ["Evidence", vm.counts.evidence], ["Claims", vm.counts.claims], ["Open questions", vm.counts.openQuestions]] as const) {
@@ -150,11 +175,24 @@ export class ResearchWorkbenchView extends ItemView {
     else new Notice(`Research note not found: ${path}`);
   }
 
+  private cancelIntelligence(): void {
+    if (this.intelligencePanel) this.intelligencePanel.cancel();
+    else this.dependencies?.coordinator.cancel();
+  }
+
+  private createIntelligencePanel(): ResearchIntelligencePanel | undefined {
+    if (!this.dependencies) return undefined;
+    return new ResearchIntelligencePanel({
+      coordinator: this.dependencies.coordinator,
+      openPath: (path) => this.openPath(path),
+      rerender: () => this.render(),
+    });
+  }
+
   private openCreateProject(): void {
     new ResearchInputModal(this.app, "Create research project", ["Title", "Research question", "Project folder"], async ([title, question, folder]) => {
       const record = await this.repository.createProject({ title: title ?? "", question: question ?? "", folder: folder ?? "" });
-      this.projectPath = record.path;
-      await this.render();
+      await this.setProjectPath(record.path);
     }).open();
   }
 
@@ -169,6 +207,11 @@ export class ResearchWorkbenchView extends ItemView {
 }
 
 function tabId(tab: Tab): string { return `cc-research-tab-${tab.toLowerCase()}`; }
+export function replaceResearchProjectPath(currentPath: string | undefined, requestedPath: string | undefined, cancel: () => void): string | undefined {
+  const nextPath = resolveResearchProjectLink(requestedPath);
+  if (currentPath !== undefined && currentPath !== nextPath) cancel();
+  return nextPath;
+}
 function sanitizeLoadError(error: unknown): string {
   const raw = error instanceof Error ? error.message : "Unknown project load error";
   return raw.replace(/\b(?:sk-ant-[A-Za-z0-9_-]+|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+)/gi, "[redacted]").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "Unknown project load error";

@@ -85,6 +85,8 @@ export interface PluginSettings {
   localUtilityEnabled: boolean;
   /** Chat backend: always Claude, always local, or auto (Claude with local fallback). */
   chatBackend: "claude" | "local" | "auto";
+  /** Provider policy for explicit Research Intelligence narrative analysis. */
+  intelligenceNarrator: "current" | "claude" | "local" | "disabled";
 
   // ----- semantic search (local embeddings) -----
   /** Build a local vector index so the vault is searchable by meaning. */
@@ -204,6 +206,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaModel: "llama3.1",
   localUtilityEnabled: false,
   chatBackend: "claude",
+  intelligenceNarrator: "current",
 
   semanticEnabled: false,
   embeddingModel: "nomic-embed-text",
