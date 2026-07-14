@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SETTINGS } from "../src/types";
+import { DEFAULT_SETTINGS, normalizeDiscoverySettings } from "../src/types";
 
 describe("source-capture defaults", () => {
   it("ships dormant (opt-in) with a default inbox", () => {
@@ -61,5 +61,29 @@ describe("embedding engine defaults", () => {
 describe("research intelligence defaults", () => {
   it("defaults research intelligence to the current chat backend", () => {
     expect(DEFAULT_SETTINGS.intelligenceNarrator).toBe("current");
+  });
+});
+
+describe("scholarly discovery settings", () => {
+  it("ships the exact discovery defaults", () => {
+    expect(DEFAULT_SETTINGS).toEqual(expect.objectContaining({
+      discoveryEnabled: true,
+      openAlexContactEmail: "",
+      discoveryReranker: "current",
+      discoveryMaxResults: 20,
+      discoveryExpansionLimit: 20,
+      discoveryCacheHours: 24,
+    }));
+  });
+
+  it("clamps boundaries and repairs corrupt numbers", () => {
+    expect(normalizeDiscoverySettings({ discoveryMaxResults: 4, discoveryExpansionLimit: 51, discoveryCacheHours: 0 }))
+      .toEqual({ discoveryMaxResults: 5, discoveryExpansionLimit: 50, discoveryCacheHours: 1 });
+    expect(normalizeDiscoverySettings({ discoveryMaxResults: 101, discoveryExpansionLimit: 4, discoveryCacheHours: 169 }))
+      .toEqual({ discoveryMaxResults: 100, discoveryExpansionLimit: 5, discoveryCacheHours: 168 });
+    expect(normalizeDiscoverySettings({ discoveryMaxResults: Number.NaN, discoveryExpansionLimit: Infinity, discoveryCacheHours: -Infinity }))
+      .toEqual({ discoveryMaxResults: 20, discoveryExpansionLimit: 20, discoveryCacheHours: 24 });
+    expect(normalizeDiscoverySettings({ discoveryMaxResults: 12.9, discoveryExpansionLimit: 21.7, discoveryCacheHours: 8.4 }))
+      .toEqual({ discoveryMaxResults: 12, discoveryExpansionLimit: 21, discoveryCacheHours: 8 });
   });
 });

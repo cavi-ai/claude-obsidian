@@ -88,6 +88,17 @@ export interface PluginSettings {
   /** Provider policy for explicit Research Intelligence narrative analysis. */
   intelligenceNarrator: "current" | "claude" | "local" | "disabled";
 
+  // ----- scholarly discovery -----
+  /** Enable explicit, user-triggered scholarly discovery network requests. */
+  discoveryEnabled: boolean;
+  /** Optional contact address sent to OpenAlex. */
+  openAlexContactEmail: string;
+  /** Provider policy for explicit discovery reranking. */
+  discoveryReranker: "current" | "claude" | "local" | "disabled";
+  discoveryMaxResults: number;
+  discoveryExpansionLimit: number;
+  discoveryCacheHours: number;
+
   // ----- semantic search (local embeddings) -----
   /** Build a local vector index so the vault is searchable by meaning. */
   semanticEnabled: boolean;
@@ -208,6 +219,13 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   chatBackend: "claude",
   intelligenceNarrator: "current",
 
+  discoveryEnabled: true,
+  openAlexContactEmail: "",
+  discoveryReranker: "current",
+  discoveryMaxResults: 20,
+  discoveryExpansionLimit: 20,
+  discoveryCacheHours: 24,
+
   semanticEnabled: false,
   embeddingModel: "nomic-embed-text",
   embeddingEngine: "builtin",
@@ -251,6 +269,21 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ontologyEnabled: false,
   ontologyFolder: "Ontology",
 };
+
+export type DiscoveryNumericSettings = Pick<PluginSettings,
+  "discoveryMaxResults" | "discoveryExpansionLimit" | "discoveryCacheHours">;
+
+const boundedInteger = (value: number | undefined, fallback: number, min: number, max: number): number =>
+  Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value!))) : fallback;
+
+/** Normalize persisted/user-entered discovery limits at every settings boundary. */
+export function normalizeDiscoverySettings(settings: Partial<DiscoveryNumericSettings>): DiscoveryNumericSettings {
+  return {
+    discoveryMaxResults: boundedInteger(settings.discoveryMaxResults, DEFAULT_SETTINGS.discoveryMaxResults, 5, 100),
+    discoveryExpansionLimit: boundedInteger(settings.discoveryExpansionLimit, DEFAULT_SETTINGS.discoveryExpansionLimit, 5, 50),
+    discoveryCacheHours: boundedInteger(settings.discoveryCacheHours, DEFAULT_SETTINGS.discoveryCacheHours, 1, 168),
+  };
+}
 
 /** Streaming callbacks for a single Claude request. */
 export interface StreamHandlers {

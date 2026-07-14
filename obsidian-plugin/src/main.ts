@@ -5,6 +5,11 @@ import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchWorkbenchView";
 import { ResearchRepository } from "./research/repository";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
+import { DiscoveryCoordinator } from "./discovery/coordinator";
+import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
+import { CrossrefAdapter } from "./discovery/adapters/crossref";
+import { ArxivAdapter } from "./discovery/adapters/arxiv";
+import { createObsidianDiscoveryHttp } from "./discovery/adapters/obsidianHttp";
 import { resolveModelId } from "./claude/models";
 import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
 import { SessionPicker } from "./view/SessionPicker";
@@ -14,7 +19,8 @@ import { listSessionsForVault, type SessionMeta } from "./memory/sessions";
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter } from "./providers/router";
-import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
+import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
+import type { Provider } from "./providers/types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, type LinkCandidate } from "./links/unlinkedMentions";
@@ -81,6 +87,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private convSeq = 0;
   private _router: ProviderRouter | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
+  private _discoveryCoordinator: DiscoveryCoordinator | null = null;
   private mcpServer: McpHttpServer | null = null;
   private vaultTools: VaultTools | null = null;
   /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
@@ -466,6 +473,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   override onunload(): void {
     this._intelligenceCoordinator?.cancel();
     this._intelligenceCoordinator = null;
+    this._discoveryCoordinator?.cancel();
+    this._discoveryCoordinator?.clearCache();
+    this._discoveryCoordinator = null;
     void this.mcpServer?.stop();
     this.mcpServer = null;
     this._builtinEmbedder?.terminate();
@@ -490,6 +500,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...settingsData,
+      ...normalizeDiscoverySettings(settingsData ?? {}),
       ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
       context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
     };
@@ -726,6 +737,51 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
     }
     return this._intelligenceCoordinator;
+  }
+
+  discoveryRerankProvider(): { provider: Provider; model: string } | undefined {
+    if (!this.settings.discoveryEnabled || this.settings.discoveryReranker === "disabled") return undefined;
+    const router = this.router();
+    const anthropic = { provider: router.anthropic as Provider, model: resolveModelId(this.settings.model, this.settings.customModel) };
+    const local = { provider: router.ollama as Provider, model: this.settings.ollamaModel };
+    const eligible = (choice: { provider: Provider; model: string }): typeof choice | undefined =>
+      choice.provider.hasCredentials() ? choice : undefined;
+    if (this.settings.discoveryReranker === "claude") return eligible(anthropic);
+    if (this.settings.discoveryReranker === "local") return eligible(local);
+    if (this.settings.chatBackend === "local") return eligible(local);
+    const current = eligible(anthropic);
+    return current ?? (this.settings.chatBackend === "auto" ? eligible(local) : undefined);
+  }
+
+  /** One lazy coordinator shared by every discovery surface. */
+  discoveryCoordinator(): DiscoveryCoordinator {
+    if (!this._discoveryCoordinator) {
+      const http = createObsidianDiscoveryHttp();
+      const openAlex = {
+        search: (query: Parameters<OpenAlexAdapter["search"]>[0], cursor?: string, signal?: AbortSignal) =>
+          new OpenAlexAdapter(http, {
+            maxResults: normalizeDiscoverySettings(this.settings).discoveryMaxResults,
+            ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
+          }).search(query, cursor, signal),
+        expand: (input: Parameters<OpenAlexAdapter["expand"]>[0], signal?: AbortSignal) =>
+          new OpenAlexAdapter(http, {
+            maxResults: normalizeDiscoverySettings(this.settings).discoveryExpansionLimit,
+            ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
+          }).expand(input, signal),
+      };
+      this._discoveryCoordinator = new DiscoveryCoordinator({
+        openAlex,
+        crossref: new CrossrefAdapter(http),
+        arxiv: new ArxivAdapter(http),
+        repository: this.researchRepository(),
+        resolveRerankProvider: () => this.discoveryRerankProvider(),
+      });
+    }
+    return this._discoveryCoordinator;
+  }
+
+  clearDiscoveryCache(): void {
+    this.discoveryCoordinator().clearCache();
   }
 
   /** The built-in engine's embedder (worker-backed); created lazily, torn down on unload. */
