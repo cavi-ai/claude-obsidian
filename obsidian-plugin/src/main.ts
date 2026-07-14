@@ -129,7 +129,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
       this.researchRepository(),
-      { coordinator: this.createIntelligenceCoordinator(), narratorMode: () => this.settings.intelligenceNarrator, discoveryCoordinator: this.createDiscoveryCoordinator() },
+      (() => {
+        const discoveryCoordinator = this.createDiscoveryCoordinator();
+        return {
+          coordinator: this.createIntelligenceCoordinator(),
+          narratorMode: () => this.settings.intelligenceNarrator,
+          discoveryCoordinator,
+          retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
+          releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
+        };
+      })(),
     ));
 
     // Inline interactive artifacts: ```claude-html ... ```
@@ -768,6 +777,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return coordinator;
   }
 
+  releaseDiscoveryCoordinator(coordinator: DiscoveryCoordinator): void {
+    if (!this._viewDiscoveryCoordinators?.delete(coordinator)) return;
+    coordinator.cancel();
+    coordinator.clearCache();
+  }
+
+  retainDiscoveryCoordinator(coordinator: DiscoveryCoordinator): void {
+    (this._viewDiscoveryCoordinators ??= new Set()).add(coordinator);
+  }
+
   private buildDiscoveryCoordinator(): DiscoveryCoordinator {
       const http = createObsidianDiscoveryHttp();
       const openAlex = {
@@ -798,7 +817,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   clearDiscoveryCache(): void {
-    this.discoveryCoordinator().clearCache();
+    this._discoveryCoordinator?.clearCache();
+    for (const coordinator of this._viewDiscoveryCoordinators ?? []) coordinator.clearCache();
   }
 
   /** The built-in engine's embedder (worker-backed); created lazily, torn down on unload. */

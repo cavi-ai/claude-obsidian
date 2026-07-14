@@ -66,6 +66,23 @@ describe("scholarly discovery plugin wiring", () => {
     expect(secondCancel).toHaveBeenCalledOnce();
   });
 
+  it("clears every active view cache and releases closed-view coordinators", async () => {
+    const plugin = pluginHarness();
+    const first = plugin.createDiscoveryCoordinator(); const second = plugin.createDiscoveryCoordinator();
+    await first.search(snapshot, "first"); await second.search(snapshot, "second");
+    const firstClear = vi.spyOn(first, "clearCache"); const secondClear = vi.spyOn(second, "clearCache");
+    plugin.clearDiscoveryCache();
+    expect(firstClear).toHaveBeenCalledOnce(); expect(secondClear).toHaveBeenCalledOnce();
+    expect(first.stateFor(snapshot).status).toBe("idle"); expect(second.stateFor(snapshot).status).toBe("idle");
+
+    const firstCancel = vi.spyOn(first, "cancel");
+    plugin.releaseDiscoveryCoordinator(first);
+    plugin.releaseDiscoveryCoordinator(first);
+    expect(firstCancel).toHaveBeenCalledOnce();
+    plugin.onunload();
+    expect(firstCancel).toHaveBeenCalledOnce();
+  });
+
   it("keeps simultaneous view searches independent when one view is cancelled", async () => {
     const pending: Array<{ resolve(): void }> = [];
     requestUrl.mockImplementation(() => new Promise((resolve) => pending.push({ resolve: () => resolve({ status: 200, headers: {}, text: JSON.stringify({ results: [], meta: {} }) }) })));
@@ -142,8 +159,9 @@ describe("scholarly discovery plugin wiring", () => {
     expect(anthropic.complete).not.toHaveBeenCalled();
   });
 
-  it("clears only derived coordinator state and unload cancels, clears, and releases it", () => {
+  it("clears only existing derived coordinator state and unload cancels, clears, and releases it", () => {
     const plugin = pluginHarness();
+    plugin.clearDiscoveryCache();
     const coordinator = plugin.discoveryCoordinator();
     const cancel = vi.spyOn(coordinator, "cancel");
     const clear = vi.spyOn(coordinator, "clearCache");

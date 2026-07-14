@@ -17,6 +17,8 @@ export interface ResearchWorkbenchDependencies {
   coordinator: IntelligenceCoordinator;
   narratorMode: () => IntelligenceNarratorMode;
   discoveryCoordinator?: DiscoveryCoordinator;
+  retainDiscoveryCoordinator?: () => void;
+  releaseDiscoveryCoordinator?: () => void;
 }
 
 export class ResearchWorkbenchView extends ItemView {
@@ -25,6 +27,7 @@ export class ResearchWorkbenchView extends ItemView {
   private renderSequence = 0;
   private intelligencePanel: ResearchIntelligencePanel | undefined;
   private discoveryPanel: DiscoveryPanel | undefined;
+  private discoveryCoordinatorReleased = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository, private readonly dependencies?: ResearchWorkbenchDependencies) {
     super(leaf);
@@ -48,6 +51,10 @@ export class ResearchWorkbenchView extends ItemView {
   }
 
   override async onOpen(): Promise<void> {
+    if (this.discoveryCoordinatorReleased) {
+      this.dependencies?.retainDiscoveryCoordinator?.();
+      this.discoveryCoordinatorReleased = false;
+    }
     this.intelligencePanel ??= this.createIntelligencePanel();
     this.discoveryPanel ??= this.createDiscoveryPanel();
     await this.render();
@@ -61,6 +68,10 @@ export class ResearchWorkbenchView extends ItemView {
     else this.dependencies?.coordinator.cancel();
     if (this.discoveryPanel) { this.discoveryPanel.dispose(); this.discoveryPanel = undefined; }
     else this.dependencies?.discoveryCoordinator?.cancel();
+    if (!this.discoveryCoordinatorReleased) {
+      this.discoveryCoordinatorReleased = true;
+      this.dependencies?.releaseDiscoveryCoordinator?.();
+    }
   }
 
   async render(): Promise<void> {
