@@ -73,3 +73,32 @@ Command: `cd obsidian-plugin && pnpm run typecheck`
 > claude-companion@0.10.1 typecheck /Volumes/MIRZA/workspace/CAVI/plugins/claude-obsidian/obsidian-plugin
 > tsc --noEmit --skipLibCheck
 ```
+
+## Review fix: newest eligible Auto cache entry
+
+### RED
+
+Command: `cd obsidian-plugin && pnpm exec vitest run test/research/intelligenceCoordinator.test.ts`
+
+```text
+Test Files  1 failed (1)
+Tests  2 failed | 18 passed (20)
+```
+
+Both ordering regressions failed as expected: `stateFor()` returned the older eligible cached provider and briefing after an unchanged Auto analysis switched from Ollama fallback to Anthropic, and after the reverse switch from Anthropic to Ollama fallback.
+
+### GREEN
+
+Command: `cd obsidian-plugin && pnpm exec vitest run test/research/intelligenceCoordinator.test.ts`
+
+```text
+Test Files  1 passed (1)
+Tests  20 passed (20)
+```
+
+Command: `cd obsidian-plugin && pnpm run typecheck`
+
+```text
+> claude-companion@0.10.1 typecheck /Volumes/MIRZA/workspace/CAVI/plugins/claude-obsidian/obsidian-plugin
+> tsc --noEmit --skipLibCheck
+```

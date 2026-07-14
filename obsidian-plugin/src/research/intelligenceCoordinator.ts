@@ -106,7 +106,9 @@ export class IntelligenceCoordinator {
     if (this.active && this.desiredContextKeys.has(this.active.contextKey)) {
       return { status: "analyzing", cacheKey: this.active.cacheKey, providerId: this.active.providerId, model: this.active.model };
     }
-    const exact = [...this.cache.values()].find((entry) => this.desiredContextKeys.has(entry.contextKey));
+    const exact = [...this.cache.values()]
+      .filter((entry) => this.desiredContextKeys.has(entry.contextKey))
+      .sort((left, right) => right.sequence - left.sequence)[0];
     if (exact) return this.validState(exact, "current");
     const previous = this.latestForProject(snapshot.project.path);
     return previous ? this.validState(previous, "stale") : { status: "not-analyzed" };

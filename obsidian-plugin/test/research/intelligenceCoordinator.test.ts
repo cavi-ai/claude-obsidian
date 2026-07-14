@@ -7,6 +7,10 @@ import type { ResearchRecord } from "../../src/research/types";
 
 const valid = JSON.stringify({ briefing: "Brief", groups: [{ title: "Priority", insights: [{ text: "Check both records", epistemicStatus: "observation", paths: ["C.md"] }] }] });
 
+function validWithBriefing(briefing: string): string {
+  return JSON.stringify({ briefing, groups: [{ title: "Priority", insights: [{ text: "Check both records", epistemicStatus: "observation", paths: ["C.md"] }] }] });
+}
+
 function makeSnapshot(title = "Project") {
   const records: ResearchRecord[] = [
     { path: "P.md", title, type: "research-project", project: "P.md", question: "Does it work?", audience: "Researchers", stage: "reason", status: "active" },
@@ -86,6 +90,31 @@ describe("IntelligenceCoordinator", () => {
     expect(h.coordinator.stateFor(h.snapshot, h.findings)).toEqual(expect.objectContaining({ status: "current", providerId: "ollama", model: "local-test" }));
     h.setLocalModel("local-new");
     expect(h.coordinator.stateFor(h.snapshot, h.findings)).toEqual(expect.objectContaining({ status: "stale", providerId: "ollama", model: "local-test" }));
+  });
+
+  it.each([
+    {
+      name: "Ollama fallback followed by Anthropic",
+      anthropicResults: [{ status: 429, message: "rate limit" }, validWithBriefing("Second")],
+      ollamaResults: [validWithBriefing("First")],
+      expectedProvider: "anthropic",
+    },
+    {
+      name: "Anthropic followed by Ollama fallback",
+      anthropicResults: [validWithBriefing("First"), { status: 429, message: "rate limit" }],
+      ollamaResults: [validWithBriefing("Second")],
+      expectedProvider: "ollama",
+    },
+  ] as const)("returns the most recent unchanged Auto analysis: $name", async ({ anthropicResults, ollamaResults, expectedProvider }) => {
+    const h = harness({ mode: "current", chatBackend: "auto", anthropicResults: [...anthropicResults], ollamaResults: [...ollamaResults] });
+    await h.coordinator.analyze(h.snapshot, h.findings);
+    await h.coordinator.analyze(h.snapshot, h.findings);
+
+    expect(h.coordinator.stateFor(h.snapshot, h.findings)).toEqual(expect.objectContaining({
+      status: "current",
+      providerId: expectedProvider,
+      result: expect.objectContaining({ briefing: "Second" }),
+    }));
   });
 
   it.each([
