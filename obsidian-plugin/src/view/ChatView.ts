@@ -16,7 +16,7 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import { type SlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
+import { dispatchNativeSlashAction, type SlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
 import { WORKFLOWS } from "../workflows/catalog";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
@@ -837,6 +837,10 @@ export class ChatView extends ItemView {
       await this.submitPrompt(cmd.prompt, `/${cmd.name}`);
       return;
     }
+
+    if (await dispatchNativeSlashAction(cmd.action, {
+      openResearchWorkbench: () => this.plugin.activateResearchWorkbench(),
+    })) return;
 
     // A workflow slash command ("/manifest-pm", "/frontmatter-audit", …) runs the
     // matching catalog workflow directly.
