@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dispatchNativeSlashAction, parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "../src/view/slashCommands";
+import { dispatchNativeSlashAction, parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, runNativeSlashCommand, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "../src/view/slashCommands";
 import { WORKFLOWS } from "../src/workflows/catalog";
 
 describe("native research workbench command", () => {
@@ -29,6 +29,31 @@ describe("native research workbench command", () => {
     expect(JSON.stringify(SLASH_COMMANDS)).not.toContain("research_project_create");
     expect(JSON.stringify(SLASH_COMMANDS)).not.toContain("Use the Research Workbench tools");
   });
+
+  it.each(["claude", "auto", "local"] as const)(
+    "opens research without a completion or conversation mutation on the %s backend",
+    async (backend) => {
+      const conversation = [{ role: "user", content: "Keep this turn" }];
+      const before = structuredClone(conversation);
+      let composer = "/research";
+      let activations = 0;
+      let completions = 0;
+
+      const handled = await runNativeSlashCommand({
+        command: SLASH_COMMANDS.find(({ name }) => name === "research")!,
+        backend,
+        clearComposer: () => { composer = ""; },
+        activateResearchWorkbench: async () => { activations += 1; },
+        requestCompletion: async () => { completions += 1; },
+      });
+
+      expect(handled).toBe(true);
+      expect(activations).toBe(1);
+      expect(completions).toBe(0);
+      expect(composer).toBe("");
+      expect(conversation).toEqual(before);
+    },
+  );
 });
 
 describe("workflowSlashCommands", () => {

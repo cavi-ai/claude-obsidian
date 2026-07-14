@@ -84,6 +84,23 @@ export async function dispatchNativeSlashAction(
   return true;
 }
 
+export interface NativeSlashCommandContext {
+  command: SlashCommand;
+  backend: "claude" | "auto" | "local";
+  clearComposer: () => void;
+  activateResearchWorkbench: () => Promise<void>;
+  requestCompletion: (prompt: string, display?: string) => Promise<void>;
+}
+
+/** Orchestrate native slash actions that bypass every chat completion backend. */
+export async function runNativeSlashCommand(context: NativeSlashCommandContext): Promise<boolean> {
+  const { command, clearComposer, activateResearchWorkbench } = context;
+  if (command.action !== "open-research-workbench") return false;
+  clearComposer();
+  await activateResearchWorkbench();
+  return true;
+}
+
 /**
  * Derive slash commands from the workflow catalog, so every workflow is also
  * reachable by typing "/" (the browsable picker stays available via /workflows).

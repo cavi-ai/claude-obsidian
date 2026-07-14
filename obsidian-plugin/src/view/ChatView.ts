@@ -16,7 +16,7 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import { dispatchNativeSlashAction, type SlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
+import { type SlashCommand, runNativeSlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
 import { WORKFLOWS } from "../workflows/catalog";
 import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
@@ -821,6 +821,17 @@ export class ChatView extends ItemView {
 
   /** Execute a chosen slash command — either send a prompt or run an action. */
   private async runSlashCommand(cmd: SlashCommand): Promise<void> {
+    if (await runNativeSlashCommand({
+      command: cmd,
+      backend: this.plugin.settings.chatBackend,
+      clearComposer: () => {
+        this.inputEl.value = "";
+        this.autosizeInput();
+      },
+      activateResearchWorkbench: () => this.plugin.activateResearchWorkbench(),
+      requestCompletion: (prompt, display) => this.submitPrompt(prompt, display),
+    })) return;
+
     this.inputEl.value = "";
     this.autosizeInput();
 
@@ -837,10 +848,6 @@ export class ChatView extends ItemView {
       await this.submitPrompt(cmd.prompt, `/${cmd.name}`);
       return;
     }
-
-    if (await dispatchNativeSlashAction(cmd.action, {
-      openResearchWorkbench: () => this.plugin.activateResearchWorkbench(),
-    })) return;
 
     // A workflow slash command ("/manifest-pm", "/frontmatter-audit", …) runs the
     // matching catalog workflow directly.
