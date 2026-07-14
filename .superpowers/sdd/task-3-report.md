@@ -102,3 +102,32 @@ Command: `cd obsidian-plugin && pnpm run typecheck`
 > claude-companion@0.10.1 typecheck /Volumes/MIRZA/workspace/CAVI/plugins/claude-obsidian/obsidian-plugin
 > tsc --noEmit --skipLibCheck
 ```
+
+## Review fix: same-key concurrent analysis ordering
+
+### RED
+
+Command: `cd obsidian-plugin && pnpm exec vitest run test/research/intelligenceCoordinator.test.ts`
+
+```text
+Test Files  1 failed (1)
+Tests  1 failed | 20 passed (21)
+```
+
+The deterministic deferred-provider regression resolved the newer identical-key analysis first and the abort-ignoring older analysis second. The older call incorrectly returned `current` with the older briefing, demonstrating that its unconditional cache write could replace the newer result.
+
+### GREEN
+
+Command: `cd obsidian-plugin && pnpm exec vitest run test/research/intelligenceCoordinator.test.ts`
+
+```text
+Test Files  1 passed (1)
+Tests  21 passed (21)
+```
+
+Command: `cd obsidian-plugin && pnpm run typecheck`
+
+```text
+> claude-companion@0.10.1 typecheck /Volumes/MIRZA/workspace/CAVI/plugins/claude-obsidian/obsidian-plugin
+> tsc --noEmit --skipLibCheck
+```

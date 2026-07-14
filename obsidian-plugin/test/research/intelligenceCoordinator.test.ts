@@ -180,6 +180,26 @@ describe("IntelligenceCoordinator", () => {
     expect("vault" in h.deps).toBe(false);
   });
 
+  it("keeps the newer same-key analysis current when an abort-ignoring older call resolves late", async () => {
+    const resolvers: Array<(value: string) => void> = [];
+    const h = harness({ mode: "current", chatBackend: "claude" });
+    h.deps.anthropic().provider.complete = () => new Promise<string>((resolve) => { resolvers.push(resolve); });
+
+    const older = h.coordinator.analyze(h.snapshot, h.findings);
+    const newer = h.coordinator.analyze(h.snapshot, h.findings);
+    resolvers[1]?.(validWithBriefing("Newer"));
+    const newerState = await newer;
+    resolvers[0]?.(validWithBriefing("Older"));
+    const olderState = await older;
+
+    expect(newerState).toEqual(expect.objectContaining({ status: "current", result: expect.objectContaining({ briefing: "Newer" }) }));
+    expect(olderState).toEqual(expect.objectContaining({ status: "stale", result: expect.objectContaining({ briefing: "Older" }) }));
+    expect(h.coordinator.stateFor(h.snapshot, h.findings)).toEqual(expect.objectContaining({
+      status: "current",
+      result: expect.objectContaining({ briefing: "Newer" }),
+    }));
+  });
+
   it("aborts the live request on cancel", async () => {
     const h = harness({ mode: "current", chatBackend: "claude" });
     let signal: AbortSignal | undefined;

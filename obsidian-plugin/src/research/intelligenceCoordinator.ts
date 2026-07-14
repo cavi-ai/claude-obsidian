@@ -89,6 +89,7 @@ function safeMessage(error: unknown): string {
 export class IntelligenceCoordinator {
   private readonly cache = new Map<string, CachedNarrative>();
   private desiredContextKeys = new Set<string>();
+  private readonly latestSequenceByCacheKey = new Map<string, number>();
   private active: { controller: AbortController; sequence: number; contextKey: string; cacheKey: string; providerId: ProviderId; model: string } | undefined;
   private sequence = 0;
 
@@ -128,6 +129,7 @@ export class IntelligenceCoordinator {
     this.active?.controller.abort();
     const controller = new AbortController();
     const sequence = ++this.sequence;
+    this.recordSequence(selection.cacheKey, sequence);
     this.active = {
       controller,
       sequence,
@@ -156,6 +158,7 @@ export class IntelligenceCoordinator {
         chosen = this.deps.local();
         usedFallback = true;
         const fallbackCacheKey = this.cacheKey(snapshot.project.path, request.snapshotFingerprint, mode, chosen);
+        this.recordSequence(fallbackCacheKey, sequence);
         const fallbackContextKey = this.contextKey(fallbackCacheKey, selection.chatBackend);
         if (this.active?.sequence === sequence) {
           this.active = { ...this.active, contextKey: fallbackContextKey, cacheKey: fallbackCacheKey, providerId: chosen.provider.id, model: chosen.model };
@@ -180,8 +183,13 @@ export class IntelligenceCoordinator {
         result,
         sequence,
       };
-      this.cache.set(cacheKey, cached);
-      return this.validState(cached, this.desiredContextKeys.has(cached.contextKey) ? "current" : "stale");
+      const latestSequence = this.latestSequenceByCacheKey.get(cacheKey) ?? sequence;
+      const existing = this.cache.get(cacheKey);
+      if (sequence >= latestSequence && (!existing || sequence > existing.sequence)) {
+        this.cache.set(cacheKey, cached);
+      }
+      const isCurrent = sequence >= latestSequence && this.desiredContextKeys.has(cached.contextKey);
+      return this.validState(cached, isCurrent ? "current" : "stale");
     } catch (error) {
       const previous = this.latestForProject(snapshot.project.path);
       return { status: "failed", message: safeMessage(error), ...(previous ? { previous: this.validState(previous, "stale") } : {}) };
@@ -225,6 +233,10 @@ export class IntelligenceCoordinator {
 
   private contextKey(cacheKey: string, chatBackend: ChatBackend): string {
     return `${cacheKey}:${chatBackend}`;
+  }
+
+  private recordSequence(cacheKey: string, sequence: number): void {
+    this.latestSequenceByCacheKey.set(cacheKey, Math.max(sequence, this.latestSequenceByCacheKey.get(cacheKey) ?? 0));
   }
 
   private latestForProject(projectPath: string): CachedNarrative | undefined {
