@@ -464,6 +464,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this._intelligenceCoordinator?.cancel();
+    this._intelligenceCoordinator = null;
     void this.mcpServer?.stop();
     this.mcpServer = null;
     this._builtinEmbedder?.terminate();

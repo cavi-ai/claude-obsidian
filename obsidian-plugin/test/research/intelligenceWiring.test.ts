@@ -65,4 +65,16 @@ describe("research intelligence plugin wiring", () => {
     expect(await coordinator.analyze(snapshot, findings)).toEqual(expect.objectContaining({ status: "current", providerId: "ollama", model: "local-two" }));
     expect(calls).toEqual(["anthropic", "ollama"]);
   });
+
+  it("cancels and clears its coordinator on plugin unload", () => {
+    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    plugin.settings = { ...DEFAULT_SETTINGS };
+    const coordinator = plugin.intelligenceCoordinator();
+    const cancel = vi.spyOn(coordinator, "cancel");
+
+    plugin.onunload();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(plugin.intelligenceCoordinator()).not.toBe(coordinator);
+  });
 });
