@@ -4,6 +4,18 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`/research` now opens the native Research Workbench.** Selecting the slash
+  command no longer inserts internal research-tool instructions or sends a chat
+  request. The deterministic project overview and audit work the same in Claude,
+  Auto, and Local-only modes.
+- **Active research projects resolve from canonical metadata.** Project notes
+  resolve to themselves, while Source, Evidence, Claim, Question, and Document
+  records follow their explicit `project` relationship. Ordinary notes and
+  folder placement alone no longer guess an owning project.
+
 ## [0.8.2] — 2026-06-16
 
 ### Changed
