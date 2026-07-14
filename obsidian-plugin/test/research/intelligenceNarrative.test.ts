@@ -1,0 +1,77 @@
+import { describe, expect, it } from "vitest";
+import { buildProjectSnapshot } from "../../src/research/graph";
+import type { IntelligenceFinding } from "../../src/research/intelligence";
+import { buildNarrativeRequest, fingerprintIntelligenceSnapshot, parseNarrativeResponse } from "../../src/research/intelligenceNarrative";
+import type { ResearchRecord } from "../../src/research/types";
+
+function makeSnapshot() {
+  const records: ResearchRecord[] = [
+    { path: "P.md", title: "Project", type: "research-project", project: "P.md", question: "Does it work?", audience: "Researchers", stage: "reason", status: "active" },
+    { path: "S1.md", title: "Trial", type: "research-source", project: "P.md", sourceKind: "pdf", capturedContent: "unrelated vault note", contentFingerprint: "sha256:s1" },
+    { path: "S2.md", title: "Review", type: "research-source", project: "P.md", sourceKind: "doi", contentFingerprint: "sha256:s2" },
+    { path: "E1.md", title: "Support", type: "evidence", project: "P.md", source: "S1.md", locatorKind: "page", locatorValue: "4", excerpt: "Improved outcomes", interpretation: "Positive result", reviewState: "reviewed", sourceFingerprint: "sha256:s1" },
+    { path: "E2.md", title: "Challenge", type: "evidence", project: "P.md", source: "S2.md", locatorKind: "section", locatorValue: "Results", excerpt: "No effect", interpretation: "Null result", reviewState: "reviewed", sourceFingerprint: "sha256:s2" },
+    { path: "C.md", title: "Claim", type: "claim", project: "P.md", proposition: "Treatment works", confidence: "moderate", reviewState: "reviewed", supports: ["E1.md"], challenges: ["E2.md"], contextualizes: [], limitations: [] },
+  ];
+  return buildProjectSnapshot("P.md", records, []);
+}
+
+function makeFindings(): IntelligenceFinding[] {
+  return [{
+    id: "contradiction:trusted-support-and-challenge:C.md|E1.md|E2.md",
+    category: "contradiction",
+    severity: "warning",
+    confidence: "high",
+    epistemicStatus: "observation",
+    title: "Claim has supporting and challenging evidence",
+    rationale: "Reviewed evidence appears on both sides.",
+    paths: ["E2.md", "C.md", "E1.md"],
+    verification: "Review the cited records.",
+  }];
+}
+
+describe("research intelligence narrative trust boundary", () => {
+  it("fingerprints equivalent snapshots independent of record ordering", () => {
+    const left = makeSnapshot();
+    const right = { ...left, sources: [...left.sources].reverse(), evidence: [...left.evidence].reverse() };
+    expect(fingerprintIntelligenceSnapshot(left)).toBe(fingerprintIntelligenceSnapshot(right));
+  });
+
+  it("changes when a narrative-relevant field changes", () => {
+    const left = makeSnapshot();
+    const right = { ...left, claims: left.claims.map((claim) => ({ ...claim, proposition: `${claim.proposition} revised` })) };
+    expect(fingerprintIntelligenceSnapshot(left)).not.toBe(fingerprintIntelligenceSnapshot(right));
+  });
+
+  it("sends only allowed paths and bounded captured context", () => {
+    const request = buildNarrativeRequest(makeSnapshot(), makeFindings());
+    expect(request.allowedPaths).toEqual([...request.allowedPaths].sort());
+    expect(request.messages).toHaveLength(1);
+    expect(request.messages[0]?.content).toContain("E1.md");
+    expect(request.messages[0]?.content).not.toContain("unrelated vault note");
+  });
+
+  it("accepts structured insights with allowed citations", () => {
+    const result = parseNarrativeResponse(JSON.stringify({
+      briefing: "Two priorities.",
+      groups: [{ title: "Resolve tension", insights: [{
+        text: "The claim has reviewed evidence on both sides.",
+        epistemicStatus: "observation",
+        paths: ["C.md", "E1.md", "E2.md"],
+      }] }],
+    }), new Set(["C.md", "E1.md", "E2.md"]));
+    expect(result.groups[0]?.insights).toHaveLength(1);
+  });
+
+  it("discards unknown citations and rejects a wholly unusable response", () => {
+    expect(() => parseNarrativeResponse(JSON.stringify({
+      briefing: "Unsafe",
+      groups: [{ title: "Invented", insights: [{ text: "Outside claim", epistemicStatus: "observation", paths: ["Outside.md"] }] }],
+    }), new Set(["C.md"]))).toThrow(/verified|allowed path/i);
+  });
+
+  it("rejects free-form prose and unsupported epistemic labels", () => {
+    expect(() => parseNarrativeResponse("ordinary prose", new Set(["C.md"]))).toThrow(/JSON/i);
+    expect(() => parseNarrativeResponse(JSON.stringify({ briefing: "x", groups: [{ title: "x", insights: [{ text: "x", epistemicStatus: "fact", paths: ["C.md"] }] }] }), new Set(["C.md"]))).toThrow(/verified|schema/i);
+  });
+});
