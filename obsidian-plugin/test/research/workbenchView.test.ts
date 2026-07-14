@@ -147,15 +147,16 @@ describe("ResearchWorkbenchView", () => {
     const h = intelligenceDependencies();
     const repository = { loadProject: async (path: string) => ({ ...snapshot, project: { ...snapshot.project, path } }) } as never;
     const retainDiscoveryCoordinator = vi.fn(); const releaseDiscoveryCoordinator = vi.fn();
-    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository, { ...h.dependencies, discoveryCoordinator: coordinator, retainDiscoveryCoordinator, releaseDiscoveryCoordinator });
+    const retainIntelligenceCoordinator = vi.fn(); const releaseIntelligenceCoordinator = vi.fn();
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository, { ...h.dependencies, discoveryCoordinator: coordinator, retainDiscoveryCoordinator, releaseDiscoveryCoordinator, retainIntelligenceCoordinator, releaseIntelligenceCoordinator });
     await view.setProjectPath("Research/One/Project.md"); click(elements(view, '[role="tab"]')[7]); await Promise.resolve(); await Promise.resolve();
     click(elements(view, "button").find(({ textContent }) => textContent === "Rerank with model")); await Promise.resolve();
     await view.setProjectPath("Research/Two/Project.md"); const afterReplacement = view.contentEl.textContent;
     resolve(); await Promise.resolve(); await Promise.resolve();
     expect(view.contentEl.textContent).toBe(afterReplacement); expect(cancels).toBe(1);
-    await view.onClose(); expect(unsubscriptions).toBe(1); expect(cancels).toBe(2); expect(releaseDiscoveryCoordinator).toHaveBeenCalledOnce();
-    await view.onClose(); expect(releaseDiscoveryCoordinator).toHaveBeenCalledOnce();
-    await view.onOpen(); expect(subscriptions).toBe(2); expect(retainDiscoveryCoordinator).toHaveBeenCalledOnce();
+    await view.onClose(); expect(unsubscriptions).toBe(1); expect(cancels).toBe(2); expect(releaseDiscoveryCoordinator).toHaveBeenCalledOnce(); expect(releaseIntelligenceCoordinator).toHaveBeenCalledOnce();
+    await view.onClose(); expect(releaseDiscoveryCoordinator).toHaveBeenCalledOnce(); expect(releaseIntelligenceCoordinator).toHaveBeenCalledOnce();
+    await view.onOpen(); expect(subscriptions).toBe(2); expect(retainDiscoveryCoordinator).toHaveBeenCalledOnce(); expect(retainIntelligenceCoordinator).toHaveBeenCalledOnce();
   });
 
   it("does not commit a deferred render after close and can render after reopening", async () => {

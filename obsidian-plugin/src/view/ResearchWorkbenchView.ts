@@ -16,6 +16,8 @@ const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Au
 export interface ResearchWorkbenchDependencies {
   coordinator: IntelligenceCoordinator;
   narratorMode: () => IntelligenceNarratorMode;
+  retainIntelligenceCoordinator?: () => void;
+  releaseIntelligenceCoordinator?: () => void;
   discoveryCoordinator?: DiscoveryCoordinator;
   retainDiscoveryCoordinator?: () => void;
   releaseDiscoveryCoordinator?: () => void;
@@ -26,6 +28,7 @@ export class ResearchWorkbenchView extends ItemView {
   private activeTab: Tab = "Overview";
   private renderSequence = 0;
   private intelligencePanel: ResearchIntelligencePanel | undefined;
+  private intelligenceCoordinatorReleased = false;
   private discoveryPanel: DiscoveryPanel | undefined;
   private discoveryCoordinatorReleased = false;
 
@@ -51,6 +54,10 @@ export class ResearchWorkbenchView extends ItemView {
   }
 
   override async onOpen(): Promise<void> {
+    if (this.intelligenceCoordinatorReleased) {
+      this.dependencies?.retainIntelligenceCoordinator?.();
+      this.intelligenceCoordinatorReleased = false;
+    }
     if (this.discoveryCoordinatorReleased) {
       this.dependencies?.retainDiscoveryCoordinator?.();
       this.discoveryCoordinatorReleased = false;
@@ -66,6 +73,10 @@ export class ResearchWorkbenchView extends ItemView {
       this.intelligencePanel = undefined;
     }
     else this.dependencies?.coordinator.cancel();
+    if (!this.intelligenceCoordinatorReleased) {
+      this.intelligenceCoordinatorReleased = true;
+      this.dependencies?.releaseIntelligenceCoordinator?.();
+    }
     if (this.discoveryPanel) { this.discoveryPanel.dispose(); this.discoveryPanel = undefined; }
     else this.dependencies?.discoveryCoordinator?.cancel();
     if (!this.discoveryCoordinatorReleased) {

@@ -131,9 +131,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.researchRepository(),
       (() => {
         const discoveryCoordinator = this.createDiscoveryCoordinator();
+        const coordinator = this.createIntelligenceCoordinator();
         return {
-          coordinator: this.createIntelligenceCoordinator(),
+          coordinator,
           narratorMode: () => this.settings.intelligenceNarrator,
+          retainIntelligenceCoordinator: () => this.retainIntelligenceCoordinator(coordinator),
+          releaseIntelligenceCoordinator: () => this.releaseIntelligenceCoordinator(coordinator),
           discoveryCoordinator,
           retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
@@ -747,6 +750,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const coordinator = this.buildIntelligenceCoordinator();
     (this._viewIntelligenceCoordinators ??= new Set()).add(coordinator);
     return coordinator;
+  }
+
+  releaseIntelligenceCoordinator(coordinator: IntelligenceCoordinator): void {
+    if (!this._viewIntelligenceCoordinators?.delete(coordinator)) return;
+    coordinator.cancel();
+  }
+
+  retainIntelligenceCoordinator(coordinator: IntelligenceCoordinator): void {
+    (this._viewIntelligenceCoordinators ??= new Set()).add(coordinator);
   }
 
   private buildIntelligenceCoordinator(): IntelligenceCoordinator {
