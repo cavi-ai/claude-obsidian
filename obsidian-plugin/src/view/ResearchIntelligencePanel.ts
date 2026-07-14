@@ -42,7 +42,9 @@ export class ResearchIntelligencePanel {
     this.renderCategories(root, findings);
     this.renderFindings(root, findings);
     const current = this.deps.coordinator.stateFor(snapshot, findings);
-    const state = this.failed?.projectPath === snapshot.project.path ? this.failed.state : current;
+    const state = current.status === "disabled"
+      ? current
+      : this.failed?.projectPath === snapshot.project.path ? this.failed.state : current;
     this.renderNarrative(root, snapshot, findings, state);
   }
 
@@ -57,7 +59,7 @@ export class ResearchIntelligencePanel {
 
   private renderFindings(root: HTMLElement, findings: IntelligenceFinding[]): void {
     root.createEl("h3", { text: "Deterministic findings" });
-    if (!findings.length) root.createEl("p", { text: "No intelligence findings." });
+    if (!findings.length) root.createEl("p", { text: "No deterministic issues were found in the current structured records." });
     for (const finding of findings) {
       const card = root.createEl("article", { cls: "cc-intelligence-finding" });
       card.createEl("h4", { text: finding.title });

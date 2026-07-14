@@ -36,8 +36,10 @@ function stableFindings(findings: IntelligenceFinding[]): IntelligenceFinding[] 
     || compareCodeUnits(left.id, right.id));
 }
 
-function auditCategory(code: AuditFinding["code"]): IntelligenceCategory {
-  return code === "unsupported-claim" ? "research-gap" : "evidence-quality";
+function auditCategory(audit: AuditFinding, snapshot: ProjectSnapshot): IntelligenceCategory {
+  if (audit.code === "unsupported-claim") return "research-gap";
+  if (audit.code === "unused-evidence" && snapshot.evidence.some(({ path, reviewState }) => path === audit.path && reviewState === "reviewed")) return "research-gap";
+  return "evidence-quality";
 }
 
 export function analyzeProjectIntelligence(snapshot: ProjectSnapshot): IntelligenceFinding[] {
@@ -136,7 +138,7 @@ export function analyzeProjectIntelligence(snapshot: ProjectSnapshot): Intellige
   }
 
   for (const audit of auditProject(snapshot)) {
-    const category = auditCategory(audit.code);
+    const category = auditCategory(audit, snapshot);
     findings.push({
       id: findingId(category, `audit-${audit.code}`, [audit.path]),
       category,

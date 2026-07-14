@@ -13,6 +13,10 @@ const snapshot = buildProjectSnapshot("P.md", [
   { path: "C.md", title: "Claim", type: "claim", project: "P.md", proposition: "It works", confidence: "moderate", reviewState: "reviewed", supports: ["E1.md"], challenges: ["E2.md"], contextualizes: [], limitations: [] },
 ], []);
 
+const emptySnapshot = buildProjectSnapshot("Empty.md", [
+  { path: "Empty.md", title: "Empty", type: "research-project", project: "Empty.md", question: "Why?", stage: "reason", status: "active" },
+], []);
+
 function root(): HTMLElement {
   return new ItemView(new WorkspaceLeaf()).contentEl;
 }
@@ -118,6 +122,28 @@ describe("ResearchIntelligencePanel", () => {
     }).panel.render(container, snapshot);
     const status = container.querySelector('[role="status"]');
     expect(status?.textContent).toBe("Analysis current");
+  });
+
+  it("uses scoped no-findings copy without implying completeness or correctness", () => {
+    const container = root();
+    harness().panel.render(container, emptySnapshot);
+    const text = allText(container);
+    expect(text).toContain("No deterministic issues were found in the current structured records.");
+    expect(text).not.toContain("No intelligence findings.");
+    expect(text).not.toMatch(/research (?:is )?(?:complete|correct)/i);
+  });
+
+  it("renders Disabled after a remembered failure and does not offer Analyze", async () => {
+    const h = harness({ status: "failed", message: "Provider failed." });
+    const first = root();
+    h.panel.render(first, snapshot);
+    click([...first.querySelectorAll("button")].find(({ textContent }) => textContent === "Analyze") ?? null);
+    await Promise.resolve(); await Promise.resolve();
+    h.setState({ status: "disabled" });
+    const refreshed = root();
+    h.panel.render(refreshed, snapshot);
+    expect(allText(refreshed)).toContain("Model analysis is disabled in settings.");
+    expect([...refreshed.querySelectorAll("button")].some(({ textContent }) => textContent?.includes("Analyze"))).toBe(false);
   });
 
   it("rerenders while a deferred fallback is active and unsubscribes on dispose", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildProjectSnapshot } from "../../src/research/graph";
 import type { IntelligenceFinding } from "../../src/research/intelligence";
-import { buildNarrativeRequest, fingerprintIntelligenceSnapshot, parseNarrativeResponse } from "../../src/research/intelligenceNarrative";
+import { buildNarrativeCacheKey, buildNarrativeRequest, fingerprintIntelligenceSnapshot, parseNarrativeResponse } from "../../src/research/intelligenceNarrative";
 import type { ResearchRecord } from "../../src/research/types";
 
 function makeSnapshot() {
@@ -62,6 +62,31 @@ describe("research intelligence narrative trust boundary", () => {
     expect(request.messages).toHaveLength(1);
     expect(request.messages[0]?.content).toContain("E1.md");
     expect(request.messages[0]?.content).not.toContain("unrelated vault note");
+  });
+
+  it("clips each narrative evidence context field at exactly 1,000 characters", () => {
+    const base = makeSnapshot();
+    const longExcerpt = "x".repeat(1_000) + "EXTRA";
+    const longInterpretation = "y".repeat(1_000) + "EXTRA";
+    const changed = { ...base, evidence: base.evidence.map((item) => item.path === "E1.md" ? { ...item, excerpt: longExcerpt, interpretation: longInterpretation } : item) };
+    const request = buildNarrativeRequest(changed, makeFindings());
+    const payload = JSON.parse(String(request.messages[0]?.content)) as { records: Array<{ path: string; excerpt?: string; interpretation?: string }> };
+    const record = payload.records.find(({ path }) => path === "E1.md");
+    expect(record?.excerpt).toHaveLength(1_000);
+    expect(record?.interpretation).toHaveLength(1_000);
+    expect(record?.excerpt).toBe("x".repeat(1_000));
+    expect(record?.interpretation).toBe("y".repeat(1_000));
+  });
+
+  it.each([
+    ["project path", { projectPath: "Other.md" }],
+    ["snapshot fingerprint", { snapshotFingerprint: "v1:changed" }],
+    ["narrator mode", { narratorMode: "local" as const }],
+    ["provider", { providerId: "ollama" as const }],
+    ["model", { model: "other-model" }],
+  ])("changes the narrative cache key when %s changes", (_label, change) => {
+    const base = { projectPath: "P.md", snapshotFingerprint: "v1:base", narratorMode: "current" as const, providerId: "anthropic" as const, model: "claude-test" };
+    expect(buildNarrativeCacheKey(base)).not.toBe(buildNarrativeCacheKey({ ...base, ...change }));
   });
 
   it("builds the same request for reversed findings with duplicate ids", () => {
