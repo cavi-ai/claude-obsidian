@@ -63,3 +63,15 @@
 - Current narratives now include visible semantic status copy: `Analysis current` with `role="status"`.
 - Both public project selection and the create-project modal callback now flow through `replaceResearchProjectPath` / `setProjectPath`, preserving cancellation before identity replacement.
 - Focused review verification: 4 files passed, 47 tests passed. Typecheck and lint passed.
+
+## Close-time render race RED
+
+- Added a deferred repository-load regression that starts a render, closes the view before the load resolves, then resolves it and requires the pre-close DOM to remain unchanged.
+- The focused workbench test failed as expected because the late load emptied and rebuilt the DOM after close (`expected '' to be 'before close'`).
+- The regression also requires panel subscription cleanup on close and a fresh subscription when the same ItemView is reopened.
+
+## Close-time render race GREEN
+
+- `onClose` now invalidates the workbench render sequence before disposing the intelligence panel, so any repository load already in flight cannot cross the DOM commit boundary.
+- The disposed panel reference is cleared and recreated by `onOpen`, preserving unsubscribe/cancel cleanup while supporting the Obsidian close/open lifecycle.
+- Focused verification: `workbenchView.test.ts` and `intelligencePanel.test.ts` passed, 19 tests passed.

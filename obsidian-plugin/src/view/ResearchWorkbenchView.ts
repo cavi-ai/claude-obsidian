@@ -20,17 +20,11 @@ export class ResearchWorkbenchView extends ItemView {
   private projectPath: string | undefined;
   private activeTab: Tab = "Overview";
   private renderSequence = 0;
-  private readonly intelligencePanel: ResearchIntelligencePanel | undefined;
+  private intelligencePanel: ResearchIntelligencePanel | undefined;
 
   constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository, private readonly dependencies?: ResearchWorkbenchDependencies) {
     super(leaf);
-    if (dependencies) {
-      this.intelligencePanel = new ResearchIntelligencePanel({
-        coordinator: dependencies.coordinator,
-        openPath: (path) => this.openPath(path),
-        rerender: () => this.render(),
-      });
-    }
+    this.intelligencePanel = this.createIntelligencePanel();
   }
 
   getViewType(): string { return RESEARCH_WORKBENCH_VIEW_TYPE; }
@@ -48,9 +42,16 @@ export class ResearchWorkbenchView extends ItemView {
     return isResearchProjectChange(this.projectPath, path, oldPath);
   }
 
-  override async onOpen(): Promise<void> { await this.render(); }
+  override async onOpen(): Promise<void> {
+    this.intelligencePanel ??= this.createIntelligencePanel();
+    await this.render();
+  }
   override async onClose(): Promise<void> {
-    if (this.intelligencePanel) this.intelligencePanel.dispose();
+    this.renderSequence += 1;
+    if (this.intelligencePanel) {
+      this.intelligencePanel.dispose();
+      this.intelligencePanel = undefined;
+    }
     else this.dependencies?.coordinator.cancel();
   }
 
@@ -177,6 +178,15 @@ export class ResearchWorkbenchView extends ItemView {
   private cancelIntelligence(): void {
     if (this.intelligencePanel) this.intelligencePanel.cancel();
     else this.dependencies?.coordinator.cancel();
+  }
+
+  private createIntelligencePanel(): ResearchIntelligencePanel | undefined {
+    if (!this.dependencies) return undefined;
+    return new ResearchIntelligencePanel({
+      coordinator: this.dependencies.coordinator,
+      openPath: (path) => this.openPath(path),
+      rerender: () => this.render(),
+    });
   }
 
   private openCreateProject(): void {

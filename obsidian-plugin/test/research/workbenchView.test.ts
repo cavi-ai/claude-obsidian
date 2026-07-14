@@ -11,6 +11,10 @@ const snapshot = {
 
 function elements(view: ResearchWorkbenchView, selector: string): any[] { return [...view.contentEl.querySelectorAll(selector)]; }
 function click(element: any): void { element.dispatchEvent({ type: "click" }); }
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  return { promise: new Promise<T>((done) => { resolve = done; }), resolve };
+}
 
 function intelligenceDependencies(overrides: Record<string, unknown> = {}) {
   let analyzeCalls = 0;
@@ -112,6 +116,36 @@ describe("ResearchWorkbenchView", () => {
     await view.setProjectPath("Research/Two/Project.md");
     await view.onClose();
     expect(h.cancelCalls).toBe(2);
+  });
+
+  it("does not commit a deferred render after close and can render after reopening", async () => {
+    const pending = deferred<typeof snapshot>();
+    let load = () => pending.promise;
+    let subscriptions = 0;
+    let unsubscriptions = 0;
+    const h = intelligenceDependencies({
+      subscribe: () => {
+        subscriptions += 1;
+        return () => { unsubscriptions += 1; };
+      },
+    });
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: () => load() } as never, h.dependencies);
+    expect(subscriptions).toBe(1);
+    view.contentEl.setText("before close");
+
+    const rendering = view.setProjectPath(snapshot.project.path);
+    await Promise.resolve();
+    await view.onClose();
+    expect(unsubscriptions).toBe(1);
+    pending.resolve(snapshot);
+    await rendering;
+
+    expect(view.contentEl.textContent).toBe("before close");
+
+    load = async () => snapshot;
+    await view.onOpen();
+    expect(subscriptions).toBe(2);
+    expect(elements(view, "h2").map(({ textContent }) => textContent)).toContain("Project P");
   });
 
   it("uses one replacement helper to cancel every changed project identity", () => {
