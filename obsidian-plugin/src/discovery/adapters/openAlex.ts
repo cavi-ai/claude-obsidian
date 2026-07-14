@@ -3,6 +3,7 @@ import { assertSuccessful, DiscoveryAdapterError, parseJson, type DiscoveryHttp 
 
 const API_ROOT = "https://api.openalex.org";
 const MAX_RESULTS = 200;
+const DEFAULT_RESULTS = 20;
 
 export interface DiscoveryPage {
   items: AdapterWork[];
@@ -125,7 +126,8 @@ export class OpenAlexAdapter {
   }
 
   private applyPaging(url: URL, cursor?: string): void {
-    url.searchParams.set("per-page", String(Math.min(MAX_RESULTS, Math.max(1, Math.floor(this.options.maxResults)))));
+    const configured = Number.isFinite(this.options.maxResults) ? this.options.maxResults : DEFAULT_RESULTS;
+    url.searchParams.set("per-page", String(Math.min(MAX_RESULTS, Math.max(1, Math.floor(configured)))));
     url.searchParams.set("cursor", cursor ?? "*");
   }
 

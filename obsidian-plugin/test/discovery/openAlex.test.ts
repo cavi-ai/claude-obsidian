@@ -42,6 +42,13 @@ describe("OpenAlexAdapter", () => {
     expect(request?.signal).toBe(controller.signal);
   });
 
+  it.each([NaN, Infinity, -Infinity])("uses a bounded default for non-finite maxResults: %s", async (maxResults) => {
+    let requestedUrl = "";
+    const http: DiscoveryHttp = async ({ url }) => { requestedUrl = url; return response(fixture("openalex-search.json")); };
+    await new OpenAlexAdapter(http, { maxResults }).search({ text: "risk", projectPath: "P.md" });
+    expect(new URL(requestedUrl).searchParams.get("per-page")).toBe("20");
+  });
+
   it("sanitizes rate-limit and malformed response failures", async () => {
     const limited = new OpenAlexAdapter(async () => response("private rate-limit body", 429, { "retry-after": "12" }), { maxResults: 20 });
     await expect(limited.search({ text: "risk", projectPath: "P.md" })).rejects.toMatchObject({ adapter: "openalex", category: "rate-limit", status: 429, retryAfterSeconds: 12 });

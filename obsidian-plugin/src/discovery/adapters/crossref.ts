@@ -54,6 +54,8 @@ export class CrossrefAdapter {
     assertSuccessful("crossref", response);
     const payload = object(parseJson("crossref", response.body));
     if (payload === undefined || !("message" in payload)) throw new DiscoveryAdapterError({ adapter: "crossref", category: "malformed-response" });
-    return mapWork(payload.message);
+    const work = mapWork(payload.message);
+    if (work === undefined) throw new DiscoveryAdapterError({ adapter: "crossref", category: "malformed-response" });
+    return work;
   }
 }

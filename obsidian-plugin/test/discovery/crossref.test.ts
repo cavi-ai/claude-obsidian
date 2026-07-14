@@ -23,4 +23,18 @@ describe("CrossrefAdapter", () => {
     expect(String(error)).toContain("crossref");
     expect(String(error)).not.toContain("private json");
   });
+
+  it.each([
+    { message: null },
+    { message: [] },
+    { message: {} },
+    { message: { DOI: "10.1/x" } },
+    { message: { title: ["Missing DOI"] } },
+  ])("rejects a successful envelope whose work identity is malformed: %j", async (payload) => {
+    const adapter = new CrossrefAdapter(async () => response(JSON.stringify(payload)));
+    await expect(adapter.lookupDoi("10.1/x")).rejects.toMatchObject({
+      adapter: "crossref",
+      category: "malformed-response",
+    });
+  });
 });
