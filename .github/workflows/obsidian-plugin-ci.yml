@@ -58,6 +58,7 @@ jobs:
         run: pnpm test
 
       - name: Audit production release floor
+        if: matrix.node-version == '22.x'
         run: pnpm run audit
 
       - name: Build
