@@ -71,12 +71,20 @@ describe("DiscoveryPanel", () => {
   it("renders disabled, stale, failed-with-previous, searching, and provider disclosure states", () => {
     const valid = { status: "ready", query: { text: "q", projectPath: snapshot.project.path }, ranked: [ranked], deterministicOrder: [candidate.id], partialAdapters: [], fingerprint: "f", providerId: "anthropic", model: "model-x", usedFallback: true };
     for (const [state, expected] of [
-      [{ status: "disabled", query: valid.query }, "disabled in settings"],
+      [{ status: "disabled", query: valid.query }, "Enable it in Companion settings"],
       [{ ...valid, status: "stale" }, "Out of date"],
       [{ status: "searching", query: valid.query, requestId: 1, previous: valid }, "Searching"],
       [{ status: "failed", query: valid.query, message: "safe failure", previous: valid }, "safe failure"],
       [valid, "Anthropic · model-x · Fallback"],
     ] as const) { const h = harness(state); h.panel.render(h.root, snapshot); expect(text(h.root)).toContain(expected); }
+  });
+
+  it("replaces unusable discovery controls with one clear disabled state", () => {
+    const h = harness({ status: "disabled", query: { text: "q", projectPath: snapshot.project.path } });
+    h.panel.render(h.root, snapshot);
+    expect(h.root.querySelector("input")).toBeNull();
+    expect(buttons(h.root)).toHaveLength(0);
+    expect(text(h.root)).toContain("Enable it in Companion settings");
   });
 
   it("invokes separate expansion, rerank, import, batch, dismiss, and open actions", async () => {

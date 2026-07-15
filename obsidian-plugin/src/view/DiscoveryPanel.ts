@@ -44,6 +44,12 @@ export class DiscoveryPanel {
       this.query = state.query.text;
       this.selected.clear(); this.expanded.clear(); this.outcomes.clear();
     }
+    if (state.status === "disabled") {
+      const status = root.createDiv({ cls: "cc-discovery-status is-disabled", attr: { role: "status" } });
+      status.createEl("h3", { text: "Scholarly discovery is off" });
+      status.createEl("p", { text: "Enable it in Companion settings to search OpenAlex, Crossref, and arXiv from this project." });
+      return;
+    }
     const setup = root.createDiv({ cls: "cc-discovery-setup" });
     setup.createEl("label", { text: "Discovery query", attr: { for: this.queryInputId } });
     const input = setup.createEl("input", { attr: { id: this.queryInputId, type: "search" } });
@@ -59,7 +65,7 @@ export class DiscoveryPanel {
 
   private renderState(root: HTMLElement, snapshot: ProjectSnapshot, state: DiscoveryState): void {
     const status = root.createDiv({ cls: "cc-discovery-status", attr: { role: state.status === "failed" ? "alert" : "status" } });
-    if (state.status === "disabled") { status.setText("Scholarly discovery is disabled in settings."); return; }
+    if (state.status === "disabled") { status.setText("Enable scholarly discovery in Companion settings."); return; }
     if (state.status === "idle") status.setText("Ready to search. No external request is made until Search is pressed.");
     if (state.status === "searching") status.setText("Searching… Previous results remain available.");
     if (state.status === "ready") status.setText("Results ready.");

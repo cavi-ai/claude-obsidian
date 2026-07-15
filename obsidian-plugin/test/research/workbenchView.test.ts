@@ -100,6 +100,8 @@ describe("ResearchWorkbenchView", () => {
       askCompanion,
     });
     await view.setProjectPath(snapshot.project.path);
+    expect(elements(view, ".cc-research-header-top")).toHaveLength(1);
+    expect(elements(view, ".cc-workspace-navigation")).toHaveLength(1);
     click(elements(view, "button").find(({ textContent }) => textContent === "Research Desk"));
     click(elements(view, "button").find(({ textContent }) => textContent === "Ask Companion"));
     await Promise.resolve();

@@ -54,8 +54,13 @@ test("05 advanced workbench: grouped navigation exposes every research panel wit
   await harness.page.evaluate(async () => { await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-research-workbench"); });
   const workbench = harness.page.locator(".cc-research-workbench");
   await expect(workbench.locator(".cc-research-tab-group")).toHaveCount(4);
+  await expect(workbench.locator(".cc-research-header-top .cc-workspace-navigation")).toBeVisible();
   const before = harness.providerRequests();
   for (const tab of ["Overview", "Sources", "Evidence", "Claims", "Outline", "Draft", "Audit", "Intelligence", "Discover"]) { await workbench.locator(".cc-research-tab-select").selectOption(tab); await expect(workbench.getByRole("tabpanel")).toBeVisible(); }
+  await expect(workbench.getByRole("heading", { name: "Scholarly discovery is off" })).toBeVisible();
+  await expect(workbench.getByLabel("Discovery query")).toHaveCount(0);
+  await expect(workbench.getByRole("button", { name: "Search", exact: true })).toHaveCount(0);
+  await expect.poll(async () => await workbench.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   expect(harness.providerRequests()).toBe(before);
   await harness.page.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/05-workbench.png" });
 });
