@@ -37,6 +37,15 @@ function provider(id: "anthropic" | "ollama", calls: string[]): Provider {
 }
 
 describe("research intelligence plugin wiring", () => {
+  it("creates isolated view coordinators and unload cancels all of them", () => {
+    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    plugin.settings = { ...DEFAULT_SETTINGS };
+    const first = plugin.createIntelligenceCoordinator(); const second = plugin.createIntelligenceCoordinator();
+    expect(first).not.toBe(second);
+    const firstCancel = vi.spyOn(first, "cancel"); const secondCancel = vi.spyOn(second, "cancel");
+    first.cancel(); expect(secondCancel).not.toHaveBeenCalled();
+    plugin.onunload(); expect(firstCancel).toHaveBeenCalled(); expect(secondCancel).toHaveBeenCalledOnce();
+  });
   it("owns one coordinator whose dependencies resolve live settings and router values", async () => {
     const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
     plugin.settings = { ...DEFAULT_SETTINGS, intelligenceNarrator: "disabled" };

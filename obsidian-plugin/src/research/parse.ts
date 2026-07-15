@@ -3,6 +3,7 @@ import {
   REVIEW_STATES,
   type ResearchRecord,
   type ResearchTypeName,
+  type DiscoverySourceProvenance,
 } from "./types";
 
 export interface ResearchNoteInput {
@@ -56,6 +57,41 @@ function stringList(input: ResearchNoteInput, issues: ParseIssue[], key: string)
   }
   issue(input, issues, "invalid-value", `${key} must be a list of non-empty strings`);
   return [];
+}
+
+function discoveryProvenance(input: ResearchNoteInput, issues: ParseIssue[]): DiscoverySourceProvenance[] {
+  const value = input.frontmatter?.discovery_provenance;
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    issue(input, issues, "invalid-value", "discovery_provenance must be a list of provenance objects");
+    return [];
+  }
+  const accepted: DiscoverySourceProvenance[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      issue(input, issues, "invalid-value", "discovery_provenance entries must be provenance objects");
+      continue;
+    }
+    const adapter = (entry as Record<string, unknown>).adapter;
+    const externalId = (entry as Record<string, unknown>).external_id;
+    if ((adapter !== "openalex" && adapter !== "crossref" && adapter !== "arxiv") || typeof externalId !== "string" || !externalId.trim()) {
+      issue(input, issues, "invalid-value", "discovery_provenance entries require an allowed adapter and non-empty external_id");
+      continue;
+    }
+    accepted.push({ adapter, externalId: externalId.trim() });
+  }
+  return accepted;
+}
+
+function httpUrl(input: ResearchNoteInput, issues: ParseIssue[], key: string): string | undefined {
+  const value = scalar(input, issues, key);
+  if (!value) return undefined;
+  try {
+    const protocol = new URL(value).protocol;
+    if (protocol === "http:" || protocol === "https:") return value;
+  } catch { /* reported below */ }
+  issue(input, issues, "invalid-value", `${key} must be a valid http: or https: URL`);
+  return undefined;
 }
 
 function wikilink(input: ResearchNoteInput, issues: ParseIssue[], key: string, required = false): string | undefined {
@@ -174,7 +210,10 @@ function parseTypedRecord(type: ResearchTypeName, input: ResearchNoteInput, issu
     const authors = stringList(input, issues, "authors");
     const published = scalar(input, issues, "published");
     const publication = scalar(input, issues, "publication");
-    return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(capturedContent !== undefined ? { capturedContent } : {}), ...(contentFingerprint ? { contentFingerprint } : {}), ...(doi ? { doi } : {}), ...(arxivId ? { arxivId } : {}), ...(zoteroKey ? { zoteroKey } : {}), ...(authors.length ? { authors } : {}), ...(published ? { published } : {}), ...(publication ? { publication } : {}) }, issues };
+    const abstract = scalar(input, issues, "abstract");
+    const openAccessUrl = httpUrl(input, issues, "open_access_url");
+    const provenance = discoveryProvenance(input, issues);
+    return { record: { path: input.path, title, type, project, sourceKind, ...(canonicalId ? { canonicalId } : {}), ...(url ? { url } : {}), ...(asset ? { asset } : {}), ...(capturedContent !== undefined ? { capturedContent } : {}), ...(contentFingerprint ? { contentFingerprint } : {}), ...(doi ? { doi } : {}), ...(arxivId ? { arxivId } : {}), ...(zoteroKey ? { zoteroKey } : {}), ...(authors.length ? { authors } : {}), ...(published ? { published } : {}), ...(publication ? { publication } : {}), ...(abstract ? { abstract } : {}), ...(openAccessUrl ? { openAccessUrl } : {}), ...(provenance.length ? { discoveryProvenance: provenance } : {}) }, issues };
   }
 
   if (type === "evidence") {

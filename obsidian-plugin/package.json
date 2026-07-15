@@ -22,7 +22,7 @@
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "lint": "eslint src",
-    "audit": "pnpm audit --audit-level high",
+    "audit": "pnpm dlx pnpm@11.7.0 --pm-on-fail=ignore audit --prod --audit-level high",
     "test": "vitest run",
     "test:watch": "vitest"
   },

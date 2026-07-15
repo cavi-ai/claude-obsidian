@@ -9,10 +9,13 @@ function wikilink(path: string): string {
   return `[[${path}]]`;
 }
 
-function researchFrontmatter(data: FrontmatterData, exactStrings: Record<string, string | undefined> = {}): string {
+function researchFrontmatter(data: FrontmatterData, exactStrings: Record<string, string | undefined> = {}, exactJson: Record<string, string | undefined> = {}): string {
   let rendered = buildFrontmatter(data);
   for (const [key, value] of Object.entries(exactStrings)) {
     if (value !== undefined) rendered = rendered.replace(new RegExp(`^${key}:.*$`, "m"), `${key}: ${JSON.stringify(value)}`);
+  }
+  for (const [key, value] of Object.entries(exactJson)) {
+    if (value !== undefined) rendered = rendered.replace(new RegExp(`^${key}:.*$`, "m"), `${key}: ${value}`);
   }
   return rendered;
 }
@@ -28,7 +31,7 @@ export function renderResearchRecord(record: ResearchRecord): string {
       body = `# Research project\n\n## Question\n\n${record.question}`;
       break;
     case "research-source":
-      frontmatter = { ...common, source_kind: record.sourceKind, canonical_id: record.canonicalId, url: record.url, asset: record.asset ? wikilink(record.asset) : undefined, content_fingerprint: record.contentFingerprint, doi: record.doi, arxiv_id: record.arxivId, zotero_key: record.zoteroKey, authors: record.authors, published: record.published, publication: record.publication };
+      frontmatter = { ...common, source_kind: record.sourceKind, canonical_id: record.canonicalId, url: record.url, asset: record.asset ? wikilink(record.asset) : undefined, content_fingerprint: record.contentFingerprint, doi: record.doi, arxiv_id: record.arxivId, zotero_key: record.zoteroKey, authors: record.authors, published: record.published, publication: record.publication, abstract: record.abstract, open_access_url: record.openAccessUrl, discovery_provenance: record.discoveryProvenance ? JSON.stringify(record.discoveryProvenance) : undefined };
       body = record.capturedContent === undefined
         ? "# Research source\n\n## Notes"
         : `# Research source\n\n## Captured content\n\n<!-- cavi:capture version=1 chars=${record.capturedContent.length} -->\n${record.capturedContent}\n<!-- cavi:capture:end -->\n\n## Notes`;
@@ -56,5 +59,8 @@ export function renderResearchRecord(record: ResearchRecord): string {
     : record.type === "research-source"
       ? { arxiv_id: record.arxivId }
       : {};
-  return `${researchFrontmatter(frontmatter, exactStrings)}\n\n${body}\n`;
+  const exactJson = record.type === "research-source"
+    ? { discovery_provenance: record.discoveryProvenance ? JSON.stringify(record.discoveryProvenance.map(({ adapter, externalId }) => ({ adapter, external_id: externalId }))) : undefined }
+    : {};
+  return `${researchFrontmatter(frontmatter, exactStrings, exactJson)}\n\n${body}\n`;
 }

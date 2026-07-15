@@ -12,7 +12,7 @@ function parseRendered(path: string, markdown: string) {
 
 const records: ResearchRecord[] = [
   { path: "Projects/P.md", title: "P", type: "research-project", project: "Projects/P", question: "What works?", audience: "Researchers", stage: "gather", status: "active" },
-  { path: "Sources/S.md", title: "S", type: "research-source", project: "Projects/P", sourceKind: "doi", canonicalId: "10.1/x", url: "https://example.test", asset: "Files/S.pdf", contentFingerprint: "sha256:abc", doi: "10.1/x", arxivId: "2501.01234", zoteroKey: "KEY1", authors: ["Ada Lovelace"], published: "2025-04-02", publication: "Journal of Tests" },
+  { path: "Sources/S.md", title: "S", type: "research-source", project: "Projects/P", sourceKind: "doi", canonicalId: "10.1/x", url: "https://example.test", asset: "Files/S.pdf", contentFingerprint: "sha256:abc", doi: "10.1/x", arxivId: "2501.01234", zoteroKey: "KEY1", authors: ["Ada Lovelace"], published: "2025-04-02", publication: "Journal of Tests", abstract: "Abstract text", openAccessUrl: "https://example.test/open.pdf", discoveryProvenance: [{ adapter: "openalex", externalId: "W1" }] },
   { path: "Evidence/E.md", title: "E", type: "evidence", project: "Projects/P", source: "Sources/S", sourceFingerprint: "sha256:abc", locatorKind: "page", locatorValue: "14", excerpt: "Measured effect.\nAcross cohorts.", interpretation: "Useful result.", reviewState: "reviewed", model: "claude" },
   { path: "Claims/C.md", title: "C", type: "claim", project: "Projects/P", proposition: "The effect generalizes.", confidence: "moderate", reviewState: "proposed", supports: ["Evidence/E1"], challenges: ["Evidence/E2"], contextualizes: ["Evidence/E3"], limitations: ["Small sample"] },
   { path: "Questions/Q.md", title: "Q", type: "research-question", project: "Projects/P", question: "Does it generalize?", status: "open", about: "Claims/C" },
@@ -70,5 +70,9 @@ describe("renderResearchRecord", () => {
     expect(rendered).toContain('zotero_key: "KEY1"');
     expect(rendered).not.toContain("arxivId:");
     expect(rendered).not.toContain("zoteroKey:");
+    expect(rendered).toContain('abstract: "Abstract text"');
+    expect(rendered).toContain('open_access_url: "https://example.test/open.pdf"');
+    expect(rendered).toContain("discovery_provenance:");
+    expect(rendered).not.toContain("openAccessUrl:");
   });
 });

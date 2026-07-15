@@ -7,7 +7,7 @@ import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskT
 import { configError } from "./cloud/routines";
 import { configError as repliesConfigError } from "./cloud/replies";
 import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
-import type { PluginSettings } from "./types";
+import { normalizeDiscoverySettings, type PluginSettings } from "./types";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -260,6 +260,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     // stays in the shared group rather than the desktop-only block below.
     this.accordion(containerEl, "Source capture (typed clips)", (c) => this.renderSourceCaptureSection(c));
     this.accordion(containerEl, "Vault ontology (typed notes & relations)", (c) => this.renderOntologySection(c));
+    this.accordion(containerEl, "Scholarly discovery", (c) => this.renderDiscoverySection(c));
     if (!Platform.isMobile) {
       this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
       this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
@@ -473,6 +474,63 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
+  }
+
+  private renderDiscoverySection(containerEl: HTMLElement): void {
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Network requests happen only when you explicitly run a discovery action. Results are derived suggestions, and imported sources remain unreviewed until you review them.",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable scholarly discovery")
+      .setDesc("Show explicit search, citation expansion, and reranking actions in research projects.")
+      .addToggle((toggle) => toggle.setValue(this.plugin.settings.discoveryEnabled).onChange(async (value) => {
+        this.plugin.settings.discoveryEnabled = value;
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl)
+      .setName("OpenAlex contact email")
+      .setDesc("Optional. Included as a trimmed mailto parameter in OpenAlex requests.")
+      .addText((text) => text.setValue(this.plugin.settings.openAlexContactEmail).onChange(async (value) => {
+        this.plugin.settings.openAlexContactEmail = value.trim();
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl)
+      .setName("Discovery reranker")
+      .setDesc("Provider used only when you explicitly rerank derived discovery results.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("current", "Current chat backend");
+        dropdown.addOption("claude", "Claude only");
+        dropdown.addOption("local", "Local only");
+        dropdown.addOption("disabled", "Disabled");
+        dropdown.setValue(this.plugin.settings.discoveryReranker).onChange(async (value) => {
+          this.plugin.settings.discoveryReranker = value as PluginSettings["discoveryReranker"];
+          await this.plugin.saveSettings();
+        });
+      });
+
+    const numberSetting = (name: string, description: string, key: "discoveryMaxResults" | "discoveryExpansionLimit" | "discoveryCacheHours") => {
+      new Setting(containerEl).setName(name).setDesc(description).addText((text) =>
+        text.setValue(String(this.plugin.settings[key])).onChange(async (value) => {
+          const parsed = Number(value);
+          Object.assign(this.plugin.settings, normalizeDiscoverySettings({ ...this.plugin.settings, [key]: parsed }));
+          await this.plugin.saveSettings();
+        }));
+    };
+    numberSetting("Maximum search results", "Per request, from 5 to 100.", "discoveryMaxResults");
+    numberSetting("Citation expansion limit", "Per expansion request, from 5 to 50.", "discoveryExpansionLimit");
+    numberSetting("Derived cache lifetime", "Hours to retain derived discovery results, from 1 to 168.", "discoveryCacheHours");
+
+    new Setting(containerEl)
+      .setName("Clear discovery cache")
+      .setDesc("Deletes derived discovery state only. It does not write to or delete vault notes.")
+      .addButton((button) => button.setButtonText("Clear cache").onClick(() => {
+        this.plugin.clearDiscoveryCache();
+        new Notice("Discovery cache cleared.");
+      }));
   }
 
   private renderSemanticSection(containerEl: HTMLElement): void {

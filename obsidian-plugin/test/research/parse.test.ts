@@ -167,4 +167,22 @@ describe("parseResearchRecord", () => {
     expect(parseResearchRecord({ path: "Note.md", body: "plain" })).toEqual({ issues: [] });
     expect(parseResearchRecord({ path: "Odd.md", frontmatter: { type: "odd" }, body: "" })).toEqual({ issues: [] });
   });
+
+  it("reports and excludes malformed discovery provenance entries", () => {
+    const result = parseResearchRecord({
+      path: "S.md",
+      frontmatter: {
+        title: "S", type: "research-source", project: "[[P]]", source_kind: "doi",
+        discovery_provenance: [
+          { adapter: "openalex", external_id: "W1" },
+          { adapter: "semantic-scholar", external_id: "S1" },
+          { adapter: "crossref", external_id: "" },
+          "arbitrary",
+        ],
+      },
+      body: "",
+    });
+    expect(result.record).toMatchObject({ discoveryProvenance: [{ adapter: "openalex", externalId: "W1" }] });
+    expect(result.issues.filter(({ code }) => code === "invalid-value")).toHaveLength(3);
+  });
 });
