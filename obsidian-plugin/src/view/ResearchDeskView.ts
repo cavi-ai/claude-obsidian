@@ -11,6 +11,7 @@ export interface ResearchDeskDependencies {
   preferencesFor(projectPath: string): ResearchDeskPreferences;
   updatePreferences(projectPath: string, update: (current: ResearchDeskPreferences) => ResearchDeskPreferences): void | Promise<void>;
   openWorkbench(projectPath: string, target: ResearchDeskTarget, path?: string): void | Promise<void>;
+  askCompanion?(projectPath: string): void | Promise<void>;
   createProject?(): void | Promise<void>;
 }
 
@@ -72,6 +73,10 @@ export class ResearchDeskView extends ItemView {
     for (const project of projects) select.createEl("option", { text: project.title, value: project.path, attr: { selected: project.path === snapshot.project.path ? "selected" : null } });
     select.value = snapshot.project.path;
     select.addEventListener("change", () => void this.setProjectPath(select.value));
+    if (this.deps.askCompanion) {
+      const ask = header.createEl("button", { cls: "cc-workspace-companion-action", text: "Ask Companion" });
+      ask.addEventListener("click", () => void this.deps.askCompanion?.(snapshot.project.path));
+    }
 
     const stage = root.createEl("section", { cls: "cc-desk-stage", attr: { "aria-label": `Research stage: ${vm.stage.current}` } });
     const stageHead = stage.createDiv({ cls: "cc-desk-section-heading" }); stageHead.createEl("h3", { text: "Research path" }); stageHead.createSpan({ text: `${vm.stage.index + 1} of ${vm.stage.total}` });

@@ -35,6 +35,8 @@ export interface ResearchWorkbenchDependencies {
   releaseDiscoveryCoordinator?: () => void;
   draftCoordinator?: DraftCoordinator;
   revisionCoordinator?: RevisionCoordinator;
+  openDesk?(projectPath: string): void | Promise<void>;
+  askCompanion?(projectPath: string): void | Promise<void>;
 }
 
 export class ResearchWorkbenchView extends ItemView {
@@ -134,6 +136,17 @@ export class ResearchWorkbenchView extends ItemView {
     root.addClass("cc-research-workbench");
 
     const header = root.createEl("header", { cls: "cc-research-header" });
+    if (this.projectPath && (this.dependencies?.openDesk || this.dependencies?.askCompanion)) {
+      const navigation = header.createDiv({ cls: "cc-workspace-navigation", attr: { "aria-label": "Research workspace navigation" } });
+      if (this.dependencies.openDesk) {
+        const desk = navigation.createEl("button", { text: "Research Desk" });
+        desk.addEventListener("click", () => void this.dependencies?.openDesk?.(this.projectPath!));
+      }
+      if (this.dependencies.askCompanion) {
+        const ask = navigation.createEl("button", { cls: "cc-workspace-companion-action", text: "Ask Companion" });
+        ask.addEventListener("click", () => void this.dependencies?.askCompanion?.(this.projectPath!));
+      }
+    }
     header.createEl("div", { cls: "cc-eyebrow", text: "RESEARCH WORKBENCH" });
     header.createEl("h2", { text: vm.title });
     header.createEl("p", { cls: "cc-research-question", text: vm.question });

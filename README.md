@@ -48,6 +48,10 @@ A full Claude chat experience that lives in your vault and speaks its language.
   note, selection, linked/backlinked notes, or a keyword vault search to any
   message. **@-mention** notes, folders, **PDFs and images** — or paste a
   screenshot straight into the composer.
+- **Contextual workspaces in Companion** — when Chat is empty, Companion
+  recognizes the active note or canonical research project and offers the next
+  relevant continuation without becoming a separate homepage. Research views
+  can return to Chat with project context attached and ready for the user.
 - **Second-brain loops** — live **link suggestions** (unlinked mentions, one
   click to wire up), and session digests consolidated into an evolving **"What
   Claude Knows"** memory note that agent mode reads back.
@@ -118,8 +122,8 @@ the audit.
 
 ### Research Intelligence
 
-Open the Research Workbench with `/research`, select a project, then choose the
-**Intelligence** tab. Its deterministic analysis reads the project's canonical
+Open Research Desk with `/research`, continue into the advanced Workbench, then
+choose the **Intelligence** tab. Its deterministic analysis reads the project's canonical
 records locally, refreshes automatically when those records change, and groups
 traceable findings into four categories:
 

@@ -2,19 +2,19 @@ import { describe, it, expect } from "vitest";
 import { dispatchNativeSlashAction, parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, runNativeSlashCommand, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "../src/view/slashCommands";
 import { WORKFLOWS } from "../src/workflows/catalog";
 
-describe("native research workbench command", () => {
-  it("registers /research as a native workbench action", () => {
+describe("native research desk command", () => {
+  it("registers /research as a native desk action", () => {
     expect(SLASH_COMMANDS.find(({ name }) => name === "research")).toMatchObject({
       kind: "action",
-      action: "open-research-workbench",
+      action: "open-research-desk",
     });
     expect(filterCommands(SLASH_COMMANDS, "paper").map(({ name }) => name)).toContain("research");
   });
 
-  it("dispatches the workbench action without a prompt", async () => {
+  it("dispatches the desk action without a prompt", async () => {
     const opened: string[] = [];
-    const handled = await dispatchNativeSlashAction("open-research-workbench", {
-      openResearchWorkbench: async () => { opened.push("opened"); },
+    const handled = await dispatchNativeSlashAction("open-research-desk", {
+      openResearchDesk: async () => { opened.push("opened"); },
     });
     expect(handled).toBe(true);
     expect(opened).toEqual(["opened"]);
@@ -23,7 +23,7 @@ describe("native research workbench command", () => {
   it("does not consume unrelated actions or retain the internal tool prompt", async () => {
     const opened: string[] = [];
     expect(await dispatchNativeSlashAction("history", {
-      openResearchWorkbench: async () => { opened.push("opened"); },
+      openResearchDesk: async () => { opened.push("opened"); },
     })).toBe(false);
     expect(opened).toEqual([]);
     expect(JSON.stringify(SLASH_COMMANDS)).not.toContain("research_project_create");
@@ -43,7 +43,7 @@ describe("native research workbench command", () => {
         command: SLASH_COMMANDS.find(({ name }) => name === "research")!,
         backend,
         clearComposer: () => { composer = ""; },
-        activateResearchWorkbench: async () => { activations += 1; },
+        activateResearchDesk: async () => { activations += 1; },
         requestCompletion: async () => { completions += 1; },
       });
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Companion keeps the active work in context.** Empty Chat now surfaces one
+  relevant workspace card for the active note or research project instead of
+  making users choose a subsystem first. Research Desk and the advanced
+  Workbench can return to Chat with the canonical project already attached,
+  while ordinary notes stay note-focused and unrelated research stays hidden.
 - **Research Desk is the new guided daily research view.** It keeps one active
   project in focus with stage and document progress, an explainable next best
   action, pin/dismiss controls, a focused attention queue, project switching,
@@ -34,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collapse into a compact selector, Research Desk cards stack without overlap,
   stage labels simplify when space is constrained, and controls retain named
   40px targets without horizontal overflow.
-- **`/research` now opens the native Research Workbench.** Selecting the slash
+- **`/research` now opens the native Research Desk.** Selecting the slash
   command no longer inserts internal research-tool instructions or sends a chat
   request. It now opens the Research Desk, while the advanced Workbench remains
   available from contextual actions and the command palette.

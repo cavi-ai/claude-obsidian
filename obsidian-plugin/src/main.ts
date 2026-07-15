@@ -69,6 +69,9 @@ import { shouldEnrich } from "./sources/watcher";
 import { parseClipUrl } from "./sources/detect";
 import { OntologyRegistry } from "./ontology/registry";
 import { seedFiles } from "./ontology/seed";
+import { auditProject } from "./research/audit";
+import { buildResearchDeskViewModel } from "./research/deskViewModel";
+import { resolveCompanionWorkspace, type CompanionWorkspaceCard } from "./view/companionWorkspace";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
@@ -136,6 +139,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       preferencesFor: (projectPath) => this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] },
       updatePreferences: async (projectPath, update) => { this.researchDeskPreferences[projectPath] = update(this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] }); await this.persist(); },
       openWorkbench: (projectPath, target, path) => this.activateResearchWorkbench(projectPath, target, path),
+      askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
       createProject: () => this.activateResearchWorkbench(undefined, "Overview"),
     }));
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
@@ -154,6 +158,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
           draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
           revisionCoordinator: new RevisionCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
+          openDesk: (projectPath) => this.activateResearchDesk(projectPath),
+          askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
         };
       })(),
     ));
@@ -1212,6 +1218,34 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return leaf.view instanceof ChatView ? leaf.view : null;
     }
     return null;
+  }
+
+  async companionWorkspaceContext(): Promise<CompanionWorkspaceCard | null> {
+    const active = this.app.workspace.getActiveFile();
+    if (!(active instanceof TFile) || active.extension !== "md") return null;
+    const frontmatter = this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined;
+    const projectPath = inferResearchProjectPath(active.path, frontmatter);
+    if (projectPath) {
+      try {
+        const snapshot = await this.researchRepository().loadProject(projectPath);
+        const vm = buildResearchDeskViewModel(snapshot, auditProject(snapshot), this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] });
+        return resolveCompanionWorkspace({
+          activeNote: { path: active.path, title: active.basename },
+          research: {
+            projectPath,
+            title: vm.title,
+            stage: vm.stage.current,
+            ...(vm.nextAction ? { nextAction: vm.nextAction.label, nextReason: vm.nextAction.reason } : {}),
+          },
+        });
+      } catch { /* Fall back to the active note instead of blocking Chat. */ }
+    }
+    return resolveCompanionWorkspace({ activeNote: { path: active.path, title: active.basename } });
+  }
+
+  async askCompanionAboutProject(projectPath: string): Promise<void> {
+    const view = await this.activateView();
+    view?.prepareWorkspaceQuestion({ kind: "research", title: "Continue this research project", contextPath: projectPath });
   }
 
   // ---------- session memory ----------

@@ -72,15 +72,15 @@ export function filterCommands(commands: SlashCommand[], query: string): SlashCo
 export const WORKFLOW_ACTION_PREFIX = "workflow:";
 
 export interface NativeSlashActionHandlers {
-  openResearchWorkbench(): Promise<void>;
+  openResearchDesk(): Promise<void>;
 }
 
 export async function dispatchNativeSlashAction(
   action: string | undefined,
   handlers: NativeSlashActionHandlers,
 ): Promise<boolean> {
-  if (action !== "open-research-workbench") return false;
-  await handlers.openResearchWorkbench();
+  if (action !== "open-research-desk" && action !== "open-research-workbench") return false;
+  await handlers.openResearchDesk();
   return true;
 }
 
@@ -88,16 +88,16 @@ export interface NativeSlashCommandContext {
   command: SlashCommand;
   backend: "claude" | "auto" | "local";
   clearComposer: () => void;
-  activateResearchWorkbench: () => Promise<void>;
+  activateResearchDesk: () => Promise<void>;
   requestCompletion: (prompt: string, display?: string) => Promise<void>;
 }
 
 /** Orchestrate native slash actions that bypass every chat completion backend. */
 export async function runNativeSlashCommand(context: NativeSlashCommandContext): Promise<boolean> {
-  const { command, clearComposer, activateResearchWorkbench } = context;
-  if (command.action !== "open-research-workbench") return false;
+  const { command, clearComposer, activateResearchDesk } = context;
+  if (command.action !== "open-research-desk" && command.action !== "open-research-workbench") return false;
   clearComposer();
-  await activateResearchWorkbench();
+  await activateResearchDesk();
   return true;
 }
 
@@ -174,9 +174,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     name: "research",
     aliases: ["paper", "evidence", "workbench", "literature"],
-    description: "Open the evidence-backed Research Workbench",
+    description: "Open Research Desk and continue the active evidence-backed project",
     kind: "action",
-    action: "open-research-workbench",
+    action: "open-research-desk",
   },
   {
     name: "diagram",
