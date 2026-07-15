@@ -28,10 +28,11 @@ describe("ResearchDeskView", () => {
 
   it("renders an explainable first viewport and contextual workbench handoff", async () => {
     const openWorkbench = vi.fn(async () => undefined);
+    const askCompanion = vi.fn(async () => undefined);
     const view = new ResearchDeskView(new WorkspaceLeaf(), {
       listProjects: async () => [project], loadProject: async () => snapshot,
       loadDraftSections: async () => ({ issues: [], sections: [{ envelope: { provider: "anthropic" }, modifiedSinceReview: false }, { envelope: { provider: "companion" }, modifiedSinceReview: false }] }),
-    } as never, { preferencesFor: () => ({ dismissedActionIds: [] }), updatePreferences: vi.fn(), openWorkbench });
+    } as never, { preferencesFor: () => ({ dismissedActionIds: [] }), updatePreferences: vi.fn(), openWorkbench, askCompanion });
     await view.setProjectPath(project.path);
     expect(elements(view, "h2")[0]?.textContent).toBe("Continuity");
     expect(elements(view, ".cc-desk-next")).toHaveLength(1);
@@ -43,6 +44,9 @@ describe("ResearchDeskView", () => {
     click(elements(view, "button").find(({ textContent }) => textContent === "Start this task"));
     await Promise.resolve();
     expect(openWorkbench).toHaveBeenCalledWith(project.path, "Evidence", "Research/P/Evidence/E.md");
+    click(elements(view, "button").find(({ textContent }) => textContent === "Ask Companion"));
+    await Promise.resolve();
+    expect(askCompanion).toHaveBeenCalledWith(project.path);
   });
 
   it("supports project switching plus dismiss and pin controls without implicit work", async () => {

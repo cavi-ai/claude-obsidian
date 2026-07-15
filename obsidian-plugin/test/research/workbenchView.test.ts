@@ -91,6 +91,22 @@ describe("ResearchWorkbenchView", () => {
     expect(elements(broken, "button").map(({ textContent }) => textContent)).toContain("Run audit");
   });
 
+  it("returns to the desk or asks Companion without losing project context", async () => {
+    const openDesk = vi.fn(async () => undefined);
+    const askCompanion = vi.fn(async () => undefined);
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never, {
+      ...intelligenceDependencies().dependencies,
+      openDesk,
+      askCompanion,
+    });
+    await view.setProjectPath(snapshot.project.path);
+    click(elements(view, "button").find(({ textContent }) => textContent === "Research Desk"));
+    click(elements(view, "button").find(({ textContent }) => textContent === "Ask Companion"));
+    await Promise.resolve();
+    expect(openDesk).toHaveBeenCalledWith(snapshot.project.path);
+    expect(askCompanion).toHaveBeenCalledWith(snapshot.project.path);
+  });
+
   it("implements linked tabpanels, roving tabindex, and keyboard tab navigation", async () => {
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
     await view.setProjectPath(snapshot.project.path);

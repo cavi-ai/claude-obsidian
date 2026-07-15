@@ -76,3 +76,25 @@ test("06 accessibility and responsive states: controls remain named and reachabl
   }
   expect(consoleFailures.filter((failure) => /EPIPE|unhandled/i.test(failure))).toEqual([]);
 });
+
+test("07 Companion continuity: active research becomes context, not a new home", async () => {
+  await harness.page.evaluate(async () => {
+    const app = (window as unknown as { app: { vault: { getAbstractFileByPath(path: string): unknown }; workspace: { getLeaf(value: boolean): { openFile(file: unknown): Promise<void> } }; commands: { executeCommandById(id: string): Promise<void> } } }).app;
+    const project = app.vault.getAbstractFileByPath("Research/Alpha/Project.md");
+    if (!project) throw new Error("Research fixture project is missing");
+    await app.workspace.getLeaf(false).openFile(project);
+    await app.commands.executeCommandById("claude-companion:open-chat");
+  });
+  const chat = harness.page.locator(".cc-chat-root");
+  await expect(chat).toBeVisible();
+  const workspace = chat.locator(".cc-context-workspace");
+  await expect(workspace).toContainText("Continue Continuity research");
+  await expect(workspace.getByRole("button", { name: "Open Research Desk" })).toBeVisible();
+  await workspace.getByRole("button", { name: "Ask Companion" }).click();
+  await expect(chat.locator(".cc-attach-pill").filter({ hasText: "Project" })).toHaveCount(1);
+  await expect(chat.locator("textarea")).toHaveValue(/Help me continue Continuity research/);
+  await harness.page.locator(".workspace-split.mod-right-split").evaluate((element) => { (element as HTMLElement).style.width = "390px"; });
+  await expect.poll(async () => await chat.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await chat.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/07-companion-context.png" });
+  expect(consoleFailures.filter((failure) => /EPIPE|unhandled/i.test(failure))).toEqual([]);
+});

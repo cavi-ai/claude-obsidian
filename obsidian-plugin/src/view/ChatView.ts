@@ -28,6 +28,7 @@ import { extractTasks } from "../build/spec";
 import { errorHint } from "../providers/errorHints";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
+import type { CompanionWorkspaceCard } from "./companionWorkspace";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
@@ -744,8 +745,11 @@ export class ChatView extends ItemView {
     empty.createDiv({ cls: "cc-empty-title", text: "Claude, in your vault." });
     empty.createDiv({
       cls: "cc-empty-sub",
-      text: "Type @ to bring in a note, your selection, or the whole vault — then try one of these, or just ask.",
+      text: "Stay in the thread across notes, research, thinking, and finished work.",
     });
+    const workspaceMount = empty.createDiv({ cls: "cc-context-workspace-mount", attr: { "aria-live": "polite" } });
+    void this.renderContextualWorkspace(workspaceMount);
+    empty.createDiv({ cls: "cc-empty-section-label", text: "START SOMETHING ELSE" });
     const examples: { label: string; prompt: string }[] = [
       { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first." },
       { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system." },
@@ -764,6 +768,43 @@ export class ChatView extends ItemView {
         if (!ex.prompt.endsWith(" ")) void this.onSend();
       });
     }
+  }
+
+  private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
+    const workspace = await this.plugin.companionWorkspaceContext();
+    if (!mount.isConnected || this.messages.length > 0 || !workspace) return;
+    mount.empty();
+    const card = mount.createEl("section", { cls: `cc-context-workspace is-${workspace.kind}`, attr: { "aria-label": "Current Companion workspace" } });
+    card.createDiv({ cls: "cc-context-workspace-eyebrow", text: workspace.eyebrow });
+    card.createEl("h3", { text: workspace.title });
+    card.createEl("p", { text: workspace.description });
+    card.createDiv({ cls: "cc-context-workspace-meta", text: workspace.meta });
+    const actions = card.createDiv({ cls: "cc-context-workspace-actions" });
+    const primary = actions.createEl("button", { cls: "mod-cta", text: workspace.primaryAction });
+    const secondary = actions.createEl("button", { text: workspace.secondaryAction });
+    if (workspace.kind === "research") {
+      primary.addEventListener("click", () => void this.plugin.activateResearchDesk(workspace.contextPath));
+      secondary.addEventListener("click", () => void this.prepareWorkspaceQuestion(workspace));
+    } else {
+      primary.addEventListener("click", () => void this.prepareWorkspaceQuestion(workspace));
+      secondary.addEventListener("click", () => void this.plugin.activateRelatedView());
+    }
+  }
+
+  /** Attach canonical workspace context and hand control back to the user. */
+  prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
+    const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
+    const alreadyIncludedAsActiveNote = this.plugin.settings.context.activeNote && active?.path === workspace.contextPath;
+    if (!alreadyIncludedAsActiveNote && !this.attachedPaths.some(({ path, kind }) => path === workspace.contextPath && kind === "note")) {
+      this.attachedPaths.push({ path: workspace.contextPath, kind: "note" });
+    }
+    this.inputEl.value = workspace.kind === "research"
+      ? `Help me continue ${workspace.title.replace(/^Continue /, "")}. `
+      : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `;
+    this.renderAttachPills();
+    this.autosizeInput();
+    this.updateUsageBar();
+    this.inputEl.focus();
   }
 
   clearChat(): void {
@@ -828,7 +869,7 @@ export class ChatView extends ItemView {
         this.inputEl.value = "";
         this.autosizeInput();
       },
-      activateResearchWorkbench: () => this.plugin.activateResearchDesk(),
+      activateResearchDesk: () => this.plugin.activateResearchDesk(),
       requestCompletion: (prompt, display) => this.submitPrompt(prompt, display),
     })) return;
 

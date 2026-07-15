@@ -39,6 +39,10 @@ vault stays the single source of truth.
 - **Chat in a side panel** — streaming responses, Markdown-rendered, with
   per-message **Copy / Insert / Save as note / Regenerate** actions and
   hover-to-copy on every code block.
+- **Continue the active workspace** — empty Chat surfaces one relevant card for
+  the active note or research project. Research Desk and Workbench can hand the
+  canonical project back to Companion without sending a request automatically;
+  ordinary notes remain note-focused.
 - **Vault-aware context** — `@`-mention notes, folders, or the whole vault;
   toggle context pills for your **active note**, the **current selection**,
   **linked & backlinked notes**, or a **vault search**. Keyword search by
