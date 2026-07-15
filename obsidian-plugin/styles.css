@@ -1569,6 +1569,29 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-intelligence-paths { display: flex; flex-wrap: wrap; gap: 6px; }
 .cc-intelligence-paths button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .cc-intelligence-stale { border-color: var(--color-orange); }
+.cc-draft-section {
+  margin-block: var(--size-4-3);
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary-alt);
+}
+.cc-draft-section h4 { margin-block: 0 var(--size-4-1); }
+.cc-draft-section button { margin-inline-end: var(--size-4-2); }
+.cc-draft-status, .cc-draft-provider { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.cc-draft-status.is-stale { color: var(--color-orange); }
+.cc-draft-preview {
+  max-height: 22rem;
+  padding: var(--size-4-3);
+  overflow: auto;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  white-space: pre-wrap;
+}
+.cc-draft-diff { margin-block: var(--size-4-3); }
+.cc-draft-support { margin-block: var(--size-4-3); }
+.cc-draft-support-paths { color: var(--text-muted); font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
 
 @media (max-width: 480px) {
   .cc-research-workbench { padding: 10px; }

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkspaceLeaf } from "obsidian";
 import type { ResearchRepository } from "../../src/research/repository";
 import { RESEARCH_WORKBENCH_VIEW_TYPE, ResearchWorkbenchView, replaceResearchProjectPath } from "../../src/view/ResearchWorkbenchView";
+import { parseDraftSections, renderDraftSection } from "../../src/research/draftSections";
+import { ResearchDraftPanel, safeDraftError } from "../../src/view/ResearchDraftPanel";
+import { buildDraftGrounding, groundingClaimFingerprint } from "../../src/research/draftGrounding";
 
 const snapshot = {
   project: { path: "Research/P/Project.md", title: "Project P", question: "Why?", stage: "reason", status: "active" },
@@ -44,6 +47,9 @@ function discoveryCoordinator(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ResearchWorkbenchView", () => {
+  it("redacts provider credentials from section drafting errors", () => {
+    expect(safeDraftError(new Error("request failed\nBearer secret-token api_key=also-secret"))).toBe("request failed [redacted] [redacted]");
+  });
   it("registers stable accessible view metadata", () => {
     const repository = { loadProject: () => Promise.reject(new Error("unused")) } as ResearchRepository;
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository);
@@ -89,7 +95,7 @@ describe("ResearchWorkbenchView", () => {
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
     await view.setProjectPath(snapshot.project.path);
     let tabs = elements(view, '[role="tab"]');
-    expect(tabs).toHaveLength(8);
+    expect(tabs).toHaveLength(9);
     expect(tabs[0].getAttribute("tabindex")).toBe("0");
     expect(tabs.slice(1).every((tab) => tab.getAttribute("tabindex") === "-1")).toBe(true);
     const panel = elements(view, '[role="tabpanel"]')[0];
@@ -98,8 +104,8 @@ describe("ResearchWorkbenchView", () => {
     tabs[0].dispatchEvent({ type: "keydown", key: "End", preventDefault() {} });
     await Promise.resolve(); await Promise.resolve();
     tabs = elements(view, '[role="tab"]');
-    expect(tabs[7].getAttribute("tabindex")).toBe("0");
-    expect(tabs[7].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[8].getAttribute("tabindex")).toBe("0");
+    expect(tabs[8].getAttribute("aria-selected")).toBe("true");
   });
 
   it("selects Discover without implicit network or model work", async () => {
@@ -107,7 +113,7 @@ describe("ResearchWorkbenchView", () => {
     const h = intelligenceDependencies();
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never, { ...h.dependencies, discoveryCoordinator: coordinator });
     await view.setProjectPath(snapshot.project.path);
-    click(elements(view, '[role="tab"]')[7]); await Promise.resolve(); await Promise.resolve();
+    click(elements(view, '[role="tab"]')[8]); await Promise.resolve(); await Promise.resolve();
     expect(elements(view, "button").map(({ textContent }) => textContent)).toContain("Search");
     expect(coordinator.search).not.toHaveBeenCalled(); expect(coordinator.rerank).not.toHaveBeenCalled();
   });
@@ -117,7 +123,7 @@ describe("ResearchWorkbenchView", () => {
     const h = intelligenceDependencies();
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => current } as never, h.dependencies);
     await view.setProjectPath(snapshot.project.path);
-    click(elements(view, '[role="tab"]')[6]);
+    click(elements(view, '[role="tab"]')[7]);
     await Promise.resolve(); await Promise.resolve();
     expect(elements(view, ".cc-intelligence-category")).toHaveLength(4);
     expect(h.analyzeCalls).toBe(0);
@@ -149,7 +155,7 @@ describe("ResearchWorkbenchView", () => {
     const retainDiscoveryCoordinator = vi.fn(); const releaseDiscoveryCoordinator = vi.fn();
     const retainIntelligenceCoordinator = vi.fn(); const releaseIntelligenceCoordinator = vi.fn();
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository, { ...h.dependencies, discoveryCoordinator: coordinator, retainDiscoveryCoordinator, releaseDiscoveryCoordinator, retainIntelligenceCoordinator, releaseIntelligenceCoordinator });
-    await view.setProjectPath("Research/One/Project.md"); click(elements(view, '[role="tab"]')[7]); await Promise.resolve(); await Promise.resolve();
+    await view.setProjectPath("Research/One/Project.md"); click(elements(view, '[role="tab"]')[8]); await Promise.resolve(); await Promise.resolve();
     click(elements(view, "button").find(({ textContent }) => textContent === "Rerank with model")); await Promise.resolve();
     await view.setProjectPath("Research/Two/Project.md"); const afterReplacement = view.contentEl.textContent;
     resolve(); await Promise.resolve(); await Promise.resolve();
@@ -157,6 +163,54 @@ describe("ResearchWorkbenchView", () => {
     await view.onClose(); expect(unsubscriptions).toBe(1); expect(cancels).toBe(2); expect(releaseDiscoveryCoordinator).toHaveBeenCalledOnce(); expect(releaseIntelligenceCoordinator).toHaveBeenCalledOnce();
     await view.onClose(); expect(releaseDiscoveryCoordinator).toHaveBeenCalledOnce(); expect(releaseIntelligenceCoordinator).toHaveBeenCalledOnce();
     await view.onOpen(); expect(subscriptions).toBe(2); expect(retainDiscoveryCoordinator).toHaveBeenCalledOnce(); expect(retainIntelligenceCoordinator).toHaveBeenCalledOnce();
+  });
+
+  it("previews and explicitly accepts one grounded section from the Draft tab", async () => {
+    const managed = parseDraftSections(renderDraftSection({ id: "claim-c", claimPaths: ["Research/P/Claims/C.md"], evidence: [], citations: [], provider: "companion", model: "evidence-outline-v1", generatedAt: "outline" }, "## Claim C\n\nOutline text.")).sections[0];
+    if (!managed) throw new Error("missing section fixture");
+    const draftSnapshot = { ...snapshot,
+      sources: [{ path: "Research/P/Sources/S.md", title: "S", type: "research-source", project: snapshot.project.path, sourceKind: "zotero", zoteroKey: "smith2025", contentFingerprint: "sha256:s" }],
+      evidence: [{ path: "Research/P/Evidence/E.md", title: "E", type: "evidence", project: snapshot.project.path, source: "Research/P/Sources/S.md", sourceFingerprint: "sha256:s", locatorKind: "page", locatorValue: "1", excerpt: "Grounded.", reviewState: "reviewed" }],
+      claims: [{ path: "Research/P/Claims/C.md", title: "C", type: "claim", project: snapshot.project.path, proposition: "Grounded prose.", confidence: "moderate", reviewState: "reviewed", supporting: ["Research/P/Evidence/E.md"], challenging: [], contextual: [], limitations: [] }],
+      documents: [{ path: "Research/P/Documents/Outline.md", title: "Outline", type: "research-document", project: snapshot.project.path, documentKind: "outline", claims: ["Research/P/Claims/C.md"] }] } as never;
+    const currentPacket = buildDraftGrounding(draftSnapshot, "Research/P/Claims/C.md");
+    const currentEvidence = currentPacket.evidence.map(({ path, fingerprint }) => ({ path, fingerprint }));
+    const acceptDraftSection = vi.fn(async () => undefined);
+    const repository = { loadProject: async () => draftSnapshot, loadDraftSections: async () => ({ sections: [managed], issues: [] }), acceptDraftSection } as never;
+    const preview = vi.fn(async () => ({
+      section: managed,
+      packet: { claim: { path: "Research/P/Claims/C.md" }, evidence: [{ path: "Research/P/Evidence/E.md", fingerprint: "fixture" }] },
+      response: { markdown: "Grounded prose [@smith2025].", support: [], gaps: [] },
+      envelope: { ...managed.envelope, evidence: currentEvidence, claimFingerprint: groundingClaimFingerprint(currentPacket), provider: "anthropic", model: "claude-test", generatedAt: "2026-07-14T20:00:00.000Z" },
+    }));
+    const h = intelligenceDependencies();
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository, { ...h.dependencies, draftCoordinator: { preview } as never });
+    await view.setProjectPath(snapshot.project.path);
+    click(elements(view, '[role="tab"]')[5]); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(elements(view, "button").map(({ textContent }) => textContent)).toContain("Preview draft");
+    expect(preview).not.toHaveBeenCalled();
+
+    click(elements(view, "button").find(({ textContent }) => textContent === "Preview draft"));
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(elements(view, ".cc-draft-provider")[0]?.textContent).toBe("anthropic · claude-test");
+    expect(elements(view, ".cc-draft-preview")[0]?.textContent).toBe("Grounded prose [@smith2025].");
+    expect(elements(view, ".cc-draft-diff")).toHaveLength(1);
+    click(elements(view, "button").find(({ textContent }) => textContent === "Accept section"));
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(acceptDraftSection).toHaveBeenCalledWith(expect.objectContaining({ documentPath: "Research/P/Documents/Outline.md", markdown: "Grounded prose [@smith2025]." }));
+  });
+
+  it("surfaces accepted-section evidence drift", async () => {
+    const accepted = parseDraftSections(renderDraftSection({ id: "claim-c", claimPaths: ["Research/P/Claims/C.md"], evidence: [{ path: "Research/P/Evidence/E.md", fingerprint: "old" }], citations: [], provider: "anthropic", model: "test", generatedAt: "then" }, "## Claim C\n\nGrounded [@smith2025].")).sections[0];
+    if (!accepted) throw new Error("missing section fixture");
+    const driftSnapshot = { ...snapshot,
+      sources: [{ path: "Research/P/Sources/S.md", title: "S", contentFingerprint: "sha256:s" }],
+      evidence: [{ path: "Research/P/Evidence/E.md", source: "Research/P/Sources/S.md", sourceFingerprint: "sha256:s", locatorKind: "page", locatorValue: "1", excerpt: "Changed.", reviewState: "reviewed" }],
+      claims: [{ path: "Research/P/Claims/C.md", title: "C", proposition: "Grounded.", confidence: "moderate", reviewState: "reviewed", supporting: ["Research/P/Evidence/E.md"], challenging: [], contextual: [], limitations: [] }],
+      documents: [{ path: "Research/P/Documents/Draft.md", title: "Draft", type: "research-document", project: snapshot.project.path, documentKind: "draft", claims: ["Research/P/Claims/C.md"] }] } as never;
+    const root = new ResearchWorkbenchView(new WorkspaceLeaf(), {} as never).contentEl;
+    new ResearchDraftPanel({ coordinator: {} as never, repository: {} as never, rerender: () => undefined }).render(root, driftSnapshot, driftSnapshot.documents[0], { sections: [accepted], issues: [] });
+    expect(root.querySelectorAll(".cc-draft-status")[0]?.textContent).toBe("Evidence changed since review");
   });
 
   it("does not commit a deferred render after close and can render after reopening", async () => {

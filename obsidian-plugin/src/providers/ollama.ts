@@ -29,6 +29,7 @@ export class OllamaProvider implements Provider {
     return JSON.stringify({
       model: req.model || this.defaultModel,
       stream: true,
+      ...(req.responseFormat === "json" ? { format: req.responseSchema ?? "json" } : {}),
       options: { temperature: req.temperature ?? 0.7, num_predict: req.maxTokens },
       messages: [
         ...(req.system ? [{ role: "system", content: req.system }] : []),

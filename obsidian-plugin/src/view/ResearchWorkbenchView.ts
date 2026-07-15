@@ -8,10 +8,14 @@ import type { IntelligenceCoordinator, IntelligenceNarratorMode } from "../resea
 import { ResearchIntelligencePanel } from "./ResearchIntelligencePanel";
 import type { DiscoveryCoordinator } from "../discovery/coordinator";
 import { DiscoveryPanel } from "./DiscoveryPanel";
+import type { DraftCoordinator } from "../research/draftCoordinator";
+import type { DraftSectionParseResult } from "../research/draftSections";
+import type { ResearchDocumentRecord } from "../research/types";
+import { ResearchDraftPanel } from "./ResearchDraftPanel";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
-type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Audit" | "Intelligence" | "Discover";
-const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Audit", "Intelligence", "Discover"];
+type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Draft" | "Audit" | "Intelligence" | "Discover";
+const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Draft", "Audit", "Intelligence", "Discover"];
 
 export interface ResearchWorkbenchDependencies {
   coordinator: IntelligenceCoordinator;
@@ -21,6 +25,7 @@ export interface ResearchWorkbenchDependencies {
   discoveryCoordinator?: DiscoveryCoordinator;
   retainDiscoveryCoordinator?: () => void;
   releaseDiscoveryCoordinator?: () => void;
+  draftCoordinator?: DraftCoordinator;
 }
 
 export class ResearchWorkbenchView extends ItemView {
@@ -31,11 +36,13 @@ export class ResearchWorkbenchView extends ItemView {
   private intelligenceCoordinatorReleased = false;
   private discoveryPanel: DiscoveryPanel | undefined;
   private discoveryCoordinatorReleased = false;
+  private draftPanel: ResearchDraftPanel | undefined;
 
   constructor(leaf: WorkspaceLeaf, private readonly repository: ResearchRepository, private readonly dependencies?: ResearchWorkbenchDependencies) {
     super(leaf);
     this.intelligencePanel = this.createIntelligencePanel();
     this.discoveryPanel = this.createDiscoveryPanel();
+    this.draftPanel = this.createDraftPanel();
   }
 
   getViewType(): string { return RESEARCH_WORKBENCH_VIEW_TYPE; }
@@ -83,6 +90,7 @@ export class ResearchWorkbenchView extends ItemView {
       this.discoveryCoordinatorReleased = true;
       this.dependencies?.releaseDiscoveryCoordinator?.();
     }
+    this.draftPanel?.dispose();
   }
 
   async render(): Promise<void> {
@@ -92,6 +100,16 @@ export class ResearchWorkbenchView extends ItemView {
     if (this.projectPath) {
       try { snapshot = await this.repository.loadProject(this.projectPath); }
       catch (error) { loadError = sanitizeLoadError(error); }
+    }
+    if (sequence !== this.renderSequence) return;
+    let draftDocument: ResearchDocumentRecord | undefined;
+    let draftSections: DraftSectionParseResult | undefined;
+    if (snapshot && this.activeTab === "Draft") {
+      draftDocument = snapshot.documents.find(({ documentKind }) => documentKind === "draft") ?? snapshot.documents.find(({ documentKind }) => documentKind === "outline");
+      if (draftDocument) {
+        try { draftSections = await this.repository.loadDraftSections(draftDocument.path); }
+        catch (error) { draftSections = { sections: [], issues: [sanitizeLoadError(error)] }; }
+      }
     }
     if (sequence !== this.renderSequence) return;
     const findings = snapshot ? auditProject(snapshot) : [];
@@ -125,7 +143,7 @@ export class ResearchWorkbenchView extends ItemView {
     const panel = root.createEl("section", { cls: "cc-research-panel", attr: { id: `${activeId}-panel`, role: "tabpanel", "aria-labelledby": activeId } });
     if (loadError && this.projectPath) this.renderError(panel, this.projectPath, loadError);
     else if (!snapshot) this.renderEmpty(panel);
-    else this.renderTab(panel, snapshot, findings);
+    else this.renderTab(panel, snapshot, findings, draftDocument, draftSections);
     this.renderActions(root, snapshot);
   }
 
@@ -142,7 +160,7 @@ export class ResearchWorkbenchView extends ItemView {
     this.actionButton(root, "Run audit", undefined, undefined, () => { this.activeTab = "Audit"; void this.render(); });
   }
 
-  private renderTab(root: HTMLElement, snapshot: ProjectSnapshot, findings: ReturnType<typeof auditProject>): void {
+  private renderTab(root: HTMLElement, snapshot: ProjectSnapshot, findings: ReturnType<typeof auditProject>, draftDocument?: ResearchDocumentRecord, draftSections?: DraftSectionParseResult): void {
     const vm = buildWorkbenchViewModel(snapshot, findings);
     if (this.activeTab === "Intelligence") {
       if (this.intelligencePanel) this.intelligencePanel.render(root, snapshot);
@@ -152,6 +170,11 @@ export class ResearchWorkbenchView extends ItemView {
     if (this.activeTab === "Discover") {
       if (this.discoveryPanel) this.discoveryPanel.render(root, snapshot);
       else root.createEl("p", { text: "Scholarly discovery is unavailable." });
+      return;
+    }
+    if (this.activeTab === "Draft") {
+      if (this.draftPanel) this.draftPanel.render(root, snapshot, draftDocument, draftSections);
+      else root.createEl("p", { text: "Section drafting is unavailable." });
       return;
     }
     if (this.activeTab === "Overview") {
@@ -215,6 +238,7 @@ export class ResearchWorkbenchView extends ItemView {
     else this.dependencies?.coordinator.cancel();
     if (this.discoveryPanel) this.discoveryPanel.cancel();
     else this.dependencies?.discoveryCoordinator?.cancel();
+    this.draftPanel?.dispose();
   }
 
   private createDiscoveryPanel(): DiscoveryPanel | undefined {
@@ -229,6 +253,11 @@ export class ResearchWorkbenchView extends ItemView {
       openPath: (path) => this.openPath(path),
       rerender: () => this.render(),
     });
+  }
+
+  private createDraftPanel(): ResearchDraftPanel | undefined {
+    if (!this.dependencies?.draftCoordinator) return undefined;
+    return new ResearchDraftPanel({ coordinator: this.dependencies.draftCoordinator, repository: this.repository, rerender: () => this.render() });
   }
 
   private openCreateProject(): void {

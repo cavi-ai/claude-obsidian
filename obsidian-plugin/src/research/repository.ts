@@ -3,6 +3,7 @@ import { canonicalSourceId, findDuplicate } from "./identity";
 import { parseResearchCandidate, parseResearchRecord, type ResearchNoteInput } from "./parse";
 import { renderResearchRecord } from "./render";
 import { renderEvidenceOutline } from "./outline";
+import { applyDraftSection, parseDraftSections, validateDocumentCitationKeys, type DraftSectionEnvelope, type DraftSectionParseResult, type ParsedDraftSection } from "./draftSections";
 import type {
   ClaimRecord,
   EvidenceRecord,
@@ -21,6 +22,7 @@ export interface ResearchRepositoryIO {
   listProjectMarkdown?(projectPath: string): Promise<ResearchNoteInput[]>;
   createWithParents(path: string, content: string): Promise<void>;
   updateFrontmatter(path: string, mutator: (frontmatter: Record<string, unknown>) => void): Promise<void>;
+  updateText?(path: string, updater: (content: string) => string): Promise<void>;
   readBinary?(path: string): Promise<Uint8Array>;
 }
 
@@ -73,6 +75,15 @@ export interface CreateClaimInput {
   challenges?: string[];
   contextualizes?: string[];
   limitations?: string[];
+}
+
+export interface AcceptDraftSectionInput {
+  documentPath: string;
+  preview: ParsedDraftSection;
+  envelope: DraftSectionEnvelope;
+  markdown: string;
+  currentEvidence: Array<{ path: string; fingerprint: string }>;
+  currentClaimFingerprint: string;
 }
 
 const LAYOUT = {
@@ -265,6 +276,36 @@ export class ResearchRepository {
       throw error;
     }
     return { path: record.path, content };
+  }
+
+  async acceptDraftSection(input: AcceptDraftSectionInput): Promise<void> {
+    safePath(input.documentPath);
+    if (!/\/Documents\/[^/]+\.md$/.test(input.documentPath)) throw new Error(`Research document is outside canonical layout: ${input.documentPath}`);
+    if (!this.io.updateText) throw new Error("Atomic research document updates are unavailable");
+    if (JSON.stringify(input.envelope.claimPaths) !== JSON.stringify(input.preview.envelope.claimPaths)) throw new Error("Replacement draft section claims must match the previewed section");
+    if (JSON.stringify(input.currentEvidence) !== JSON.stringify(input.envelope.evidence)) throw new Error("Draft evidence changed after the preview was generated");
+    if (!input.envelope.claimFingerprint || input.currentClaimFingerprint !== input.envelope.claimFingerprint) throw new Error("Draft claim changed after the preview was generated");
+    await this.io.updateText(input.documentPath, (current) => {
+      const frontmatter = /^---\n([\s\S]*?)\n---\n?/.exec(current);
+      if (!frontmatter || !/^type:\s*["']?research-document["']?\s*$/m.test(frontmatter[1] ?? "")) throw new Error(`Research record is not a document: ${input.documentPath}`);
+      const parsedSections = parseDraftSections(current);
+      if (parsedSections.issues.length) throw new Error(`Research document has malformed managed sections: ${parsedSections.issues.join("; ")}`);
+      validateDocumentCitationKeys([...parsedSections.sections.filter(({ envelope }) => envelope.id !== input.envelope.id).map(({ envelope }) => envelope), input.envelope]);
+      let updated = applyDraftSection(current, input.preview, input.envelope, input.markdown);
+      if (/^document_kind:\s*["']?outline["']?\s*$/m.test(frontmatter[1] ?? "")) updated = updated.replace(/^document_kind:\s*["']?outline["']?\s*$/m, "document_kind: draft");
+      else if (!/^document_kind:\s*["']?draft["']?\s*$/m.test(frontmatter[1] ?? "")) throw new Error(`Research document kind is invalid: ${input.documentPath}`);
+      return updated;
+    });
+  }
+
+  async loadDraftSections(documentPath: string): Promise<DraftSectionParseResult> {
+    safePath(documentPath);
+    if (!/\/Documents\/[^/]+\.md$/.test(documentPath)) throw new Error(`Research document is outside canonical layout: ${documentPath}`);
+    const note = (await this.io.listMarkdown()).find(({ path }) => path === documentPath);
+    if (!note) throw new Error(`Research document not found: ${documentPath}`);
+    const parsed = parseResearchRecord(note);
+    if (!parsed.record || parsed.record.type !== "research-document") throw new Error(`Research record is not a document: ${documentPath}`);
+    return parseDraftSections(note.body);
   }
 
   private async createRecord(record: ResearchRecord): Promise<void> {

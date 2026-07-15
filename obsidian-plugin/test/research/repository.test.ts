@@ -1,6 +1,7 @@
 import { parse } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 import { ResearchRepository, type ImportSourceInput, type ResearchRepositoryIO } from "../../src/research/repository";
+import { parseDraftSections } from "../../src/research/draftSections";
 
 class MemoryIO implements ResearchRepositoryIO {
   files = new Map<string, string>();
@@ -48,6 +49,11 @@ class MemoryIO implements ResearchRepositoryIO {
       if (before[key] !== value) block = block.replace(new RegExp(`^${key}:.*(?:\n  - .*)*`, "m"), `${key}: ${Array.isArray(value) ? JSON.stringify(value) : String(value)}`);
     }
     this.files.set(path, content.replace(match[0], `---\n${block}\n---`));
+  }
+  async updateText(path: string, updater: (content: string) => string) {
+    const content = this.files.get(path);
+    if (content === undefined) throw new Error(`File not found: ${path}`);
+    this.files.set(path, updater(content));
   }
 }
 
@@ -204,6 +210,51 @@ describe("ResearchRepository", () => {
     expect(outline.content).toContain("Source fingerprint: `sha256:");
     expect(outline.content).toContain("> Exact quote.");
     expect((await repo.loadProject(project.path)).documents[0]?.claims).toEqual([claim.path]);
+  });
+
+  it("atomically accepts one previewed section into the canonical document", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "zotero", zoteroKey: "smith2025", capturedContent: "bytes" });
+    if (source.kind !== "created") throw new Error("expected source");
+    const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact quote.", locatorKind: "page", locatorValue: "14", reviewState: "reviewed" });
+    const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result.", supports: [evidence.path], reviewState: "reviewed" });
+    const outline = await repo.createOutline(project.path, [claim.path]);
+    const loaded = await repo.loadDraftSections(outline.path);
+    expect(loaded.issues).toEqual([]);
+    const preview = loaded.sections[0];
+    if (!preview) throw new Error("missing managed section");
+
+    await repo.acceptDraftSection({
+      documentPath: outline.path,
+      preview,
+      envelope: { ...preview.envelope, provider: "anthropic", model: "claude-test", generatedAt: "2026-07-14T20:00:00.000Z", claimFingerprint: "claim-v1" },
+      markdown: "The result was observed [@smith2025].",
+      currentEvidence: preview.envelope.evidence,
+      currentClaimFingerprint: "claim-v1",
+    });
+
+    const content = io.files.get(outline.path) ?? "";
+    expect(content).toContain("document_kind: draft");
+    expect(content).toContain("The result was observed [@smith2025].");
+    expect(parseDraftSections(content).sections[0]?.modifiedSinceReview).toBe(false);
+  });
+
+  it("blocks acceptance when reviewed evidence changed after preview", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    const project = await repo.createProject(projectInput);
+    const source = await repo.importSource(project.path, { title: "Paper", sourceKind: "zotero", zoteroKey: "smith2025", capturedContent: "bytes" });
+    if (source.kind !== "created") throw new Error("expected source");
+    const evidence = await repo.createEvidence({ project: project.path, source: source.path, title: "Evidence", excerpt: "Exact quote.", locatorKind: "page", locatorValue: "14", reviewState: "reviewed" });
+    const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result.", supports: [evidence.path], reviewState: "reviewed" });
+    const outline = await repo.createOutline(project.path, [claim.path]);
+    const preview = (await repo.loadDraftSections(outline.path)).sections[0];
+    if (!preview) throw new Error("missing managed section");
+    const envelope = { ...preview.envelope, evidence: [{ path: evidence.path, fingerprint: "before" }], provider: "anthropic", model: "test", generatedAt: "now" };
+    await expect(repo.acceptDraftSection({ documentPath: outline.path, preview, envelope, markdown: "Result [@smith2025].", currentEvidence: [{ path: evidence.path, fingerprint: "after" }], currentClaimFingerprint: "claim" })).rejects.toThrow(/evidence changed/i);
+    await expect(repo.acceptDraftSection({ documentPath: outline.path, preview, envelope: { ...envelope, claimFingerprint: "before" }, markdown: "Result [@smith2025].", currentEvidence: envelope.evidence, currentClaimFingerprint: "after" })).rejects.toThrow(/claim changed/i);
   });
 
   it("leaves no folder or record behind when atomic creation fails", async () => {

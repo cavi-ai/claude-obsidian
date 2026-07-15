@@ -4,6 +4,7 @@ import { renderEvidenceOutline, renderSynthesisMatrix } from "../../src/research
 import type { ResearchRecord } from "../../src/research/types";
 import { parse as parseYaml } from "yaml";
 import { parseResearchRecord } from "../../src/research/parse";
+import { parseDraftSections } from "../../src/research/draftSections";
 
 const records: ResearchRecord[] = [
   { path: "Research/P/Project.md", title: "Project P", type: "research-project", project: "Research/P/Project.md", question: "Why?", stage: "shape", status: "active" },
@@ -25,6 +26,14 @@ describe("research outline renderers", () => {
     expect(markdown).toContain("Locator: page 0014");
     expect(markdown).toContain("Source fingerprint: `sha256:source`");
     expect(markdown).toContain("> Supporting excerpt.");
+    const managed = parseDraftSections(markdown);
+    expect(managed.issues).toEqual([]);
+    expect(managed.sections).toHaveLength(1);
+    expect(managed.sections[0]?.envelope).toMatchObject({
+      claimPaths: ["Research/P/Claims/C.md"],
+      provider: "companion",
+      model: "evidence-outline-v1",
+    });
   });
 
   it("rejects claims and evidence references outside the snapshot", () => {
