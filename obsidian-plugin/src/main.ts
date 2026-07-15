@@ -2,17 +2,20 @@ import { App, FileSystemAdapter, MarkdownView, Modal, Notice, parseYaml, Platfor
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
-import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchWorkbenchView";
+import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
+import { ResearchDeskView, RESEARCH_DESK_VIEW_TYPE } from "./view/ResearchDeskView";
+import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
 import { DraftCoordinator } from "./research/draftCoordinator";
+import { RevisionCoordinator } from "./research/revisionCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
 import { CrossrefAdapter } from "./discovery/adapters/crossref";
 import { ArxivAdapter } from "./discovery/adapters/arxiv";
 import { createObsidianDiscoveryHttp } from "./discovery/adapters/obsidianHttp";
 import { resolveModelId } from "./claude/models";
-import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
+import { inferResearchProjectPath, isResearchProjectChange, projectPathForActivation } from "./research/workbenchRouting";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
@@ -79,12 +82,14 @@ interface PersistedData {
   settings?: Partial<PluginSettings>;
   conversations?: Conversation[];
   activeConversationId?: string | null;
+  researchDeskPreferences?: ResearchDeskPreferenceMap;
 }
 
 export default class ClaudeCompanionPlugin extends Plugin {
   override settings: PluginSettings = DEFAULT_SETTINGS;
   private convState: ConversationState = emptyState();
   private convSeq = 0;
+  private researchDeskPreferences: ResearchDeskPreferenceMap = {};
   private _router: ProviderRouter | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
@@ -127,6 +132,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
     if (!Platform.isMobile) this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
+    this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchDeskView(leaf, this.researchRepository(), {
+      preferencesFor: (projectPath) => this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] },
+      updatePreferences: async (projectPath, update) => { this.researchDeskPreferences[projectPath] = update(this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] }); await this.persist(); },
+      openWorkbench: (projectPath, target, path) => this.activateResearchWorkbench(projectPath, target, path),
+      createProject: () => this.activateResearchWorkbench(undefined, "Overview"),
+    }));
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
       this.researchRepository(),
@@ -142,6 +153,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
           draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
+          revisionCoordinator: new RevisionCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
         };
       })(),
     ));
@@ -226,8 +238,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "open-research-desk",
+      name: "Open research desk",
+      callback: () => void this.activateResearchDesk(),
+    });
+
+    this.addCommand({
       id: "open-research-workbench",
-      name: "Open research workbench",
+      name: "Open advanced research workbench",
       callback: () => void this.activateResearchWorkbench(),
     });
 
@@ -510,7 +528,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const raw = (await this.loadData()) as PersistedData | Partial<PluginSettings> | null;
     // Migrate the legacy shape (data.json *was* the settings object) to the
     // namespaced { settings, conversations } shape.
-    const isNamespaced = !!raw && typeof raw === "object" && ("settings" in raw || "conversations" in raw);
+    const isNamespaced = !!raw && typeof raw === "object" && ("settings" in raw || "conversations" in raw || "researchDeskPreferences" in raw);
     const settingsData = (isNamespaced ? (raw).settings : raw) as Partial<PluginSettings> | null;
     // Pre-engine semantic users are working Ollama users — keep them there
     // instead of letting the builtin default repoint their index. Persisted on
@@ -526,6 +544,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.convState = isNamespaced
       ? fromPersisted({ conversations: (raw).conversations, activeId: (raw).activeConversationId })
       : emptyState();
+    this.researchDeskPreferences = normalizeDeskPreferenceMap(isNamespaced ? (raw).researchDeskPreferences : undefined);
   }
 
   /** Write settings + conversation history back to data.json. */
@@ -534,6 +553,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       settings: this.settings,
       conversations: this.convState.conversations,
       activeConversationId: this.convState.activeId,
+      researchDeskPreferences: this.researchDeskPreferences,
     };
     await this.saveData(data);
   }
@@ -1403,7 +1423,22 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (leaf) await workspace.revealLeaf(leaf);
   }
 
-  async activateResearchWorkbench(projectPath?: string): Promise<void> {
+  async activateResearchDesk(projectPath?: string): Promise<void> {
+    const active = this.app.workspace.getActiveFile();
+    const frontmatter = active ? this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined : undefined;
+    const inferred = active ? inferResearchProjectPath(active.path, frontmatter) : undefined;
+    const { workspace } = this.app;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)[0] ?? null;
+    if (!leaf) { leaf = workspace.getRightLeaf(false); if (leaf) await leaf.setViewState({ type: RESEARCH_DESK_VIEW_TYPE, active: true }); }
+    if (leaf?.view instanceof ResearchDeskView) {
+      const selected = leaf.view.getProjectPath();
+      const next = projectPathForActivation(projectPath, inferred, selected);
+      if (next && next !== selected) await leaf.view.setProjectPath(next);
+    }
+    if (leaf) await workspace.revealLeaf(leaf);
+  }
+
+  async activateResearchWorkbench(projectPath?: string, tab: ResearchWorkbenchTab = "Overview", path?: string): Promise<void> {
     const active = this.app.workspace.getActiveFile();
     const frontmatter = active ? this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined : undefined;
     const inferred = active ? inferResearchProjectPath(active.path, frontmatter) : undefined;
@@ -1417,6 +1452,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const selected = leaf.view.getProjectPath();
       const next = projectPathForActivation(projectPath, inferred, selected);
       if (next && next !== selected) await leaf.view.setProjectPath(next);
+      await leaf.view.focus(tab, path);
     }
     if (leaf) await workspace.revealLeaf(leaf);
   }
@@ -1431,6 +1467,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) {
         const view = leaf.view;
         if (view instanceof ResearchWorkbenchView && changes.some(({ path, oldPath }) => view.isRelevantChange(path, oldPath))) void view.render();
+      }
+      for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) {
+        const view = leaf.view;
+        if (view instanceof ResearchDeskView && changes.some(({ path, oldPath }) => isResearchProjectChange(view.getProjectPath(), path, oldPath))) void view.render();
       }
     }, 250);
   }

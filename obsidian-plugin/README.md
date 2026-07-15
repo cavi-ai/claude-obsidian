@@ -102,15 +102,18 @@ attribution.
 - **Spec → build handoff** — turn a plan note into a **build spec** + a live
   **tracker** (a `claude-html` progress board) and hand it to **Claude Code**.
 
-### Evidence-backed research workflow (Phase 1)
+### Evidence-backed research workflow
 
-Use `/research` in the Companion composer to open the native Research Workbench.
-The cockpit and deterministic audit work with Claude, Auto, or Local-only mode
-and do not send the slash command to a model.
-As an alternate route, use the command palette action **Open research
-workbench** to open the visual cockpit and inspect a canonical research project
-across its Overview, Sources, Evidence, Claims, Outline, and Audit views. The
-end-to-end workflow is:
+Use `/research` in the Companion composer to open the native **Research Desk**.
+This guided daily view selects one active project, shows its stage and document
+progress, explains the deterministic next best action, and keeps a focused
+attention queue. Guidance can be pinned or dismissed, and no model request is
+made merely by opening or navigating the Desk.
+
+Use **Open advanced research workbench** from the command palette for the full
+record-level interface. Its grouped Build, Write, Assure, and Expand navigation
+covers Overview, Sources, Evidence, Claims, Outline, Draft, Audit,
+Intelligence, and Discover. The end-to-end workflow is:
 
 1. Create a project with a focused research question.
 2. Import a source so its metadata and captured-content fingerprint are saved.
@@ -120,13 +123,18 @@ end-to-end workflow is:
    relations.
 6. Generate an evidence-backed outline that carries the excerpt, source,
    locator, and fingerprint forward.
-7. Run the audit and repair stale sources, broken references, missing locators,
+7. Draft sections from their grounded claim and evidence packets.
+8. Revise with an explicit intent and claim-preservation validation, then
+   review the preview before replacing the section.
+9. Run the audit and repair stale sources, broken references, missing locators,
    and unsupported claims.
 
 The vault's Markdown records are canonical and remain readable without the
 plugin. Only **reviewed**, locatable, non-stale evidence linked to a valid source
-counts as trusted support; proposed evidence never satisfies a claim. Phase 1
-stops at the evidence-backed outline and does **not** generate a complete paper.
+counts as trusted support; proposed evidence never satisfies a claim. Revision
+responses that lose required claims, introduce unsupported citations, use stale
+grounding, or violate the structured response contract are blocked before any
+document write.
 
 ![A claude-html artifact rendered inline in a note](assets/artifact-inline.png)
 *A `claude-html` artifact rendered inline — interactive, sandboxed, and saved as a plain Markdown note.*

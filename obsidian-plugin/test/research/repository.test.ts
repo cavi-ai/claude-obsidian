@@ -1,7 +1,7 @@
 import { parse } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 import { ResearchRepository, type ImportSourceInput, type ResearchRepositoryIO } from "../../src/research/repository";
-import { parseDraftSections } from "../../src/research/draftSections";
+import { draftMarkdownFingerprint, parseDraftSections } from "../../src/research/draftSections";
 
 class MemoryIO implements ResearchRepositoryIO {
   files = new Map<string, string>();
@@ -60,6 +60,16 @@ class MemoryIO implements ResearchRepositoryIO {
 const projectInput = { title: "AI Reviews", question: "How reliable are automated reviews?", folder: "Research/AI Reviews" };
 
 describe("ResearchRepository", () => {
+  it("lists research projects deterministically for the Desk switcher", async () => {
+    const io = new MemoryIO();
+    const repo = new ResearchRepository(io);
+    await repo.createProject({ title: "Zulu", question: "Z?", folder: "Research/Zulu" });
+    await repo.createProject({ title: "Alpha", question: "A?", folder: "Research/Alpha" });
+    expect((await repo.listProjects()).map(({ title, path }) => [title, path])).toEqual([
+      ["Alpha", "Research/Alpha/Project.md"],
+      ["Zulu", "Research/Zulu/Project.md"],
+    ]);
+  });
   it("uses project-scoped record listing when the IO provides it", async () => {
     const io = new MemoryIO();
     const project = await new ResearchRepository(io).createProject(projectInput);
@@ -239,6 +249,15 @@ describe("ResearchRepository", () => {
     expect(content).toContain("document_kind: draft");
     expect(content).toContain("The result was observed [@smith2025].");
     expect(parseDraftSections(content).sections[0]?.modifiedSinceReview).toBe(false);
+
+    const accepted = parseDraftSections(content).sections[0];
+    if (!accepted) throw new Error("missing accepted section");
+    const revisionEnvelope = { ...accepted.envelope, generatedAt: "later", revisionIntent: "clarity", revisedFromFingerprint: draftMarkdownFingerprint(accepted.markdown) };
+    const packet = { projectPath: project.path, claim: { path: claim.path, title: "Claim", proposition: "Result.", confidence: "moderate" }, limitations: [], evidence: [{ path: evidence.path, relation: "supports" as const, sourcePath: source.path, fingerprint: revisionEnvelope.evidence[0]?.fingerprint ?? "", citationKey: "smith2025", locatorKind: "page", locatorValue: "14", excerpt: "Exact quote." }] };
+    const response = { markdown: "Result was observed [@smith2025].", support: [{ passage: "Result was observed [@smith2025].", claimPath: claim.path, evidencePaths: [evidence.path], citationKeys: ["smith2025"] }], claimPreservation: [{ claimPath: claim.path, passage: "Result was observed [@smith2025].", status: "preserved" }], changes: [{ kind: "clarity", severity: "warning", description: "Removes an unnecessary article." }], gaps: [] };
+    await expect(repo.acceptRevisionSection({ documentPath: outline.path, preview: accepted, envelope: revisionEnvelope, markdown: response.markdown, currentEvidence: revisionEnvelope.evidence, currentClaimFingerprint: revisionEnvelope.claimFingerprint ?? "", packet, request: { intent: "clarity" }, response: { ...response, changes: [{ kind: "factual-addition", severity: "block", description: "Added a fact." }] } })).rejects.toThrow(/blocked/i);
+    await repo.acceptRevisionSection({ documentPath: outline.path, preview: accepted, envelope: revisionEnvelope, markdown: response.markdown, currentEvidence: revisionEnvelope.evidence, currentClaimFingerprint: revisionEnvelope.claimFingerprint ?? "", packet, request: { intent: "clarity" }, response });
+    expect(io.files.get(outline.path)).toContain("Result was observed [@smith2025].");
   });
 
   it("blocks acceptance when reviewed evidence changed after preview", async () => {

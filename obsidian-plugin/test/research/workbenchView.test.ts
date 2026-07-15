@@ -108,6 +108,24 @@ describe("ResearchWorkbenchView", () => {
     expect(tabs[8].getAttribute("aria-selected")).toBe("true");
   });
 
+  it("groups advanced navigation and exposes a compact pane selector", async () => {
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
+    await view.setProjectPath(snapshot.project.path);
+    expect(elements(view, ".cc-research-tab-group")).toHaveLength(4);
+    expect(elements(view, ".cc-research-tab-group-label").map(({ textContent }) => textContent)).toEqual(["Build", "Write", "Assure", "Expand"]);
+    const compact = elements(view, ".cc-research-tab-select")[0] as HTMLSelectElement;
+    expect(compact.getAttribute("aria-label")).toBe("Research workbench section");
+    expect(compact.querySelectorAll("option")).toHaveLength(9);
+  });
+
+  it("accepts a contextual handoff from the Research Desk", async () => {
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
+    await view.setProjectPath(snapshot.project.path);
+    await view.focus("Claims");
+    const selected = elements(view, '[role="tab"]').find((tab) => tab.getAttribute("aria-selected") === "true");
+    expect(selected?.textContent).toBe("Claims");
+  });
+
   it("selects Discover without implicit network or model work", async () => {
     const coordinator = discoveryCoordinator();
     const h = intelligenceDependencies();
@@ -211,6 +229,35 @@ describe("ResearchWorkbenchView", () => {
     const root = new ResearchWorkbenchView(new WorkspaceLeaf(), {} as never).contentEl;
     new ResearchDraftPanel({ coordinator: {} as never, repository: {} as never, rerender: () => undefined }).render(root, driftSnapshot, driftSnapshot.documents[0], { sections: [accepted], issues: [] });
     expect(root.querySelectorAll(".cc-draft-status")[0]?.textContent).toBe("Evidence changed since review");
+  });
+
+  it("revises one accepted section with intent, custom instruction, preservation report, and atomic acceptance", async () => {
+    const revisionSnapshot = { ...snapshot,
+      sources: [{ path: "Research/P/Sources/S.md", title: "S", contentFingerprint: "sha256:s" }],
+      evidence: [{ path: "Research/P/Evidence/E.md", source: "Research/P/Sources/S.md", sourceFingerprint: "sha256:s", locatorKind: "page", locatorValue: "1", excerpt: "Grounded.", reviewState: "reviewed" }],
+      claims: [{ path: "Research/P/Claims/C.md", title: "C", proposition: "Grounded.", confidence: "moderate", reviewState: "reviewed", supporting: ["Research/P/Evidence/E.md"], challenging: [], contextual: [], limitations: [] }], documents: [], questions: [], issues: [] } as never;
+    const packet = buildDraftGrounding(revisionSnapshot, "Research/P/Claims/C.md");
+    const accepted = parseDraftSections(renderDraftSection({ id: "claim-c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [{ key: "source-s", sourcePath: "Research/P/Sources/S.md" }], provider: "anthropic", model: "draft-model", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) }, "## Claim C\n\nGrounded [@source-s].")).sections[0];
+    if (!accepted) throw new Error("missing accepted section");
+    const revisionPreview = vi.fn(async (_snapshot, _section, request) => ({ section: accepted, packet, request, response: { markdown: "## Claim C\n\nThe result is grounded [@source-s].", support: [{ passage: "The result is grounded [@source-s].", claimPath: packet.claim.path, evidencePaths: ["Research/P/Evidence/E.md"], citationKeys: ["source-s"] }], claimPreservation: [{ claimPath: packet.claim.path, passage: "The result is grounded [@source-s].", status: "preserved" }], changes: [{ kind: "audience", severity: "warning", description: "Uses general-audience wording." }], gaps: [], warnings: ["Uses general-audience wording."], violations: [], canAccept: true }, envelope: { ...accepted.envelope, revisionIntent: request.intent, revisionInstruction: request.customInstruction, revisedFromFingerprint: "fnv1a-before", generatedAt: "now" } }));
+    const acceptRevisionSection = vi.fn(async () => undefined);
+    const repository = { loadProject: async () => revisionSnapshot, acceptRevisionSection } as never;
+    const panel = new ResearchDraftPanel({ coordinator: {} as never, revisionCoordinator: { preview: revisionPreview } as never, repository, rerender: () => undefined });
+    const root = new ResearchWorkbenchView(new WorkspaceLeaf(), {} as never).contentEl;
+    panel.render(root, revisionSnapshot, { path: "Research/P/Documents/Draft.md", documentKind: "draft" } as never, { sections: [accepted], issues: [] });
+    expect(root.querySelectorAll("button").map(({ textContent }: any) => textContent)).toContain("Revise section");
+    expect(root.querySelectorAll("button").map(({ textContent }: any) => textContent)).not.toContain("Preview draft");
+
+    click(root.querySelectorAll("button").find(({ textContent }: any) => textContent === "Revise section")); root.empty();
+    panel.render(root, revisionSnapshot, { path: "Research/P/Documents/Draft.md", documentKind: "draft" } as never, { sections: [accepted], issues: [] });
+    const select = root.querySelectorAll("select")[0] as any; select.value = "audience"; select.dispatchEvent({ type: "change" });
+    const instruction = root.querySelectorAll("textarea")[0] as any; instruction.value = "Explain for policy readers"; instruction.dispatchEvent({ type: "input" });
+    click(root.querySelectorAll("button").find(({ textContent }: any) => textContent === "Preview revision")); await Promise.resolve(); await Promise.resolve(); root.empty();
+    panel.render(root, revisionSnapshot, { path: "Research/P/Documents/Draft.md", documentKind: "draft" } as never, { sections: [accepted], issues: [] });
+    expect(revisionPreview).toHaveBeenCalledWith(revisionSnapshot, accepted, { intent: "audience", customInstruction: "Explain for policy readers" }, expect.any(AbortSignal));
+    expect(root.querySelectorAll(".cc-revision-warning")[0]?.textContent).toBe("Uses general-audience wording.");
+    click(root.querySelectorAll("button").find(({ textContent }: any) => textContent === "Accept revision")); await Promise.resolve(); await Promise.resolve();
+    expect(acceptRevisionSection).toHaveBeenCalledWith(expect.objectContaining({ packet, request: { intent: "audience", customInstruction: "Explain for policy readers" }, response: expect.objectContaining({ canAccept: true }), documentPath: "Research/P/Documents/Draft.md" }));
   });
 
   it("does not commit a deferred render after close and can render after reopening", async () => {

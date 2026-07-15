@@ -9,13 +9,21 @@ import { ResearchIntelligencePanel } from "./ResearchIntelligencePanel";
 import type { DiscoveryCoordinator } from "../discovery/coordinator";
 import { DiscoveryPanel } from "./DiscoveryPanel";
 import type { DraftCoordinator } from "../research/draftCoordinator";
+import type { RevisionCoordinator } from "../research/revisionCoordinator";
 import type { DraftSectionParseResult } from "../research/draftSections";
 import type { ResearchDocumentRecord } from "../research/types";
 import { ResearchDraftPanel } from "./ResearchDraftPanel";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
-type Tab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Draft" | "Audit" | "Intelligence" | "Discover";
+export type ResearchWorkbenchTab = "Overview" | "Sources" | "Evidence" | "Claims" | "Outline" | "Draft" | "Audit" | "Intelligence" | "Discover";
+type Tab = ResearchWorkbenchTab;
 const TABS: Tab[] = ["Overview", "Sources", "Evidence", "Claims", "Outline", "Draft", "Audit", "Intelligence", "Discover"];
+const TAB_GROUPS: Array<{ label: string; tabs: Tab[] }> = [
+  { label: "Build", tabs: ["Overview", "Sources", "Evidence", "Claims"] },
+  { label: "Write", tabs: ["Outline", "Draft"] },
+  { label: "Assure", tabs: ["Audit", "Intelligence"] },
+  { label: "Expand", tabs: ["Discover"] },
+];
 
 export interface ResearchWorkbenchDependencies {
   coordinator: IntelligenceCoordinator;
@@ -26,6 +34,7 @@ export interface ResearchWorkbenchDependencies {
   retainDiscoveryCoordinator?: () => void;
   releaseDiscoveryCoordinator?: () => void;
   draftCoordinator?: DraftCoordinator;
+  revisionCoordinator?: RevisionCoordinator;
 }
 
 export class ResearchWorkbenchView extends ItemView {
@@ -55,6 +64,12 @@ export class ResearchWorkbenchView extends ItemView {
   }
 
   getProjectPath(): string | undefined { return this.projectPath; }
+
+  async focus(tab: ResearchWorkbenchTab, path?: string): Promise<void> {
+    this.activeTab = tab;
+    await this.render();
+    if (path) await this.openPath(path);
+  }
 
   isRelevantChange(path: string, oldPath?: string): boolean {
     return isResearchProjectChange(this.projectPath, path, oldPath);
@@ -125,19 +140,28 @@ export class ResearchWorkbenchView extends ItemView {
     header.createEl("span", { cls: "cc-research-stage", text: vm.stage });
 
     const tabs = root.createEl("div", { cls: "cc-research-tabs", attr: { role: "tablist", "aria-label": "Research workbench sections" } });
-    for (const [index, tab] of TABS.entries()) {
-      const id = tabId(tab);
-      const button = tabs.createEl("button", { text: tab, attr: { id, role: "tab", "aria-selected": String(tab === this.activeTab), "aria-controls": `${id}-panel`, tabindex: tab === this.activeTab ? "0" : "-1" } });
-      if (tab === this.activeTab) button.addClass("is-active");
-      button.addEventListener("click", () => { this.activeTab = tab; void this.render(); });
-      button.addEventListener("keydown", (event) => {
-        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-        event.preventDefault();
-        const next = event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + TABS.length) % TABS.length;
-        this.activeTab = TABS[next] ?? "Overview";
-        void this.render().then(() => this.contentEl.querySelector<HTMLElement>(`#${tabId(this.activeTab)}`)?.focus());
-      });
+    for (const group of TAB_GROUPS) {
+      const groupRoot = tabs.createDiv({ cls: "cc-research-tab-group" });
+      groupRoot.createSpan({ cls: "cc-research-tab-group-label", text: group.label });
+      const groupTabs = groupRoot.createDiv({ cls: "cc-research-tab-buttons" });
+      for (const tab of group.tabs) {
+        const index = TABS.indexOf(tab); const id = tabId(tab);
+        const button = groupTabs.createEl("button", { text: tab, attr: { id, role: "tab", "aria-selected": String(tab === this.activeTab), "aria-controls": `${id}-panel`, tabindex: tab === this.activeTab ? "0" : "-1" } });
+        if (tab === this.activeTab) button.addClass("is-active");
+        button.addEventListener("click", () => { this.activeTab = tab; void this.render(); });
+        button.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + TABS.length) % TABS.length;
+          this.activeTab = TABS[next] ?? "Overview";
+          void this.render().then(() => this.contentEl.querySelector<HTMLElement>(`#${tabId(this.activeTab)}`)?.focus());
+        });
+      }
     }
+    const compactTabs = root.createEl("select", { cls: "cc-research-tab-select", attr: { "aria-label": "Research workbench section" } });
+    for (const tab of TABS) compactTabs.createEl("option", { text: tab, value: tab });
+    compactTabs.value = this.activeTab;
+    compactTabs.addEventListener("change", () => { this.activeTab = compactTabs.value as Tab; void this.render(); });
 
     const activeId = tabId(this.activeTab);
     const panel = root.createEl("section", { cls: "cc-research-panel", attr: { id: `${activeId}-panel`, role: "tabpanel", "aria-labelledby": activeId } });
@@ -257,7 +281,7 @@ export class ResearchWorkbenchView extends ItemView {
 
   private createDraftPanel(): ResearchDraftPanel | undefined {
     if (!this.dependencies?.draftCoordinator) return undefined;
-    return new ResearchDraftPanel({ coordinator: this.dependencies.draftCoordinator, repository: this.repository, rerender: () => this.render() });
+    return new ResearchDraftPanel({ coordinator: this.dependencies.draftCoordinator, ...(this.dependencies.revisionCoordinator ? { revisionCoordinator: this.dependencies.revisionCoordinator } : {}), repository: this.repository, rerender: () => this.render() });
   }
 
   private openCreateProject(): void {

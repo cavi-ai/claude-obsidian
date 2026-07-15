@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Research Desk is the new guided daily research view.** It keeps one active
+  project in focus with stage and document progress, an explainable next best
+  action, pin/dismiss controls, a focused attention queue, project switching,
+  and contextual handoffs into the advanced Research Workbench. The responsive
+  interface is container-aware from narrow sidebars through wide panes.
+- **Claim-preserving draft revision.** Draft sections can be revised from an
+  explicit intent and current grounding packet, previewed before replacement,
+  and accepted only after deterministic validation. The coordinator blocks
+  malformed responses, stale grounding, unsupported citations, and silent loss
+  of required claims.
+- **Real Obsidian research E2E coverage.** A disposable-vault Playwright harness
+  exercises plugin startup, project continuity, guidance controls, every quick
+  action, all nine advanced panels, responsive widths, and EPIPE/unhandled
+  console monitoring against the production bundle.
 - **Research Intelligence is now documented and covered end to end.** The
   Research Workbench's Intelligence tab provides automatically refreshed,
   local deterministic findings across contradictions, method differences,
@@ -16,10 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Current chat backend, use Claude only, use Local only, or be Disabled.
 
 ### Fixed
+- **Research navigation remains usable at real sidebar widths.** Advanced tabs
+  collapse into a compact selector, Research Desk cards stack without overlap,
+  stage labels simplify when space is constrained, and controls retain named
+  40px targets without horizontal overflow.
 - **`/research` now opens the native Research Workbench.** Selecting the slash
   command no longer inserts internal research-tool instructions or sends a chat
-  request. The deterministic project overview and audit work the same in Claude,
-  Auto, and Local-only modes.
+  request. It now opens the Research Desk, while the advanced Workbench remains
+  available from contextual actions and the command palette.
 - **Active research projects resolve from canonical metadata.** Project notes
   resolve to themselves, while Source, Evidence, Claim, Question, and Document
   records follow their explicit `project` relationship. Ordinary notes and
