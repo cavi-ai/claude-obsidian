@@ -54,9 +54,10 @@ A full Claude chat experience that lives in your vault and speaks its language.
 - **Native Canvas & Bases output** — Claude builds `.canvas` mind maps wired to
   real notes and `.base` database views over your frontmatter, write-gated like
   every other mutation.
-- **Evidence-backed research, Phase 1** — a vault-native research workbench
-  keeps sources, exact excerpts, review state, claims, and audit findings linked
-  in readable Markdown, then produces an evidence-backed outline.
+- **Evidence-backed research desk** — a guided daily view keeps one active
+  project, explains the next best action, surfaces work needing attention, and
+  hands off to the advanced workbench for sources, evidence, claims, outlining,
+  drafting, assurance, intelligence, and scholarly discovery.
 - **Prompt caching built in** — repeated context is cached server-side (reads at
   0.1× the input rate); the cost gauge accounts for it.
 - **Three auth modes** — your Anthropic **API key** (default, community-store
@@ -88,24 +89,32 @@ A full Claude chat experience that lives in your vault and speaks its language.
 
 → Full details: [`obsidian-plugin/README.md`](obsidian-plugin/README.md)
 
-### Evidence-backed research workflow (Phase 1)
+### Evidence-backed research workflow
 
-Use `/research` in Companion to open the native Research Workbench. It shows
-project state, evidence health, audits, and next actions without requiring a
-model request. In Claude Code, use `/claude-obsidian:research-workbench` for the
-skill-driven MCP workflow over the same canonical vault records.
+Use `/research` in Companion to open the native **Research Desk**. It gives one
+active project a clear stage, deterministic next action with an explanation,
+document progress, attention queue, and fast routes into deeper work without
+requiring a model request. Pin or dismiss guidance, switch projects, or open the
+advanced Research Workbench when you need the complete record-level controls.
+In Claude Code, use `/claude-obsidian:research-workbench` for the skill-driven
+MCP workflow over the same canonical vault records.
 
-The Phase 1 path is **Create project → Import source → Capture evidence →
-Review → Build claims → Generate outline → Audit**. Source captures receive a
+The core path is **Create project → Import source → Capture evidence → Review →
+Build claims → Generate outline → Draft → Revise → Assure**. Source captures receive a
 content fingerprint; evidence records preserve the exact excerpt, locator, and
 captured fingerprint; claims keep supporting, challenging, and contextual
 relations distinct. The research workbench presents the resulting canonical
 Markdown records and their audit health.
 
+Draft revisions are claim-preserving: each request carries the grounded section
+packet and explicit intent, the response is validated before preview, and the
+user reviews the proposed result before it can replace the section. Unsupported
+citations, silent claim loss, stale grounding, and malformed revision responses
+are rejected instead of being written into the document.
+
 Only **reviewed**, locatable, non-stale evidence linked to a valid source counts
 as trusted claim support. Proposed evidence remains visible but does not satisfy
-the audit. Phase 1 stops at an evidence-backed outline—it does not generate a
-complete paper.
+the audit.
 
 ### Research Intelligence
 

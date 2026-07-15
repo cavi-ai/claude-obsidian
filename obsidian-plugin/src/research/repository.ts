@@ -1,9 +1,11 @@
-import { buildProjectSnapshot, type ProjectSnapshot } from "./graph";
+import { buildProjectSnapshot, compareCodeUnits, type ProjectSnapshot } from "./graph";
 import { canonicalSourceId, findDuplicate } from "./identity";
 import { parseResearchCandidate, parseResearchRecord, type ResearchNoteInput } from "./parse";
 import { renderResearchRecord } from "./render";
 import { renderEvidenceOutline } from "./outline";
-import { applyDraftSection, parseDraftSections, validateDocumentCitationKeys, type DraftSectionEnvelope, type DraftSectionParseResult, type ParsedDraftSection } from "./draftSections";
+import { applyDraftSection, draftMarkdownFingerprint, parseDraftSections, validateDocumentCitationKeys, type DraftSectionEnvelope, type DraftSectionParseResult, type ParsedDraftSection } from "./draftSections";
+import type { DraftGroundingPacket } from "./draftGrounding";
+import { validateRevisionResponse, type RevisionRequest } from "./revisionPolicy";
 import type {
   ClaimRecord,
   EvidenceRecord,
@@ -85,6 +87,7 @@ export interface AcceptDraftSectionInput {
   currentEvidence: Array<{ path: string; fingerprint: string }>;
   currentClaimFingerprint: string;
 }
+export interface AcceptRevisionSectionInput extends AcceptDraftSectionInput { packet: DraftGroundingPacket; request: RevisionRequest; response: unknown; }
 
 const LAYOUT = {
   "research-source": "Sources",
@@ -129,6 +132,15 @@ async function contentFingerprint(content: string | Uint8Array): Promise<string>
 
 export class ResearchRepository {
   constructor(private readonly io: ResearchRepositoryIO) {}
+
+  async listProjects(): Promise<ResearchProjectRecord[]> {
+    const projects: ResearchProjectRecord[] = [];
+    for (const note of await this.io.listMarkdown()) {
+      const parsed = parseResearchRecord(note).record;
+      if (parsed?.type === "research-project") projects.push(parsed);
+    }
+    return projects.sort((left, right) => compareCodeUnits(left.title, right.title) || compareCodeUnits(left.path, right.path));
+  }
 
   async loadProject(projectPath: string): Promise<ProjectSnapshot> {
     projectFolder(projectPath);
@@ -296,6 +308,14 @@ export class ResearchRepository {
       else if (!/^document_kind:\s*["']?draft["']?\s*$/m.test(frontmatter[1] ?? "")) throw new Error(`Research document kind is invalid: ${input.documentPath}`);
       return updated;
     });
+  }
+
+  async acceptRevisionSection(input: AcceptRevisionSectionInput): Promise<void> {
+    const validated = validateRevisionResponse(input.packet, input.request, input.response, input.preview.markdown);
+    if (!validated.canAccept || validated.markdown !== input.markdown) throw new Error("Blocked or mismatched revision cannot be accepted");
+    if (!input.envelope.revisionIntent || !input.envelope.revisedFromFingerprint) throw new Error("Revision provenance is incomplete");
+    if (input.envelope.revisedFromFingerprint !== draftMarkdownFingerprint(input.preview.markdown)) throw new Error("Revision source changed after the preview was generated");
+    await this.acceptDraftSection(input);
   }
 
   async loadDraftSections(documentPath: string): Promise<DraftSectionParseResult> {

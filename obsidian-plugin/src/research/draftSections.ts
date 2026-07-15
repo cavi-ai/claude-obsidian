@@ -7,6 +7,9 @@ export interface DraftSectionEnvelope {
   model: string;
   generatedAt: string;
   claimFingerprint?: string;
+  revisionIntent?: string;
+  revisionInstruction?: string;
+  revisedFromFingerprint?: string;
 }
 
 export interface ParsedDraftSection {
@@ -45,11 +48,14 @@ function parseEnvelope(encoded: string): DraftSectionEnvelope | undefined {
   const item = value as Record<string, unknown>;
   if (![item.id, item.provider, item.model, item.generatedAt].every(validString)) return undefined;
   if (item.claimFingerprint !== undefined && !validString(item.claimFingerprint)) return undefined;
+  if ([item.revisionIntent, item.revisionInstruction, item.revisedFromFingerprint].some((value) => value !== undefined && !validString(value))) return undefined;
   if (!Array.isArray(item.claimPaths) || !item.claimPaths.every(validString)) return undefined;
   if (!Array.isArray(item.evidence) || !item.evidence.every((entry) => entry && typeof entry === "object" && validString((entry as Record<string, unknown>).path) && validString((entry as Record<string, unknown>).fingerprint))) return undefined;
   if (!Array.isArray(item.citations) || !item.citations.every((entry) => entry && typeof entry === "object" && validString((entry as Record<string, unknown>).key) && validString((entry as Record<string, unknown>).sourcePath))) return undefined;
   return value as DraftSectionEnvelope;
 }
+
+export function draftMarkdownFingerprint(markdown: string): string { return fingerprintText(markdown); }
 
 function assertSafeEnvelope(envelope: DraftSectionEnvelope): void {
   if (!parseEnvelope(encodeURIComponent(JSON.stringify(envelope)))) throw new Error("Invalid draft section provenance envelope");

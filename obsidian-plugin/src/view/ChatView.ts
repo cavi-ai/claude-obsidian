@@ -828,7 +828,7 @@ export class ChatView extends ItemView {
         this.inputEl.value = "";
         this.autosizeInput();
       },
-      activateResearchWorkbench: () => this.plugin.activateResearchWorkbench(),
+      activateResearchWorkbench: () => this.plugin.activateResearchDesk(),
       requestCompletion: (prompt, display) => this.submitPrompt(prompt, display),
     })) return;
 

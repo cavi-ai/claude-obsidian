@@ -22,7 +22,7 @@ function citations(markdown: string): string[] {
 }
 
 function proseBlocks(markdown: string): string[] {
-  return markdown.split(/\n\s*\n/).map((block) => block.trim()).filter((block) => Boolean(block) && !/^#{1,6}\s+/.test(block));
+  return markdown.replace(/^#{1,6}\s+.*$/gm, "").split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
 }
 
 function parseResponse(value: unknown): ValidatedDraftResponse {
