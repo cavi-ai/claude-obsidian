@@ -4,3 +4,6 @@
 [submodule "upstream/obsidian-skills"]
 	path = upstream/obsidian-skills
 	url = https://github.com/kepano/obsidian-skills.git
+[submodule "claude-plugin"]
+	path = claude-plugin
+	url = https://github.com/cavi-ai/claude-obsidian-plugin.git
