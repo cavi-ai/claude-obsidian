@@ -41,6 +41,9 @@ describe("ResearchDeskView", () => {
     expect(elements(view, ".is-current")).toHaveLength(1);
     expect(elements(view, ".cc-desk-document-progress")[0]?.getAttribute("aria-valuenow")).toBe("50");
     expect(elements(view, ".cc-desk-attention-row").length).toBeGreaterThan(0);
+    expect(elements(view, ".cc-desk-header-actions")).toHaveLength(1);
+    expect(elements(view, "select")).toHaveLength(1);
+    expect(elements(view, "button").map(({ textContent }) => textContent)).toContain("Ask Companion");
     click(elements(view, "button").find(({ textContent }) => textContent === "Start this task"));
     await Promise.resolve();
     expect(openWorkbench).toHaveBeenCalledWith(project.path, "Evidence", "Research/P/Evidence/E.md");

@@ -136,8 +136,10 @@ export class ResearchWorkbenchView extends ItemView {
     root.addClass("cc-research-workbench");
 
     const header = root.createEl("header", { cls: "cc-research-header" });
+    const headerTop = header.createDiv({ cls: "cc-research-header-top" });
+    headerTop.createEl("div", { cls: "cc-eyebrow", text: "RESEARCH WORKBENCH" });
     if (this.projectPath && (this.dependencies?.openDesk || this.dependencies?.askCompanion)) {
-      const navigation = header.createDiv({ cls: "cc-workspace-navigation", attr: { "aria-label": "Research workspace navigation" } });
+      const navigation = headerTop.createDiv({ cls: "cc-workspace-navigation", attr: { "aria-label": "Research workspace navigation" } });
       if (this.dependencies.openDesk) {
         const desk = navigation.createEl("button", { text: "Research Desk" });
         desk.addEventListener("click", () => void this.dependencies?.openDesk?.(this.projectPath!));
@@ -147,7 +149,6 @@ export class ResearchWorkbenchView extends ItemView {
         ask.addEventListener("click", () => void this.dependencies?.askCompanion?.(this.projectPath!));
       }
     }
-    header.createEl("div", { cls: "cc-eyebrow", text: "RESEARCH WORKBENCH" });
     header.createEl("h2", { text: vm.title });
     header.createEl("p", { cls: "cc-research-question", text: vm.question });
     header.createEl("span", { cls: "cc-research-stage", text: vm.stage });

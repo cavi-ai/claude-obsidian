@@ -67,14 +67,15 @@ export class ResearchDeskView extends ItemView {
     identity.createDiv({ cls: "cc-desk-eyebrow", text: "RESEARCH DESK" });
     identity.createEl("h2", { text: vm.title });
     identity.createEl("p", { cls: "cc-desk-question", text: vm.question });
-    const switcher = header.createDiv({ cls: "cc-desk-switcher" });
+    const headerActions = header.createDiv({ cls: "cc-desk-header-actions" });
+    const switcher = headerActions.createDiv({ cls: "cc-desk-switcher" });
     switcher.createEl("label", { text: "Active project", attr: { for: "cc-desk-project" } });
     const select = switcher.createEl("select", { attr: { id: "cc-desk-project", "aria-label": "Active research project" } });
     for (const project of projects) select.createEl("option", { text: project.title, value: project.path, attr: { selected: project.path === snapshot.project.path ? "selected" : null } });
     select.value = snapshot.project.path;
     select.addEventListener("change", () => void this.setProjectPath(select.value));
     if (this.deps.askCompanion) {
-      const ask = header.createEl("button", { cls: "cc-workspace-companion-action", text: "Ask Companion" });
+      const ask = headerActions.createEl("button", { cls: "cc-workspace-companion-action", text: "Ask Companion" });
       ask.addEventListener("click", () => void this.deps.askCompanion?.(snapshot.project.path));
     }
 
