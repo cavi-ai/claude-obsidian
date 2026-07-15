@@ -24,6 +24,13 @@ describe("CrossrefAdapter", () => {
     expect(String(error)).not.toContain("private json");
   });
 
+  it("decodes entities once without turning nested encoded markup into tags", async () => {
+    const payload = { message: { DOI: "10.1/nested", title: ["Nested"], abstract: "<jats:p>&amp;lt;script&amp;gt; &lt;safe&gt; &amp;amp;</jats:p>" } };
+    const work = await new CrossrefAdapter(async () => response(JSON.stringify(payload))).lookupDoi("10.1/nested");
+    expect(work?.abstract).toBe("&lt;script&gt; <safe> &amp;");
+    expect(work?.abstract).not.toContain("<script>");
+  });
+
   it.each([
     { message: null },
     { message: [] },

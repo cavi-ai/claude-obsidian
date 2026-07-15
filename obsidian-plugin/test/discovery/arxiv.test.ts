@@ -37,4 +37,11 @@ describe("ArxivAdapter", () => {
     expect(work).not.toHaveProperty("url");
     expect(work).not.toHaveProperty("openAccessUrl");
   });
+
+  it("decodes XML entities once without recursively unescaping nested text", async () => {
+    const body = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><id>https://arxiv.org/abs/2401.1</id><title>&amp;lt;script&amp;gt; &lt;safe&gt;</title></entry></feed>`;
+    const work = await new ArxivAdapter(async () => response(body)).lookup("2401.1");
+    expect(work?.title).toBe("&lt;script&gt; <safe>");
+    expect(work?.title).not.toContain("<script>");
+  });
 });

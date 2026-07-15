@@ -9,10 +9,22 @@ function firstText(value: unknown): string | undefined {
   return Array.isArray(value) ? text(value[0]) : text(value);
 }
 
+const HTML_ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  "#39": "'",
+};
+
+function decodeEntitiesOnce(value: string): string {
+  return value.replace(/&(amp|lt|gt|quot|#39);/g, (entity, name: string) => HTML_ENTITIES[name] ?? entity);
+}
+
 function stripMarkup(value: unknown): string | undefined {
   const source = text(value);
   if (source === undefined) return undefined;
-  return source.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim() || undefined;
+  return decodeEntitiesOnce(source.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim() || undefined;
 }
 
 function date(value: unknown): string | undefined {

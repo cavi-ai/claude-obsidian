@@ -25,7 +25,8 @@ class TestDocument {
 }
 
 function decodeXml(value: string): string {
-  return value.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  const entities: Readonly<Record<string, string>> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+  return value.replace(/&(amp|lt|gt|quot|apos);/g, (entity, name: string) => entities[name] ?? entity);
 }
 
 export class TestDOMParser {
