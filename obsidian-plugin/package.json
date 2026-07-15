@@ -48,6 +48,7 @@
     "eslint": "^9.9.0",
     "eslint-plugin-obsidianmd": "^0.3.0",
     "globals": "^15.9.0",
+    "linkedom": "^0.18.13",
     "obsidian": "^1.13.0",
     "tslib": "^2.6.3",
     "typescript": "^5.4.5",
@@ -56,6 +57,7 @@
     "yaml": "^2.9.0"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0"
+    "@huggingface/transformers": "^4.2.0",
+    "defuddle": "^0.19.1"
   }
 }

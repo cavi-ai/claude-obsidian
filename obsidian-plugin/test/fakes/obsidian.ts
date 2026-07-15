@@ -19,6 +19,10 @@ export function normalizePath(p: string): string {
 
 export const Platform = { isMobile: false, isDesktop: true };
 
+export const requestUrl = async (): Promise<never> => {
+  throw new Error("requestUrl is not available in tests — inject a fake HTTP adapter instead.");
+};
+
 export class TFile {
   path: string;
   basename: string;

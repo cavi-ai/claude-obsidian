@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, getAllTags, parseYaml } from "obsidian";
+import { App, TFile, normalizePath, getAllTags, parseYaml, requestUrl } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
@@ -11,6 +11,7 @@ import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCan
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 import { ResearchRepository } from "../research/repository";
 import { RESEARCH_WRITE_TOOLS, ResearchTools } from "../research/tools";
+import { captureWebSource, type WebCapture } from "../research/webCapture";
 
 /**
  * Normalize a caller-supplied vault path and reject anything that escapes the
@@ -297,7 +298,7 @@ export class VaultTools {
   async call(name: string, args: Record<string, unknown>): Promise<string> {
     if (name.startsWith("research_")) {
       if (RESEARCH_WRITE_TOOLS.has(name)) this.assertWrites();
-      return new ResearchTools(this.researchRepository()).call(name, args);
+      return new ResearchTools(this.researchRepository(), this.webCapture()).call(name, args);
     }
     switch (name) {
       case "vault_search":
@@ -344,6 +345,19 @@ export class VaultTools {
 
   private assertWrites(): void {
     if (!this.opts.allowWrites) throw new Error("Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.");
+  }
+
+  /** Readable-markdown web capture for research_source_import (renderer only). */
+  private webCapture(): WebCapture | undefined {
+    if (typeof DOMParser === "undefined") return undefined;
+    return (url) => captureWebSource(url, {
+      fetchHtml: async (target) => {
+        const response = await requestUrl({ url: target, method: "GET", throw: false });
+        if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+        return response.text;
+      },
+      parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+    });
   }
 
   private researchRepository(): ResearchRepository {

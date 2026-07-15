@@ -49,6 +49,45 @@ describe("ResearchTools", () => {
     expect(repo.importSource).toHaveBeenCalledWith("Research/Alpha/Project.md", expect.objectContaining({ sourceKind: "doi", capturedContent: "Canonical text", authors: ["A"] }));
   });
 
+  it("auto-captures web sources when no captured_text is given", async () => {
+    const repo = repository();
+    const capture = vi.fn().mockResolvedValue({ markdown: "# Clean article", author: "Ada Lovelace", published: "2026-01-05" });
+    const tools = new ResearchTools(repo as never, capture);
+    const result = JSON.parse(await tools.call("research_source_import", { project: "P/Project.md", title: "Post", source_kind: "web", url: "https://example.test/post" }));
+    expect(capture).toHaveBeenCalledWith("https://example.test/post");
+    expect(repo.importSource).toHaveBeenCalledWith("P/Project.md", expect.objectContaining({
+      sourceKind: "web", capturedContent: "# Clean article", authors: ["Ada Lovelace"], published: "2026-01-05",
+    }));
+    expect(result.captured).toBe(true);
+  });
+
+  it("keeps caller-provided capture and metadata over auto-capture", async () => {
+    const repo = repository();
+    const capture = vi.fn().mockResolvedValue({ markdown: "# Should not be used" });
+    const tools = new ResearchTools(repo as never, capture);
+    await tools.call("research_source_import", { project: "P/Project.md", title: "Post", source_kind: "web", url: "https://example.test/post", captured_text: "Caller text" });
+    expect(capture).not.toHaveBeenCalled();
+    expect(repo.importSource).toHaveBeenCalledWith("P/Project.md", expect.objectContaining({ capturedContent: "Caller text" }));
+  });
+
+  it("falls back to metadata-only import when web capture fails", async () => {
+    const repo = repository();
+    const capture = vi.fn().mockRejectedValue(new Error("HTTP 503"));
+    const tools = new ResearchTools(repo as never, capture);
+    const result = JSON.parse(await tools.call("research_source_import", { project: "P/Project.md", title: "Post", source_kind: "web", url: "https://example.test/post" }));
+    expect(repo.importSource).toHaveBeenCalledWith("P/Project.md", expect.not.objectContaining({ capturedContent: expect.anything() }));
+    expect(result.captured).toBe(false);
+  });
+
+  it("does not attempt capture for non-web kinds or without a capture dependency", async () => {
+    const repo = repository();
+    const capture = vi.fn();
+    await new ResearchTools(repo as never, capture).call("research_source_import", { project: "P/Project.md", title: "Paper", source_kind: "doi", url: "https://example.test/doi" });
+    expect(capture).not.toHaveBeenCalled();
+    const noDep = JSON.parse(await new ResearchTools(repo as never).call("research_source_import", { project: "P/Project.md", title: "Post", source_kind: "web", url: "https://example.test/post" }));
+    expect(noDep).not.toHaveProperty("captured");
+  });
+
   it.each([
     ["research_project_create", { title: "A", question: "", folder: "Research/A" }],
     ["research_source_import", { project: "P/Project.md", title: "S", source_kind: "invented" }],
