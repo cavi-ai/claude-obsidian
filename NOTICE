@@ -56,6 +56,10 @@ How we use it
 - His skills operate on vault *files* (and via `obsidian-cli`); our MCP bridge
   operates on the *live* vault. The two are complementary, and we recommend
   installing his skill pack alongside ours.
+- The Obsidian plugin also bundles his Defuddle library
+  (https://github.com/kepano/defuddle, MIT) as an ordinary npm dependency —
+  it powers readable-markdown capture of web sources, the same engine behind
+  the official Obsidian Web Clipper.
 
 If you are Steph and would like attribution changed or removed, please open an
 issue on the repository.

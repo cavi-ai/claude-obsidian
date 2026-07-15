@@ -93,13 +93,14 @@ attribution.
   or **saves it as a note** that stays interactive and portable.
 - **Canvas mind maps** — `/canvas` (or just ask): Claude searches your vault
   and builds a native **Obsidian Canvas** — file nodes wired to your real
-  notes, labeled edges, auto-layout. A write like any other: gated and
-  confirmed before the .canvas file is created. Also available to Claude Code
-  over the MCP bridge.
+  notes, labeled edges, labeled **groups** that cluster related nodes,
+  auto-layout. A write like any other: gated and confirmed before the .canvas
+  file is created. Also available to Claude Code over the MCP bridge.
 - **Bases from your frontmatter** — ask for "a reading tracker" or "a project
   dashboard" and Claude builds a native **Obsidian Base** (.base database
-  view), discovering your real frontmatter properties first. Write-gated and
-  confirmed, in chat and over the MCP bridge.
+  view) with table, cards, list, or map views, nested and/or/not filters, and
+  column summaries (Sum, Average, Median…), discovering your real frontmatter
+  properties first. Write-gated and confirmed, in chat and over the MCP bridge.
 - **Indexing & tags** — saved artifacts and chats get YAML frontmatter
   (`title`, `tags`, `summary`, `type`) so they index in the tag pane, search,
   and Dataview, with optional local-model **auto-tagging**.
@@ -121,6 +122,9 @@ Intelligence, and Discover. The end-to-end workflow is:
 
 1. Create a project with a focused research question.
 2. Import a source so its metadata and captured-content fingerprint are saved.
+   Web sources are fetched and reduced to clean readable markdown automatically
+   (powered by Defuddle, the Obsidian Web Clipper engine — no third-party
+   extraction services involved).
 3. Capture an exact excerpt with a source locator as evidence.
 4. Review the excerpt and locator, then mark the evidence reviewed or rejected.
 5. Build claims with separate supporting, challenging, and contextual evidence
