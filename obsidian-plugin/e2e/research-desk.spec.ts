@@ -56,13 +56,25 @@ test("05 advanced workbench: grouped navigation exposes every research panel wit
   await expect(workbench.locator(".cc-research-tab-group")).toHaveCount(4);
   await expect(workbench.locator(".cc-research-header-top .cc-workspace-navigation")).toBeVisible();
   const before = harness.providerRequests();
-  for (const tab of ["Overview", "Sources", "Evidence", "Claims", "Outline", "Draft", "Audit", "Intelligence", "Discover"]) { await workbench.locator(".cc-research-tab-select").selectOption(tab); await expect(workbench.getByRole("tabpanel")).toBeVisible(); }
+  for (const tab of ["Overview", "Sources", "Evidence", "Claims", "Outline", "Draft", "Audit", "Intelligence", "Discover"]) {
+    await workbench.locator(".cc-research-tab-select").selectOption(tab);
+    await expect(workbench.getByRole("tabpanel")).toBeVisible();
+    await expect(workbench.locator(".cc-research-panel-intro")).toBeVisible();
+  }
   await expect(workbench.getByRole("heading", { name: "Scholarly discovery is off" })).toBeVisible();
   await expect(workbench.getByLabel("Discovery query")).toHaveCount(0);
   await expect(workbench.getByRole("button", { name: "Search", exact: true })).toHaveCount(0);
   await expect.poll(async () => await workbench.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   expect(harness.providerRequests()).toBe(before);
   await harness.page.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/05-workbench.png" });
+
+  for (const [tab, title, artifact] of [["Overview", "Project overview", "05a-overview"], ["Sources", "Source library", "05b-sources"], ["Evidence", "Evidence review", "05c-evidence"], ["Intelligence", "Research intelligence", "05d-intelligence"]] as const) {
+    await workbench.locator(".cc-research-tab-select").selectOption(tab);
+    await expect(workbench.locator(".cc-research-panel-title")).toHaveText(title);
+    await expect(workbench.getByRole("heading", { name: "Continuity research" })).toBeVisible();
+    await workbench.evaluate((element) => { element.scrollTop = 0; });
+    await workbench.screenshot({ path: `/private/tmp/claude-companion-research-e2e-results/${artifact}.png` });
+  }
 });
 
 test("06 accessibility and responsive states: controls remain named and reachable", async () => {
