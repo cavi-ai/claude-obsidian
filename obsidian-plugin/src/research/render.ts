@@ -38,11 +38,13 @@ export function renderResearchRecord(record: ResearchRecord): string {
       break;
     case "evidence":
       frontmatter = { ...common, source: wikilink(record.source), source_fingerprint: record.sourceFingerprint, locator_kind: record.locatorKind, locator_value: record.locatorValue, review_state: record.reviewState, model: record.model };
-      body = `# Evidence\n\n${quoteExcerpt(record.excerpt)}${record.interpretation ? `\n\nInterpretation: ${record.interpretation}` : ""}`;
+      // The ^excerpt block anchor lets other notes deep-link or embed the
+      // exact excerpt ([[note#^excerpt]] / ![[note#^excerpt]]).
+      body = `# Evidence\n\n${quoteExcerpt(record.excerpt)}\n\n^excerpt${record.interpretation ? `\n\nInterpretation: ${record.interpretation}` : ""}`;
       break;
     case "claim":
       frontmatter = { ...common, proposition: record.proposition, confidence: record.confidence, review_state: record.reviewState, supports: record.supports.map(wikilink), challenges: record.challenges.map(wikilink), contextualizes: record.contextualizes.map(wikilink), limitations: record.limitations };
-      body = `# Claim\n\n## Proposition\n\n${record.proposition}`;
+      body = `# Claim\n\n## Proposition\n\n${record.proposition}${record.limitations.length ? `\n\n> [!warning]- Limitations\n${record.limitations.map((l) => `> - ${l}`).join("\n")}` : ""}`;
       break;
     case "research-question":
       frontmatter = { ...common, question: record.question, status: record.status, about: record.about ? wikilink(record.about) : undefined };
