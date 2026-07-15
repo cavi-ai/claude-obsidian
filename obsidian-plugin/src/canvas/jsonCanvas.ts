@@ -1,15 +1,21 @@
 // JSON Canvas (.canvas) generation (spec 2026-07-06): validate and normalize a
 // model-proposed node/edge graph into Obsidian's JSON Canvas 1.0 format, with
-// deterministic auto-layout for nodes without coordinates. Pure.
+// deterministic auto-layout for nodes without coordinates. Group nodes follow
+// the 1.0 spec (cross-checked against kepano/obsidian-skills json-canvas,
+// pinned at upstream/obsidian-skills). Pure.
 
 export interface ProposedCanvasNode {
   id?: string;
-  /** Inferred when omitted: file → "file", url → "link", else "text". */
-  type?: "text" | "file" | "link";
+  /** Inferred when omitted: file → "file", url → "link", else "text". "group" must be explicit. */
+  type?: "text" | "file" | "link" | "group";
   text?: string;
   /** Vault path for file nodes (e.g. "Projects/Foo.md"). */
   file?: string;
   url?: string;
+  /** Group label (group nodes only). */
+  label?: string;
+  /** Id of the group node this node belongs to (auto-layout places it inside). */
+  group?: string;
   x?: number;
   y?: number;
   width?: number;
@@ -26,7 +32,7 @@ export interface ProposedCanvasEdge {
 
 export interface CanvasNode {
   id: string;
-  type: "text" | "file" | "link";
+  type: "text" | "file" | "link" | "group";
   x: number;
   y: number;
   width: number;
@@ -34,6 +40,7 @@ export interface CanvasNode {
   text?: string;
   file?: string;
   url?: string;
+  label?: string;
   color?: string;
 }
 
@@ -56,11 +63,15 @@ const NODE_W = 380;
 const NODE_H = 180;
 const COL_GAP = 480;
 const ROW_GAP = 240;
+const GROUP_PAD = 40;
+const GROUP_LABEL_PAD = 60; // extra headroom so the label doesn't overlap members
 
 /**
  * Validate the proposal and produce canvas data. Nodes without coordinates get
  * a deterministic layered layout (columns = BFS depth from the roots, rows =
- * arrival order), so the model can think purely in graph terms.
+ * arrival order), so the model can think purely in graph terms. Members of a
+ * group are laid out in a compact grid inside it, and auto-sized groups wrap
+ * their members below the main graph.
  */
 export function buildCanvas(nodes: ProposedCanvasNode[], edges: ProposedCanvasEdge[]): CanvasData {
   if (nodes.length === 0) throw new Error("A canvas needs at least one node.");
@@ -80,14 +91,28 @@ export function buildCanvas(nodes: ProposedCanvasNode[], edges: ProposedCanvasEd
       type,
       x: n.x ?? Number.NaN, // resolved by layout below
       y: n.y ?? Number.NaN,
-      width: n.width ?? NODE_W,
-      height: n.height ?? NODE_H,
+      // Auto-sized groups get their box from their members in layout.
+      width: n.width ?? (type === "group" ? Number.NaN : NODE_W),
+      height: n.height ?? (type === "group" ? Number.NaN : NODE_H),
       ...(type === "text" ? { text: n.text!.trim() } : {}),
       ...(type === "file" ? { file: n.file!.trim() } : {}),
       ...(type === "link" ? { url: n.url!.trim() } : {}),
+      ...(type === "group" && n.label?.trim() ? { label: n.label.trim() } : {}),
       ...(n.color ? { color: n.color } : {}),
     };
   });
+
+  const byId = new Map(normalized.map((n) => [n.id, n]));
+  const memberOf = new Map<string, string>();
+  for (const [i, n] of nodes.entries()) {
+    if (!n.group) continue;
+    const member = normalized[i]!;
+    const target = byId.get(n.group);
+    if (!target) throw new Error(`Node "${member.id}" references unknown group "${n.group}".`);
+    if (target.type !== "group") throw new Error(`Node "${member.id}": "${n.group}" is not a group node.`);
+    if (member.type === "group") throw new Error(`Group "${member.id}" cannot join "${n.group}" — nested groups are not supported.`);
+    memberOf.set(member.id, n.group);
+  }
 
   const normalizedEdges: CanvasEdge[] = edges.map((e, i) => {
     if (!ids.has(e.from)) throw new Error(`Edge ${i + 1} references unknown node "${e.from}".`);
@@ -102,7 +127,7 @@ export function buildCanvas(nodes: ProposedCanvasNode[], edges: ProposedCanvasEd
     };
   });
 
-  layoutMissing(normalized, normalizedEdges);
+  layoutMissing(normalized, normalizedEdges, memberOf);
   return { nodes: normalized, edges: normalizedEdges };
 }
 
@@ -112,7 +137,7 @@ export function serializeCanvas(data: CanvasData): string {
 }
 
 /** Layered auto-layout for nodes the model left unplaced. Deterministic. */
-function layoutMissing(nodes: CanvasNode[], edges: CanvasEdge[]): void {
+function layoutMissing(nodes: CanvasNode[], edges: CanvasEdge[], memberOf: Map<string, string>): void {
   const depth = new Map<string, number>();
   const incoming = new Map<string, number>();
   for (const n of nodes) incoming.set(n.id, 0);
@@ -133,13 +158,54 @@ function layoutMissing(nodes: CanvasNode[], edges: CanvasEdge[]): void {
     }
   }
 
+  // Main pass: ungrouped, non-group nodes get the layered layout.
   const rowByCol = new Map<number, number>();
   for (const n of nodes) {
+    if (n.type === "group" || memberOf.has(n.id)) continue;
     if (!Number.isNaN(n.x) && !Number.isNaN(n.y)) continue;
     const col = depth.get(n.id) ?? 0;
     const row = rowByCol.get(col) ?? 0;
     rowByCol.set(col, row + 1);
     n.x = col * COL_GAP;
     n.y = row * ROW_GAP;
+  }
+
+  // Groups stack below the main graph; members grid inside, box wraps them.
+  let cursorY = 0;
+  for (const n of nodes) {
+    if (n.type === "group" || memberOf.has(n.id) || Number.isNaN(n.y)) continue;
+    cursorY = Math.max(cursorY, n.y + n.height + ROW_GAP);
+  }
+  for (const g of nodes) {
+    if (g.type !== "group") continue;
+    const members = nodes.filter((n) => memberOf.get(n.id) === g.id);
+    const placedBox = !Number.isNaN(g.x) && !Number.isNaN(g.y);
+    const originX = (placedBox ? g.x : 0) + GROUP_PAD;
+    const originY = (placedBox ? g.y : cursorY) + GROUP_LABEL_PAD;
+    let gridIndex = 0;
+    for (const m of members) {
+      if (!Number.isNaN(m.x) && !Number.isNaN(m.y)) continue;
+      m.x = originX + (gridIndex % 2) * COL_GAP;
+      m.y = originY + Math.floor(gridIndex / 2) * ROW_GAP;
+      gridIndex += 1;
+    }
+    if (Number.isNaN(g.x) || Number.isNaN(g.y) || Number.isNaN(g.width) || Number.isNaN(g.height)) {
+      if (members.length > 0) {
+        const minX = Math.min(...members.map((m) => m.x));
+        const minY = Math.min(...members.map((m) => m.y));
+        const maxX = Math.max(...members.map((m) => m.x + m.width));
+        const maxY = Math.max(...members.map((m) => m.y + m.height));
+        if (Number.isNaN(g.x)) g.x = minX - GROUP_PAD;
+        if (Number.isNaN(g.y)) g.y = minY - GROUP_LABEL_PAD;
+        if (Number.isNaN(g.width)) g.width = maxX - g.x + GROUP_PAD;
+        if (Number.isNaN(g.height)) g.height = maxY - g.y + GROUP_PAD;
+      } else {
+        if (Number.isNaN(g.x)) g.x = 0;
+        if (Number.isNaN(g.y)) g.y = cursorY;
+        if (Number.isNaN(g.width)) g.width = NODE_W * 2;
+        if (Number.isNaN(g.height)) g.height = NODE_H * 2;
+      }
+    }
+    cursorY = Math.max(cursorY, g.y + g.height + ROW_GAP);
   }
 }
