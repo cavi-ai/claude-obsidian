@@ -21,6 +21,10 @@ function citations(markdown: string): string[] {
   return [...markdown.matchAll(/\[@([A-Za-z0-9][A-Za-z0-9._:-]*)\]/g)].map((match) => match[1] ?? "");
 }
 
+function proseBlocks(markdown: string): string[] {
+  return markdown.split(/\n\s*\n/).map((block) => block.trim()).filter((block) => Boolean(block) && !/^#{1,6}\s+/.test(block));
+}
+
 function parseResponse(value: unknown): ValidatedDraftResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Draft response must be an object");
   const raw = value as Record<string, unknown>;
@@ -46,6 +50,11 @@ export function validateDraftResponse(packet: DraftGroundingPacket, value: unkno
   const usedEvidence = new Set<string>();
   const manifestedCitations = new Set<string>();
 
+  const withoutCanonical = response.markdown.replace(/\[@[A-Za-z0-9][A-Za-z0-9._:-]*\]/g, "");
+  if (/(?:\[[^\]]*@[^\]]*\]|\[(?:\^?\d+[^\]]*)\]|\([^)]*[A-Za-z][^)]*,\s*(?:19|20)\d{2}[a-z]?[^)]*\))/i.test(withoutCanonical)) {
+    throw new Error("Draft contains noncanonical citation syntax; use only [@key]");
+  }
+
   for (const key of citations(response.markdown)) {
     if (!allowedCitations.has(key)) throw new Error(`Draft contains unknown citation: ${key}`);
   }
@@ -61,8 +70,14 @@ export function validateDraftResponse(packet: DraftGroundingPacket, value: unkno
     for (const key of item.citationKeys) {
       if (!allowedCitations.has(key)) throw new Error(`Support entry contains unknown citation: ${key}`);
       if (!item.passage.includes(`[@${key}]`)) throw new Error(`Support passage omits its declared citation: ${key}`);
+      if (!item.evidencePaths.some((path) => allowedEvidence.get(path)?.citationKey === key)) throw new Error(`Support entry has no evidence lineage for citation: ${key}`);
       manifestedCitations.add(key);
     }
+  }
+  for (const block of proseBlocks(response.markdown)) {
+    let remaining = block;
+    for (const { passage } of response.support) if (block.includes(passage)) remaining = remaining.replace(passage, "");
+    if (remaining.replace(/[\s.,;:!?—–-]+/g, "")) throw new Error(`Draft prose is missing passage-level support: ${block}`);
   }
   for (const key of citations(response.markdown)) {
     if (!manifestedCitations.has(key)) throw new Error(`Citation is missing passage-level support: ${key}`);

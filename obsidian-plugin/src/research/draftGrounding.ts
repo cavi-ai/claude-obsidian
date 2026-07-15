@@ -6,11 +6,26 @@ export interface DraftGroundingEvidence {
   relation: EvidenceRelation;
   sourcePath: string;
   sourceFingerprint?: string;
+  fingerprint: string;
   citationKey: string;
   locatorKind: string;
   locatorValue: string;
   excerpt: string;
   interpretation?: string;
+}
+
+function fingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 0x01000193); }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function groundingEvidenceFingerprint(value: Omit<DraftGroundingEvidence, "fingerprint">): string {
+  return fingerprint(JSON.stringify(value));
+}
+
+export function groundingClaimFingerprint(packet: Pick<DraftGroundingPacket, "claim" | "limitations">): string {
+  return fingerprint(JSON.stringify({ claim: packet.claim, limitations: packet.limitations }));
 }
 
 export interface DraftGroundingPacket {
@@ -50,7 +65,7 @@ export function buildDraftGrounding(snapshot: ProjectSnapshot, claimPath: string
       const source = item ? snapshot.sources.find((candidate) => candidate.path === item.source) : undefined;
       if (!isTrustedEvidence(item, source) || !item || !source || !item.locatorKind || !item.locatorValue) continue;
       if (relation === "supports") trustedSupport += 1;
-      evidence.push({
+      const grounded = {
         path: item.path,
         relation,
         sourcePath: source.path,
@@ -60,7 +75,8 @@ export function buildDraftGrounding(snapshot: ProjectSnapshot, claimPath: string
         locatorValue: item.locatorValue,
         excerpt: item.excerpt,
         ...(item.interpretation ? { interpretation: item.interpretation } : {}),
-      });
+      };
+      evidence.push({ ...grounded, fingerprint: groundingEvidenceFingerprint(grounded) });
     }
   }
   if (!trustedSupport) throw new Error(`Section drafting requires trusted supporting evidence for claim: ${claimPath}`);

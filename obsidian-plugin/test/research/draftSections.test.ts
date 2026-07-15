@@ -3,6 +3,7 @@ import {
   applyDraftSection,
   parseDraftSections,
   renderDraftSection,
+  validateDocumentCitationKeys,
   type DraftSectionEnvelope,
 } from "../../src/research/draftSections";
 
@@ -40,5 +41,19 @@ describe("managed research draft sections", () => {
 
     expect(() => applyDraftSection(edited, preview, envelope, "Replacement [@smith2025]."))
       .toThrow(/changed after the preview/i);
+  });
+
+  it("applies a body-only preview to the same unique section in a full frontmatter document", () => {
+    const body = `# Draft\n\n${renderDraftSection(envelope, "Original [@smith2025].")}\n`;
+    const preview = parseDraftSections(body).sections[0];
+    if (!preview) throw new Error("fixture section missing");
+    const full = `---\ntype: research-document\ndocument_kind: outline\n---\n${body}`;
+
+    expect(applyDraftSection(full, preview, envelope, "Replacement [@smith2025].")).toContain("Replacement [@smith2025].");
+  });
+
+  it("rejects one citation key resolving to different sources across document sections", () => {
+    const other = { ...envelope, id: "other-section", citations: [{ key: "smith2025", sourcePath: "Research/Sources/Different.md" }] };
+    expect(() => validateDocumentCitationKeys([envelope, other])).toThrow(/citation key collision.*smith2025/i);
   });
 });

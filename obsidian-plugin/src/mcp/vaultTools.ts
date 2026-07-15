@@ -370,6 +370,10 @@ export class VaultTools {
         const file = this.resolveFile(path);
         await this.app.fileManager.processFrontMatter(file, mutator);
       },
+      updateText: async (path, updater) => {
+        const file = this.resolveFile(path);
+        await this.app.vault.process(file, updater);
+      },
     });
   }
 

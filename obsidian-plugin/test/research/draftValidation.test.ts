@@ -40,4 +40,17 @@ describe("grounded section draft validation", () => {
     const response = { ...valid, support: [{ ...valid.support[0], passage: "A sentence the user cannot inspect." }, valid.support[1]] };
     expect(() => validateDraftResponse(packet, response)).toThrow(/passage.*not present/i);
   });
+
+  it("requires evidence lineage for every declared citation", () => {
+    const response = { ...valid, support: [{ ...valid.support[0], passage: valid.markdown, citationKeys: ["smith2025", "jones2024"] }] };
+    expect(() => validateDraftResponse(packet, response)).toThrow(/no evidence lineage.*jones2024/i);
+  });
+
+  it("rejects uncited prose outside the support manifest", () => {
+    expect(() => validateDraftResponse(packet, { ...valid, markdown: `${valid.markdown}\n\nInvented factual sentence.` })).toThrow(/missing passage-level support/i);
+  });
+
+  it.each(["Results varied [@smith2025 p. 4].", "Results varied [@smith2025]. (Smith, 2025)", "Results varied [@smith2025]. [1]", "Results varied [@smith2025]. [^1]", "Results varied [@smith2025]. (smith, 2025)", "Results varied [@smith2025]. (Smith & Jones, 2025)"])("rejects noncanonical citation syntax: %s", (markdown) => {
+    expect(() => validateDraftResponse(packet, { ...valid, markdown })).toThrow(/noncanonical citation syntax/i);
+  });
 });

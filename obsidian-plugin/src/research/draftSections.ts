@@ -6,6 +6,7 @@ export interface DraftSectionEnvelope {
   provider: string;
   model: string;
   generatedAt: string;
+  claimFingerprint?: string;
 }
 
 export interface ParsedDraftSection {
@@ -43,6 +44,7 @@ function parseEnvelope(encoded: string): DraftSectionEnvelope | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const item = value as Record<string, unknown>;
   if (![item.id, item.provider, item.model, item.generatedAt].every(validString)) return undefined;
+  if (item.claimFingerprint !== undefined && !validString(item.claimFingerprint)) return undefined;
   if (!Array.isArray(item.claimPaths) || !item.claimPaths.every(validString)) return undefined;
   if (!Array.isArray(item.evidence) || !item.evidence.every((entry) => entry && typeof entry === "object" && validString((entry as Record<string, unknown>).path) && validString((entry as Record<string, unknown>).fingerprint))) return undefined;
   if (!Array.isArray(item.citations) || !item.citations.every((entry) => entry && typeof entry === "object" && validString((entry as Record<string, unknown>).key) && validString((entry as Record<string, unknown>).sourcePath))) return undefined;
@@ -90,7 +92,22 @@ export function parseDraftSections(document: string): DraftSectionParseResult {
 }
 
 export function applyDraftSection(document: string, previewed: ParsedDraftSection, envelope: DraftSectionEnvelope, markdown: string): string {
-  if (document.slice(previewed.start, previewed.end) !== previewed.raw) throw new Error(`Draft section ${previewed.envelope.id} changed after the preview was generated`);
+  let start = previewed.start;
+  if (document.slice(start, start + previewed.raw.length) !== previewed.raw) {
+    start = document.indexOf(previewed.raw);
+    if (start < 0 || document.indexOf(previewed.raw, start + 1) >= 0) throw new Error(`Draft section ${previewed.envelope.id} changed after the preview was generated`);
+  }
   if (envelope.id !== previewed.envelope.id) throw new Error("Replacement draft section id must match the previewed section");
-  return `${document.slice(0, previewed.start)}${renderDraftSection(envelope, markdown)}${document.slice(previewed.end)}`;
+  return `${document.slice(0, start)}${renderDraftSection(envelope, markdown)}${document.slice(start + previewed.raw.length)}`;
+}
+
+export function validateDocumentCitationKeys(envelopes: DraftSectionEnvelope[]): void {
+  const owners = new Map<string, string>();
+  for (const envelope of envelopes) {
+    for (const citation of envelope.citations) {
+      const owner = owners.get(citation.key);
+      if (owner && owner !== citation.sourcePath) throw new Error(`Citation key collision for ${citation.key}: ${owner} and ${citation.sourcePath}`);
+      owners.set(citation.key, citation.sourcePath);
+    }
+  }
 }

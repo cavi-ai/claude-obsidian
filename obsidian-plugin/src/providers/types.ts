@@ -91,6 +91,10 @@ export interface CompletionRequest {
   signal?: AbortSignal;
   /** Lower = more deterministic. Used for utility tasks like tagging. */
   temperature?: number;
+  /** Request a structured JSON response when the provider supports it. */
+  responseFormat?: "json";
+  /** JSON Schema supplied to local providers that support constrained output. */
+  responseSchema?: Record<string, unknown>;
   /** Extended-thinking config for the request body (model-aware; built by chatControls). */
   thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens: number } | { type: "disabled" };
   /** Whether to request summarized reasoning text (adaptive models). */

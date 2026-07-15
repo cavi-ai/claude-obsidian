@@ -35,5 +35,32 @@ export function buildDraftRequest(packet: DraftGroundingPacket): DraftProviderRe
 export function parseDraftResponse(packet: DraftGroundingPacket, raw: string): ValidatedDraftResponse {
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { throw new Error("The section draft response was not valid JSON."); }
-  return validateDraftResponse(packet, parsed);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return validateDraftResponse(packet, parsed);
+  const value = parsed as Record<string, unknown>;
+  if (typeof value.markdown !== "string") return validateDraftResponse(packet, parsed);
+  const evidenceByKey = new Map<string, typeof packet.evidence>();
+  for (const item of packet.evidence) evidenceByKey.set(item.citationKey, [...(evidenceByKey.get(item.citationKey) ?? []), item]);
+  let markdown = value.markdown;
+  for (const key of evidenceByKey.keys()) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    markdown = markdown.replace(new RegExp(`\\[@${escaped}\\s+[^\\]]+\\]`, "g"), `[@${key}]`);
+  }
+  const normalized = { ...value, markdown };
+  try { return validateDraftResponse(packet, normalized); }
+  catch (error) {
+    if ([...evidenceByKey.values()].some((items) => items.length > 1)) throw error;
+  }
+  const support = markdown.split(/\n\s*\n/).flatMap((passage) => {
+    const citationKeys = [...passage.matchAll(/\[@([A-Za-z0-9][A-Za-z0-9._:-]*)\]/g)]
+      .map((match) => match[1] ?? "")
+      .filter((key, index, keys) => evidenceByKey.has(key) && keys.indexOf(key) === index);
+    if (!citationKeys.length) return [];
+    return [{
+      passage: passage.trim(),
+      claimPath: packet.claim.path,
+      evidencePaths: citationKeys.flatMap((key) => evidenceByKey.get(key)?.map(({ path }) => path) ?? []),
+      citationKeys,
+    }];
+  });
+  return validateDraftResponse(packet, { ...normalized, support });
 }

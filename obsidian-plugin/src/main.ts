@@ -6,6 +6,7 @@ import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/Rese
 import { ResearchRepository } from "./research/repository";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
+import { DraftCoordinator } from "./research/draftCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
 import { CrossrefAdapter } from "./discovery/adapters/crossref";
 import { ArxivAdapter } from "./discovery/adapters/arxiv";
@@ -140,6 +141,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           discoveryCoordinator,
           retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
+          draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
         };
       })(),
     ));
@@ -1459,6 +1461,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
         if (!(file instanceof TFile)) throw new Error(`Research note not found: ${path}`);
         await this.app.fileManager.processFrontMatter(file, mutator);
+      },
+      updateText: async (path, updater) => {
+        const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (!(file instanceof TFile)) throw new Error(`Research note not found: ${path}`);
+        await this.app.vault.process(file, updater);
       },
       readBinary: async (path) => {
         const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
