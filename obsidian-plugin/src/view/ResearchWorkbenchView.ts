@@ -24,6 +24,24 @@ const TAB_GROUPS: Array<{ label: string; tabs: Tab[] }> = [
   { label: "Assure", tabs: ["Audit", "Intelligence"] },
   { label: "Expand", tabs: ["Discover"] },
 ];
+const PANEL_META: Record<Tab, { eyebrow: string; title: string; description: string }> = {
+  Overview: { eyebrow: "AT A GLANCE", title: "Project overview", description: "See the shape, health, and immediate priorities of this research system." },
+  Sources: { eyebrow: "BUILD", title: "Source library", description: "Review the material captured for this project and open the source notes behind it." },
+  Evidence: { eyebrow: "BUILD", title: "Evidence review", description: "Inspect the passages and observations that can support, challenge, or qualify claims." },
+  Claims: { eyebrow: "BUILD", title: "Claim map", description: "Develop the propositions this project can defend and trace each one to reviewed evidence." },
+  Outline: { eyebrow: "WRITE", title: "Evidence-backed outline", description: "Shape the document around claims that already have inspectable support." },
+  Draft: { eyebrow: "WRITE", title: "Grounded draft", description: "Draft and revise one supported section at a time without losing its evidence trail." },
+  Audit: { eyebrow: "ASSURE", title: "Assurance audit", description: "Find broken references, unsupported claims, stale evidence, and missing locators before publication." },
+  Intelligence: { eyebrow: "ASSURE", title: "Research intelligence", description: "Review deterministic tensions and request a model briefing only when it is useful." },
+  Discover: { eyebrow: "EXPAND", title: "Scholarly discovery", description: "Search beyond the vault while preserving provenance, ranking factors, and deliberate import." },
+};
+const EMPTY_META: Partial<Record<Tab, { title: string; copy: string }>> = {
+  Sources: { title: "No sources yet", copy: "Add the first source to begin building an inspectable research trail." },
+  Evidence: { title: "No evidence yet", copy: "Create evidence notes from reviewed source passages before developing claims." },
+  Claims: { title: "No claims yet", copy: "Develop a claim when the project has reviewed evidence worth reasoning from." },
+  Outline: { title: "No outline yet", copy: "Build an outline once the project has claims with enough reviewed support." },
+  Audit: { title: "No audit findings", copy: "No structural issues were found in the research records currently available." },
+};
 
 export interface ResearchWorkbenchDependencies {
   coordinator: IntelligenceCoordinator;
@@ -200,6 +218,7 @@ export class ResearchWorkbenchView extends ItemView {
 
   private renderTab(root: HTMLElement, snapshot: ProjectSnapshot, findings: ReturnType<typeof auditProject>, draftDocument?: ResearchDocumentRecord, draftSections?: DraftSectionParseResult): void {
     const vm = buildWorkbenchViewModel(snapshot, findings);
+    this.renderPanelIntro(root);
     if (this.activeTab === "Intelligence") {
       if (this.intelligencePanel) this.intelligencePanel.render(root, snapshot);
       else root.createEl("p", { text: "Research intelligence is unavailable." });
@@ -234,28 +253,55 @@ export class ResearchWorkbenchView extends ItemView {
       return;
     }
     if (this.activeTab === "Audit") {
-      if (!findings.length) root.createEl("p", { text: "No audit findings." });
+      if (!findings.length) this.renderEmptyState(root, "Audit");
       for (const finding of findings) this.openButton(root, `${finding.code}: ${finding.explanation}`, finding.path);
       return;
     }
     const records = this.activeTab === "Sources" ? snapshot.sources : this.activeTab === "Evidence" ? snapshot.evidence : this.activeTab === "Claims" ? snapshot.claims : snapshot.documents.filter(({ documentKind }) => documentKind === "outline");
-    if (!records.length) root.createEl("p", { text: `No ${this.activeTab.toLowerCase()} yet.` });
-    for (const record of records) this.openButton(root, record.title, record.path);
+    if (!records.length) this.renderEmptyState(root, this.activeTab);
+    else {
+      const list = root.createDiv({ cls: "cc-research-record-list", attr: { "aria-label": `${this.activeTab} records` } });
+      for (const record of records) {
+        const button = list.createEl("button", { cls: "cc-research-record", attr: { "aria-label": `Open ${record.title}` } });
+        button.createSpan({ cls: "cc-research-record-title", text: record.title });
+        button.createSpan({ cls: "cc-research-record-path", text: record.path });
+        button.addEventListener("click", () => void this.openPath(record.path));
+      }
+    }
+  }
+
+  private renderPanelIntro(root: HTMLElement): void {
+    const meta = PANEL_META[this.activeTab];
+    const intro = root.createDiv({ cls: "cc-research-panel-intro" });
+    intro.createDiv({ cls: "cc-research-panel-eyebrow", text: meta.eyebrow });
+    intro.createEl("h3", { cls: "cc-research-panel-title", text: meta.title });
+    intro.createEl("p", { cls: "cc-research-panel-description", text: meta.description });
+  }
+
+  private renderEmptyState(root: HTMLElement, tab: Tab): void {
+    const meta = EMPTY_META[tab] ?? { title: `Nothing in ${tab.toLowerCase()} yet`, copy: "This panel will become available as the project develops." };
+    const state = root.createDiv({ cls: "cc-research-empty-state", attr: { role: "status" } });
+    state.createEl("h4", { cls: "cc-research-empty-state-title", text: meta.title });
+    state.createEl("p", { cls: "cc-research-empty-state-copy", text: meta.copy });
   }
 
   private renderActions(root: HTMLElement, snapshot?: ProjectSnapshot): void {
-    const actions = root.createDiv({ cls: "cc-research-actions", attr: { "aria-label": "Research actions" } });
+    const region = root.createDiv({ cls: "cc-research-actions-region" });
+    region.createEl("h3", { cls: "cc-research-actions-heading", text: "Workspace actions" });
+    region.createEl("p", { cls: "cc-research-actions-description", text: "Use the project tools without leaving this research context." });
+    const actions = region.createDiv({ cls: "cc-research-actions", attr: { "aria-label": "Research actions" } });
     const projectPath = snapshot?.project.path;
-    this.actionButton(actions, "Create project", undefined, undefined, () => this.openCreateProject());
-    this.actionButton(actions, "Add source", projectPath, "Select a research project before adding a source.", () => projectPath ? this.openAddSource(projectPath) : new Notice("Select a research project first."));
-    this.actionButton(actions, "Review evidence", snapshot?.evidence.find(({ reviewState }) => reviewState === "proposed")?.path ?? projectPath);
-    this.actionButton(actions, "Create claim", projectPath, "Open the project note before creating a claim with the research tools.");
-    this.actionButton(actions, "Run audit", projectPath, undefined, () => { this.activeTab = "Audit"; void this.render(); });
-    this.actionButton(actions, "Build outline", snapshot?.documents.find(({ documentKind }) => documentKind === "outline")?.path ?? projectPath);
+    const contextual = ({ Overview: "Run audit", Sources: "Add source", Evidence: "Review evidence", Claims: "Create claim", Outline: "Build outline", Draft: "Build outline", Audit: "Run audit", Intelligence: "Run audit", Discover: "Add source" } as Record<Tab, string>)[this.activeTab];
+    this.actionButton(actions, "Create project", undefined, undefined, () => this.openCreateProject(), contextual === "Create project");
+    this.actionButton(actions, "Add source", projectPath, "Select a research project before adding a source.", () => projectPath ? this.openAddSource(projectPath) : new Notice("Select a research project first."), contextual === "Add source");
+    this.actionButton(actions, "Review evidence", snapshot?.evidence.find(({ reviewState }) => reviewState === "proposed")?.path ?? projectPath, undefined, undefined, contextual === "Review evidence");
+    this.actionButton(actions, "Create claim", projectPath, "Open the project note before creating a claim with the research tools.", undefined, contextual === "Create claim");
+    this.actionButton(actions, "Run audit", projectPath, undefined, () => { this.activeTab = "Audit"; void this.render(); }, contextual === "Run audit");
+    this.actionButton(actions, "Build outline", snapshot?.documents.find(({ documentKind }) => documentKind === "outline")?.path ?? projectPath, undefined, undefined, contextual === "Build outline");
   }
 
-  private actionButton(root: HTMLElement, label: string, path?: string, hint?: string, action?: () => void): void {
-    const button = root.createEl("button", { text: label, attr: { "aria-label": label, ...(hint ? { title: hint } : {}) } });
+  private actionButton(root: HTMLElement, label: string, path?: string, hint?: string, action?: () => void, contextual = false): void {
+    const button = root.createEl("button", { cls: `cc-research-action${contextual ? " is-contextual mod-cta" : ""}`, text: label, attr: { "aria-label": label, ...(hint ? { title: hint } : {}) } });
     button.addEventListener("click", action ?? (() => path ? void this.openPath(path) : new Notice(hint ?? "Select a research project first.")));
   }
 

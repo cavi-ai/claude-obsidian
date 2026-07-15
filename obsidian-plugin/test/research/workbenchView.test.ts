@@ -136,6 +136,31 @@ describe("ResearchWorkbenchView", () => {
     expect(compact.querySelectorAll("option")).toHaveLength(9);
   });
 
+  it("gives every panel a clear purpose and consistent content hierarchy", async () => {
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
+    await view.setProjectPath(snapshot.project.path);
+    expect(elements(view, ".cc-research-panel-intro")).toHaveLength(1);
+    expect(elements(view, ".cc-research-panel-title")[0]?.textContent).toBe("Project overview");
+    expect(elements(view, ".cc-research-panel-description")[0]?.textContent).toContain("research system");
+
+    await view.focus("Sources");
+    expect(elements(view, ".cc-research-panel-title")[0]?.textContent).toBe("Source library");
+    expect(elements(view, ".cc-research-record-list")).toHaveLength(1);
+    expect(elements(view, ".cc-research-record-title")[0]?.textContent).toBe("Source S");
+    expect(elements(view, ".cc-research-record-path")[0]?.textContent).toBe("Research/P/Sources/S.md");
+  });
+
+  it("uses intentional empty states and prioritizes the action for the active panel", async () => {
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
+    await view.setProjectPath(snapshot.project.path);
+    await view.focus("Evidence");
+    expect(elements(view, ".cc-research-empty-state")).toHaveLength(1);
+    expect(elements(view, ".cc-research-empty-state-title")[0]?.textContent).toBe("No evidence yet");
+    expect(elements(view, ".cc-research-empty-state-copy")[0]?.textContent).toContain("reviewed source passages");
+    expect(elements(view, ".cc-research-actions-heading")[0]?.textContent).toBe("Workspace actions");
+    expect(elements(view, ".is-contextual").map(({ textContent }) => textContent)).toEqual(["Review evidence"]);
+  });
+
   it("accepts a contextual handoff from the Research Desk", async () => {
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never);
     await view.setProjectPath(snapshot.project.path);
