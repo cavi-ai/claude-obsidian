@@ -61,4 +61,89 @@ views:
     expect(yaml).toContain('displayName: "Status: current"');
     expect(yaml).toContain('name: "true"');
   });
+
+  it("accepts list and map view types and rejects unknown ones", () => {
+    const yaml = buildBaseFile({
+      views: [
+        { type: "list", name: "Simple list" },
+        { type: "map", name: "Locations" },
+      ],
+    });
+    expect(yaml).toContain("- type: list");
+    expect(yaml).toContain("- type: map");
+    expect(() => buildBaseFile({ views: [{ type: "kanban", name: "v" }] })).toThrow(/table, cards, list, map/i);
+  });
+
+  it("emits recursive and/or/not filter groups", () => {
+    const yaml = buildBaseFile({
+      filters: {
+        and: [
+          'status == "active"',
+          { not: ['file.hasTag("archived")'] },
+          { or: ['file.hasTag("book")', 'file.hasTag("article")'] },
+        ],
+      },
+      views: [{ name: "v" }],
+    });
+    expect(yaml).toBe(`filters:
+  and:
+    - "status == \\"active\\""
+    - not:
+        - "file.hasTag(\\"archived\\")"
+    - or:
+        - "file.hasTag(\\"book\\")"
+        - "file.hasTag(\\"article\\")"
+views:
+  - type: table
+    name: v
+`);
+  });
+
+  it("emits a single filter statement inline", () => {
+    const yaml = buildBaseFile({
+      filters: 'status == "done"',
+      views: [{ name: "v", filters: 'note.priority > 3' }],
+    });
+    expect(yaml).toContain('filters: "status == \\"done\\""');
+    expect(yaml).toContain('    filters: "note.priority > 3"');
+  });
+
+  it("supports recursive filters at the view level", () => {
+    const yaml = buildBaseFile({
+      views: [{ name: "v", filters: { or: ['a == 1', { not: ["b == 2"] }] } }],
+    });
+    expect(yaml).toContain(`    filters:
+      or:
+        - "a == 1"
+        - not:
+            - "b == 2"`);
+  });
+
+  it("rejects malformed filter groups", () => {
+    expect(() => buildBaseFile({ filters: { and: [] }, views: [{ name: "v" }] })).toThrow(/at least one/i);
+    expect(() => buildBaseFile({ filters: { nand: ["x"] } as never, views: [{ name: "v" }] })).toThrow(/and, or, not/i);
+    expect(() => buildBaseFile({ filters: { and: ["x"], or: ["y"] } as never, views: [{ name: "v" }] })).toThrow(/exactly one/i);
+    expect(() => buildBaseFile({ filters: { and: [" "] }, views: [{ name: "v" }] })).toThrow(/non-empty/i);
+  });
+
+  it("emits per-view summaries validated against built-ins and custom summaries", () => {
+    const yaml = buildBaseFile({
+      summaries: { p90: "values.percentile(90)" },
+      views: [
+        {
+          name: "Costs",
+          order: ["file.name", "note.price"],
+          summaries: { "note.price": "Sum", "note.age": "p90" },
+        },
+      ],
+    });
+    expect(yaml).toContain(`summaries:
+  p90: values.percentile(90)`);
+    expect(yaml).toContain(`    summaries:
+      note.price: Sum
+      note.age: p90`);
+    expect(() =>
+      buildBaseFile({ views: [{ name: "v", summaries: { price: "Total" } }] })
+    ).toThrow(/unknown summary/i);
+  });
 });

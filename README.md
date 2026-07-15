@@ -22,6 +22,7 @@ Two paired, complementary deliverables that meet at a local MCP bridge:
 | [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: side-panel chat with **agent mode** (Claude works your vault with its own tools), diff-reviewed note edits, vault-aware context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases generation, inline `claude-html` artifacts, prompt caching, offline local-model fallback, and a loopback MCP bridge. | Obsidian community store |
 | [`claude-plugin/`](claude-plugin/) | **claude-obsidian** — the Claude Code plugin + marketplace: commands and skills that drive your vault over the Companion MCP bridge (synthesis, tagging, drafting, session capture, artifacts, spec builds, advisor roadmaps). | Claude Code marketplace |
 | [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
+| [`upstream/obsidian-skills/`](upstream/) | Steph Ango's (@kepano, Obsidian CEO) [Obsidian Skills](https://github.com/kepano/obsidian-skills) — agent skills for Obsidian's open formats, vendored as a **pinned, unmodified submodule** (its own MIT license) and used as the canonical format reference for our Bases, Canvas, and Obsidian-Flavored-Markdown emitters. See [`NOTICE`](NOTICE). | — |
 
 ---
 
@@ -251,8 +252,19 @@ See [`obsidian-plugin/README.md`](obsidian-plugin/README.md) for plugin dev/buil
 
 The artifact design system is an **original reformulation** of the aesthetic in
 Thariq Shihipar's gallery — not a copy of his HTML. The gallery itself is
-vendored only as a pinned, unmodified submodule. Full attribution is in
-[`NOTICE`](NOTICE); everything we authored is MIT-licensed ([`LICENSE`](LICENSE)).
+vendored only as a pinned, unmodified submodule.
+
+Steph Ango's (@kepano) [Obsidian Skills](https://github.com/kepano/obsidian-skills)
+are vendored the same way at `upstream/obsidian-skills/` and serve as the
+canonical format reference for our `.base`, `.canvas`, and Obsidian-flavored
+Markdown generation. His skills work on vault *files* (including via
+`obsidian-cli`); the Companion MCP bridge works on the *live, running* vault —
+the two are complementary, and we recommend installing both. Web-source capture
+uses his [Defuddle](https://github.com/kepano/defuddle) library (MIT), the same
+extraction engine behind the official Obsidian Web Clipper.
+
+Full attribution is in [`NOTICE`](NOTICE); everything we authored is
+MIT-licensed ([`LICENSE`](LICENSE)).
 
 ## License
 

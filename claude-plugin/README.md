@@ -109,8 +109,28 @@ loopback and protected by its required bearer token.
 The bridge binds to `127.0.0.1` only — your vault is never exposed to the
 network.
 
+## Pairs well with kepano's Obsidian Skills
+
+Steph Ango (@kepano, Obsidian's CEO) publishes
+[obsidian-skills](https://github.com/kepano/obsidian-skills) — agent skills for
+Obsidian Flavored Markdown, Bases, JSON Canvas, `obsidian-cli`, and Defuddle web
+clipping. The two packs are complementary, and we recommend installing both:
+
+- **His skills** teach Claude the *file formats* and work on vault files
+  directly — even when Obsidian is closed — via plain file access or
+  `obsidian-cli`.
+- **This plugin** drives the *live, running* vault through Companion's MCP
+  bridge: search (semantic when indexed), backlinks, frontmatter queries,
+  research workflows, and reviewed writes, with Obsidian's metadata cache and
+  the plugin's safety gating in the loop.
+
+Our `.base` / `.canvas` / markdown emitters are validated against his format
+skills (vendored as the pinned submodule `upstream/obsidian-skills/`).
+
 ## Credits
 
 The artifact design system is inspired by **Thariq Shihipar's** "HTML is all you
-need to make effective reports/dashboards." See the repository `NOTICE` for full
-attribution. This plugin is an original work, not a copy of that repo.
+need to make effective reports/dashboards." Obsidian format references are
+vendored from **Steph Ango's** obsidian-skills (MIT), and web-source capture uses
+his Defuddle library. See the repository `NOTICE` for full attribution. This
+plugin is an original work, not a copy of those repos.

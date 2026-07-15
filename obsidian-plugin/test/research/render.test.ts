@@ -64,6 +64,23 @@ describe("renderResearchRecord", () => {
     expect(result.record).toEqual(record);
   });
 
+  it("anchors the evidence excerpt with a block reference", () => {
+    const rendered = renderResearchRecord(records[2]!);
+    expect(rendered).toContain("> Measured effect.\n> Across cohorts.\n\n^excerpt");
+    // the anchor stays out of the parsed excerpt and interpretation
+    const parsed = parseRendered(records[2]!.path, rendered);
+    expect(parsed.record).toEqual(records[2]);
+  });
+
+  it("renders claim limitations as a callout and omits it when empty", () => {
+    const rendered = renderResearchRecord(records[3]!);
+    expect(rendered).toContain("> [!warning]- Limitations\n> - Small sample");
+    expect(parseRendered(records[3]!.path, rendered).record).toEqual(records[3]);
+
+    const unlimited = { ...records[3]!, limitations: [] };
+    expect(renderResearchRecord(unlimited)).not.toContain("[!warning]");
+  });
+
   it("persists canonical scholarly field names as snake_case", () => {
     const rendered = renderResearchRecord(records[1]!);
     expect(rendered).toContain('arxiv_id: "2501.01234"');

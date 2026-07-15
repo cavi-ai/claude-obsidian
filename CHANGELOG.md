@@ -6,7 +6,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-15
+
 ### Added
+- **Research Workbench — a vault-native, provenance-preserving research
+  system.** Projects, sources, evidence, claims, questions, and documents are
+  ordinary typed Markdown notes; the vault stays the source of truth. Sources
+  carry content fingerprints so drift is detectable; evidence cards require an
+  exact excerpt and must be explicitly reviewed (with a locator) before they
+  count as trusted; claims keep supporting, challenging, and contextualizing
+  evidence structurally separate. An Audit tab flags broken references,
+  unsupported claims, stale fingerprints, and unreviewed evidence. Nine new
+  MCP research tools expose the workflow to Claude Code (two read-only, seven
+  gated behind *Allow MCP writes*), and a `/research-workbench` command +
+  skill ship in the Claude Code plugin.
+- **Scholarly discovery.** The Workbench's Discover tab searches OpenAlex,
+  enriches through Crossref and arXiv, expands citation graphs, and imports
+  candidates as provenance-stamped sources. Network requests fire only on
+  explicit actions (Search, Expand, Rerank, Import) — never in the background —
+  URLs are scheme-checked before use, and results cache locally with a
+  configurable lifetime. On by default; toggleable in settings.
+- **Claim-grounded section drafting.** The Draft panel writes one section at a
+  time from reviewed claims, validates the model's output deterministically,
+  and records a provider/model/evidence envelope so sections flag themselves
+  when edited or when their grounding drifts.
+- **Web sources auto-capture as clean readable markdown.**
+  `research_source_import` fetches a web source's page and reduces it to
+  article markdown via Defuddle (MIT, Steph Ango — the Obsidian Web Clipper
+  engine) with third-party extractor APIs disabled, so a pasted URL becomes
+  fingerprinted captured text instead of a bare link. Capture failures fall
+  back to metadata-only imports.
+- **Full-spec Obsidian Bases generation.** `base_create` now covers all four
+  view types (table, cards, list, map), recursive and/or/not filter groups,
+  and column summaries — the 14 built-in aggregates plus custom summary
+  formulas — validated with actionable errors.
+- **Canvas groups.** `canvas_create` supports JSON Canvas 1.0 labeled group
+  nodes; nodes opt in via a `group` field and the auto-layout grids them
+  inside an auto-sized group box.
+- **Evidence deep links and claim callouts.** Evidence notes anchor their
+  excerpt with a `^excerpt` block reference (embed the exact quote anywhere
+  with `![[note#^excerpt]]`), and claim notes render limitations as a
+  collapsible warning callout.
+- **kepano's Obsidian Skills vendored with attribution.** Steph Ango's
+  [obsidian-skills](https://github.com/kepano/obsidian-skills) are pinned
+  unmodified at `upstream/obsidian-skills/` as the canonical format reference
+  for our Bases, Canvas, and Obsidian-Flavored-Markdown emitters (see
+  `NOTICE`).
 - **Companion keeps the active work in context.** Empty Chat now surfaces one
   relevant workspace card for the active note or research project instead of
   making users choose a subsystem first. Research Desk and the advanced
@@ -47,6 +92,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolve to themselves, while Source, Evidence, Claim, Question, and Document
   records follow their explicit `project` relationship. Ordinary notes and
   folder placement alone no longer guess an owning project.
+
+## [0.10.1] — 2026-07-09
+
+### Added
+- **`/frontmatter` slash command.** Review and normalize the active note's
+  frontmatter from chat; related note commands consolidated into the slash
+  palette.
+
+### Fixed
+- **Artifact hardening.** Enforced CSP on rendered artifacts, hardened
+  external-open handling, and sharpened the interactivity check.
+- **MCP bridge hardening.** Guarded vault-escape paths and hardened the
+  loopback server.
+- **Provider correctness.** Fixed auth headers, streaming fallback, and the
+  model default.
+- **Context handling.** Attachment MIME sniffing, context budget respected,
+  drift and scoring guards.
+- **Mobile.** Restored action icons and shrank the composer.
+
+## [0.10.0] — 2026-07-09
+
+### Added
+- **Built-in embeddings — semantic search everywhere.** A bundled
+  transformers.js worker embeds notes locally on desktop *and* mobile (no
+  Ollama required; Ollama remains available as an engine choice, with legacy
+  index migration and an explicit model download step). Semantic + keyword
+  hybrid search now works cross-platform.
+- **Vault ontology (phase 1, dormant by default).** Schema notes define typed
+  frontmatter with inheritance; advisory conformance checking with safe
+  auto-fixes, a typed graph projection, a seed command with 15 default types,
+  and a compact type digest injected into the system prompt. When enabled,
+  `note_create` accepts `type`/`properties`.
+
+### Security
+- Sixteen fixes from a dedicated audit: artifact CSP, path-traversal guards,
+  bearer-token auth handling, OAuth gating, MCP server hardening, MIME
+  validation, streaming robustness, and URL substring sanitization.
+
+## [0.9.0] — 2026-07-06
+
+### Added
+- **Agent mode.** Claude works your vault with its own tools in chat —
+  streaming tool use with expandable tool chips, write gating, and prompt
+  caching for cheaper multi-turn agent loops.
+- **Apply-to-note diff review.** Model-proposed edits render as per-hunk
+  reviewable diffs; you accept exactly the hunks you want.
+- **Link intelligence.** Unlinked-mention detection plus semantic neighbors
+  merge into one ranked suggestion list; accepted mentions become
+  diff-reviewable edits.
+- **Consolidated memory.** Session digests merge into one evolving "What
+  Claude Knows" note.
+- **Multimodal attachments.** Vault PDFs and images, plus pasted screenshots,
+  attach to chat as native multimodal blocks.
+- **Native Canvas and Bases generation.** `canvas_create` builds Obsidian
+  Canvas mind maps wired to real notes; `base_create` builds .base database
+  views from your real frontmatter properties.
+
+## [0.8.3] — 2026-06-26
+
+### Added
+- **Mobile redesign, phase 1.** Touch-first chat layout keyed on
+  `.is-mobile`, tappable header, dedicated context button, curated mobile
+  settings, and feature gating for desktop-only capabilities.
 
 ## [0.8.2] — 2026-06-16
 

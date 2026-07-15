@@ -33,5 +33,37 @@ If you are Thariq and would like attribution changed or removed, please open an
 issue on the repository.
 
 -------------------------------------------------------------------------------
+"Obsidian Skills" — agent skills for Obsidian's open formats
+(vendored unmodified as a submodule, under its own MIT license)
+Author:  Steph Ango (@kepano), CEO of Obsidian
+Source:  https://github.com/kepano/obsidian-skills
+License: MIT (at the pinned commit a1dc48e)
+-------------------------------------------------------------------------------
+
+How we use it
+-------------
+- kepano's skills are included **only** as a pinned git submodule at
+  `upstream/obsidian-skills/`. They are never modified in place; they stay
+  verbatim and remain clearly his work, attributable through their own git
+  history. Clone with `--recurse-submodules` to fetch them.
+- We treat his `obsidian-markdown`, `obsidian-bases`, and `json-canvas` skills
+  as canonical *format references* for Obsidian Flavored Markdown, the Bases
+  `.base` YAML format, and JSON Canvas 1.0. Our own emitters
+  (`obsidian-plugin/src/bases/baseFile.ts`,
+  `obsidian-plugin/src/canvas/jsonCanvas.ts`) and vault writers are original
+  implementations validated against those documented formats — they are NOT
+  copies of his skill files.
+- His skills operate on vault *files* (and via `obsidian-cli`); our MCP bridge
+  operates on the *live* vault. The two are complementary, and we recommend
+  installing his skill pack alongside ours.
+- The Obsidian plugin also bundles his Defuddle library
+  (https://github.com/kepano/defuddle, MIT) as an ordinary npm dependency —
+  it powers readable-markdown capture of web sources, the same engine behind
+  the official Obsidian Web Clipper.
+
+If you are Steph and would like attribution changed or removed, please open an
+issue on the repository.
+
+-------------------------------------------------------------------------------
 Everything authored in this repository (the Obsidian plugin, the Claude Code
 plugin, and their skills) is licensed under the MIT License — see ./LICENSE.

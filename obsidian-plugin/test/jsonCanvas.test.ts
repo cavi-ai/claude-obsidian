@@ -55,6 +55,70 @@ describe("buildCanvas", () => {
     expect(c.edges[0]).toEqual({ id: "edge-1", fromNode: "a", fromSide: "right", toNode: "b", toSide: "left", label: "leads to" });
   });
 
+  it("wraps grouped members in an auto-sized group box", () => {
+    const c = buildCanvas(
+      [
+        { id: "g", type: "group", label: "Cluster" },
+        { id: "a", text: "one", group: "g" },
+        { id: "b", text: "two", group: "g" },
+        { id: "c", text: "three", group: "g" },
+        { id: "solo", text: "outside" },
+      ],
+      [],
+    );
+    const byId = new Map(c.nodes.map((n) => [n.id, n]));
+    const g = byId.get("g")!;
+    expect(g).toMatchObject({ type: "group", label: "Cluster" });
+    for (const id of ["a", "b", "c"]) {
+      const m = byId.get(id)!;
+      expect(m.x).toBeGreaterThanOrEqual(g.x);
+      expect(m.y).toBeGreaterThanOrEqual(g.y);
+      expect(m.x + m.width).toBeLessThanOrEqual(g.x + g.width);
+      expect(m.y + m.height).toBeLessThanOrEqual(g.y + g.height);
+    }
+    // the ungrouped node stays outside the group box
+    const solo = byId.get("solo")!;
+    expect(
+      solo.x + solo.width <= g.x || solo.x >= g.x + g.width ||
+      solo.y + solo.height <= g.y || solo.y >= g.y + g.height,
+    ).toBe(true);
+  });
+
+  it("respects explicit group geometry and places unplaced members inside it", () => {
+    const c = buildCanvas(
+      [
+        { id: "g", type: "group", label: "Fixed", x: 1000, y: 1000, width: 900, height: 700 },
+        { id: "a", text: "kid", group: "g" },
+      ],
+      [],
+    );
+    const byId = new Map(c.nodes.map((n) => [n.id, n]));
+    expect(byId.get("g")).toMatchObject({ x: 1000, y: 1000, width: 900, height: 700 });
+    const a = byId.get("a")!;
+    expect(a.x).toBeGreaterThanOrEqual(1000);
+    expect(a.y).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("validates group membership", () => {
+    expect(() => buildCanvas([{ id: "a", text: "x", group: "ghost" }], [])).toThrow(/unknown group/i);
+    expect(() => buildCanvas(
+      [{ id: "n", text: "not a group" }, { id: "a", text: "x", group: "n" }],
+      [],
+    )).toThrow(/not a group/i);
+    expect(() => buildCanvas(
+      [{ id: "g1", type: "group" }, { id: "g2", type: "group", group: "g1" }],
+      [],
+    )).toThrow(/nested/i);
+  });
+
+  it("allows edges attached to groups", () => {
+    const c = buildCanvas(
+      [{ id: "g", type: "group", label: "G" }, { id: "a", text: "x" }],
+      [{ from: "a", to: "g" }],
+    );
+    expect(c.edges[0]).toMatchObject({ fromNode: "a", toNode: "g" });
+  });
+
   it("rejects invalid proposals with actionable messages", () => {
     expect(() => buildCanvas([], [])).toThrow(/at least one node/i);
     expect(() => buildCanvas([{ id: "a", text: "x" }, { id: "a", text: "y" }], [])).toThrow(/duplicate/i);

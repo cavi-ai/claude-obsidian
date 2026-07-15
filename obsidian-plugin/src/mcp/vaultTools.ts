@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, getAllTags, parseYaml } from "obsidian";
+import { App, TFile, normalizePath, getAllTags, parseYaml, requestUrl } from "obsidian";
 import type { McpToolDef } from "./protocol";
 import { scoreContent, snippetAround, tokenize } from "../context/search";
 import { reciprocalRankFusion } from "../semantic/similarity";
@@ -11,6 +11,7 @@ import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCan
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 import { ResearchRepository } from "../research/repository";
 import { RESEARCH_WRITE_TOOLS, ResearchTools } from "../research/tools";
+import { captureWebSource, type WebCapture } from "../research/webCapture";
 
 /**
  * Normalize a caller-supplied vault path and reject anything that escapes the
@@ -206,20 +207,20 @@ export class VaultTools {
         {
           name: "base_create",
           description:
-            "Create an Obsidian Base (.base) — a database view over notes, driven by their frontmatter properties. Use frontmatter_query/vault_tags first to discover real property names. Filters are statements like 'file.hasTag(\"book\")' or 'note.status == \"open\"' (AND-ed). Great for reading trackers, project dashboards, and review queues.",
+            "Create an Obsidian Base (.base) — a database view over notes, driven by their frontmatter properties. Use frontmatter_query/vault_tags first to discover real property names. Filters accept a statement like 'file.hasTag(\"book\")', an array of statements (AND-ed), or a recursive {and|or|not: [...]} group. Great for reading trackers, project dashboards, and review queues.",
           inputSchema: {
             type: "object",
             properties: {
               title: { type: "string", description: "Base title (also the filename)." },
-              filters: { type: "array", items: { type: "string" }, description: "Global filter statements, AND-ed." },
+              filters: { description: "Global filters: a statement string, an array of statements (AND-ed), or one recursive {and|or|not: [...]} group." },
               views: {
                 type: "array",
-                description: "Views: {name, type? (table|cards), order? (property list like 'file.name'/'note.status'), groupBy? {property, direction}, limit?, filters?}.",
+                description: "Views: {name, type? (table|cards|list|map), order? (property list like 'file.name'/'note.status'), groupBy? {property, direction}, limit?, filters?, summaries? (property → built-in aggregate like Sum/Average/Median or a custom summaries key)}.",
                 items: {
                   type: "object",
                   properties: {
                     name: { type: "string" },
-                    type: { type: "string" },
+                    type: { type: "string", enum: ["table", "cards", "list", "map"] },
                     order: { type: "array", items: { type: "string" } },
                     groupBy: {
                       type: "object",
@@ -227,13 +228,15 @@ export class VaultTools {
                       required: ["property"],
                     },
                     limit: { type: "number" },
-                    filters: { type: "array", items: { type: "string" } },
+                    filters: { description: "View filters: a statement string, an array of statements (AND-ed), or one recursive {and|or|not: [...]} group." },
+                    summaries: { type: "object", description: "property id → summary name (built-ins: Average, Min, Max, Sum, Range, Median, Stddev, Earliest, Latest, Checked, Unchecked, Empty, Filled, Unique)." },
                   },
                   required: ["name"],
                 },
               },
               formulas: { type: "object", description: "formula name → expression (e.g. {ppu: '(price / age).toFixed(2)'})." },
               properties: { type: "object", description: "property id → display name (e.g. {status: 'Status'})." },
+              summaries: { type: "object", description: "Custom summary name → expression (e.g. {p90: 'values.percentile(90)'})." },
               folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
             },
             required: ["title", "views"],
@@ -242,21 +245,24 @@ export class VaultTools {
         {
           name: "canvas_create",
           description:
-            "Create an Obsidian Canvas (.canvas) — a visual mind map / board of nodes and edges. Nodes: text (idea cards), file (embed a vault note by path), or link (url). Omit x/y to auto-layout left-to-right by edge depth. Use for mind maps, project boards, and argument maps wired to real notes.",
+            "Create an Obsidian Canvas (.canvas) — a visual mind map / board of nodes and edges. Nodes: text (idea cards), file (embed a vault note by path), link (url), or group (labeled container; put nodes inside via their group field). Omit x/y to auto-layout left-to-right by edge depth; grouped nodes grid inside their auto-sized group. Use for mind maps, project boards, and argument maps wired to real notes.",
           inputSchema: {
             type: "object",
             properties: {
               title: { type: "string", description: "Canvas title (also the filename)." },
               nodes: {
                 type: "array",
-                description: "Nodes: {id?, text?} for idea cards, {id?, file?} to embed a note, {id?, url?} for links. Optional x/y/width/height/color.",
+                description: "Nodes: {id?, text?} for idea cards, {id?, file?} to embed a note, {id?, url?} for links, {id, type: 'group', label?} for containers. Set group: <groupId> on a node to place it inside that group. Optional x/y/width/height/color.",
                 items: {
                   type: "object",
                   properties: {
                     id: { type: "string" },
+                    type: { type: "string", enum: ["text", "file", "link", "group"] },
                     text: { type: "string" },
                     file: { type: "string" },
                     url: { type: "string" },
+                    label: { type: "string", description: "Group label (group nodes only)." },
+                    group: { type: "string", description: "Id of the group node this node belongs to." },
                     x: { type: "number" },
                     y: { type: "number" },
                     width: { type: "number" },
@@ -292,7 +298,7 @@ export class VaultTools {
   async call(name: string, args: Record<string, unknown>): Promise<string> {
     if (name.startsWith("research_")) {
       if (RESEARCH_WRITE_TOOLS.has(name)) this.assertWrites();
-      return new ResearchTools(this.researchRepository()).call(name, args);
+      return new ResearchTools(this.researchRepository(), this.webCapture()).call(name, args);
     }
     switch (name) {
       case "vault_search":
@@ -339,6 +345,19 @@ export class VaultTools {
 
   private assertWrites(): void {
     if (!this.opts.allowWrites) throw new Error("Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.");
+  }
+
+  /** Readable-markdown web capture for research_source_import (renderer only). */
+  private webCapture(): WebCapture | undefined {
+    if (typeof DOMParser === "undefined") return undefined;
+    return (url) => captureWebSource(url, {
+      fetchHtml: async (target) => {
+        const response = await requestUrl({ url: target, method: "GET", throw: false });
+        if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+        return response.text;
+      },
+      parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+    });
   }
 
   private researchRepository(): ResearchRepository {
@@ -597,10 +616,11 @@ export class VaultTools {
 
   private async createBase(title: string, args: Record<string, unknown>, folder: string | undefined): Promise<string> {
     const yaml = buildBaseFile({
-      filters: strArray(args.filters),
+      ...(args.filters !== undefined ? { filters: args.filters as Exclude<ProposedBase["filters"], undefined> } : {}),
       views: Array.isArray(args.views) ? (args.views as ProposedBase["views"]) : [],
       ...(args.formulas && typeof args.formulas === "object" ? { formulas: args.formulas as Record<string, string> } : {}),
       ...(args.properties && typeof args.properties === "object" ? { properties: args.properties as Record<string, string> } : {}),
+      ...(args.summaries && typeof args.summaries === "object" ? { summaries: args.summaries as Record<string, string> } : {}),
     });
     const dir = assertVaultPath((folder ?? this.opts.defaultFolder).trim());
     await this.ensureFolder(dir);
