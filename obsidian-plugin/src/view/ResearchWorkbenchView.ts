@@ -11,7 +11,7 @@ import { DiscoveryPanel } from "./DiscoveryPanel";
 import type { DraftCoordinator } from "../research/draftCoordinator";
 import type { RevisionCoordinator } from "../research/revisionCoordinator";
 import type { DraftSectionParseResult } from "../research/draftSections";
-import type { ResearchDocumentRecord } from "../research/types";
+import type { ClaimRecord, EvidenceRecord, ResearchDocumentRecord } from "../research/types";
 import { ResearchDraftPanel } from "./ResearchDraftPanel";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
@@ -294,10 +294,10 @@ export class ResearchWorkbenchView extends ItemView {
     const contextual = ({ Overview: "Run audit", Sources: "Add source", Evidence: "Review evidence", Claims: "Create claim", Outline: "Build outline", Draft: "Build outline", Audit: "Run audit", Intelligence: "Run audit", Discover: "Add source" } as Record<Tab, string>)[this.activeTab];
     this.actionButton(actions, "Create project", undefined, undefined, () => this.openCreateProject(), contextual === "Create project");
     this.actionButton(actions, "Add source", projectPath, "Select a research project before adding a source.", () => projectPath ? this.openAddSource(projectPath) : new Notice("Select a research project first."), contextual === "Add source");
-    this.actionButton(actions, "Review evidence", snapshot?.evidence.find(({ reviewState }) => reviewState === "proposed")?.path ?? projectPath, undefined, undefined, contextual === "Review evidence");
-    this.actionButton(actions, "Create claim", projectPath, "Open the project note before creating a claim with the research tools.", undefined, contextual === "Create claim");
+    this.actionButton(actions, "Review evidence", projectPath, "Select a research project before reviewing evidence.", () => snapshot ? this.openEvidenceReview(snapshot) : new Notice("Select a research project first."), contextual === "Review evidence");
+    this.actionButton(actions, "Create claim", projectPath, "Select a research project before creating a claim.", () => snapshot ? this.openCreateClaim(snapshot) : new Notice("Select a research project first."), contextual === "Create claim");
     this.actionButton(actions, "Run audit", projectPath, undefined, () => { this.activeTab = "Audit"; void this.render(); }, contextual === "Run audit");
-    this.actionButton(actions, "Build outline", snapshot?.documents.find(({ documentKind }) => documentKind === "outline")?.path ?? projectPath, undefined, undefined, contextual === "Build outline");
+    this.actionButton(actions, "Build outline", projectPath, "Select a research project before building an outline.", () => snapshot ? this.openBuildOutline(snapshot) : new Notice("Select a research project first."), contextual === "Build outline");
   }
 
   private actionButton(root: HTMLElement, label: string, path?: string, hint?: string, action?: () => void, contextual = false): void {
@@ -359,6 +359,39 @@ export class ResearchWorkbenchView extends ItemView {
       await this.render();
     }).open();
   }
+
+  private openEvidenceReview(snapshot: ProjectSnapshot): void {
+    const evidence = snapshot.evidence.find(({ reviewState }) => reviewState === "proposed");
+    if (!evidence) { new Notice("No proposed evidence is waiting for review."); return; }
+    new EvidenceReviewModal(this.app, evidence, async (state) => {
+      await this.repository.reviewEvidence(evidence.path, state);
+      this.activeTab = "Evidence";
+      await this.render();
+    }, () => this.openPath(evidence.path)).open();
+  }
+
+  private openCreateClaim(snapshot: ProjectSnapshot): void {
+    const reviewed = snapshot.evidence.filter(({ reviewState }) => reviewState === "reviewed");
+    if (!reviewed.length) { new Notice("Review at least one evidence item before creating a claim."); return; }
+    new ClaimCreateModal(this.app, reviewed, async (input) => {
+      await this.repository.createClaim({ project: snapshot.project.path, ...input });
+      this.activeTab = "Claims";
+      await this.render();
+    }).open();
+  }
+
+  private openBuildOutline(snapshot: ProjectSnapshot): void {
+    const existing = snapshot.documents.find(({ documentKind }) => documentKind === "outline");
+    if (existing) { void this.openPath(existing.path); return; }
+    const eligible = snapshot.claims.filter(({ reviewState, supporting }) => reviewState === "reviewed" && supporting.length > 0);
+    if (!eligible.length) { new Notice("Review a supported claim before building an outline."); return; }
+    new OutlineCreateModal(this.app, eligible, async (claimPaths) => {
+      const outline = await this.repository.createOutline(snapshot.project.path, claimPaths);
+      this.activeTab = "Outline";
+      await this.render();
+      await this.openPath(outline.path);
+    }).open();
+  }
 }
 
 function tabId(tab: Tab): string { return `cc-research-tab-${tab.toLowerCase()}`; }
@@ -385,5 +418,100 @@ class ResearchInputModal extends Modal {
     const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
     const button = this.contentEl.createEl("button", { text: this.heading });
     button.addEventListener("click", () => void this.submit(inputs.map(({ value }) => value)).then(() => this.close()).catch((cause) => { error.setText(sanitizeLoadError(cause)); }));
+  }
+}
+
+class EvidenceReviewModal extends Modal {
+  constructor(app: App, private readonly evidence: EvidenceRecord, private readonly submit: (state: "reviewed" | "rejected") => Promise<void>, private readonly openNote: () => Promise<void>) { super(app); }
+  override onOpen(): void {
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: `Review ${this.evidence.title}` });
+    this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: `${this.evidence.source}${this.evidence.locatorValue ? ` · ${this.evidence.locatorKind ?? "locator"} ${this.evidence.locatorValue}` : ""}` });
+    this.contentEl.createEl("p", { cls: "cc-research-evidence-excerpt", text: this.evidence.excerpt });
+    if (this.evidence.interpretation) this.contentEl.createEl("p", { cls: "cc-research-evidence-interpretation", text: this.evidence.interpretation });
+    const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
+    const actions = this.contentEl.createDiv({ cls: "cc-research-modal-actions" });
+    const complete = (state: "reviewed" | "rejected") => void this.submit(state).then(() => this.close()).catch((cause) => error.setText(sanitizeLoadError(cause)));
+    actions.createEl("button", { cls: "mod-cta", text: "Mark reviewed" }).addEventListener("click", () => complete("reviewed"));
+    actions.createEl("button", { text: "Reject" }).addEventListener("click", () => complete("rejected"));
+    actions.createEl("button", { text: "Open note" }).addEventListener("click", () => void this.openNote().catch((cause) => error.setText(sanitizeLoadError(cause))));
+  }
+}
+
+interface ClaimModalInput {
+  title: string;
+  proposition: string;
+  confidence: "low" | "moderate" | "high";
+  supports: string[];
+  challenges: string[];
+  contextualizes: string[];
+}
+
+class ClaimCreateModal extends Modal {
+  constructor(app: App, private readonly evidence: EvidenceRecord[], private readonly submit: (input: ClaimModalInput) => Promise<void>) { super(app); }
+  override onOpen(): void {
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Create evidence-backed claim" });
+    const title = this.field("Claim title", "input") as HTMLInputElement;
+    const proposition = this.field("Proposition", "textarea") as HTMLTextAreaElement;
+    const confidenceWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
+    confidenceWrap.createEl("label", { text: "Confidence" });
+    const confidence = confidenceWrap.createEl("select", { attr: { "aria-label": "Claim confidence" } });
+    for (const value of ["low", "moderate", "high"]) confidence.createEl("option", { text: value, value });
+    confidence.value = "moderate";
+    const relations = new Map<string, Record<"supports" | "challenges" | "contextualizes", HTMLInputElement>>();
+    for (const item of this.evidence) {
+      const row = this.contentEl.createDiv({ cls: "cc-research-claim-evidence" });
+      row.createEl("strong", { text: item.title });
+      row.createEl("p", { text: item.excerpt });
+      const inputs = {} as Record<"supports" | "challenges" | "contextualizes", HTMLInputElement>;
+      for (const relation of ["supports", "challenges", "contextualizes"] as const) {
+        const label = row.createEl("label", { text: relation });
+        const input = label.createEl("input", { attr: { type: "checkbox", "aria-label": `${item.title} ${relation}` } });
+        input.addEventListener("change", () => { if (input.checked) for (const other of Object.values(inputs)) if (other !== input) other.checked = false; });
+        inputs[relation] = input;
+      }
+      relations.set(item.path, inputs);
+    }
+    const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
+    const submitBar = this.contentEl.createDiv({ cls: "cc-research-modal-submit-bar" });
+    const button = submitBar.createEl("button", { cls: "mod-cta", text: "Create claim" });
+    button.addEventListener("click", () => {
+      const input: ClaimModalInput = { title: title.value, proposition: proposition.value, confidence: confidence.value as ClaimModalInput["confidence"], supports: [], challenges: [], contextualizes: [] };
+      for (const [path, choices] of relations) for (const relation of ["supports", "challenges", "contextualizes"] as const) if (choices[relation].checked) input[relation].push(path);
+      if (!input.title.trim() || !input.proposition.trim()) { error.setText("Claim title and proposition are required."); return; }
+      if (![...input.supports, ...input.challenges, ...input.contextualizes].length) { error.setText("Relate at least one reviewed evidence item."); return; }
+      void this.submit(input).then(() => this.close()).catch((cause) => error.setText(sanitizeLoadError(cause)));
+    });
+  }
+  private field(labelText: string, kind: "input" | "textarea"): HTMLInputElement | HTMLTextAreaElement {
+    const wrapper = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
+    wrapper.createEl("label", { text: labelText });
+    return wrapper.createEl(kind, { attr: { "aria-label": labelText } });
+  }
+}
+
+class OutlineCreateModal extends Modal {
+  constructor(app: App, private readonly claims: ClaimRecord[], private readonly submit: (claimPaths: string[]) => Promise<void>) { super(app); }
+  override onOpen(): void {
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Build evidence-backed outline" });
+    this.contentEl.createEl("p", { text: "Choose the reviewed, supported claims to include in the canonical outline." });
+    const selected = new Map<string, HTMLInputElement>();
+    for (const claim of this.claims) {
+      const row = this.contentEl.createEl("label", { cls: "cc-research-outline-claim" });
+      const input = row.createEl("input", { attr: { type: "checkbox", "aria-label": `Include ${claim.title}` } });
+      input.checked = true;
+      row.createEl("strong", { text: claim.title });
+      row.createEl("span", { text: claim.proposition });
+      selected.set(claim.path, input);
+    }
+    const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
+    const button = this.contentEl.createEl("button", { cls: "mod-cta", text: "Build outline" });
+    button.addEventListener("click", () => {
+      const paths = [...selected].filter(([, input]) => input.checked).map(([path]) => path);
+      if (!paths.length) { error.setText("Select at least one claim."); return; }
+      void this.submit(paths).then(() => this.close()).catch((cause) => error.setText(sanitizeLoadError(cause)));
+    });
   }
 }

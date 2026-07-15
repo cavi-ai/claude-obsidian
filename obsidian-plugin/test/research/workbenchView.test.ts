@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { WorkspaceLeaf } from "obsidian";
+import { getLastOpenedModal, WorkspaceLeaf } from "obsidian";
 import type { ResearchRepository } from "../../src/research/repository";
 import { RESEARCH_WORKBENCH_VIEW_TYPE, ResearchWorkbenchView, replaceResearchProjectPath } from "../../src/view/ResearchWorkbenchView";
 import { parseDraftSections, renderDraftSection } from "../../src/research/draftSections";
@@ -159,6 +159,66 @@ describe("ResearchWorkbenchView", () => {
     expect(elements(view, ".cc-research-empty-state-copy")[0]?.textContent).toContain("reviewed source passages");
     expect(elements(view, ".cc-research-actions-heading")[0]?.textContent).toBe("Workspace actions");
     expect(elements(view, ".is-contextual").map(({ textContent }) => textContent)).toEqual(["Review evidence"]);
+  });
+
+  it("reviews proposed evidence natively and returns to the Evidence panel", async () => {
+    const proposed = { path: "Research/P/Evidence/E.md", title: "Evidence E", source: "Research/P/Sources/S.md", excerpt: "A directly inspectable passage.", locatorKind: "page", locatorValue: "4", reviewState: "proposed" };
+    let current = { ...snapshot, evidence: [proposed] } as never;
+    const reviewEvidence = vi.fn(async (_path: string, state: string) => { current = { ...current, evidence: [{ ...proposed, reviewState: state }] } as never; return { ...proposed, reviewState: state }; });
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => current, reviewEvidence } as never);
+    await view.setProjectPath(snapshot.project.path);
+
+    click(elements(view, "button").find(({ textContent }) => textContent === "Review evidence"));
+    const modal = getLastOpenedModal();
+    expect([...modal!.contentEl.querySelectorAll("p")].map(({ textContent }: any) => textContent)).toContain("A directly inspectable passage.");
+    click([...modal!.contentEl.querySelectorAll("button")].find(({ textContent }: any) => textContent === "Mark reviewed"));
+    await Promise.resolve(); await Promise.resolve();
+
+    expect(reviewEvidence).toHaveBeenCalledWith(proposed.path, "reviewed");
+    expect(elements(view, '[role="tab"]').find((tab) => tab.getAttribute("aria-selected") === "true")?.textContent).toBe("Evidence");
+  });
+
+  it("creates a claim from reviewed evidence with explicit relations", async () => {
+    const reviewed = { path: "Research/P/Evidence/E.md", title: "Evidence E", source: "Research/P/Sources/S.md", excerpt: "Grounded.", reviewState: "reviewed" };
+    const current = { ...snapshot, evidence: [reviewed] } as never;
+    const createClaim = vi.fn(async () => ({ path: "Research/P/Claims/Claim.md" }));
+    const view = new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => current, createClaim } as never);
+    await view.setProjectPath(snapshot.project.path);
+
+    click(elements(view, "button").find(({ textContent }) => textContent === "Create claim"));
+    const modal = getLastOpenedModal()!;
+    const inputs = [...modal.contentEl.querySelectorAll("input")] as any[];
+    const textarea = modal.contentEl.querySelector("textarea") as any;
+    inputs.find((input) => input.getAttribute("aria-label") === "Claim title")!.value = "Claim";
+    textarea.value = "The evidence supports this proposition.";
+    const support = inputs.find((input) => input.getAttribute("aria-label") === "Evidence E supports");
+    support.checked = true;
+    click([...modal.contentEl.querySelectorAll("button")].find(({ textContent }: any) => textContent === "Create claim"));
+    await Promise.resolve(); await Promise.resolve();
+
+    expect(createClaim).toHaveBeenCalledWith(expect.objectContaining({ project: snapshot.project.path, title: "Claim", proposition: "The evidence supports this proposition.", supports: [reviewed.path] }));
+  });
+
+  it("builds an outline from selected reviewed claims and opens the canonical document", async () => {
+    const claim = { path: "Research/P/Claims/C.md", title: "Claim C", proposition: "Grounded.", confidence: "moderate", reviewState: "reviewed", supporting: ["Research/P/Evidence/E.md"], challenging: [], contextual: [], limitations: [] };
+    const current = { ...snapshot, claims: [claim] } as never;
+    const createOutline = vi.fn(async () => ({ path: "Research/P/Documents/Outline.md", content: "# Outline" }));
+    const leaf = new WorkspaceLeaf();
+    const openFile = vi.fn(async () => undefined);
+    leaf.app.vault.seed("Research/P/Documents/Outline.md", "# Outline");
+    leaf.app.workspace.getLeaf = () => ({ openFile }) as never;
+    const view = new ResearchWorkbenchView(leaf, { loadProject: async () => current, createOutline } as never);
+    await view.setProjectPath(snapshot.project.path);
+
+    click(elements(view, "button").find(({ textContent }) => textContent === "Build outline"));
+    const modal = getLastOpenedModal()!;
+    const selected = [...modal.contentEl.querySelectorAll("input")].find((input: any) => input.getAttribute("aria-label") === "Include Claim C") as any;
+    expect(selected.checked).toBe(true);
+    click([...modal.contentEl.querySelectorAll("button")].find(({ textContent }: any) => textContent === "Build outline"));
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(createOutline).toHaveBeenCalledWith(snapshot.project.path, [claim.path]);
+    expect(openFile).toHaveBeenCalled();
   });
 
   it("accepts a contextual handoff from the Research Desk", async () => {

@@ -1737,6 +1737,43 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 .cc-research-actions button { min-width: 0; min-height: 40px; white-space: normal; box-shadow: none; }
 .cc-research-actions .is-contextual { grid-column: 1 / -1; order: -1; }
+.cc-research-modal-meta { color: var(--text-muted); font-size: var(--font-ui-small); }
+.cc-research-modal-field { display: grid; gap: var(--size-4-1); margin-block: var(--size-4-3); }
+.cc-research-modal-field > label { color: var(--text-muted); font-size: var(--font-ui-small); font-weight: var(--font-semibold); }
+.cc-research-modal-field > input,
+.cc-research-modal-field > textarea,
+.cc-research-modal-field > select { width: 100%; }
+.cc-research-modal-field > textarea { min-height: 4.5rem; resize: vertical; }
+.cc-research-evidence-excerpt,
+.cc-research-evidence-interpretation {
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.cc-research-modal-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); margin-top: var(--size-4-3); }
+.cc-research-modal-submit-bar {
+  margin-top: var(--size-4-2);
+}
+.cc-research-claim-evidence,
+.cc-research-outline-claim {
+  display: grid;
+  gap: var(--size-4-2);
+  margin-block: var(--size-4-2);
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--background-secondary) 88%, var(--interactive-accent) 12%);
+}
+.cc-research-claim-evidence { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cc-research-claim-evidence > strong,
+.cc-research-claim-evidence > p { grid-column: 1 / -1; }
+.cc-research-claim-evidence p { margin: 0; color: var(--text-muted); line-height: 1.45; }
+.cc-research-claim-evidence label { display: flex; align-items: center; gap: var(--size-4-1); text-transform: capitalize; }
+.cc-research-outline-claim { grid-template-columns: auto minmax(0, 1fr); align-items: start; cursor: pointer; }
+.cc-research-outline-claim span { grid-column: 2; color: var(--text-muted); line-height: 1.4; }
 .cc-intelligence-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .cc-intelligence-category, .cc-intelligence-finding, .cc-intelligence-narrative { border: 1px solid var(--background-modifier-border); border-radius: 10px; padding: 12px; }
 .cc-intelligence-category { display: flex; min-height: 68px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 5px; }
@@ -1867,6 +1904,9 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-discovery-outcome { font-weight: var(--font-semibold); }
 
 @media (max-width: 520px) {
+  .cc-research-claim-evidence { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cc-research-claim-evidence label { min-height: 32px; }
+  .cc-research-claim-evidence label:last-child { grid-column: 1 / -1; }
   .cc-discovery-setup { align-items: stretch; flex-direction: column; }
   .cc-discovery-setup input { flex-basis: auto; width: 100%; }
   .cc-discovery-actions button { flex: 1 1 auto; }

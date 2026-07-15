@@ -200,6 +200,7 @@ export class App {
   vault = new FakeVault();
   metadataCache = new FakeMetadataCache(this.vault);
   fileManager = new FakeFileManager(this.vault);
+  workspace = { getLeaf: () => ({ openFile: async () => undefined }) };
 }
 
 // Value stubs for modules that import these names (not exercised in tests).
@@ -257,10 +258,12 @@ export class ItemView {
   getIcon(): string { return ""; }
   onOpen(): Promise<void> { return Promise.resolve(); }
 }
+let lastOpenedModal: Modal | undefined;
+export function getLastOpenedModal(): Modal | undefined { return lastOpenedModal; }
 export class Modal {
   contentEl = new FakeElement() as unknown as HTMLElement;
   constructor(public app: App) {}
-  open(): void { this.onOpen(); }
+  open(): void { lastOpenedModal = this; this.onOpen(); }
   close(): void {}
   onOpen(): void {}
 }
