@@ -260,7 +260,8 @@ export class ChatView extends ItemView {
     });
 
     // ---- composer bar: model + tune (left group) · usage + Send (right) ----
-    // One row directly under the input, so Send sits right beneath the chat box.
+    // Desktop: one row under the input. Mobile: Send joins the thumb input row
+    // ([+] · input · ↑); the bar keeps only the thin usage gauge (see styles).
     const bar = composer.createDiv({ cls: "cc-composer-bar" });
     this.controlsEl = bar.createDiv({ cls: "cc-controls" });
     this.renderControls();
@@ -270,7 +271,14 @@ export class ChatView extends ItemView {
     const gauge = usageRow.createDiv({ cls: "cc-gauge", attr: { "aria-label": "Estimated context window used" } });
     this.gaugeFillEl = gauge.createDiv({ cls: "cc-gauge-fill" });
     this.usageEl = usageRow.createDiv({ cls: "cc-usage-text" });
-    this.sendBtn = sendGroup.createEl("button", { cls: "cc-send", text: "Send" });
+    const sendParent = Platform.isMobile ? inputRow : sendGroup;
+    this.sendBtn = sendParent.createEl("button", {
+      cls: Platform.isMobile ? "cc-send cc-send-icon" : "cc-send",
+      ...(Platform.isMobile
+        ? { attr: { "aria-label": "Send message" } }
+        : { text: "Send" }),
+    });
+    if (Platform.isMobile) setIcon(this.sendBtn, "arrow-up");
     this.sendBtn.addEventListener("click", () => void this.onSend());
 
     this.refreshModelLabel();
@@ -947,9 +955,14 @@ export class ChatView extends ItemView {
 
   private setSending(sending: boolean): void {
     this.streaming = sending;
-    this.sendBtn.setText(sending ? "Stop" : "Send");
     this.sendBtn.toggleClass("is-stop", sending);
     this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
+    if (Platform.isMobile) {
+      this.sendBtn.empty();
+      setIcon(this.sendBtn, sending ? "square" : "arrow-up");
+    } else {
+      this.sendBtn.setText(sending ? "Stop" : "Send");
+    }
   }
 
   private async run(userText: string, display?: string, maxTokens?: number): Promise<void> {
