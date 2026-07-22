@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-07-21
+
+### Changed
+- **Mobile composer is now a single thumb row.** Send is a circular arrow-up
+  icon button inside the input row (`[+] · input · ↑`), switching to a square
+  stop icon while streaming. The context-window usage gauge collapses to a
+  thin 2px strip along the top of the composer instead of occupying a second
+  band, and the input pill keeps a 16px font to avoid iOS zoom-on-focus.
+
 ## [0.11.0] — 2026-07-15
 
 ### Added
