@@ -30,7 +30,11 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "sharp": "^0.35.3",
+      "adm-zip": "^0.6.0"
+    }
   },
   "keywords": [
     "obsidian",
