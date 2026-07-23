@@ -2081,3 +2081,16 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   0%, 100% { box-shadow: none; }
   40% { box-shadow: 0 0 0 2px var(--interactive-accent); }
 }
+
+/* ---- stream-error Retry / higher-limit retry button ---- */
+.cc-error-retry {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 3px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.cc-error-retry:hover { background: var(--background-modifier-hover); }

@@ -1066,6 +1066,7 @@ export class ChatView extends ItemView {
 
   private async run(userText: string, display?: string, maxTokens?: number): Promise<void> {
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
+    this._lastBuffer = ""; // never let a previous turn's partial leak into this one
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
@@ -1135,12 +1136,14 @@ export class ChatView extends ItemView {
         this.annotateFallback(bubble, fallbackReason(err1));
         const err2 = await this.streamTurn("local", apiMessages, bubble, body);
         if (err2) {
+          // Keep whatever streamed before the failure — persist it like an
+          // abort, then append the error below it.
+          this.finishAssistant(this._lastBuffer || null, bubble);
           this.renderError(body, err2.message ?? "Request failed", "ollama");
-          this.finishAssistant(null, bubble);
         }
       } else {
+        this.finishAssistant(this._lastBuffer || null, bubble);
         this.renderError(body, err1.message ?? "Request failed", startedOnLocal ? "ollama" : "anthropic");
-        this.finishAssistant(null, bubble);
       }
     }
 
@@ -1575,12 +1578,16 @@ export class ChatView extends ItemView {
   }
 
   private renderError(body: HTMLElement, message: string, provider: ErrorHintProvider): void {
-    body.empty();
+    // Append below any partial streamed content — never destroy what arrived.
     const box = body.createDiv({ cls: "cc-error" });
     box.createSpan({ cls: "cc-error-title", text: "Couldn’t reach the model" });
     box.createSpan({ text: message });
     const hint = errorHint(message, provider);
     if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
+    if (this.lastUserText) {
+      const retry = box.createEl("button", { cls: "cc-error-retry", text: "Retry" });
+      retry.addEventListener("click", () => void this.regenerate());
+    }
   }
 
   /** Flag a reply that the model truncated at the output-token limit. */
