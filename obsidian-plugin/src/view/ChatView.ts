@@ -25,7 +25,7 @@ import { AtMenu } from "./AtMenu";
 import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
-import { errorHint } from "../providers/errorHints";
+import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
@@ -1036,11 +1036,11 @@ export class ChatView extends ItemView {
         this.annotateFallback(bubble, fallbackReason(err1));
         const err2 = await this.streamTurn("local", apiMessages, bubble, body);
         if (err2) {
-          this.renderError(body, err2.message ?? "Request failed");
+          this.renderError(body, err2.message ?? "Request failed", "ollama");
           this.finishAssistant(null, bubble);
         }
       } else {
-        this.renderError(body, err1.message ?? "Request failed");
+        this.renderError(body, err1.message ?? "Request failed", startedOnLocal ? "ollama" : "anthropic");
         this.finishAssistant(null, bubble);
       }
     }
@@ -1462,12 +1462,12 @@ export class ChatView extends ItemView {
     this.scrollToBottom();
   }
 
-  private renderError(body: HTMLElement, message: string): void {
+  private renderError(body: HTMLElement, message: string, provider: ErrorHintProvider): void {
     body.empty();
     const box = body.createDiv({ cls: "cc-error" });
     box.createSpan({ cls: "cc-error-title", text: "Couldn’t reach the model" });
     box.createSpan({ text: message });
-    const hint = errorHint(message);
+    const hint = errorHint(message, provider);
     if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
   }
 
