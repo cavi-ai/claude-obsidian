@@ -19,10 +19,10 @@ export function errorHint(message: string, provider: ErrorHintProvider = "anthro
   // Network-level failures read completely differently depending on which
   // provider was being called: for Ollama the fix is starting the server; for
   // Anthropic it almost always means the machine is offline.
-  if (provider === "ollama" && (m.includes("ollama") || m.includes("11434") || m.includes("econnrefused") || m.includes("fetch failed"))) {
+  if (provider === "ollama" && (m.includes("ollama") || m.includes("11434") || m.includes("econnrefused") || m.includes("fetch failed") || m.includes("failed to fetch"))) {
     return "Can’t reach the local model. Run `ollama serve`, then verify the host in settings (default http://localhost:11434).";
   }
-  if (provider === "anthropic" && (m.includes("fetch failed") || m.includes("econnrefused") || m.includes("network"))) {
+  if (provider === "anthropic" && (m.includes("fetch failed") || m.includes("failed to fetch") || m.includes("econnrefused") || m.includes("network"))) {
     return "Can’t reach Anthropic — you appear to be offline. Check your connection. With a local model configured, the “Auto” chat backend keeps chat working offline.";
   }
   // Deliberately last: "model" is a broad substring and must not shadow the

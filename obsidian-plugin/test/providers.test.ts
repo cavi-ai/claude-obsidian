@@ -44,9 +44,15 @@ describe("errorHint", () => {
   it("recognizes 529 overloaded before the generic model check", () => {
     expect(errorHint("Anthropic API 529: overloaded_error")).toMatch(/overloaded/i);
     expect(errorHint("Anthropic API 529: overloaded_error")).not.toMatch(/model id/i);
+    expect(errorHint("model overloaded (529)")).toMatch(/overloaded/i);
+    expect(errorHint("model overloaded (529)")).not.toMatch(/model id/i);
   });
   it("mentions rate limits on 429", () => {
     expect(errorHint("HTTP 429 rate_limit_error")).toMatch(/rate/i);
+  });
+  it("recognizes the Chromium 'Failed to fetch' offline message", () => {
+    expect(errorHint("Failed to fetch")).toMatch(/offline/i);
+    expect(errorHint("Failed to fetch", "ollama")).toMatch(/local model/i);
   });
   it("returns null for unknown errors", () => {
     expect(errorHint("some unknown teapot error")).toBeNull();
