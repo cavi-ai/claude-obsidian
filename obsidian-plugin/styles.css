@@ -2136,3 +2136,15 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   width: fit-content;
 }
 .cc-write-grant-pill.is-on { display: inline-block; }
+
+/* ---- settings: connect callout + invalid numeric input ---- */
+.cc-connect-callout {
+  border: 1px solid var(--interactive-accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: var(--background-secondary);
+}
+.cc-connect-title { font-weight: 600; margin-bottom: 2px; }
+.cc-connect-callout p { margin: 0; color: var(--text-muted); font-size: 13px; }
+.cc-input-invalid { border-color: var(--text-error) !important; }

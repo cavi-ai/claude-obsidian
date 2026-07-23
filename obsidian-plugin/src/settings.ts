@@ -30,18 +30,20 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    // In-app disclosure of what the plugin accesses — mirrors the community-store
-    // "Behavior" notes so users see it after install, not just on the store page.
-    new Setting(containerEl)
-      .setName("What this plugin accesses")
-      .setDesc(
-        "Your messages and vault context go only to Anthropic (and your local Ollama, if enabled) — nothing else leaves your machine. The built-in semantic-search engine downloads its model once from huggingface.co and cdn.jsdelivr.net when you click Download; afterwards it runs fully offline. On desktop, optional features touch files outside the vault: session capture reads Claude Code transcripts from your Claude projects folder, and “open artifact in browser” writes a temporary HTML file. Semantic search reads every note in your vault to build a local index. Copy buttons use the system clipboard. All filesystem access is disabled on mobile.",
-      )
-      .setHeading();
+    const s = this.plugin.settings;
+
+    // The one mandatory step, called out while it's missing. Everything else
+    // in this tab is optional.
+    if (!this.plugin.router().anthropic.hasCredentials()) {
+      const callout = containerEl.createDiv({ cls: "cc-connect-callout" });
+      callout.createDiv({ cls: "cc-connect-title", text: "Step 1 — connect to Claude" });
+      const p = callout.createEl("p");
+      p.appendText("Add an Anthropic API key below to start chatting. Create one at ");
+      p.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
+      p.appendText(" — it’s stored locally in this vault’s plugin data.");
+    }
 
     new Setting(containerEl).setName("Connection").setHeading();
-
-    const s = this.plugin.settings;
 
     new Setting(containerEl)
       .setName("Authentication")
@@ -60,7 +62,11 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     if (s.authMode === "apiKey") {
       new Setting(containerEl)
         .setName("Anthropic API key")
-        .setDesc("Bring your own key from console.anthropic.com. Stored locally in this vault's plugin data.")
+        .setDesc(createFragment((frag) => {
+          frag.appendText("Bring your own key from ");
+          frag.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
+          frag.appendText(". Stored locally in this vault’s plugin data.");
+        }))
         .addText((text) => {
           text.inputEl.type = "password";
           text.inputEl.setCssStyles({ width: "320px" });
@@ -163,14 +169,32 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Chat backend")
+      .setDesc("Where chat runs. Auto keeps using Claude but transparently falls back to your local model when Claude is offline or out of usage — so you never lose chat on a plane or when tokens run out.")
+      .addDropdown((dd) => {
+        dd.addOption("claude", "Claude only");
+        dd.addOption("auto", "Auto (Claude, fall back to local)");
+        dd.addOption("local", "Local only (offline)");
+        dd.setValue(this.plugin.settings.chatBackend).onChange(async (v) => {
+          this.plugin.settings.chatBackend = v as "claude" | "local" | "auto";
+          await this.plugin.saveSettings();
+          this.plugin.refreshViews();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Max response tokens")
+      .setDesc("Upper bound on a single reply (cap 64000). Higher values leave less context-window room.")
       .addText((text) =>
         text.setValue(String(this.plugin.settings.maxTokens)).onChange(async (v) => {
           const n = parseInt(v, 10);
-          if (Number.isFinite(n) && n > 0) {
-            this.plugin.settings.maxTokens = Math.min(n, 64000);
-            await this.plugin.saveSettings();
-          }
+          const valid = Number.isFinite(n) && n > 0;
+          text.inputEl.toggleClass("cc-input-invalid", !valid);
+          if (!valid) return;
+          const clamped = Math.min(n, 64000);
+          if (clamped !== n) text.setValue(String(clamped));
+          this.plugin.settings.maxTokens = clamped;
+          await this.plugin.saveSettings();
         }),
       );
 
@@ -229,10 +253,11 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .addText((text) =>
         text.setValue(String(this.plugin.settings.contextCharBudget)).onChange(async (v) => {
           const n = parseInt(v, 10);
-          if (Number.isFinite(n) && n > 0) {
-            this.plugin.settings.contextCharBudget = n;
-            await this.plugin.saveSettings();
-          }
+          const valid = Number.isFinite(n) && n > 0;
+          text.inputEl.toggleClass("cc-input-invalid", !valid);
+          if (!valid) return;
+          this.plugin.settings.contextCharBudget = n;
+          await this.plugin.saveSettings();
         }),
       );
 
@@ -242,12 +267,20 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .addText((text) =>
         text.setValue(String(this.plugin.settings.maxContextNotes)).onChange(async (v) => {
           const n = parseInt(v, 10);
-          if (Number.isFinite(n) && n >= 0) {
-            this.plugin.settings.maxContextNotes = n;
-            await this.plugin.saveSettings();
-          }
+          const valid = Number.isFinite(n) && n >= 0;
+          text.inputEl.toggleClass("cc-input-invalid", !valid);
+          if (!valid) return;
+          this.plugin.settings.maxContextNotes = n;
+          await this.plugin.saveSettings();
         }),
       );
+
+    this.accordion(containerEl, "What this plugin accesses (privacy)", (c) => {
+      c.createEl("p", {
+        cls: "setting-item-description",
+        text: "Your messages and vault context go only to Anthropic (and your local Ollama, if enabled) — nothing else leaves your machine. The built-in semantic-search engine downloads its model once from huggingface.co and cdn.jsdelivr.net when you click Download; afterwards it runs fully offline. On desktop, optional features touch files outside the vault: session capture reads Claude Code transcripts from your Claude projects folder, and “open artifact in browser” writes a temporary HTML file. Semantic search reads every note in your vault to build a local index. Copy buttons use the system clipboard. All filesystem access is disabled on mobile.",
+      });
+    });
 
     this.accordion(containerEl, "Storage", (c) => this.renderStorageSection(c));
     // On mobile, Cloud session is the primary way to cowork — promote it above
@@ -366,35 +399,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl)
-      .setName("Chat backend")
-      .setDesc("Where chat runs. Auto keeps using Claude but transparently falls back to your local model when Claude is offline or out of usage — so you never lose chat on a plane or when tokens run out.")
-      .addDropdown((dd) => {
-        dd.addOption("claude", "Claude only");
-        dd.addOption("auto", "Auto (Claude, fall back to local)");
-        dd.addOption("local", "Local only (offline)");
-        dd.setValue(this.plugin.settings.chatBackend).onChange(async (v) => {
-          this.plugin.settings.chatBackend = v as "claude" | "local" | "auto";
-          await this.plugin.saveSettings();
-          this.plugin.refreshViews();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Research intelligence narrator")
-      .setDesc("Choose the provider used only when you click Analyze in a Research Intelligence view. Deterministic findings stay local and always remain available.")
-      .addDropdown((dd) => {
-        dd.addOption("current", "Current chat backend");
-        dd.addOption("claude", "Claude only");
-        dd.addOption("local", "Local only");
-        dd.addOption("disabled", "Disabled");
-        dd.setValue(this.plugin.settings.intelligenceNarrator).onChange(async (value) => {
-          this.plugin.settings.intelligenceNarrator = value as PluginSettings["intelligenceNarrator"];
-          await this.plugin.saveSettings();
-          this.plugin.refreshViews();
-        });
-      });
-
-    new Setting(containerEl)
       .setName("Use local model for utility tasks")
       .setDesc("Summaries, auto-tagging, and ingestion go to Ollama instead of Claude.")
       .addToggle((t) =>
@@ -477,6 +481,21 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   }
 
   private renderDiscoverySection(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName("Research intelligence narrator")
+      .setDesc("Choose the provider used only when you click Analyze in a Research Intelligence view. Deterministic findings stay local and always remain available.")
+      .addDropdown((dd) => {
+        dd.addOption("current", "Current chat backend");
+        dd.addOption("claude", "Claude only");
+        dd.addOption("local", "Local only");
+        dd.addOption("disabled", "Disabled");
+        dd.setValue(this.plugin.settings.intelligenceNarrator).onChange(async (value) => {
+          this.plugin.settings.intelligenceNarrator = value as PluginSettings["intelligenceNarrator"];
+          await this.plugin.saveSettings();
+          this.plugin.refreshViews();
+        });
+      });
+
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "Network requests happen only when you explicitly run a discovery action. Results are derived suggestions, and imported sources remain unreviewed until you review them.",
