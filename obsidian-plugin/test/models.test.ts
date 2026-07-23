@@ -17,7 +17,7 @@ describe("resolveModelId", () => {
 
 describe("modelLabel", () => {
   it("returns the friendly label for known ids", () => {
-    expect(modelLabel("claude-sonnet-4-6")).toBe("Claude Sonnet 4.6");
+    expect(modelLabel("claude-sonnet-5")).toBe("Claude Sonnet 5");
   });
   it("echoes unknown ids verbatim", () => {
     expect(modelLabel("claude-future-9")).toBe("claude-future-9");

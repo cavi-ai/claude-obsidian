@@ -20,6 +20,7 @@ export interface ModelLimits {
 // a custom/unknown model falls back to DEFAULT_LIMITS.
 const LIMITS: Record<string, ModelLimits> = {
   "claude-opus-4-8": { contextWindow: 1_000_000, maxOutput: 128_000, inputCostPerM: 5, outputCostPerM: 25 },
+  "claude-sonnet-5": { contextWindow: 1_000_000, maxOutput: 128_000, inputCostPerM: 3, outputCostPerM: 15 },
   "claude-sonnet-4-6": { contextWindow: 1_000_000, maxOutput: 128_000, inputCostPerM: 3, outputCostPerM: 15 },
   "claude-haiku-4-5-20251001": { contextWindow: 200_000, maxOutput: 64_000, inputCostPerM: 1, outputCostPerM: 5 },
 };
