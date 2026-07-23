@@ -189,6 +189,28 @@
   border-radius: 10px;
   padding: 8px 12px;
 }
+/* A slash-command / workflow invocation: a compact clay chip instead of a
+   plain bubble of raw prompt text. */
+.cc-msg.cc-command { gap: 0; }
+.cc-command-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 4px 12px 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cc-clay) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cc-clay) 38%, transparent);
+  color: var(--cc-clay);
+  font-family: var(--cc-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.cc-command-chip-icon { display: inline-flex; flex: 0 0 auto; }
+.cc-command-chip-icon svg { width: 13px; height: 13px; }
+.cc-command-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-assistant .cc-body {
   padding: 2px 0;
 }

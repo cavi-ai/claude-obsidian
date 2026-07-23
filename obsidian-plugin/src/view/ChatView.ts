@@ -328,6 +328,13 @@ export class ChatView extends ItemView {
 
   /** Render one persisted message, including assistant action buttons. */
   private renderStoredMessage(m: ChatMessage): void {
+    // A user turn with a `display` is a slash/workflow invocation — show it as a
+    // command chip on replay too, matching the live render.
+    if (m.role === "user" && m.display !== undefined) {
+      const chipBubble = this.messagesEl.createDiv({ cls: "cc-msg cc-user cc-command" });
+      this.renderCommandChip(chipBubble, m.display);
+      return;
+    }
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
     bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
@@ -990,7 +997,7 @@ export class ChatView extends ItemView {
     }
 
     this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
-    this.renderMessage("user", display ?? userText);
+    this.renderMessage("user", display ?? userText, { command: display !== undefined });
 
     // Agent mode: Claude pulls vault context itself via tools (Anthropic only).
     const agentActive = this.plugin.settings.agentModeEnabled && provider.id === "anthropic";
@@ -1466,13 +1473,26 @@ export class ChatView extends ItemView {
     return pre;
   }
 
-  private renderMessage(role: "user" | "assistant", text: string): void {
+  private renderMessage(role: "user" | "assistant", text: string, opts?: { command?: boolean }): void {
     if (this.messages.length === 1) this.messagesEl.empty();
-    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}` });
+    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}${opts?.command ? " cc-command" : ""}` });
+    if (opts?.command) {
+      this.renderCommandChip(bubble, text);
+      this.scrollToBottom();
+      return;
+    }
     bubble.createDiv({ cls: "cc-role", text: role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
     void this.renderMarkdownInto(body, text);
     this.scrollToBottom();
+  }
+
+  /** A slash command / workflow invocation renders as a compact accent chip
+   *  (e.g. "/summarize") instead of a plain user bubble of raw prompt text. */
+  private renderCommandChip(bubble: HTMLElement, label: string): void {
+    const chip = bubble.createDiv({ cls: "cc-command-chip" });
+    setIcon(chip.createSpan({ cls: "cc-command-chip-icon" }), "terminal");
+    chip.createSpan({ cls: "cc-command-chip-label", text: label });
   }
 
   private renderError(body: HTMLElement, message: string, provider: ErrorHintProvider): void {
