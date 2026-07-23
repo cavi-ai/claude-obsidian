@@ -2121,3 +2121,18 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-conv-delete:hover { color: var(--text-error); background: var(--background-modifier-hover); }
 .cc-conv-delete.is-armed { color: var(--text-error); background: var(--background-modifier-error-hover); }
 .cc-conv-delete svg { width: 15px; height: 15px; }
+
+/* ---- agent session write-grant pill (visible + revocable) ---- */
+.cc-write-grant-pill {
+  display: none;
+  background: var(--background-modifier-error-hover);
+  color: var(--text-error);
+  border: none;
+  box-shadow: none;
+  border-radius: 10px;
+  font-size: 10px;
+  padding: 1px 8px;
+  cursor: pointer;
+  width: fit-content;
+}
+.cc-write-grant-pill.is-on { display: inline-block; }

@@ -71,6 +71,7 @@ export class ChatView extends ItemView {
   private sendBtn!: HTMLButtonElement;
   private modelLabelEl!: HTMLElement;
   private backendPillEl!: HTMLElement;
+  private writeGrantPillEl!: HTMLElement;
   private usageEl!: HTMLElement;
   private gaugeFillEl!: HTMLElement;
   private streaming = false;
@@ -142,6 +143,17 @@ export class ChatView extends ItemView {
     title.createSpan({ cls: "cc-eyebrow", text: "COMPANION FOR CLAUDE" });
     this.modelLabelEl = title.createSpan({ cls: "cc-model" });
     this.backendPillEl = title.createSpan({ cls: "cc-backend-pill", attr: { "aria-label": "Chat backend / connectivity" } });
+    this.writeGrantPillEl = title.createEl("button", {
+      cls: "cc-write-grant-pill",
+      text: "✎ writes auto-allowed",
+      attr: { "aria-label": "Agent writes are auto-allowed for this session — click to revoke" },
+    });
+    this.writeGrantPillEl.addEventListener("click", () => {
+      this.agentWriteAlways = false;
+      this.updateWriteGrantPill();
+      new Notice("Session write grant revoked — writes will ask again.");
+    });
+    this.updateWriteGrantPill();
     const actions = header.createDiv({ cls: "cc-header-actions" });
     if (Platform.isMobile) {
       // Mobile: the model name is the model picker, and one ⋯ menu carries the
@@ -1446,10 +1458,18 @@ export class ChatView extends ItemView {
     if (this.agentWriteAlways) return Promise.resolve(true);
     return new Promise((resolve) => {
       new WriteConfirmModal(this.app, block, (choice) => {
-        if (choice === "always") this.agentWriteAlways = true;
+        if (choice === "always") {
+          this.agentWriteAlways = true;
+          this.updateWriteGrantPill();
+        }
         resolve(choice !== "deny");
       }).open();
     });
+  }
+
+  /** Show the session-grant pill only while the grant is live. */
+  private updateWriteGrantPill(): void {
+    this.writeGrantPillEl?.toggleClass("is-on", this.agentWriteAlways);
   }
 
   /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
