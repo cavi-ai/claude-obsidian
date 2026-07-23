@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, MarkdownRenderer, MarkdownView, Menu, Modal, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ToolTraceEntry } from "../types";
 import { runAgentTurn, type AgentTurnDeps } from "../agent/loop";
@@ -241,7 +241,9 @@ export class ChatView extends ItemView {
         if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.slashMenu.choose(); return; }
         if (e.key === "Escape") { e.preventDefault(); this.slashMenu.hide(); return; }
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      // Desktop: Enter sends, Shift+Enter breaks a line. Mobile soft keyboards
+      // have no Shift — Enter inserts a newline and only the send button sends.
+      if (e.key === "Enter" && !e.shiftKey && !Platform.isMobile) {
         e.preventDefault();
         void this.onSend();
       }
@@ -692,10 +694,9 @@ export class ChatView extends ItemView {
   }
 
   /** Rebuild only the capability-dependent knobs (keeps the model select stable). */
-  private renderKnobs(): void {
-    if (!this.knobsEl) return;
-    this.knobsEl.empty();
-    const parent = this.knobsEl;
+  /** Rebuild only the capability-dependent knobs into the given container. */
+  private renderKnobsInto(parent: HTMLElement): void {
+    parent.empty();
 
     if (this.plugin.router().chatProvider().provider.id === "ollama") {
       parent.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
@@ -709,7 +710,7 @@ export class ChatView extends ItemView {
       think.toggleClass("is-active", this.controls.thinking);
       think.addEventListener("click", () => {
         this.controls.thinking = !this.controls.thinking;
-        this.renderKnobs();
+        this.renderKnobsInto(parent);
         this.updateUsageBar();
       });
 
@@ -766,6 +767,10 @@ export class ChatView extends ItemView {
       this.controls.maxTokens = Number.isFinite(n) && n > 0 ? n : null;
       this.updateUsageBar();
     });
+  }
+
+  private renderKnobs(): void {
+    if (this.knobsEl) this.renderKnobsInto(this.knobsEl);
   }
 
   private renderEmptyState(): void {
@@ -1719,15 +1724,29 @@ export class ChatView extends ItemView {
     menu.showAtMouseEvent(evt);
   }
 
+  /** Mobile: the tune knobs (thinking / effort / temp / max) in a modal. */
+  private openTuneModal(): void {
+    const modal = new Modal(this.app);
+    modal.titleEl.setText("Model controls");
+    modal.contentEl.addClass("cc-knobs", "cc-knobs-modal");
+    this.renderKnobsInto(modal.contentEl);
+    modal.open();
+  }
+
   /** Mobile: the single ⋯ menu that replaces the desktop header icon row. */
   private openOverflowMenu(evt: MouseEvent): void {
     const menu = new Menu();
     menu.addItem((i) => i.setTitle("New chat").setIcon("plus").onClick(() => this.clearChat()));
     menu.addItem((i) => i.setTitle("History").setIcon("history").onClick(() => this.openHistory()));
     menu.addItem((i) => i.setTitle("Save chat to vault").setIcon("save").onClick(() => void this.saveChat()));
-    menu.addSeparator();
-    menu.addItem((i) => i.setTitle("Send to cloud session").setIcon("cloud").onClick(() => void this.plugin.dispatchCloudSession()));
-    menu.addItem((i) => i.setTitle("Pull cloud replies").setIcon("cloud-download").onClick(() => void this.plugin.pullCloudReplies()));
+    menu.addItem((i) => i.setTitle("Model controls…").setIcon("sliders-horizontal").onClick(() => this.openTuneModal()));
+    // Cloud actions only when actually configured — a menu item that just
+    // bounces a "feature is off" notice is noise.
+    const cloudDispatch = this.plugin.settings.cloudDispatchEnabled;
+    const cloudReplies = this.plugin.settings.cloudReplyRepo.trim().length > 0;
+    if (cloudDispatch || cloudReplies) menu.addSeparator();
+    if (cloudDispatch) menu.addItem((i) => i.setTitle("Send to cloud session").setIcon("cloud").onClick(() => void this.plugin.dispatchCloudSession()));
+    if (cloudReplies) menu.addItem((i) => i.setTitle("Pull cloud replies").setIcon("cloud-download").onClick(() => void this.plugin.pullCloudReplies()));
     menu.addSeparator();
     menu.addItem((i) => i.setTitle("Settings").setIcon("settings").onClick(() => this.openSettings()));
     menu.showAtMouseEvent(evt);

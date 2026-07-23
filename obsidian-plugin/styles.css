@@ -2094,3 +2094,13 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   font-size: 12px;
 }
 .cc-error-retry:hover { background: var(--background-modifier-hover); }
+
+/* Tune knobs rendered inside the mobile modal: static flow, not the desktop
+   popover's absolute positioning. */
+.cc-knobs-modal {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+}
