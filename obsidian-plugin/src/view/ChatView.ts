@@ -89,6 +89,8 @@ export class ChatView extends ItemView {
   private attachedPaths: AttachedPath[] = [];
   /** PDFs/images attached via "@" or paste — cleared after the next send. */
   private attachedMedia: MediaAttachment[] = [];
+  /** Media consumed by the last send — restored on failure, re-sent on Regenerate. */
+  private lastUserMedia: MediaAttachment[] = [];
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
@@ -1110,8 +1112,12 @@ export class ChatView extends ItemView {
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
       }
+      // Media is per-turn, but keep a handle for failure-restore and Regenerate.
+      this.lastUserMedia = this.attachedMedia;
       this.attachedMedia = [];
       this.renderAttachPills();
+    } else {
+      this.lastUserMedia = [];
     }
 
     const { bubble, body } = this.createAssistantBubble();
@@ -1140,10 +1146,12 @@ export class ChatView extends ItemView {
           // abort, then append the error below it.
           this.finishAssistant(this._lastBuffer || null, bubble);
           this.renderError(body, err2.message ?? "Request failed", "ollama");
+          this.restoreMediaAfterFailure();
         }
       } else {
         this.finishAssistant(this._lastBuffer || null, bubble);
         this.renderError(body, err1.message ?? "Request failed", startedOnLocal ? "ollama" : "anthropic");
+        this.restoreMediaAfterFailure();
       }
     }
 
@@ -1590,6 +1598,14 @@ export class ChatView extends ItemView {
     }
   }
 
+  /** Re-attach the failed turn's media so a retry (or edit) still has it. */
+  private restoreMediaAfterFailure(): void {
+    if (this.lastUserMedia.length > 0 && this.attachedMedia.length === 0) {
+      this.attachedMedia = this.lastUserMedia;
+      this.renderAttachPills();
+    }
+  }
+
   /** Flag a reply that the model truncated at the output-token limit. */
   /** Flag a reply that the model truncated at the output-token limit. */
   private annotateTruncated(bubble: HTMLElement): void {
@@ -1835,6 +1851,10 @@ export class ChatView extends ItemView {
     this.messagesEl.empty();
     if (this.messages.length === 0) this.renderEmptyState();
     else for (const m of this.messages) this.renderStoredMessage(m);
+    // Re-attach the original turn's media so the regenerated turn sees it too.
+    if (this.attachedMedia.length === 0 && this.lastUserMedia.length > 0) {
+      this.attachedMedia = [...this.lastUserMedia];
+    }
     await this.run(this.lastUserText, undefined, opts?.maxTokens);
   }
 
