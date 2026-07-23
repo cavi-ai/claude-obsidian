@@ -26,6 +26,7 @@ import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
+import { needsCredentialSetup } from "../providers/setupState";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
@@ -775,12 +776,18 @@ export class ChatView extends ItemView {
       cls: "cc-empty-sub",
       text: "Stay in the thread across notes, research, thinking, and finished work.",
     });
+    if (this.setupRequired()) {
+      // Without a credential every example below would just error — show the
+      // connect card instead and stop.
+      this.renderSetupCard(empty);
+      return;
+    }
     const workspaceMount = empty.createDiv({ cls: "cc-context-workspace-mount", attr: { "aria-live": "polite" } });
     void this.renderContextualWorkspace(workspaceMount);
     empty.createDiv({ cls: "cc-empty-section-label", text: "START SOMETHING ELSE" });
-    const examples: { label: string; prompt: string }[] = [
-      { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first." },
-      { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system." },
+    const examples: { label: string; prompt: string; needsActiveNote?: boolean }[] = [
+      { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first.", needsActiveNote: true },
+      { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system.", needsActiveNote: true },
       { label: "🗺️ Plan a feature", prompt: "Help me plan a feature. Ask me clarifying questions first, then produce an implementation plan." },
       { label: "🔍 Ask across my vault", prompt: "Search my vault and answer: what have I written about " },
     ];
@@ -788,6 +795,10 @@ export class ChatView extends ItemView {
     for (const ex of examples) {
       const card = grid.createEl("button", { cls: "cc-example", text: ex.label });
       card.addEventListener("click", () => {
+        if (ex.needsActiveNote && !this.app.workspace.getActiveFile()) {
+          new Notice("Open a note first, then try this one.");
+          return;
+        }
         this.inputEl.value = ex.prompt;
         this.inputEl.focus();
         this.autosizeInput();
@@ -796,6 +807,68 @@ export class ChatView extends ItemView {
         if (!ex.prompt.endsWith(" ")) void this.onSend();
       });
     }
+  }
+
+  /** True when chatting requires configuration the user hasn't done yet. */
+  private setupRequired(): boolean {
+    const router = this.plugin.router();
+    return needsCredentialSetup({
+      backend: router.chatBackend,
+      hasAnthropicCredential: router.anthropic.hasCredentials(),
+    });
+  }
+
+  /** First-run card: connect to Claude without leaving the chat panel. */
+  private renderSetupCard(parent: HTMLElement): void {
+    const card = parent.createDiv({ cls: "cc-setup-card" });
+    card.createDiv({ cls: "cc-setup-title", text: "Connect to Claude" });
+    card.createDiv({
+      cls: "cc-setup-sub",
+      text: "Add your Anthropic API key to start chatting. It’s stored locally in this vault — nothing else leaves your machine.",
+    });
+    const link = card.createEl("a", {
+      cls: "cc-setup-link",
+      text: "Get a key at console.anthropic.com",
+      href: "https://console.anthropic.com/settings/keys",
+    });
+    link.setAttr("target", "_blank");
+    const row = card.createDiv({ cls: "cc-setup-row" });
+    const input = row.createEl("input", {
+      cls: "cc-setup-input",
+      attr: { type: "password", placeholder: "sk-ant-api…", "aria-label": "Anthropic API key" },
+    });
+    const save = row.createEl("button", { cls: "mod-cta cc-setup-save", text: "Save key" });
+    save.addEventListener("click", () => void (async () => {
+      const key = input.value.trim();
+      if (!key) {
+        input.focus();
+        return;
+      }
+      this.plugin.settings.authMode = "apiKey";
+      this.plugin.settings.apiKey = key;
+      await this.plugin.saveSettings(); // rebuilds the provider router
+      new Notice("API key saved — you’re connected.");
+      if (this.messages.length === 0) {
+        this.messagesEl.empty();
+        this.renderEmptyState();
+      } else {
+        card.remove();
+      }
+    })());
+    const settingsBtn = card.createEl("button", { cls: "cc-setup-settings", text: "Other options (OAuth, environment)…" });
+    settingsBtn.addEventListener("click", () => this.openSettings());
+  }
+
+  /** Surface the setup card on a blocked send without losing the typed text. */
+  private showSetupCard(): void {
+    const existing = this.messagesEl.querySelector<HTMLElement>(".cc-setup-card");
+    if (existing) {
+      existing.addClass("cc-setup-attn");
+      window.setTimeout(() => existing.removeClass("cc-setup-attn"), 900);
+      return;
+    }
+    this.renderSetupCard(this.messagesEl);
+    this.scrollToBottom();
   }
 
   private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
@@ -866,6 +939,12 @@ export class ChatView extends ItemView {
     }
     const text = this.inputEl.value.trim();
     if (!text) return;
+    // Check credentials BEFORE clearing the composer — a new user's first
+    // message must never be silently discarded.
+    if (this.setupRequired()) {
+      this.showSetupCard();
+      return;
+    }
     this.lastUserText = text;
     this.inputEl.value = "";
     this.autosizeInput();
