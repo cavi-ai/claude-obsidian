@@ -366,11 +366,26 @@ export class ChatView extends ItemView {
       new Notice("No saved conversations yet.");
       return;
     }
-    new ConversationPicker(this.app, conversations, (chosen) => {
-      void this.plugin.setActiveConversation(chosen.id).then((c) => {
-        if (c) this.loadConversation(c);
-      });
-    }).open();
+    new ConversationPicker(
+      this.app,
+      conversations,
+      (chosen) => {
+        void this.plugin.setActiveConversation(chosen.id).then((c) => {
+          if (c) this.loadConversation(c);
+        });
+      },
+      (doomed) => {
+        void (async () => {
+          if (this.plugin.getActiveConversation()?.id === doomed.id) {
+            await this.plugin.deleteActiveConversation(); // resets the view + notices
+          } else {
+            await this.plugin.deleteConversation(doomed.id);
+            new Notice(`Deleted “${doomed.title}”.`);
+          }
+          this.openHistory(); // reopen with the refreshed list
+        })();
+      },
+    ).open();
   }
 
   /**

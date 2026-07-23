@@ -2104,3 +2104,20 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   gap: 10px;
   padding: 8px 0;
 }
+
+/* ---- history picker rows + delete ---- */
+.cc-conv-suggestion { display: flex; align-items: center; gap: 8px; }
+.cc-conv-main { flex: 1; min-width: 0; }
+.cc-conv-delete {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-faint);
+  border-radius: 4px;
+}
+.cc-conv-delete:hover { color: var(--text-error); background: var(--background-modifier-hover); }
+.cc-conv-delete.is-armed { color: var(--text-error); background: var(--background-modifier-error-hover); }
+.cc-conv-delete svg { width: 15px; height: 15px; }
