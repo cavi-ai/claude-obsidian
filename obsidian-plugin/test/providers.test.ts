@@ -49,6 +49,11 @@ describe("errorHint", () => {
   });
   it("mentions rate limits on 429", () => {
     expect(errorHint("HTTP 429 rate_limit_error")).toMatch(/rate/i);
+    expect(errorHint("rate limit exceeded")).toMatch(/rate/i);
+    expect(errorHint("Too Many Requests")).toMatch(/rate/i);
+  });
+  it("does not misread 'rate' inside unrelated words as a rate limit", () => {
+    expect(errorHint("could not separate the response")).toBeNull();
   });
   it("recognizes the Chromium 'Failed to fetch' offline message", () => {
     expect(errorHint("Failed to fetch")).toMatch(/offline/i);

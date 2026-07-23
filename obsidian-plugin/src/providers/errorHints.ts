@@ -10,7 +10,7 @@ export function errorHint(message: string, provider: ErrorHintProvider = "anthro
   if (m.includes("529") || m.includes("overloaded")) {
     return "Anthropic is overloaded (HTTP 529) — a temporary condition on their side. Wait a moment and retry.";
   }
-  if (m.includes("429") || m.includes("rate")) {
+  if (m.includes("429") || m.includes("rate_limit") || m.includes("rate limit") || m.includes("too many requests")) {
     return "Rate limited (HTTP 429). Wait a moment and retry. On a subscription OAuth token this can also mean a per-minute/usage cap on your plan — it does not necessarily mean your API credits are exhausted.";
   }
   if (m.includes("credit") || m.includes("billing") || m.includes("quota")) {
