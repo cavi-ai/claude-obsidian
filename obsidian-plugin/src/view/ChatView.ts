@@ -1591,13 +1591,15 @@ export class ChatView extends ItemView {
   }
 
   /** Flag a reply that the model truncated at the output-token limit. */
+  /** Flag a reply that the model truncated at the output-token limit. */
   private annotateTruncated(bubble: HTMLElement): void {
     if (bubble.querySelector(".cc-truncated-note")) return;
+    const cap = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
     const note = bubble.createDiv({ cls: "cc-truncated-note" });
     note.createSpan({ cls: "cc-truncated-title", text: "Response hit the output-token limit" });
-    note.createSpan({
-      text: ` — it was cut off. Raise “max” (top of the chat) and Regenerate for the full result. Current cap: ${this.controls?.maxTokens ?? this.plugin.settings.maxTokens} tokens.`,
-    });
+    note.createSpan({ text: ` — it was cut off at ${cap} tokens.` });
+    const retry = note.createEl("button", { cls: "cc-error-retry", text: "Retry with a higher limit" });
+    retry.addEventListener("click", () => void this.regenerate({ maxTokens: Math.min(cap * 2, 64000) }));
   }
 
   private renderInterruptedArtifact(body: HTMLElement): void {
@@ -1822,7 +1824,8 @@ export class ChatView extends ItemView {
   }
 
   /** Drop the last assistant reply and re-run the previous user turn. */
-  private async regenerate(): Promise<void> {
+  /** Drop the last assistant reply and re-run the previous user turn. */
+  private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
     if (this.streaming || !this.lastUserText) return;
     // Remove the trailing assistant message from state + DOM, plus the user msg
     // (run() re-pushes it). Then re-run with the same text.
@@ -1832,7 +1835,7 @@ export class ChatView extends ItemView {
     this.messagesEl.empty();
     if (this.messages.length === 0) this.renderEmptyState();
     else for (const m of this.messages) this.renderStoredMessage(m);
-    await this.run(this.lastUserText);
+    await this.run(this.lastUserText, undefined, opts?.maxTokens);
   }
 
   /**
