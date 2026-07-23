@@ -278,7 +278,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       for (const t of [
         "Local models (Ollama) — runs a localhost model server",
         "Unified bridge (MCP server) — exposes your vault to Claude Code",
-        "Session memory — captures Claude Code transcripts from disk",
+        "Session capture — reads Claude Code transcripts from disk (browsing captured memory works here)",
       ]) {
         ul.createEl("li", { text: t });
       }
