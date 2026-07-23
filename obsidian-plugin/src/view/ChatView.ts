@@ -213,7 +213,15 @@ export class ChatView extends ItemView {
       cls: "cc-input",
       // Start compact on mobile (1 row, grows via autosizeInput) so the composer
       // doesn't eat a big band of the phone screen; roomier default on desktop.
-      attr: { placeholder: "Ask Claude…  ( / for commands · @ to add context · Enter to send )", rows: Platform.isMobile ? "1" : "3" },
+      // The desktop placeholder spells out the /@ affordances, but that string
+      // wraps to two cramped lines inside a one-row phone pill — mobile gets a
+      // short placeholder (the "+" button already surfaces context on mobile).
+      attr: {
+        placeholder: Platform.isMobile
+          ? "Message Claude…"
+          : "Ask Claude…  ( / for commands · @ to add context · Enter to send )",
+        rows: Platform.isMobile ? "1" : "3",
+      },
     });
     this.inputEl.addEventListener("keydown", (e) => {
       // The "@" picker intercepts navigation keys while open.
@@ -280,6 +288,11 @@ export class ChatView extends ItemView {
     });
     if (Platform.isMobile) setIcon(this.sendBtn, "arrow-up");
     this.sendBtn.addEventListener("click", () => void this.onSend());
+
+    // Mobile: tuck the attachment chips inside the top of the input box (as its
+    // first row) so they read as part of the composer instead of a loose,
+    // cramped strip floating above it.
+    if (Platform.isMobile) inputRow.prepend(this.pillsEl);
 
     this.refreshModelLabel();
     void this.refreshBackendPill();
