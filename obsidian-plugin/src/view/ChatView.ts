@@ -98,6 +98,8 @@ export class ChatView extends ItemView {
   /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
+  /** Last rendered pill-row state; skip DOM rebuilds when nothing changed. */
+  private lastPillsSignature = "";
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
@@ -315,7 +317,14 @@ export class ChatView extends ItemView {
     void this.refreshBackendPill();
     void this.refreshContextStatus();
     if (this.contextStatusInterval !== null) window.clearInterval(this.contextStatusInterval);
-    this.contextStatusInterval = window.setInterval(() => void this.refreshContextStatus(), 2000);
+    let tick = 0;
+    this.contextStatusInterval = window.setInterval(() => {
+      tick++;
+      void this.refreshContextStatus();
+      // The backend pill needs a network probe (localAvailable) — every ~10s
+      // is fresh enough without hammering a dead host with 2s timeouts.
+      if (tick % 5 === 0) void this.refreshBackendPill();
+    }, 2000);
     // Resume the last active conversation if one was persisted; else empty state.
     const active = this.plugin.getActiveConversation();
     if (active && active.messages.length > 0) {
@@ -602,9 +611,19 @@ export class ChatView extends ItemView {
   /** Render the attached-context pills (enabled flags + @-attached paths). */
   private renderAttachPills(): void {
     if (!this.pillsEl) return;
-    this.pillsEl.empty();
     const c = this.plugin.settings.context;
     const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
+    // Rebuild only when the pill set actually changes — the 2s status tick
+    // otherwise wipes+rebuilds the row mid-click, yanking the "×" out from under it.
+    const signature = JSON.stringify([
+      active?.path ?? null,
+      c.activeNote, c.selection, c.linkedNotes, c.searchVault,
+      this.attachedPaths.map((a) => `${a.kind}:${a.path}`),
+      this.attachedMedia.map((m) => `${m.kind}:${m.path ?? m.label}`),
+    ]);
+    if (signature === this.lastPillsSignature) return;
+    this.lastPillsSignature = signature;
+    this.pillsEl.empty();
 
     const pill = (label: string, onRemove: () => void) => {
       const el = this.pillsEl.createDiv({ cls: "cc-attach-pill" });
@@ -1101,6 +1120,7 @@ export class ChatView extends ItemView {
   private async run(userText: string, display?: string, maxTokens?: number): Promise<void> {
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this._lastBuffer = ""; // never let a previous turn's partial leak into this one
+    void this.refreshBackendPill();
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
