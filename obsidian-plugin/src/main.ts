@@ -133,7 +133,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.loadSettings();
 
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
-    if (!Platform.isMobile) this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
+    this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
     this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchDeskView(leaf, this.researchRepository(), {
       preferencesFor: (projectPath) => this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] },
@@ -324,27 +324,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
       callback: () => void this.openWorkflowPicker(),
     });
 
-    // Session memory reads Claude Code's CLI transcripts off the local
-    // filesystem — desktop-only. Skip its commands on mobile.
+    // Capturing a session reads Claude Code's CLI transcripts off the local
+    // filesystem — desktop-only. Browsing and consolidating captured digests
+    // is pure vault API and works everywhere.
     if (!Platform.isMobile) {
       this.addCommand({
         id: "capture-session-memory",
         name: "Capture session memory…",
         callback: () => void this.openSessionPicker(),
       });
-
-      this.addCommand({
-        id: "open-memory-view",
-        name: "Open session memory",
-        callback: () => void this.activateMemoryView(),
-      });
-
-      this.addCommand({
-        id: "consolidate-memory",
-        name: "Consolidate session memory into knowledge note",
-        callback: () => void this.consolidateMemory(),
-      });
     }
+
+    this.addCommand({
+      id: "open-memory-view",
+      name: "Open session memory",
+      callback: () => void this.activateMemoryView(),
+    });
+
+    this.addCommand({
+      id: "consolidate-memory",
+      name: "Consolidate session memory into knowledge note",
+      callback: () => void this.consolidateMemory(),
+    });
 
     this.addCommand({
       id: "enrich-note-as-source",

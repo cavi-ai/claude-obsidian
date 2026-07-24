@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, MarkdownRenderer, MarkdownView, Menu, Modal, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ToolTraceEntry } from "../types";
 import { runAgentTurn, type AgentTurnDeps } from "../agent/loop";
@@ -26,6 +26,7 @@ import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
+import { needsCredentialSetup } from "../providers/setupState";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
@@ -70,6 +71,7 @@ export class ChatView extends ItemView {
   private sendBtn!: HTMLButtonElement;
   private modelLabelEl!: HTMLElement;
   private backendPillEl!: HTMLElement;
+  private writeGrantPillEl!: HTMLElement;
   private usageEl!: HTMLElement;
   private gaugeFillEl!: HTMLElement;
   private streaming = false;
@@ -88,12 +90,16 @@ export class ChatView extends ItemView {
   private attachedPaths: AttachedPath[] = [];
   /** PDFs/images attached via "@" or paste — cleared after the next send. */
   private attachedMedia: MediaAttachment[] = [];
+  /** Media consumed by the last send — restored on failure, re-sent on Regenerate. */
+  private lastUserMedia: MediaAttachment[] = [];
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
   /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
+  /** Last rendered pill-row state; skip DOM rebuilds when nothing changed. */
+  private lastPillsSignature = "";
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
@@ -139,6 +145,17 @@ export class ChatView extends ItemView {
     title.createSpan({ cls: "cc-eyebrow", text: "COMPANION FOR CLAUDE" });
     this.modelLabelEl = title.createSpan({ cls: "cc-model" });
     this.backendPillEl = title.createSpan({ cls: "cc-backend-pill", attr: { "aria-label": "Chat backend / connectivity" } });
+    this.writeGrantPillEl = title.createEl("button", {
+      cls: "cc-write-grant-pill",
+      text: "✎ writes auto-allowed",
+      attr: { "aria-label": "Agent writes are auto-allowed for this session — click to revoke" },
+    });
+    this.writeGrantPillEl.addEventListener("click", () => {
+      this.agentWriteAlways = false;
+      this.updateWriteGrantPill();
+      new Notice("Session write grant revoked — writes will ask again.");
+    });
+    this.updateWriteGrantPill();
     const actions = header.createDiv({ cls: "cc-header-actions" });
     if (Platform.isMobile) {
       // Mobile: the model name is the model picker, and one ⋯ menu carries the
@@ -238,7 +255,9 @@ export class ChatView extends ItemView {
         if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.slashMenu.choose(); return; }
         if (e.key === "Escape") { e.preventDefault(); this.slashMenu.hide(); return; }
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      // Desktop: Enter sends, Shift+Enter breaks a line. Mobile soft keyboards
+      // have no Shift — Enter inserts a newline and only the send button sends.
+      if (e.key === "Enter" && !e.shiftKey && !Platform.isMobile) {
         e.preventDefault();
         void this.onSend();
       }
@@ -298,7 +317,14 @@ export class ChatView extends ItemView {
     void this.refreshBackendPill();
     void this.refreshContextStatus();
     if (this.contextStatusInterval !== null) window.clearInterval(this.contextStatusInterval);
-    this.contextStatusInterval = window.setInterval(() => void this.refreshContextStatus(), 2000);
+    let tick = 0;
+    this.contextStatusInterval = window.setInterval(() => {
+      tick++;
+      void this.refreshContextStatus();
+      // The backend pill needs a network probe (localAvailable) — every ~10s
+      // is fresh enough without hammering a dead host with 2s timeouts.
+      if (tick % 5 === 0) void this.refreshBackendPill();
+    }, 2000);
     // Resume the last active conversation if one was persisted; else empty state.
     const active = this.plugin.getActiveConversation();
     if (active && active.messages.length > 0) {
@@ -328,6 +354,13 @@ export class ChatView extends ItemView {
 
   /** Render one persisted message, including assistant action buttons. */
   private renderStoredMessage(m: ChatMessage): void {
+    // A user turn with a `display` is a slash/workflow invocation — show it as a
+    // command chip on replay too, matching the live render.
+    if (m.role === "user" && m.display !== undefined) {
+      const chipBubble = this.messagesEl.createDiv({ cls: "cc-msg cc-user cc-command" });
+      this.renderCommandChip(chipBubble, m.display);
+      return;
+    }
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
     bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
@@ -354,11 +387,26 @@ export class ChatView extends ItemView {
       new Notice("No saved conversations yet.");
       return;
     }
-    new ConversationPicker(this.app, conversations, (chosen) => {
-      void this.plugin.setActiveConversation(chosen.id).then((c) => {
-        if (c) this.loadConversation(c);
-      });
-    }).open();
+    new ConversationPicker(
+      this.app,
+      conversations,
+      (chosen) => {
+        void this.plugin.setActiveConversation(chosen.id).then((c) => {
+          if (c) this.loadConversation(c);
+        });
+      },
+      (doomed) => {
+        void (async () => {
+          if (this.plugin.getActiveConversation()?.id === doomed.id) {
+            await this.plugin.deleteActiveConversation(); // resets the view + notices
+          } else {
+            await this.plugin.deleteConversation(doomed.id);
+            new Notice(`Deleted “${doomed.title}”.`);
+          }
+          this.openHistory(); // reopen with the refreshed list
+        })();
+      },
+    ).open();
   }
 
   /**
@@ -563,9 +611,19 @@ export class ChatView extends ItemView {
   /** Render the attached-context pills (enabled flags + @-attached paths). */
   private renderAttachPills(): void {
     if (!this.pillsEl) return;
-    this.pillsEl.empty();
     const c = this.plugin.settings.context;
     const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
+    // Rebuild only when the pill set actually changes — the 2s status tick
+    // otherwise wipes+rebuilds the row mid-click, yanking the "×" out from under it.
+    const signature = JSON.stringify([
+      active?.path ?? null,
+      c.activeNote, c.selection, c.linkedNotes, c.searchVault,
+      this.attachedPaths.map((a) => `${a.kind}:${a.path}`),
+      this.attachedMedia.map((m) => `${m.kind}:${m.path ?? m.label}`),
+    ]);
+    if (signature === this.lastPillsSignature) return;
+    this.lastPillsSignature = signature;
+    this.pillsEl.empty();
 
     const pill = (label: string, onRemove: () => void) => {
       const el = this.pillsEl.createDiv({ cls: "cc-attach-pill" });
@@ -682,10 +740,9 @@ export class ChatView extends ItemView {
   }
 
   /** Rebuild only the capability-dependent knobs (keeps the model select stable). */
-  private renderKnobs(): void {
-    if (!this.knobsEl) return;
-    this.knobsEl.empty();
-    const parent = this.knobsEl;
+  /** Rebuild only the capability-dependent knobs into the given container. */
+  private renderKnobsInto(parent: HTMLElement): void {
+    parent.empty();
 
     if (this.plugin.router().chatProvider().provider.id === "ollama") {
       parent.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
@@ -699,7 +756,7 @@ export class ChatView extends ItemView {
       think.toggleClass("is-active", this.controls.thinking);
       think.addEventListener("click", () => {
         this.controls.thinking = !this.controls.thinking;
-        this.renderKnobs();
+        this.renderKnobsInto(parent);
         this.updateUsageBar();
       });
 
@@ -758,6 +815,10 @@ export class ChatView extends ItemView {
     });
   }
 
+  private renderKnobs(): void {
+    if (this.knobsEl) this.renderKnobsInto(this.knobsEl);
+  }
+
   private renderEmptyState(): void {
     if (this.messages.length > 0) return;
     this.messagesEl.empty();
@@ -768,12 +829,18 @@ export class ChatView extends ItemView {
       cls: "cc-empty-sub",
       text: "Stay in the thread across notes, research, thinking, and finished work.",
     });
+    if (this.setupRequired()) {
+      // Without a credential every example below would just error — show the
+      // connect card instead and stop.
+      this.renderSetupCard(empty);
+      return;
+    }
     const workspaceMount = empty.createDiv({ cls: "cc-context-workspace-mount", attr: { "aria-live": "polite" } });
     void this.renderContextualWorkspace(workspaceMount);
     empty.createDiv({ cls: "cc-empty-section-label", text: "START SOMETHING ELSE" });
-    const examples: { label: string; prompt: string }[] = [
-      { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first." },
-      { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system." },
+    const examples: { label: string; prompt: string; needsActiveNote?: boolean }[] = [
+      { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first.", needsActiveNote: true },
+      { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system.", needsActiveNote: true },
       { label: "🗺️ Plan a feature", prompt: "Help me plan a feature. Ask me clarifying questions first, then produce an implementation plan." },
       { label: "🔍 Ask across my vault", prompt: "Search my vault and answer: what have I written about " },
     ];
@@ -781,6 +848,10 @@ export class ChatView extends ItemView {
     for (const ex of examples) {
       const card = grid.createEl("button", { cls: "cc-example", text: ex.label });
       card.addEventListener("click", () => {
+        if (ex.needsActiveNote && !this.app.workspace.getActiveFile()) {
+          new Notice("Open a note first, then try this one.");
+          return;
+        }
         this.inputEl.value = ex.prompt;
         this.inputEl.focus();
         this.autosizeInput();
@@ -789,6 +860,69 @@ export class ChatView extends ItemView {
         if (!ex.prompt.endsWith(" ")) void this.onSend();
       });
     }
+  }
+
+  /** True when chatting requires configuration the user hasn't done yet. */
+  private setupRequired(): boolean {
+    const router = this.plugin.router();
+    return needsCredentialSetup({
+      backend: router.chatBackend,
+      hasAnthropicCredential: router.anthropic.hasCredentials(),
+    });
+  }
+
+  /** First-run card: connect to Claude without leaving the chat panel. */
+  private renderSetupCard(parent: HTMLElement): void {
+    const card = parent.createDiv({ cls: "cc-setup-card" });
+    card.createDiv({ cls: "cc-setup-title", text: "Connect to Claude" });
+    card.createDiv({
+      cls: "cc-setup-sub",
+      text: "Add your Anthropic API key to start chatting. It’s stored locally in this vault — nothing else leaves your machine.",
+    });
+    const link = card.createEl("a", {
+      cls: "cc-setup-link",
+      text: "Get a key at console.anthropic.com",
+      href: "https://console.anthropic.com/settings/keys",
+    });
+    link.setAttr("target", "_blank");
+    link.setAttr("rel", "noopener noreferrer");
+    const row = card.createDiv({ cls: "cc-setup-row" });
+    const input = row.createEl("input", {
+      cls: "cc-setup-input",
+      attr: { type: "password", placeholder: "sk-ant-api…", "aria-label": "Anthropic API key" },
+    });
+    const save = row.createEl("button", { cls: "mod-cta cc-setup-save", text: "Save key" });
+    save.addEventListener("click", () => void (async () => {
+      const key = input.value.trim();
+      if (!key) {
+        input.focus();
+        return;
+      }
+      this.plugin.settings.authMode = "apiKey";
+      this.plugin.settings.apiKey = key;
+      await this.plugin.saveSettings(); // rebuilds the provider router
+      new Notice("API key saved — you’re connected.");
+      if (this.messages.length === 0) {
+        this.messagesEl.empty();
+        this.renderEmptyState();
+      } else {
+        card.remove();
+      }
+    })());
+    const settingsBtn = card.createEl("button", { cls: "cc-setup-settings", text: "Other options (OAuth, environment)…" });
+    settingsBtn.addEventListener("click", () => this.openSettings());
+  }
+
+  /** Surface the setup card on a blocked send without losing the typed text. */
+  private showSetupCard(): void {
+    const existing = this.messagesEl.querySelector<HTMLElement>(".cc-setup-card");
+    if (existing) {
+      existing.addClass("cc-setup-attn");
+      window.setTimeout(() => existing.removeClass("cc-setup-attn"), 900);
+      return;
+    }
+    this.renderSetupCard(this.messagesEl);
+    this.scrollToBottom();
   }
 
   private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
@@ -859,6 +993,12 @@ export class ChatView extends ItemView {
     }
     const text = this.inputEl.value.trim();
     if (!text) return;
+    // Check credentials BEFORE clearing the composer — a new user's first
+    // message must never be silently discarded.
+    if (this.setupRequired()) {
+      this.showSetupCard();
+      return;
+    }
     this.lastUserText = text;
     this.inputEl.value = "";
     this.autosizeInput();
@@ -980,6 +1120,8 @@ export class ChatView extends ItemView {
 
   private async run(userText: string, display?: string, maxTokens?: number): Promise<void> {
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
+    this._lastBuffer = ""; // never let a previous turn's partial leak into this one
+    void this.refreshBackendPill();
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
@@ -990,7 +1132,7 @@ export class ChatView extends ItemView {
     }
 
     this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
-    this.renderMessage("user", display ?? userText);
+    this.renderMessage("user", display ?? userText, { command: display !== undefined });
 
     // Agent mode: Claude pulls vault context itself via tools (Anthropic only).
     const agentActive = this.plugin.settings.agentModeEnabled && provider.id === "anthropic";
@@ -1023,8 +1165,12 @@ export class ChatView extends ItemView {
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
       }
+      // Media is per-turn, but keep a handle for failure-restore and Regenerate.
+      this.lastUserMedia = this.attachedMedia;
       this.attachedMedia = [];
       this.renderAttachPills();
+    } else {
+      this.lastUserMedia = [];
     }
 
     const { bubble, body } = this.createAssistantBubble();
@@ -1049,12 +1195,16 @@ export class ChatView extends ItemView {
         this.annotateFallback(bubble, fallbackReason(err1));
         const err2 = await this.streamTurn("local", apiMessages, bubble, body);
         if (err2) {
+          // Keep whatever streamed before the failure — persist it like an
+          // abort, then append the error below it.
+          this.finishAssistant(this._lastBuffer || null, bubble);
           this.renderError(body, err2.message ?? "Request failed", "ollama");
-          this.finishAssistant(null, bubble);
+          this.restoreMediaAfterFailure();
         }
       } else {
+        this.finishAssistant(this._lastBuffer || null, bubble);
         this.renderError(body, err1.message ?? "Request failed", startedOnLocal ? "ollama" : "anthropic");
-        this.finishAssistant(null, bubble);
+        this.restoreMediaAfterFailure();
       }
     }
 
@@ -1329,10 +1479,18 @@ export class ChatView extends ItemView {
     if (this.agentWriteAlways) return Promise.resolve(true);
     return new Promise((resolve) => {
       new WriteConfirmModal(this.app, block, (choice) => {
-        if (choice === "always") this.agentWriteAlways = true;
+        if (choice === "always") {
+          this.agentWriteAlways = true;
+          this.updateWriteGrantPill();
+        }
         resolve(choice !== "deny");
       }).open();
     });
+  }
+
+  /** Show the session-grant pill only while the grant is live. */
+  private updateWriteGrantPill(): void {
+    this.writeGrantPillEl?.toggleClass("is-on", this.agentWriteAlways);
   }
 
   /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
@@ -1466,32 +1624,61 @@ export class ChatView extends ItemView {
     return pre;
   }
 
-  private renderMessage(role: "user" | "assistant", text: string): void {
+  private renderMessage(role: "user" | "assistant", text: string, opts?: { command?: boolean }): void {
     if (this.messages.length === 1) this.messagesEl.empty();
-    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}` });
+    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}${opts?.command ? " cc-command" : ""}` });
+    if (opts?.command) {
+      this.renderCommandChip(bubble, text);
+      this.scrollToBottom();
+      return;
+    }
     bubble.createDiv({ cls: "cc-role", text: role === "user" ? "You" : "Claude" });
     const body = bubble.createDiv({ cls: "cc-body" });
     void this.renderMarkdownInto(body, text);
     this.scrollToBottom();
   }
 
+  /** A slash command / workflow invocation renders as a compact accent chip
+   *  (e.g. "/summarize") instead of a plain user bubble of raw prompt text. */
+  private renderCommandChip(bubble: HTMLElement, label: string): void {
+    const chip = bubble.createDiv({ cls: "cc-command-chip" });
+    setIcon(chip.createSpan({ cls: "cc-command-chip-icon" }), "terminal");
+    chip.createSpan({ cls: "cc-command-chip-label", text: label });
+  }
+
   private renderError(body: HTMLElement, message: string, provider: ErrorHintProvider): void {
-    body.empty();
+    // Append below any partial streamed content — never destroy what arrived.
+    // But a failure before the first token leaves the "thinking" indicator in
+    // place; drop it so the bubble doesn't show both a spinner and the error.
+    body.querySelector(".cc-thinking-status")?.remove();
     const box = body.createDiv({ cls: "cc-error" });
     box.createSpan({ cls: "cc-error-title", text: "Couldn’t reach the model" });
     box.createSpan({ text: message });
     const hint = errorHint(message, provider);
     if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
+    if (this.lastUserText) {
+      const retry = box.createEl("button", { cls: "cc-error-retry", text: "Retry" });
+      retry.addEventListener("click", () => void this.regenerate());
+    }
+  }
+
+  /** Re-attach the failed turn's media so a retry (or edit) still has it. */
+  private restoreMediaAfterFailure(): void {
+    if (this.lastUserMedia.length > 0 && this.attachedMedia.length === 0) {
+      this.attachedMedia = this.lastUserMedia;
+      this.renderAttachPills();
+    }
   }
 
   /** Flag a reply that the model truncated at the output-token limit. */
   private annotateTruncated(bubble: HTMLElement): void {
     if (bubble.querySelector(".cc-truncated-note")) return;
+    const cap = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
     const note = bubble.createDiv({ cls: "cc-truncated-note" });
     note.createSpan({ cls: "cc-truncated-title", text: "Response hit the output-token limit" });
-    note.createSpan({
-      text: ` — it was cut off. Raise “max” (top of the chat) and Regenerate for the full result. Current cap: ${this.controls?.maxTokens ?? this.plugin.settings.maxTokens} tokens.`,
-    });
+    note.createSpan({ text: ` — it was cut off at ${cap} tokens.` });
+    const retry = note.createEl("button", { cls: "cc-error-retry", text: "Retry with a higher limit" });
+    retry.addEventListener("click", () => void this.regenerate({ maxTokens: Math.min(cap * 2, 64000) }));
   }
 
   private renderInterruptedArtifact(body: HTMLElement): void {
@@ -1595,15 +1782,29 @@ export class ChatView extends ItemView {
     menu.showAtMouseEvent(evt);
   }
 
+  /** Mobile: the tune knobs (thinking / effort / temp / max) in a modal. */
+  private openTuneModal(): void {
+    const modal = new Modal(this.app);
+    modal.titleEl.setText("Model controls");
+    modal.contentEl.addClass("cc-knobs", "cc-knobs-modal");
+    this.renderKnobsInto(modal.contentEl);
+    modal.open();
+  }
+
   /** Mobile: the single ⋯ menu that replaces the desktop header icon row. */
   private openOverflowMenu(evt: MouseEvent): void {
     const menu = new Menu();
     menu.addItem((i) => i.setTitle("New chat").setIcon("plus").onClick(() => this.clearChat()));
     menu.addItem((i) => i.setTitle("History").setIcon("history").onClick(() => this.openHistory()));
     menu.addItem((i) => i.setTitle("Save chat to vault").setIcon("save").onClick(() => void this.saveChat()));
-    menu.addSeparator();
-    menu.addItem((i) => i.setTitle("Send to cloud session").setIcon("cloud").onClick(() => void this.plugin.dispatchCloudSession()));
-    menu.addItem((i) => i.setTitle("Pull cloud replies").setIcon("cloud-download").onClick(() => void this.plugin.pullCloudReplies()));
+    menu.addItem((i) => i.setTitle("Model controls…").setIcon("sliders-horizontal").onClick(() => this.openTuneModal()));
+    // Cloud actions only when actually configured — a menu item that just
+    // bounces a "feature is off" notice is noise.
+    const cloudDispatch = this.plugin.settings.cloudDispatchEnabled;
+    const cloudReplies = this.plugin.settings.cloudReplyRepo.trim().length > 0;
+    if (cloudDispatch || cloudReplies) menu.addSeparator();
+    if (cloudDispatch) menu.addItem((i) => i.setTitle("Send to cloud session").setIcon("cloud").onClick(() => void this.plugin.dispatchCloudSession()));
+    if (cloudReplies) menu.addItem((i) => i.setTitle("Pull cloud replies").setIcon("cloud-download").onClick(() => void this.plugin.pullCloudReplies()));
     menu.addSeparator();
     menu.addItem((i) => i.setTitle("Settings").setIcon("settings").onClick(() => this.openSettings()));
     menu.showAtMouseEvent(evt);
@@ -1716,7 +1917,7 @@ export class ChatView extends ItemView {
   }
 
   /** Drop the last assistant reply and re-run the previous user turn. */
-  private async regenerate(): Promise<void> {
+  private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
     if (this.streaming || !this.lastUserText) return;
     // Remove the trailing assistant message from state + DOM, plus the user msg
     // (run() re-pushes it). Then re-run with the same text.
@@ -1726,7 +1927,11 @@ export class ChatView extends ItemView {
     this.messagesEl.empty();
     if (this.messages.length === 0) this.renderEmptyState();
     else for (const m of this.messages) this.renderStoredMessage(m);
-    await this.run(this.lastUserText);
+    // Re-attach the original turn's media so the regenerated turn sees it too.
+    if (this.attachedMedia.length === 0 && this.lastUserMedia.length > 0) {
+      this.attachedMedia = [...this.lastUserMedia];
+    }
+    await this.run(this.lastUserText, undefined, opts?.maxTokens);
   }
 
   /**

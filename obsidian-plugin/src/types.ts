@@ -191,7 +191,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   authMode: "apiKey",
   oauthToken: "",
   baseUrl: "",
-  model: "claude-sonnet-4-6",
+  model: "claude-sonnet-5",
   customModel: "",
   maxTokens: 20000,
   systemPrompt:
