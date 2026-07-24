@@ -62,10 +62,15 @@ desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
 2. Merge to `main`, then dispatch the **Release Obsidian plugin** workflow
    (`.github/workflows/release-obsidian-plugin.yml`) with that version.
 3. The workflow runs the full gate (typecheck, lint, tests, build, audit),
-   verifies the version matches, mirrors `obsidian-plugin/` to
-   `cavi-ai/companion-for-claude`, and publishes the tagged release with
-   `main.js`, `manifest.json`, and `styles.css` attached — the files the
-   community store serves.
+   verifies the version matches, mirrors `obsidian-plugin/` source and build
+   config to `cavi-ai/companion-for-claude`, and pushes the version tag there.
+4. That tag triggers `release.yml` on `cavi-ai/companion-for-claude`, which
+   builds from the mirrored source, attaches a build-provenance attestation, and
+   publishes the release with `main.js`, `manifest.json`, and `styles.css` — the
+   files the community store serves. The release is built and published there,
+   not here: GitHub records attestations against the repo whose workflow
+   produced them, and Obsidian verifies them against the repo listed in
+   `community-plugins.json`.
 
 ## Licensing and attribution
 

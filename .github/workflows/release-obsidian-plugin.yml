@@ -1,12 +1,8 @@
 name: Release Obsidian plugin
 
-# Publishes the Obsidian plugin to the store release repo (cavi-ai/companion-for-claude)
-# so it never drifts from this monorepo. Triggered by pushing a tag like
-# "obsidian-v0.5.0", or run manually. The tag's version must match
-# obsidian-plugin/manifest.json.
-#
-# Requires a repo secret RELEASE_REPO_TOKEN: a PAT (or fine-grained token) with
-# contents:write on cavi-ai/companion-for-claude.
+# Mirrors obsidian-plugin/ to cavi-ai/companion-for-claude and pushes the tag.
+# That repo's release.yml builds, attests, and publishes.
+# Needs RELEASE_REPO_TOKEN with contents:write on the release repo.
 
 on:
   push:
@@ -20,8 +16,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 jobs:
   release:
@@ -52,14 +46,6 @@ jobs:
           pnpm run build
           test -f main.js
 
-      - name: Attest build provenance for release assets
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-path: |
-            obsidian-plugin/main.js
-            obsidian-plugin/manifest.json
-            obsidian-plugin/styles.css
-
       - name: Check version matches the trigger
         run: |
           MANIFEST_VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
@@ -74,20 +60,30 @@ jobs:
           fi
           echo "Releasing version $MANIFEST_VERSION"
 
-      - name: Mirror plugin into the release repo
+      - name: Mirror source into the release repo
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/cavi-ai/companion-for-claude.git" release-repo
-          cp obsidian-plugin/main.js        release-repo/main.js
-          cp obsidian-plugin/manifest.json  release-repo/manifest.json
-          cp obsidian-plugin/styles.css     release-repo/styles.css
-          cp obsidian-plugin/versions.json  release-repo/versions.json
-          cp obsidian-plugin/README.md      release-repo/README.md
-          cp LICENSE                        release-repo/LICENSE
-          printf 'node_modules/\n*.js.map\n.DS_Store\n' > release-repo/.gitignore
+          # .github/ excluded: token has no workflow scope.
+          for dir in src test e2e assets; do
+            rsync -a --delete "obsidian-plugin/$dir/" "release-repo/$dir/"
+          done
+          cp obsidian-plugin/package.json       release-repo/package.json
+          cp obsidian-plugin/pnpm-lock.yaml     release-repo/pnpm-lock.yaml
+          cp obsidian-plugin/tsconfig.json      release-repo/tsconfig.json
+          cp obsidian-plugin/vitest.config.ts   release-repo/vitest.config.ts
+          cp obsidian-plugin/esbuild.config.mjs release-repo/esbuild.config.mjs
+          cp obsidian-plugin/eslint.config.mjs  release-repo/eslint.config.mjs
+          cp obsidian-plugin/main.js            release-repo/main.js
+          cp obsidian-plugin/manifest.json      release-repo/manifest.json
+          cp obsidian-plugin/styles.css         release-repo/styles.css
+          cp obsidian-plugin/versions.json      release-repo/versions.json
+          cp obsidian-plugin/README.md          release-repo/README.md
+          cp LICENSE                            release-repo/LICENSE
+          printf 'node_modules/\n*.js.map\n.DS_Store\n.build/\n' > release-repo/.gitignore
           cd release-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -99,7 +95,8 @@ jobs:
           fi
           git push origin HEAD:main
 
-      - name: Tag + GitHub Release on the release repo
+      # The tag triggers release.yml on the release repo.
+      - name: Tag the release repo
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
@@ -107,14 +104,24 @@ jobs:
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
           cd release-repo
           if gh release view "$VERSION" --repo cavi-ai/companion-for-claude >/dev/null 2>&1; then
-            echo "Release $VERSION already exists; uploading/refreshing assets."
-            gh release upload "$VERSION" main.js manifest.json styles.css \
-              --repo cavi-ai/companion-for-claude --clobber
-          else
-            git tag "$VERSION" || true
-            git push origin "refs/tags/$VERSION" || true
-            gh release create "$VERSION" main.js manifest.json styles.css \
-              --repo cavi-ai/companion-for-claude \
-              --title "$VERSION" \
-              --notes "Companion for Claude $VERSION. See the monorepo for full notes: https://github.com/cavi-ai/claude-obsidian"
+            echo "::error::Release $VERSION already exists on cavi-ai/companion-for-claude. Delete the release and tag to re-cut it."
+            exit 1
           fi
+          git tag "$VERSION"
+          git push origin "refs/tags/$VERSION"
+
+      - name: Wait for the release repo to publish
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
+          for _ in $(seq 30); do
+            if gh release view "$VERSION" --repo cavi-ai/companion-for-claude >/dev/null 2>&1; then
+              echo "Release $VERSION published."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::Release $VERSION never appeared. Check the Release workflow on cavi-ai/companion-for-claude."
+          exit 1
