@@ -17,6 +17,7 @@
 //   this bundle instead was rejected: the .wasm alone is ~23 MB (~31 MB as
 //   base64), which would balloon main.js for every user, downloaded or not.
 
+import "./forceWebEnv"; // MUST precede the transformers import — see that file
 import { pipeline, env } from "@huggingface/transformers";
 import { BUILTIN_EMBEDDING_MODEL } from "./model";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
