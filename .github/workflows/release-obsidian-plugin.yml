@@ -20,6 +20,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -49,6 +51,14 @@ jobs:
           pnpm test
           pnpm run build
           test -f main.js
+
+      - name: Attest build provenance for release assets
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            obsidian-plugin/main.js
+            obsidian-plugin/manifest.json
+            obsidian-plugin/styles.css
 
       - name: Check version matches the trigger
         run: |
