@@ -30,9 +30,11 @@ describe("memory settings defaults", () => {
 });
 
 describe("agent mode defaults", () => {
-  it("agent mode ships on, writes off, 10 iterations (spec 2026-07-05, Franco-approved)", () => {
+  it("agent mode ships on, writes on (each write still confirms), 10 iterations", () => {
     expect(DEFAULT_SETTINGS.agentModeEnabled).toBe(true);
-    expect(DEFAULT_SETTINGS.agentAllowWrites).toBe(false);
+    // Writes on by default so chat can act on the vault, not just narrate it;
+    // the per-write confirmation modal is the safety gate.
+    expect(DEFAULT_SETTINGS.agentAllowWrites).toBe(true);
     expect(DEFAULT_SETTINGS.agentMaxIterations).toBe(10);
   });
 });

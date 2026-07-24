@@ -73,6 +73,8 @@ export interface PluginSettings {
   maxContextNotes: number;
   /** Default render height (px) for inline `claude-html` artifacts. */
   artifactHeight: number;
+  /** Chat message font size (px). Independent of Obsidian's editor font. */
+  chatFontSize: number;
   /** Max chat conversations to retain in history (oldest pruned). 0 = unlimited. */
   maxConversations: number;
 
@@ -196,8 +198,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   maxTokens: 20000,
   systemPrompt:
     "You are Claude, working inside the user's Obsidian vault. Be concise and precise. " +
-    "When the user asks for a plan, report, diagram, or anything visual, prefer producing a single " +
-    "self-contained HTML artifact in a ```claude-html code block using the provided design system.",
+    "Answer ordinary questions and short requests in normal Markdown. Only when the user asks for a " +
+    "deliverable that benefits from visual structure (a plan, audit, report, dashboard, comparison, or diagram) " +
+    "produce a single self-contained ```claude-html artifact using the provided design system and the template that fits the request.",
   artifactOpenTarget: "obsidian",
   artifactFolder: "Claude/Artifacts",
   chatFolder: "Claude/Chats",
@@ -211,6 +214,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   contextCharBudget: 24000,
   maxContextNotes: 6,
   artifactHeight: 640,
+  chatFontSize: 14,
   maxConversations: 200,
 
   ollamaHost: "http://localhost:11434",
@@ -235,7 +239,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   chatBaseTags: ["claude", "chat"],
 
   agentModeEnabled: true,
-  agentAllowWrites: false,
+  // On by default so chat can actually act on the vault (create/edit notes,
+  // canvases, bases) — not just narrate it. Every write still asks for
+  // confirmation before it touches the vault, so this is safe; the in-chat
+  // "Act on vault" toggle flips it per session.
+  agentAllowWrites: true,
   agentMaxIterations: 10,
 
   mcpEnabled: false,

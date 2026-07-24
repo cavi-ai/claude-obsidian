@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-07-24
+
+### Added
+- **"Act on vault" is on by default.** Chat can create and edit notes, canvases,
+  and bases — not just narrate the vault. Every write still asks for confirmation
+  first. A composer toggle flips it per session, and it hides on local sessions.
+- **Chat text size control.** A slider in the model-controls popover sets the
+  chat font (default 14px), independent of Obsidian's editor font.
+- **Implement button on plans.** A plan reply now offers *Implement*, which runs
+  its build tasks in-app through agent mode to make the vault changes, alongside
+  the existing *Build* (Claude Code) handoff.
+- **Artifact templates + charts.** Beyond plans, the design system now covers
+  audit/report, comparison, dashboard, diagram, and explainer layouts, with a
+  no-library chart kit (CSS bars + inline SVG) for audits and dashboards.
+
+### Changed
+- **Answers default to Markdown.** Artifacts are produced only for deliverables
+  that benefit from visual structure, using the template that fits the request,
+  instead of forcing every reply into a plan-shaped HTML document.
+- **Slash menu.** Full-description hover tooltips on every command; `/daily`
+  renamed to `/dailynote` (with `daily` kept as an alias) so it no longer reads
+  as the `/daily-rollup` activity review.
+
+### Fixed
+- **Streaming artifacts no longer dump raw HTML.** While a `claude-html` artifact
+  (or any bare/`html`-fenced HTML document) streams, a compact "Building
+  artifact…" chip shows in its place until the sandboxed iframe renders.
+- **Accent color.** The streaming and agent tool-chip status dots use the Claude
+  clay accent instead of Obsidian's blue.
+
 ## [0.11.1] — 2026-07-21
 
 ### Changed

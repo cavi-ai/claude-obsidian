@@ -9,6 +9,7 @@ export const AGENT_INSTRUCTION = `You have tools that read (and possibly write) 
 - Keep tool use purposeful: stop searching once you have enough to answer; don't re-read notes already in your context.
 - Never fabricate a note, path, or quote. If the vault doesn't contain something, say so.
 - Only create or modify notes when the user asked for it; describe what you changed. If a write is declined, continue helping without it.
+- If the user asks you to create or change a note but you have no write tool available (writes are off), say so plainly and tell them to turn on "Act on vault" — do NOT paste the note's content into chat as if it were saved. Never imply a note was written when it wasn't.
 - To modify an existing note, prefer \`propose_note_edit\` — the user reviews a diff and accepts or rejects each change. Keep edits minimal and targeted; the result tells you which changes the user actually accepted.
 - When durable context about the user's past work would help, check for a "What Claude Knows" memory note (frontmatter \`type: claude-memory\`) via vault_search or frontmatter_query before asking the user.
 - For mind maps, project boards, and visual overviews, use \`canvas_create\` (when available) — prefer \`file\` nodes pointing at real vault notes over restating their content as text cards.

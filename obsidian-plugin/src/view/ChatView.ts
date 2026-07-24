@@ -18,7 +18,7 @@ import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
 import { type SlashCommand, runNativeSlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
 import { WORKFLOWS } from "../workflows/catalog";
-import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream } from "./streamRender";
+import { hasIncompleteHtmlArtifactFence, shouldRenderMarkdownDuringStream, splitStreamingArtifact } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime, type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
@@ -72,6 +72,7 @@ export class ChatView extends ItemView {
   private modelLabelEl!: HTMLElement;
   private backendPillEl!: HTMLElement;
   private writeGrantPillEl!: HTMLElement;
+  private writesToggleEl: HTMLButtonElement | null = null;
   private usageEl!: HTMLElement;
   private gaugeFillEl!: HTMLElement;
   private streaming = false;
@@ -313,6 +314,7 @@ export class ChatView extends ItemView {
     // cramped strip floating above it.
     if (Platform.isMobile) inputRow.prepend(this.pillsEl);
 
+    this.applyChatFontSize();
     this.refreshModelLabel();
     void this.refreshBackendPill();
     void this.refreshContextStatus();
@@ -677,6 +679,21 @@ export class ChatView extends ItemView {
     // opening settings. Async — appended once the local server answers.
     void this.appendLocalModelOptions(select);
 
+    // "Act on vault" — the discoverable switch for whether Claude can create /
+    // edit notes in chat (agent writes). Only meaningful for Claude (Ollama has
+    // no vault tools), so it hides itself on local sessions. Each write still
+    // asks for confirmation; this just controls whether the tools are offered.
+    const writes = this.controlsEl.createEl("button", {
+      cls: "cc-ctl cc-ctl-toggle cc-writes-toggle",
+      attr: { "aria-label": "Act on vault — let Claude create and edit notes (each change asks first)" },
+    });
+    writes.createSpan({ cls: "cc-writes-toggle-icon" });
+    setIcon(writes.querySelector(".cc-writes-toggle-icon") as HTMLElement, "pencil");
+    writes.createSpan({ text: "Act on vault" });
+    writes.addEventListener("click", () => void this.toggleAgentWrites());
+    this.writesToggleEl = writes;
+    this.updateWritesToggle();
+
     // Knobs (thinking / effort / temp / max) live in a popover behind a single
     // "tune" button, so the footer stays clean and Send is never buried.
     const tuneWrap = this.controlsEl.createDiv({ cls: "cc-tune" });
@@ -735,6 +752,7 @@ export class ChatView extends ItemView {
     await this.plugin.saveSettings();
     this.renderKnobs(); // capabilities/provider changed → rebuild dependent knobs
     this.refreshModelLabel();
+    this.updateWritesToggle(); // provider changed → show/hide "Act on vault"
     this.updateUsageBar();
     void this.refreshBackendPill();
   }
@@ -743,6 +761,25 @@ export class ChatView extends ItemView {
   /** Rebuild only the capability-dependent knobs into the given container. */
   private renderKnobsInto(parent: HTMLElement): void {
     parent.empty();
+
+    // Chat text size — provider-independent, so it sits above the model knobs
+    // (and stays available on local sessions). Drives --cc-chat-font live.
+    const fontWrap = parent.createDiv({ cls: "cc-ctl cc-ctl-font", attr: { "aria-label": "Chat text size" } });
+    fontWrap.createSpan({ cls: "cc-ctl-label", text: "text" });
+    const font = fontWrap.createEl("input", {
+      cls: "cc-ctl-range",
+      attr: { type: "range", min: "11", max: "20", step: "1", "aria-label": "Chat text size (px)" },
+    });
+    const fontOut = fontWrap.createSpan({ cls: "cc-ctl-val" });
+    font.value = String(this.plugin.settings.chatFontSize);
+    fontOut.setText(`${this.plugin.settings.chatFontSize}px`);
+    font.addEventListener("input", () => {
+      const px = parseInt(font.value, 10);
+      this.plugin.settings.chatFontSize = px;
+      fontOut.setText(`${px}px`);
+      this.applyChatFontSize(); // live
+    });
+    font.addEventListener("change", () => void this.plugin.saveSettings());
 
     if (this.plugin.router().chatProvider().provider.id === "ollama") {
       parent.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
@@ -1250,16 +1287,19 @@ export class ChatView extends ItemView {
     // paint (the next delta reschedules a flush, so content never stalls visibly).
     const MD_THROTTLE_MS = 100;
     let lastMd = 0;
+    let artifactPainted = false;
     const flush = () => {
       scheduled = false;
       if (finalizing) return;
       if (shouldRenderMarkdownDuringStream(buffer)) {
+        artifactPainted = false;
         const now = performance.now();
         if (now - lastMd < MD_THROTTLE_MS) return; // skip; next delta reschedules
         lastMd = now;
         void this.renderMarkdownInto(body, buffer);
-      } else {
-        this.renderStreamingTextInto(body, buffer);
+      } else if (!artifactPainted) {
+        artifactPainted = true; // paint the "building" chip once; the fence is streaming
+        this.renderStreamingArtifactInto(body, buffer);
       }
       this.scrollToBottom();
     };
@@ -1367,16 +1407,19 @@ export class ChatView extends ItemView {
     let needSeparator = false;
     const MD_THROTTLE_MS = 100;
     let lastMd = 0;
+    let artifactPainted = false;
     const flush = () => {
       scheduled = false;
       if (finalizing) return;
       if (shouldRenderMarkdownDuringStream(buffer)) {
+        artifactPainted = false;
         const now = performance.now();
         if (now - lastMd < MD_THROTTLE_MS) return;
         lastMd = now;
         void this.renderMarkdownInto(body, buffer);
-      } else {
-        this.renderStreamingTextInto(body, buffer);
+      } else if (!artifactPainted) {
+        artifactPainted = true; // paint the "building" chip once; the fence is streaming
+        this.renderStreamingArtifactInto(body, buffer);
       }
       this.scrollToBottom();
     };
@@ -1491,6 +1534,33 @@ export class ChatView extends ItemView {
   /** Show the session-grant pill only while the grant is live. */
   private updateWriteGrantPill(): void {
     this.writeGrantPillEl?.toggleClass("is-on", this.agentWriteAlways);
+  }
+
+  /** Push the chatFontSize setting onto the view as --cc-chat-font (drives .cc-body). */
+  private applyChatFontSize(): void {
+    this.containerEl.style.setProperty("--cc-chat-font", `${this.plugin.settings.chatFontSize}px`);
+  }
+
+  /**
+   * Reflect the "Act on vault" toggle: hidden when the session can't act (local
+   * model, or agent mode off — no vault tools either way), lit when writes are on.
+   */
+  private updateWritesToggle(): void {
+    const el = this.writesToggleEl;
+    if (!el) return;
+    const canAct = this.plugin.settings.agentModeEnabled && this.plugin.router().chatProvider().provider.id === "anthropic";
+    el.toggleClass("is-hidden", !canAct);
+    el.toggleClass("is-active", this.plugin.settings.agentAllowWrites);
+    el.setAttr("aria-pressed", String(this.plugin.settings.agentAllowWrites));
+  }
+
+  /** Flip whether Claude may create/edit notes in chat (each write still confirms). */
+  private async toggleAgentWrites(): Promise<void> {
+    const on = !this.plugin.settings.agentAllowWrites;
+    this.plugin.settings.agentAllowWrites = on;
+    await this.plugin.saveSettings();
+    this.updateWritesToggle();
+    new Notice(on ? "Act on vault: on — I'll create and edit notes (each change asks first)." : "Act on vault: off — chat only, I won't change your vault.");
   }
 
   /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
@@ -1834,17 +1904,35 @@ export class ChatView extends ItemView {
 
   private async renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void> {
     const version = this.bumpRenderVersion(el);
-    el.removeClass("cc-streaming-raw");
     const rendered = activeDocument.createElement("div");
     await MarkdownRenderer.render(this.app, markdown, rendered, this.app.workspace.getActiveFile()?.path ?? "", this);
     if (this.renderVersions.get(el) !== version) return;
     el.replaceChildren(...Array.from(rendered.childNodes));
   }
 
-  private renderStreamingTextInto(el: HTMLElement, text: string): void {
-    this.bumpRenderVersion(el);
-    el.addClass("cc-streaming-raw");
-    el.textContent = text;
+  /**
+   * While a `claude-html` artifact is streaming, don't dump its raw HTML source
+   * into the bubble. Render whatever prose preceded the fence as markdown and put
+   * a compact "building" chip in the artifact's place; the final `renderMarkdownInto`
+   * on `onDone` swaps in the sandboxed iframe. Painted once per artifact (flush
+   * guards re-entry) so the chip and lead-in prose stay stable, not re-rendered
+   * every frame.
+   */
+  private renderStreamingArtifactInto(el: HTMLElement, buffer: string): void {
+    const { before } = splitStreamingArtifact(buffer);
+    const version = this.bumpRenderVersion(el);
+    const rendered = activeDocument.createElement("div");
+    const paint = (): void => {
+      if (this.renderVersions.get(el) !== version) return;
+      const chip = rendered.createDiv({ cls: "cc-artifact-building" });
+      chip.createSpan({ cls: "cc-artifact-building-label", text: "Building artifact…" });
+      el.replaceChildren(...Array.from(rendered.childNodes));
+    };
+    if (before.trim().length > 0) {
+      void MarkdownRenderer.render(this.app, before, rendered, this.app.workspace.getActiveFile()?.path ?? "", this).then(paint);
+    } else {
+      paint();
+    }
   }
 
   private bumpRenderVersion(el: HTMLElement): number {
@@ -1875,8 +1963,12 @@ export class ChatView extends ItemView {
       () => void this.saveReplyAsNote(full),
     );
     if (isArtifact) saveBtn.addClass("cc-accent");
-    // A plan reply (has a `## Build tasks` checklist) gets a Build button right here.
+    // A plan reply (has a `## Build tasks` checklist) gets execution buttons:
+    // "Implement" runs the tasks in-app via agent mode (vault work); "Build"
+    // hands the plan off to Claude Code (code work outside the vault).
     if (extractTasks(full).length > 0) {
+      const impl = this.actionBtn(bar, "Implement", "play", () => void this.implementFromReply(full));
+      impl.addClass("cc-accent");
       this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full));
     }
     // Regenerate the last reply (only on the most recent assistant message).
@@ -1885,6 +1977,32 @@ export class ChatView extends ItemView {
     if (isLast && this.lastUserText) {
       this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.regenerate());
     }
+  }
+
+  /**
+   * Execute the plan in-app: feed its build tasks back through agent mode so
+   * Claude actually does the vault work (create/edit notes, canvases, bases) —
+   * each write still confirms. Needs agent mode + Claude; otherwise points the
+   * user at the Build (Claude Code) handoff instead.
+   */
+  private async implementFromReply(full: string): Promise<void> {
+    if (this.streaming) return;
+    if (!this.plugin.settings.agentModeEnabled || this.plugin.router().chatProvider().provider.id !== "anthropic") {
+      new Notice("Turn on agent mode (and use Claude) to implement in-app, or use Build to hand off to Claude Code.");
+      return;
+    }
+    if (!this.plugin.settings.agentAllowWrites) {
+      new Notice("Turn on “Act on vault” to let me make the changes, then hit Implement again.");
+      return;
+    }
+    const tasks = extractTasks(full);
+    const list = tasks.map((t, i) => `${i + 1}. ${t}`).join("\n");
+    const prompt =
+      "Implement the plan above by actually doing the work in my vault. Go through these build tasks in order, " +
+      "using your vault tools to create and edit the notes/canvases/bases each one calls for — don't just re-describe the plan. " +
+      "Note briefly what you changed after each. If a task requires code changes outside the vault, say so and skip it.\n\n" +
+      `Tasks:\n${list}`;
+    await this.submitPrompt(prompt, "Implement plan");
   }
 
   /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
