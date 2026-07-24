@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Unified agent narrative in settings.** Agent mode, the MCP bridge, and
+  cloud sessions are now presented as three surfaces of one agent: a new
+  *Agent (act on your vault)* group holds the in-chat tool settings, and the
+  bridge/cloud sections are retitled to match.
+- **Cloud session setup is guided.** A numbered checklist walks through
+  routine creation → fire URL/token → replies; dispatch failures now include
+  the provider-aware offline hint.
 - **Semantic search now ships on by default.** A one-time first-run prompt
   offers the on-device embedding-model download; until it's downloaded every
   path stays keyword-only (no implicit network fetch). The *Search vault*

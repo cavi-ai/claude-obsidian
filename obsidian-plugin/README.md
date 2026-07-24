@@ -157,6 +157,10 @@ document write.
 
 ### Agent & automation
 
+One agent, three surfaces: **agent mode in chat** (everywhere), the **MCP
+bridge** for Claude Code (desktop), and **cloud sessions** (mobile-friendly) —
+same vault, same confirm-before-write guardrails, wherever you are.
+
 - **Agent mode (vault tools in chat)** — Claude can **search your vault, read
   notes, and follow links on its own** while answering, showing each step as an
   expandable tool chip. Read-only by default; an optional setting also lets it
@@ -181,6 +185,11 @@ document write.
   Cheap utility work (summaries, auto-tagging) can route to Ollama too.
 - **Unified bridge** — expose the vault as a local MCP server so Claude Code
   and Claude Desktop operate on the same notes ([details below](#unified-bridge-mcp-server)).
+- **Cloud sessions (mobile-friendly)** — dispatch a Claude Code **cloud
+  session** that works your vault's Git repo and writes replies back as notes
+  pulled over HTTPS — the agent path that works from a phone, where the local
+  bridge can't run. Experimental (Anthropic's Routines API is in beta); setup
+  is a guided checklist under *Agent in the cloud* in settings.
 
 | ![A prioritized roadmap artifact generated from the vault](assets/manifest-roadmap.png) | ![A generated working map of the vault](assets/working-map.png) |
 |---|---|
