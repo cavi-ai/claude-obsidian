@@ -1996,7 +1996,7 @@ export class ChatView extends ItemView {
       return;
     }
     const tasks = extractTasks(full);
-    const list = tasks.map((t, i) => `${i + 1}. ${t}`).join("\n");
+    const list = tasks.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
     const prompt =
       "Implement the plan above by actually doing the work in my vault. Go through these build tasks in order, " +
       "using your vault tools to create and edit the notes/canvases/bases each one calls for — don't just re-describe the plan. " +
