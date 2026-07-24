@@ -1662,7 +1662,6 @@ export class ChatView extends ItemView {
   }
 
   /** Flag a reply that the model truncated at the output-token limit. */
-  /** Flag a reply that the model truncated at the output-token limit. */
   private annotateTruncated(bubble: HTMLElement): void {
     if (bubble.querySelector(".cc-truncated-note")) return;
     const cap = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
