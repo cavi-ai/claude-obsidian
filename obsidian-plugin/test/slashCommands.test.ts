@@ -148,7 +148,7 @@ describe("catalog integrity", () => {
   });
   it("includes the newer chat-surface commands", () => {
     const slashNames = new Set(SLASH_COMMANDS.map((c) => c.name));
-    for (const name of ["brainstorm", "diagram", "links", "daily", "outline", "compare", "extract", "capture"]) {
+    for (const name of ["brainstorm", "diagram", "links", "dailynote", "outline", "compare", "extract", "capture"]) {
       expect(slashNames.has(name), name).toBe(true);
     }
   });

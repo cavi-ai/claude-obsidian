@@ -6,6 +6,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-07-24
+
+### Added
+- **"Act on vault" is on by default.** Chat can create and edit notes, canvases,
+  and bases — not just narrate the vault. Every write still asks for confirmation
+  first. A composer toggle flips it per session, and it hides on local sessions.
+- **Chat text size control.** A slider in the model-controls popover sets the
+  chat font (default 14px), independent of Obsidian's editor font.
+- **Implement button on plans.** A plan reply now offers *Implement*, which runs
+  its build tasks in-app through agent mode to make the vault changes, alongside
+  the existing *Build* (Claude Code) handoff.
+- **Artifact templates + charts.** Beyond plans, the design system now covers
+  audit/report, comparison, dashboard, diagram, and explainer layouts, with a
+  no-library chart kit (CSS bars + inline SVG) for audits and dashboards.
+
+### Changed
+- **Answers default to Markdown.** Artifacts are produced only for deliverables
+  that benefit from visual structure, using the template that fits the request,
+  instead of forcing every reply into a plan-shaped HTML document.
+- **Slash menu.** Full-description hover tooltips on every command; `/daily`
+  renamed to `/dailynote` (with `daily` kept as an alias) so it no longer reads
+  as the `/daily-rollup` activity review.
+
+### Fixed
+- **Streaming artifacts no longer dump raw HTML.** While a `claude-html` artifact
+  (or any bare/`html`-fenced HTML document) streams, a compact "Building
+  artifact…" chip shows in its place until the sandboxed iframe renders.
+- **Accent color.** The streaming and agent tool-chip status dots use the Claude
+  clay accent instead of Obsidian's blue.
+
+## [0.12.0] — 2026-07-23
+
+### Added
+- **Credential-aware onboarding.** The empty state and an in-chat setup card
+  adapt to which credentials are configured, and typed input is never discarded
+  when the setup card appears.
+- **Model presets.** Claude Sonnet 5 and Fable 5 are selectable; Sonnet 5 is the
+  new default.
+- **Command chips.** Slash-command and workflow invocations render as a compact
+  chip instead of a bubble of raw prompt text.
+- **Delete conversations from the history picker** with a two-tap confirm.
+- **Visible, revocable session write-grant pill** in the chat header.
+- **Memory view and consolidation on mobile** (session capture stays desktop).
+
+### Changed
+- **Settings redesign.** Connect-first layout, a privacy accordion, the chat
+  backend promoted, and numeric-field validation.
+
+### Fixed
+- **Semantic search on desktop.** Force the web/WASM embeddings backend — the
+  built-in engine was dead on desktop.
+- **Stream errors keep and persist partial text** and add a Retry button.
+- **Truncation notice** shows accurate copy and a retry-with-higher-limit action.
+- **Attachments survive failed sends and Regenerate.**
+- **Backend pill** updates live (~10s and on send) and skips no-op pill rebuilds;
+  the embedding settings section re-renders in place with an Ollama model dropdown.
+- **Mobile:** Enter inserts a newline, tune knobs move into the ⋯ modal, and
+  unconfigured cloud actions are hidden.
+
+## [0.11.2] — 2026-07-23
+
+### Changed
+- **Redesigned the mobile chat composer** for phones.
+
+### Fixed
+- **Provider-aware error hints:** no "ollama serve" suggestion for offline
+  Claude, 529 and Chromium "Failed to fetch" recognized as network failures, and
+  tighter rate-limit matching (`rate_limit` / `rate limit` / `too many requests`).
+
+### Security
+- Bumped transitive dependencies (sharp, adm-zip, fast-uri, js-yaml,
+  brace-expansion) closing 8 high-severity advisories.
+
 ## [0.11.1] — 2026-07-21
 
 ### Changed

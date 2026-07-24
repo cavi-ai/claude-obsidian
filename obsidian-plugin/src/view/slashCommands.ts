@@ -210,9 +210,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     action: "frontmatter",
   },
   {
-    name: "daily",
-    aliases: ["today", "journal"],
-    description: "Draft or improve today's daily note",
+    name: "dailynote",
+    aliases: ["today", "journal", "daily"],
+    description: "Draft or improve today's daily note (distinct from the /daily-rollup activity review)",
     kind: "prompt",
     prompt: "Draft today's daily note from my current context. Include priorities, open loops, decisions, and next actions.",
   },
