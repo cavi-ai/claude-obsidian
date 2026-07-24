@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Settings appear in Obsidian's settings search (1.13+).** The settings tab
+  now implements `getSettingDefinitions()` with search-metadata-only entries
+  (name/description/aliases, no controls) covering every section.
 - **Mobile artifact height.** Inline artifacts were capped only by the desktop
   pixel setting (default 640px), so one artifact ate nearly the whole phone
   screen; on mobile the frame now caps at 52vh and the artifact-bar buttons

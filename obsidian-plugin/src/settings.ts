@@ -1,4 +1,4 @@
-import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinitionItem } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
@@ -8,6 +8,7 @@ import { configError } from "./cloud/routines";
 import { configError as repliesConfigError } from "./cloud/replies";
 import { BUILTIN_EMBEDDING_MODEL } from "./semantic/transformers/model";
 import { normalizeDiscoverySettings, type PluginSettings } from "./types";
+import { settingDefinitions } from "./settingsDefinitions";
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Cached list of Ollama models from the last Detect, for the dropdown. */
@@ -24,6 +25,14 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   override display(): void {
     this.renderSettings();
+  }
+
+  /**
+   * Obsidian 1.13+ settings search. Search-metadata only (no controls), so
+   * search hits point into this tab without duplicating its imperative UI.
+   */
+  override getSettingDefinitions(): SettingDefinitionItem[] {
+    return settingDefinitions();
   }
 
   private renderSettings(): void {
