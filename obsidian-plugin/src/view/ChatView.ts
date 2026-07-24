@@ -879,13 +879,8 @@ export class ChatView extends ItemView {
       cls: "cc-setup-sub",
       text: "Add your Anthropic API key to start chatting. It’s stored locally in this vault — nothing else leaves your machine.",
     });
-    const link = card.createEl("a", {
-      cls: "cc-setup-link",
-      text: "Get a key at console.anthropic.com",
-      href: "https://console.anthropic.com/settings/keys",
-    });
     link.setAttr("target", "_blank");
-    const row = card.createDiv({ cls: "cc-setup-row" });
+    link.setAttr("rel", "noopener noreferrer");
     const input = row.createEl("input", {
       cls: "cc-setup-input",
       attr: { type: "password", placeholder: "sk-ant-api…", "aria-label": "Anthropic API key" },
