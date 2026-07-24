@@ -6,7 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Community-store scan findings.** Restored a dropped `:focus-within`
+  selector in styles.css (the "Unexpected }" risk), replaced the two
+  `document.createElement` calls with Obsidian's detached `createDiv`, wrapped
+  the MCP server's listen-error rejection in an `Error`, and switched a
+  settings fragment to `activeDocument` (popout-window safe). Release workflow
+  now attests build provenance for `main.js`, `manifest.json`, and
+  `styles.css`.
+
 ### Changed
+- **Unified agent narrative in settings.** Agent mode, the MCP bridge, and
+  cloud sessions are now presented as three surfaces of one agent: a new
+  *Agent (act on your vault)* group holds the in-chat tool settings, and the
+  bridge/cloud sections are retitled to match.
+- **Cloud session setup is guided.** A numbered checklist walks through
+  routine creation → fire URL/token → replies; dispatch failures now include
+  the provider-aware offline hint.
+- **Semantic search now ships on by default.** A one-time first-run prompt
+  offers the on-device embedding-model download; until it's downloaded every
+  path stays keyword-only (no implicit network fetch). The *Search vault*
+  context and related notes upgrade automatically once the model is in place.
 - **Typed source capture and vault ontology now ship on by default.** Source
   capture asks for one-time consent before the first automatic enrichment
   (declining switches to manual-only via the *Enrich note as source* command).

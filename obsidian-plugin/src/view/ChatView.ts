@@ -1904,7 +1904,7 @@ export class ChatView extends ItemView {
 
   private async renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void> {
     const version = this.bumpRenderVersion(el);
-    const rendered = activeDocument.createElement("div");
+    const rendered = createDiv();
     await MarkdownRenderer.render(this.app, markdown, rendered, this.app.workspace.getActiveFile()?.path ?? "", this);
     if (this.renderVersions.get(el) !== version) return;
     el.replaceChildren(...Array.from(rendered.childNodes));
@@ -1921,7 +1921,7 @@ export class ChatView extends ItemView {
   private renderStreamingArtifactInto(el: HTMLElement, buffer: string): void {
     const { before } = splitStreamingArtifact(buffer);
     const version = this.bumpRenderVersion(el);
-    const rendered = activeDocument.createElement("div");
+    const rendered = createDiv();
     const paint = (): void => {
       if (this.renderVersions.get(el) !== version) return;
       const chip = rendered.createDiv({ cls: "cc-artifact-building" });

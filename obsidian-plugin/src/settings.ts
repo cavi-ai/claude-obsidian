@@ -63,7 +63,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       new Setting(containerEl)
         .setName("Anthropic API key")
         .setDesc((() => {
-          const frag = document.createDocumentFragment();
+          const frag = activeDocument.createDocumentFragment();
           frag.appendText("Bring your own key from ");
           frag.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
           frag.appendText(". Stored locally in this vault’s plugin data.");
@@ -200,41 +200,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl).setName("Agent mode").setHeading();
-
-    new Setting(containerEl)
-      .setName("Let Claude use vault tools")
-      .setDesc("Claude can search and read your notes on its own while answering (read-only). Turn off for plain chat with pre-attached context.")
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.agentModeEnabled).onChange(async (v) => {
-          this.plugin.settings.agentModeEnabled = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Allow write tools")
-      .setDesc("Also let Claude create, edit, and move notes from chat. Every write asks for your confirmation first.")
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.agentAllowWrites).onChange(async (v) => {
-          this.plugin.settings.agentAllowWrites = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Max tool iterations per turn")
-      .setDesc("How many search/read/write rounds Claude may take before it must answer.")
-      .addSlider((s) =>
-        s
-          .setLimits(1, 20, 1)
-          .setValue(this.plugin.settings.agentMaxIterations)
-          .onChange(async (v) => {
-            this.plugin.settings.agentMaxIterations = v;
-            await this.plugin.saveSettings();
-          }),
-      );
-
     new Setting(containerEl).setName("Behavior").setHeading();
 
     new Setting(containerEl)
@@ -285,9 +250,10 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     });
 
     this.accordion(containerEl, "Storage", (c) => this.renderStorageSection(c));
+    this.accordion(containerEl, "Agent (act on your vault)", (c) => this.renderAgentSection(c));
     // On mobile, Cloud session is the primary way to cowork — promote it above
     // the local/desktop-bound sections.
-    this.accordion(containerEl, "Cloud session (mobile-friendly)", (c) => this.renderCloudSection(c));
+    this.accordion(containerEl, "Agent in the cloud (mobile-friendly)", (c) => this.renderCloudSection(c));
     this.accordion(containerEl, "Semantic search (local embeddings)", (c) => this.renderSemanticSection(c));
     this.accordion(containerEl, "Indexing & tags", (c) => this.renderIndexingSection(c));
     this.accordion(containerEl, "Cloud replies (pull from repo)", (c) => this.renderRepliesSection(c));
@@ -298,7 +264,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     this.accordion(containerEl, "Scholarly discovery", (c) => this.renderDiscoverySection(c));
     if (!Platform.isMobile) {
       this.accordion(containerEl, "Local models (Ollama)", (c) => this.renderLocalModelsSection(c));
-      this.accordion(containerEl, "Unified bridge (MCP server)", (c) => this.renderMcpSection(c));
+      this.accordion(containerEl, "Agent bridge — MCP server (desktop)", (c) => this.renderMcpSection(c));
       this.accordion(containerEl, "Session memory", (c) => this.renderMemorySection(c));
     } else {
       // Desktop-only features are hidden on a phone (they need a desktop runtime);
@@ -312,7 +278,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       const ul = body.createEl("ul");
       for (const t of [
         "Local models (Ollama) — runs a localhost model server",
-        "Unified bridge (MCP server) — exposes your vault to Claude Code",
+        "Agent bridge — MCP server (desktop) — exposes your vault to Claude Code",
         "Session capture — reads Claude Code transcripts from disk (browsing captured memory works here)",
       ]) {
         ul.createEl("li", { text: t });
@@ -844,14 +810,65 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       );
   }
 
+  private renderAgentSection(containerEl: HTMLElement): void {
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "One agent, three surfaces. In chat (here): Claude searches, reads, and — with writes on — edits your vault, asking before every write. " +
+        "On desktop, the Agent bridge (MCP server, below) gives Claude Code the same vault tools. " +
+        "On mobile, a Cloud session (next section) works your vault's Git repo and writes replies back. Same vault, same guardrails, wherever you are.",
+    });
+
+    new Setting(containerEl)
+      .setName("Let Claude use vault tools")
+      .setDesc("Claude can search and read your notes on its own while answering (read-only). Turn off for plain chat with pre-attached context.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.agentModeEnabled).onChange(async (v) => {
+          this.plugin.settings.agentModeEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Allow write tools")
+      .setDesc("Also let Claude create, edit, and move notes from chat. Every write asks for your confirmation first.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.agentAllowWrites).onChange(async (v) => {
+          this.plugin.settings.agentAllowWrites = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Max tool iterations per turn")
+      .setDesc("How many search/read/write rounds Claude may take before it must answer.")
+      .addSlider((s) =>
+        s
+          .setLimits(1, 20, 1)
+          .setValue(this.plugin.settings.agentMaxIterations)
+          .onChange(async (v) => {
+            this.plugin.settings.agentMaxIterations = v;
+            await this.plugin.saveSettings();
+          }),
+      );
+  }
+
   private renderCloudSection(containerEl: HTMLElement): void {
     const s = this.plugin.settings;
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
         "Dispatch a Claude Code session in the cloud to work your vault's Git repo and report back — so you can cowork with Claude from a phone, where the local bridge can't run. " +
-        "Create a routine in the Claude Code web UI, then paste its “fire” URL and token below.",
+        "The Routines API is experimental; if Anthropic ships a newer beta revision, update the header below.",
     });
+    const checklist = containerEl.createEl("ol", { cls: "setting-item-description" });
+    for (const step of [
+      "In the Claude Code web UI, create a routine pointed at your vault's Git repo.",
+      "Paste the routine's “fire” URL and per-routine token below.",
+      "Set up “Cloud replies” (further down) so the session's answers land back in your vault.",
+    ]) {
+      checklist.createEl("li", { text: step });
+    }
 
     new Setting(containerEl)
       .setName("Enable cloud dispatch")

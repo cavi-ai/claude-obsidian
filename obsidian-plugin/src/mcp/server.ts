@@ -64,7 +64,7 @@ export class McpHttpServer {
       const server = http.createServer((req, res) => void this.onRequest(req, res));
       server.on("error", (e) => {
         this.server = null;
-        reject(e);
+        reject(e instanceof Error ? e : new Error(String(e)));
       });
       // Bind to loopback only — never expose the vault on the network.
       server.listen(this.config.port, "127.0.0.1", () => {

@@ -52,10 +52,11 @@ vault stays the single source of truth.
 - **Vault-aware context** — `@`-mention notes, folders, or the whole vault;
   toggle context pills for your **active note**, the **current selection**,
   **linked & backlinked notes**, or a **vault search**. Keyword search by
-  default; optional **semantic search** fuses with keywords when enabled, using
-  a built-in on-device model (default; one-time ~45MB model + ~23MB ONNX
-  runtime download from huggingface.co / cdn.jsdelivr.net, cached and fully
-  offline afterwards) or a local Ollama server.
+  default; **semantic search** is on by default and fuses with keywords, using
+  a built-in on-device model (one-time ~45MB model + ~23MB ONNX
+  runtime download from huggingface.co / cdn.jsdelivr.net, offered on first
+  run, cached and fully offline afterwards) or a local Ollama server. Search
+  stays keyword-only until the model is downloaded.
 - **PDFs & images in chat** — @-mention any PDF or image in your vault, or
   **paste a screenshot** straight into the composer; Claude reads it natively
   (vision + document understanding). Attachments are per-message pills you can
@@ -156,6 +157,10 @@ document write.
 
 ### Agent & automation
 
+One agent, three surfaces: **agent mode in chat** (everywhere), the **MCP
+bridge** for Claude Code (desktop), and **cloud sessions** (mobile-friendly) —
+same vault, same confirm-before-write guardrails, wherever you are.
+
 - **Agent mode (vault tools in chat)** — Claude can **search your vault, read
   notes, and follow links on its own** while answering, showing each step as an
   expandable tool chip. Read-only by default; an optional setting also lets it
@@ -180,6 +185,11 @@ document write.
   Cheap utility work (summaries, auto-tagging) can route to Ollama too.
 - **Unified bridge** — expose the vault as a local MCP server so Claude Code
   and Claude Desktop operate on the same notes ([details below](#unified-bridge-mcp-server)).
+- **Cloud sessions (mobile-friendly)** — dispatch a Claude Code **cloud
+  session** that works your vault's Git repo and writes replies back as notes
+  pulled over HTTPS — the agent path that works from a phone, where the local
+  bridge can't run. Experimental (Anthropic's Routines API is in beta); setup
+  is a guided checklist under *Agent in the cloud* in settings.
 
 | ![A prioritized roadmap artifact generated from the vault](assets/manifest-roadmap.png) | ![A generated working map of the vault](assets/working-map.png) |
 |---|---|

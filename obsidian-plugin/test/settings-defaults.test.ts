@@ -55,9 +55,10 @@ describe("ontology defaults", () => {
 });
 
 describe("embedding engine defaults", () => {
-  it("built-in engine is the default; semantic search stays opt-in (spec 2026-07-09)", () => {
+  it("built-in engine, semantic search on with a one-time download prompt", () => {
     expect(DEFAULT_SETTINGS.embeddingEngine).toBe("builtin");
-    expect(DEFAULT_SETTINGS.semanticEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.semanticEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.semanticModelPrompted).toBe(false);
     expect(DEFAULT_SETTINGS.embeddingModel).toBe("nomic-embed-text"); // still the Ollama model
   });
 });

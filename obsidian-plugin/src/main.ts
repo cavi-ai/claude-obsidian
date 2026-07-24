@@ -377,6 +377,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       void this.syncMcpServer();
       this.syncPlanBuildActions();
       if (this.settings.ontologyEnabled) void this.loadOntologyOnStart();
+      if (this.settings.semanticEnabled) void this.promptSemanticModelIfNeeded();
 
       // Keep the semantic index fresh as notes change (debounced; no-op when
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
@@ -1137,6 +1138,49 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._indexer;
   }
 
+  /**
+   * One-time offer to download the on-device embedding model. Semantic search
+   * ships on, but no path may fetch weights implicitly — so the first run asks.
+   * Skips when the model is already loaded/cached or the engine is Ollama.
+   */
+  async promptSemanticModelIfNeeded(): Promise<void> {
+    if (this.settings.embeddingEngine !== "builtin") return;
+    if (this.settings.semanticModelPrompted) return;
+    if (this.builtinEmbedder().backend() !== null) return;
+    if (await this.builtinModelCached()) return; // loads on first use, offline
+    this.settings.semanticModelPrompted = true;
+    await this.saveSettings();
+    const model = BUILTIN_EMBEDDING_MODEL;
+    new ChoiceModal<"download" | "skip">(this.app, {
+      title: "Set up semantic search",
+      message:
+        "Companion can index your vault on-device so vault search and related notes work by meaning, not just keywords. " +
+        `This needs a one-time download (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net; cached and fully offline afterwards). ` +
+        "Until then, search stays keyword-only.",
+      buttons: [
+        { label: `Download (~${model.approxDownloadMB} MB)`, value: "download", cta: true },
+        { label: "Not now", value: "skip" },
+      ],
+      fallback: "skip",
+      onChoice: (c) => {
+        if (c === "download") void this.downloadBuiltinModelAndIndex();
+      },
+    }).open();
+  }
+
+  /** Download the built-in embedding model with progress, then build the index. */
+  private async downloadBuiltinModelAndIndex(): Promise<void> {
+    const progress = new Notice("Downloading embedding model…", 0);
+    try {
+      await this.builtinEmbedder().download((p) => progress.setMessage(`Downloading embedding model… ${p.percent}% (${p.file})`));
+      progress.hide();
+      await this.rebuildSemanticIndex();
+    } catch (e) {
+      progress.hide();
+      new Notice(`Embedding model download failed: ${e instanceof Error ? e.message : String(e)} — retry from Companion settings.`, 9000);
+    }
+  }
+
   /** Human-readable label for the active embedding engine/model (Notices, status copy). */
   private embeddingLabel(): string {
     return this.settings.embeddingEngine === "builtin"
@@ -1830,7 +1874,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
     } catch (e) {
       pending.hide();
-      new Notice(`Cloud dispatch failed: ${e instanceof Error ? e.message : String(e)}`, 10000);
+      const msg = e instanceof Error ? e.message : String(e);
+      const hint = errorHint(msg, "anthropic");
+      new Notice(`Cloud dispatch failed: ${msg}${hint ? ` — ${hint}` : ""}`, 10000);
     }
   }
 
