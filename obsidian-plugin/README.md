@@ -52,10 +52,11 @@ vault stays the single source of truth.
 - **Vault-aware context** — `@`-mention notes, folders, or the whole vault;
   toggle context pills for your **active note**, the **current selection**,
   **linked & backlinked notes**, or a **vault search**. Keyword search by
-  default; optional **semantic search** fuses with keywords when enabled, using
-  a built-in on-device model (default; one-time ~45MB model + ~23MB ONNX
-  runtime download from huggingface.co / cdn.jsdelivr.net, cached and fully
-  offline afterwards) or a local Ollama server.
+  default; **semantic search** is on by default and fuses with keywords, using
+  a built-in on-device model (one-time ~45MB model + ~23MB ONNX
+  runtime download from huggingface.co / cdn.jsdelivr.net, offered on first
+  run, cached and fully offline afterwards) or a local Ollama server. Search
+  stays keyword-only until the model is downloaded.
 - **PDFs & images in chat** — @-mention any PDF or image in your vault, or
   **paste a screenshot** straight into the composer; Claude reads it natively
   (vision + document understanding). Attachments are per-message pills you can

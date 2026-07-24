@@ -108,6 +108,8 @@ export interface PluginSettings {
   embeddingModel: string;
   /** Which engine computes embeddings: the bundled in-webview model or Ollama. */
   embeddingEngine: "builtin" | "ollama";
+  /** Set once the built-in embedding-model download prompt has been shown. */
+  semanticModelPrompted: boolean;
 
   // ----- indexing -----
   /** Auto-add tags + summary frontmatter when saving artifacts/chats. */
@@ -234,9 +236,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   discoveryExpansionLimit: 20,
   discoveryCacheHours: 24,
 
-  semanticEnabled: false,
+  semanticEnabled: true,
   embeddingModel: "nomic-embed-text",
   embeddingEngine: "builtin",
+  /** Set once the built-in embedding-model download prompt has been shown. */
+  semanticModelPrompted: false,
 
   autoTagOnSave: true,
   artifactBaseTags: ["claude", "artifact"],

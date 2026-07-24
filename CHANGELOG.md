@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Semantic search now ships on by default.** A one-time first-run prompt
+  offers the on-device embedding-model download; until it's downloaded every
+  path stays keyword-only (no implicit network fetch). The *Search vault*
+  context and related notes upgrade automatically once the model is in place.
 - **Typed source capture and vault ontology now ship on by default.** Source
   capture asks for one-time consent before the first automatic enrichment
   (declining switches to manual-only via the *Enrich note as source* command).
