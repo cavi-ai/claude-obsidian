@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Mobile artifact height.** Inline artifacts were capped only by the desktop
+  pixel setting (default 640px), so one artifact ate nearly the whole phone
+  screen; on mobile the frame now caps at 52vh and the artifact-bar buttons
+  are touch-sized.
+- **Mobile usage gauge.** The context-window strip now has a faint full-width
+  track — at low usage the lone fill segment read as a stray dash.
 - **Community-store scan findings.** Restored a dropped `:focus-within`
   selector in styles.css (the "Unexpected }" risk), replaced the two
   `document.createElement` calls with Obsidian's detached `createDiv`, wrapped
