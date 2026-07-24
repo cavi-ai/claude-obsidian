@@ -560,7 +560,10 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.semanticEnabled).onChange(async (v) => {
           this.plugin.settings.semanticEnabled = v;
           await this.plugin.saveSettings();
-          this.renderSettings();
+          // Re-render only this section — a full renderSettings() would collapse
+          // the accordion and throw the user back to the top of the tab.
+          containerEl.empty();
+          this.renderSemanticSection(containerEl);
         }),
       );
 
@@ -575,7 +578,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             this.plugin.settings.embeddingEngine = v as "builtin" | "ollama";
             await this.plugin.saveSettings();
             this.plugin.invalidateIndexer();
-            this.renderSettings();
+            containerEl.empty();
+            this.renderSemanticSection(containerEl);
           });
         });
 
@@ -597,7 +601,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             btn.setButtonText("Clear").onClick(async () => {
               btn.setDisabled(true);
               await this.plugin.clearBuiltinModel();
-              this.renderSettings(); // status returns to "Model not downloaded yet."
+              containerEl.empty(); // status returns to "Model not downloaded yet."
+              this.renderSemanticSection(containerEl);
             });
             if (!backend) btn.buttonEl.hide();
           })
@@ -636,15 +641,25 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         new Setting(containerEl)
           .setName("Embedding model")
           .setDesc("An Ollama embedding model. Pull one first, e.g. `ollama pull nomic-embed-text`.")
-          .addText((text) =>
-            text
-              .setPlaceholder("nomic-embed-text")
-              .setValue(this.plugin.settings.embeddingModel)
-              .onChange(async (v) => {
-                this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
-                await this.plugin.saveSettings();
-              }),
-          );
+          .addDropdown((dd) => {
+            const cur = this.plugin.settings.embeddingModel || "nomic-embed-text";
+            // Always show the current selection; the running server's models are
+            // added asynchronously below.
+            dd.addOption(cur, cur);
+            dd.setValue(cur).onChange(async (v) => {
+              this.plugin.settings.embeddingModel = v.trim() || "nomic-embed-text";
+              await this.plugin.saveSettings();
+            });
+            void this.plugin
+              .router()
+              .ollama.listModels()
+              .then((models) => {
+                for (const m of models) if (m !== cur) dd.addOption(m, m);
+              })
+              .catch(() => {
+                /* Ollama not reachable — leave just the current value. */
+              });
+          });
       }
 
       const idxStatus = containerEl.createDiv({ cls: "cc-conn-status setting-item-description" });
