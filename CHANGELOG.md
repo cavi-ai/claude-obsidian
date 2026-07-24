@@ -36,6 +36,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Accent color.** The streaming and agent tool-chip status dots use the Claude
   clay accent instead of Obsidian's blue.
 
+## [0.12.0] — 2026-07-23
+
+### Added
+- **Credential-aware onboarding.** The empty state and an in-chat setup card
+  adapt to which credentials are configured, and typed input is never discarded
+  when the setup card appears.
+- **Model presets.** Claude Sonnet 5 and Fable 5 are selectable; Sonnet 5 is the
+  new default.
+- **Command chips.** Slash-command and workflow invocations render as a compact
+  chip instead of a bubble of raw prompt text.
+- **Delete conversations from the history picker** with a two-tap confirm.
+- **Visible, revocable session write-grant pill** in the chat header.
+- **Memory view and consolidation on mobile** (session capture stays desktop).
+
+### Changed
+- **Settings redesign.** Connect-first layout, a privacy accordion, the chat
+  backend promoted, and numeric-field validation.
+
+### Fixed
+- **Semantic search on desktop.** Force the web/WASM embeddings backend — the
+  built-in engine was dead on desktop.
+- **Stream errors keep and persist partial text** and add a Retry button.
+- **Truncation notice** shows accurate copy and a retry-with-higher-limit action.
+- **Attachments survive failed sends and Regenerate.**
+- **Backend pill** updates live (~10s and on send) and skips no-op pill rebuilds;
+  the embedding settings section re-renders in place with an Ollama model dropdown.
+- **Mobile:** Enter inserts a newline, tune knobs move into the ⋯ modal, and
+  unconfigured cloud actions are hidden.
+
+## [0.11.2] — 2026-07-23
+
+### Changed
+- **Redesigned the mobile chat composer** for phones.
+
+### Fixed
+- **Provider-aware error hints:** no "ollama serve" suggestion for offline
+  Claude, 529 and Chromium "Failed to fetch" recognized as network failures, and
+  tighter rate-limit matching (`rate_limit` / `rate limit` / `too many requests`).
+
+### Security
+- Bumped transitive dependencies (sharp, adm-zip, fast-uri, js-yaml,
+  brace-expansion) closing 8 high-severity advisories.
+
 ## [0.11.1] — 2026-07-21
 
 ### Changed
