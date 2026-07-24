@@ -1382,6 +1382,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   border-radius: 22px;
   background: var(--background-modifier-form-field);
 }
+.is-mobile .cc-composer-input-row:focus-within {
   border-color: var(--cc-clay);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-clay) 16%, transparent);
 }

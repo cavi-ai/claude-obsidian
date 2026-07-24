@@ -1874,7 +1874,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
     } catch (e) {
       pending.hide();
-      new Notice(`Cloud dispatch failed: ${e instanceof Error ? e.message : String(e)}`, 10000);
+      const msg = e instanceof Error ? e.message : String(e);
+      const hint = errorHint(msg, "anthropic");
+      new Notice(`Cloud dispatch failed: ${msg}${hint ? ` — ${hint}` : ""}`, 10000);
     }
   }
 
