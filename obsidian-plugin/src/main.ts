@@ -67,6 +67,8 @@ import { normalizePath, TFile } from "obsidian";
 import { enrichCapture, type EnrichDeps } from "./sources/enrich";
 import { shouldEnrich } from "./sources/watcher";
 import { parseClipUrl } from "./sources/detect";
+import { errorHint } from "./providers/errorHints";
+import { ChoiceModal } from "./view/ChoiceModal";
 import { OntologyRegistry } from "./ontology/registry";
 import { seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
@@ -363,24 +365,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       name: "Seed ontology (default type schemas)",
       checkCallback: (checking) => {
         if (checking) return this.settings.ontologyEnabled;
-        void (async () => {
-          const folder = normalizePath(this.settings.ontologyFolder);
-          await this.ensureFolder(folder);
-          let created = 0;
-          for (const f of seedFiles()) {
-            const path = normalizePath(`${folder}/${f.fileName}`);
-            if (this.app.vault.getAbstractFileByPath(path)) continue; // never overwrite user edits
-            await this.app.vault.create(path, f.content);
-            created++;
-          }
-          const result = await this.ontology()?.load();
-          const errors = result?.errors ?? [];
-          new Notice(created > 0 ? `Seeded ${created} ontology type${created === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
-          if (errors.length > 0) {
-            new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
-            console.warn("[Claude Companion] ontology schema errors:", errors);
-          }
-        })();
+        void this.seedOntology();
         return true;
       },
     });
@@ -391,7 +376,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       void this.syncMcpServer();
       this.syncPlanBuildActions();
-      if (this.settings.ontologyEnabled) void this.ontology()?.load();
+      if (this.settings.ontologyEnabled) void this.loadOntologyOnStart();
 
       // Keep the semantic index fresh as notes change (debounced; no-op when
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
@@ -455,7 +440,37 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private async enrichFile(file: TFile): Promise<void> {
     const content = file.extension === "md" ? await this.app.vault.cachedRead(file) : "";
     if (!shouldEnrich({ path: file.path, ext: file.extension, content, inboxFolder: this.settings.sourceInboxFolder, recentlyWritten: this.enrichRecentlyWritten })) return;
+    if (this.settings.sourceCaptureConsent !== "allow" && !(await this.askSourceCaptureConsent())) return;
     await this.runEnrich(file);
+  }
+
+  /**
+   * One-time consent before the first automatic enrichment: auto-enrich sends
+   * each new inbox file to the utility model, so we ask before doing it
+   * unprompted. Declining turns off auto-enrich (the manual command stays).
+   */
+  private async askSourceCaptureConsent(): Promise<boolean> {
+    return new Promise((resolve) => {
+      new ChoiceModal<"allow" | "deny">(this.app, {
+        title: "Enrich clips automatically?",
+        message:
+          `Source capture can type each new file in ${this.settings.sourceInboxFolder}/ into a schema-validated source note. ` +
+          "This sends the file's content to your utility model (Claude, unless you enable the local model in settings).",
+        buttons: [
+          { label: "Enrich automatically", value: "allow", cta: true },
+          { label: "Manual only", value: "deny" },
+        ],
+        fallback: "deny",
+        onChoice: (c) => {
+          void (async () => {
+            this.settings.sourceCaptureConsent = c;
+            if (c === "deny") this.settings.sourceEnrichOnCreate = false;
+            await this.saveSettings();
+            resolve(c === "allow");
+          })();
+        },
+      }).open();
+    });
   }
 
   private async runEnrich(file: TFile): Promise<void> {
@@ -471,7 +486,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice(`Typed source note (${res.type}): ${res.file.basename}`);
     } catch (e) {
       console.warn("[companion] source enrichment failed", e);
-      new Notice(`Couldn't enrich ${file.basename} — see console.`);
+      const { provider } = this.router().resolve("utility");
+      const hint = errorHint(e instanceof Error ? e.message : String(e), provider.id === "ollama" ? "ollama" : "anthropic");
+      new Notice(`Couldn't enrich ${file.basename}${hint ? ` — ${hint}` : " — see console."}`);
     }
   }
 
@@ -919,6 +936,57 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
     }
     return this._ontology;
+  }
+
+  /** Create the default ontology schema notes (never overwrites), then reload and report. */
+  private async seedOntology(): Promise<void> {
+    const folder = normalizePath(this.settings.ontologyFolder);
+    await this.ensureFolder(folder);
+    let created = 0;
+    for (const f of seedFiles()) {
+      const path = normalizePath(`${folder}/${f.fileName}`);
+      if (this.app.vault.getAbstractFileByPath(path)) continue; // never overwrite user edits
+      await this.app.vault.create(path, f.content);
+      created++;
+    }
+    const result = await this.ontology()?.load();
+    const errors = result?.errors ?? [];
+    new Notice(created > 0 ? `Seeded ${created} ontology type${created === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
+    if (errors.length > 0) {
+      new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
+      console.warn("[Claude Companion] ontology schema errors:", errors);
+    }
+  }
+
+  /**
+   * Startup ontology load: surface schema errors instead of dropping them, and
+   * offer the one-time seed prompt when the registry is empty.
+   */
+  async loadOntologyOnStart(): Promise<void> {
+    const registry = this.ontology();
+    if (!registry) return;
+    const { errors } = await registry.load();
+    if (errors.length > 0) {
+      new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
+      console.warn("[Claude Companion] ontology schema errors:", errors);
+    }
+    if (registry.resolved().size > 0 || this.settings.ontologySeedPrompted) return;
+    this.settings.ontologySeedPrompted = true;
+    await this.saveSettings();
+    new ChoiceModal<"seed" | "skip">(this.app, {
+      title: "Set up the vault ontology",
+      message:
+        `The ontology lets Claude write typed notes (person, project, source…) that conform to schema notes in your vault. ` +
+        `Create the default schemas in ${this.settings.ontologyFolder}/ now? You can edit or delete them afterwards, or re-run “Seed ontology” any time.`,
+      buttons: [
+        { label: "Create default schemas", value: "seed", cta: true },
+        { label: "Not now", value: "skip" },
+      ],
+      fallback: "skip",
+      onChoice: (c) => {
+        if (c === "seed") void this.seedOntology();
+      },
+    }).open();
   }
 
   /** Queue an ontology reload after schema-note changes (debounced ~500ms). */

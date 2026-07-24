@@ -185,15 +185,18 @@ document write.
 |---|---|
 | *A prioritized roadmap artifact, produced by an advisor persona surveying the vault over the bridge.* | *A generated working map — a canvas-style overview built from real notes.* |
 
-### Experimental (off by default)
+### Typed sources & ontology (on by default)
 
 - **Typed source capture** — watch a clippings
   inbox (default `Clippings/`) and enrich new clips with typed frontmatter
-  (article, video, dataset) from per-type schemas.
+  (article, video, dataset) from per-type schemas. Auto-enrichment asks for
+  one-time consent first (it sends each new inbox file to your utility model);
+  the *Enrich note as source* command works manually either way.
 - **Vault ontology** — schema notes in an
-  `Ontology/` folder define **note types and typed wikilink relations**; run
-  **Seed ontology** to create the defaults, and notes Claude creates conform to
-  your schemas (advisory, never blocking). Enable under *Vault ontology* in
+  `Ontology/` folder define **note types and typed wikilink relations**; on
+  first run Companion offers to create the default schemas (or run
+  **Seed ontology** any time), and notes Claude creates conform to your
+  schemas (advisory, never blocking). Configure under *Vault ontology* in
   settings.
 
 ## Install
