@@ -334,6 +334,18 @@ describe("note_create with ontology", () => {
     expect(read).toContain('role: "x"');
   });
 
+  it("hides type/properties from the schema when the registry is empty (enabled but not seeded)", async () => {
+    const empty = new OntologyRegistry({ listSchemaNotes: () => Promise.resolve([]), parseYaml });
+    await empty.load();
+    const app = new App();
+    const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude", ontology: () => empty });
+    const noteCreate = vt.definitions().find((d) => d.name === "note_create");
+    expect(noteCreate).toBeDefined();
+    const props = (noteCreate!.inputSchema as { properties: Record<string, unknown> }).properties;
+    expect(props).not.toHaveProperty("type");
+    expect(props).not.toHaveProperty("properties");
+  });
+
   it("keeps legacy behavior when no ontology is wired", async () => {
     const app = new App();
     const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude", ontology: () => null });

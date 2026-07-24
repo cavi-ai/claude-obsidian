@@ -2,9 +2,10 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_SETTINGS, normalizeDiscoverySettings } from "../src/types";
 
 describe("source-capture defaults", () => {
-  it("ships dormant (opt-in) with a default inbox", () => {
-    expect(DEFAULT_SETTINGS.sourceCaptureEnabled).toBe(false);
+  it("ships on with first-run consent and a default inbox", () => {
+    expect(DEFAULT_SETTINGS.sourceCaptureEnabled).toBe(true);
     expect(DEFAULT_SETTINGS.sourceEnrichOnCreate).toBe(true);
+    expect(DEFAULT_SETTINGS.sourceCaptureConsent).toBe("ask");
     expect(DEFAULT_SETTINGS.sourceInboxFolder).toBe("Clippings");
     expect(DEFAULT_SETTINGS.sourceBaseTags).toEqual(["source"]);
     expect(DEFAULT_SETTINGS.sourceSchemaOverrides).toEqual({});
@@ -46,9 +47,10 @@ describe("memory consolidation defaults", () => {
 });
 
 describe("ontology defaults", () => {
-  it("ships dormant with the Ontology folder (spec 2026-07-08)", () => {
-    expect(DEFAULT_SETTINGS.ontologyEnabled).toBe(false);
+  it("ships on with the Ontology folder and an unshown seed prompt", () => {
+    expect(DEFAULT_SETTINGS.ontologyEnabled).toBe(true);
     expect(DEFAULT_SETTINGS.ontologyFolder).toBe("Ontology");
+    expect(DEFAULT_SETTINGS.ontologySeedPrompted).toBe(false);
   });
 });
 

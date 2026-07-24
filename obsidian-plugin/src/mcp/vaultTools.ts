@@ -144,7 +144,7 @@ export class VaultTools {
               content: { type: "string", description: "Markdown body." },
               folder: { type: "string", description: "Target folder (defaults to the configured folder)." },
               tags: { type: "array", items: { type: "string" }, description: "Tags to apply." },
-              ...(this.opts.ontology?.()
+              ...((this.opts.ontology?.()?.resolved().size ?? 0) > 0
                 ? {
                     type: { type: "string", description: "Ontology type for this note (e.g. person, project, concept; unknown types are reported back with the available list)." },
                     properties: { type: "object", description: "Type-specific frontmatter properties and relation fields (relations are lists of \"[[wikilink]]\" strings)." },
@@ -515,7 +515,8 @@ export class VaultTools {
     let data: FrontmatterData = base;
     let conformance = "";
     const registry = this.opts.ontology?.() ?? null;
-    if (registry && typeName) {
+    // An enabled-but-empty registry (never seeded) behaves like no ontology.
+    if (registry && registry.resolved().size > 0 && typeName) {
       const resolved = registry.resolve(typeName);
       // Base keys + the validated type always win over model-supplied properties.
       const safeProps: Record<string, unknown> = {};

@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Typed source capture and vault ontology now ship on by default.** Source
+  capture asks for one-time consent before the first automatic enrichment
+  (declining switches to manual-only via the *Enrich note as source* command).
+  The ontology offers to create the default schemas on first run; until seeded
+  it stays fully latent — `note_create` no longer advertises `type`/`properties`
+  against an empty registry.
+- **Enrichment preserves your tags.** Typed source capture unions its base tags
+  with a clip's existing tags instead of replacing them.
+- **Enrichment failures are actionable.** The failure notice now includes the
+  provider-aware hint (offline, Ollama down, auth) instead of "see console".
+- **Ontology schema errors surface.** Startup and seed loads report schema
+  errors in a notice instead of only the console.
+
+### Removed
+- Dead typed-graph projection module from the ontology package (never wired).
+
 ## [0.12.1] — 2026-07-24
 
 ### Added
@@ -203,7 +220,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hybrid search now works cross-platform.
 - **Vault ontology (phase 1, dormant by default).** Schema notes define typed
   frontmatter with inheritance; advisory conformance checking with safe
-  auto-fixes, a typed graph projection, a seed command with 15 default types,
+  auto-fixes, a typed graph projection, a seed command with 21 default types,
   and a compact type digest injected into the system prompt. When enabled,
   `note_create` accepts `type`/`properties`.
 

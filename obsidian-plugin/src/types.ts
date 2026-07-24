@@ -174,6 +174,8 @@ export interface PluginSettings {
   sourceCaptureEnabled: boolean;
   /** Auto-enrich files as they appear in the inbox folder (vs. manual command only). */
   sourceEnrichOnCreate: boolean;
+  /** One-time consent for auto-enriching inbox files with the utility model ("ask" until the user chooses). */
+  sourceCaptureConsent: "ask" | "allow" | "deny";
   /** Folder the Web Clipper writes to and Companion watches. */
   sourceInboxFolder: string;
   /** Tags every enriched source note gets. */
@@ -186,6 +188,8 @@ export interface PluginSettings {
   ontologyEnabled: boolean;
   /** Folder holding the schema notes (one note per type). */
   ontologyFolder: string;
+  /** Set once the ontology seed prompt has been shown (don't nag again). */
+  ontologySeedPrompted: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -268,14 +272,16 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   memoryBaseTags: ["claude", "session"],
   memoryAutoConsolidate: false,
 
-  sourceCaptureEnabled: false,
+  sourceCaptureEnabled: true,
   sourceEnrichOnCreate: true,
+  sourceCaptureConsent: "ask",
   sourceInboxFolder: "Clippings",
   sourceBaseTags: ["source"],
   sourceSchemaOverrides: {},
 
-  ontologyEnabled: false,
+  ontologyEnabled: true,
   ontologyFolder: "Ontology",
+  ontologySeedPrompted: false,
 };
 
 export type DiscoveryNumericSettings = Pick<PluginSettings,

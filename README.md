@@ -87,10 +87,10 @@ A full Claude chat experience that lives in your vault and speaks its language.
   live connectivity indicator. Or run **Local only** for full offline use.
 - **Unified bridge** — expose the vault as a loopback-only, token-gated MCP
   server so Claude Code / Claude Desktop work against the same notes.
-- **Experimental, off by default** — **typed source capture** (enrich clipped
-  files with typed frontmatter from per-type schemas) and a **vault ontology**
-  (schema notes define note types + typed wikilink relations that Claude-created
-  notes conform to).
+- **Typed sources & vault ontology** — clipped files are enriched with typed
+  frontmatter from per-type schemas (one-time consent before auto-enrichment),
+  and schema notes define note types + typed wikilink relations that
+  Claude-created notes conform to.
 
 → Full details: [`obsidian-plugin/README.md`](obsidian-plugin/README.md)
 

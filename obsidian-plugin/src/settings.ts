@@ -793,6 +793,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(this.plugin.settings.sourceEnrichOnCreate).onChange(async (v) => {
           this.plugin.settings.sourceEnrichOnCreate = v;
+          // Re-enabling here is explicit consent to send inbox files to the utility model.
+          if (v) this.plugin.settings.sourceCaptureConsent = "allow";
           await this.plugin.saveSettings();
         }),
       );
@@ -826,7 +828,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.ontologyEnabled).onChange(async (v) => {
           this.plugin.settings.ontologyEnabled = v;
           await this.plugin.saveSettings();
-          if (v) void this.plugin.ontology()?.load();
+          if (v) void this.plugin.loadOntologyOnStart();
         }),
       );
 
