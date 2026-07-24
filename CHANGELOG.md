@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Settings appear in Obsidian's settings search (1.13+).** The settings tab
+  now implements `getSettingDefinitions()` with search-metadata-only entries
+  (name/description/aliases, no controls) covering every section.
 - **Community-store scan findings.** Restored a dropped `:focus-within`
   selector in styles.css (the "Unexpected }" risk), replaced the two
   `document.createElement` calls with Obsidian's detached `createDiv`, wrapped
