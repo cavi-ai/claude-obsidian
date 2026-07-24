@@ -1648,6 +1648,9 @@ export class ChatView extends ItemView {
 
   private renderError(body: HTMLElement, message: string, provider: ErrorHintProvider): void {
     // Append below any partial streamed content — never destroy what arrived.
+    // But a failure before the first token leaves the "thinking" indicator in
+    // place; drop it so the bubble doesn't show both a spinner and the error.
+    body.querySelector(".cc-thinking-status")?.remove();
     const box = body.createDiv({ cls: "cc-error" });
     box.createSpan({ cls: "cc-error-title", text: "Couldn’t reach the model" });
     box.createSpan({ text: message });
