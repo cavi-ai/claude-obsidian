@@ -268,9 +268,10 @@ export class Modal {
   contentEl = new FakeElement() as unknown as HTMLElement;
   constructor(public app: App) {}
   open(): void { lastOpenedModal = this; this.onOpen(); }
-  close(): void { this.onClose(); }
+  close(): void {}
   onOpen(): void {}
   onClose(): void {}
+}
 export abstract class FuzzySuggestModal<T> extends Modal {
   abstract getItems(): T[];
   abstract getItemText(item: T): string;
