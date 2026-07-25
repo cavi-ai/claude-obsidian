@@ -1390,8 +1390,9 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   flex: 1 1 auto;
   min-width: 0;
   width: auto;
-  /* Large typing area — this is the thing you interact with most. */
-  min-height: 92px;
+  /* Start as a single compact row — an always-tall composer eats the phone
+     screen before anything is typed. autosizeInput grows it to max-height. */
+  min-height: 26px;
   max-height: 40vh;
   font-size: 16px;
   resize: none;
@@ -1466,9 +1467,10 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
    phone screen — cap it to a share of the viewport instead. */
 .is-mobile .cc-artifact-frame { height: 52vh !important; }
 .is-mobile .cc-artifact-bar {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 4px 8px;
 }
 .is-mobile .cc-artifact-bar .cc-artifact-btn {
   min-height: 32px;
@@ -1491,23 +1493,35 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 /* SVG flex children collapse to width:0 without an explicit size — pin it. */
 .is-mobile .cc-add-context svg { width: 19px; height: 19px; flex: 0 0 auto; }
 
-/* Attachment chips: full-width subtle row across the top of the input box
-   (ChatView moves .cc-attach-pills in here on mobile). Muted, not loud clay,
-   so they frame the input instead of crowding it. */
+/* Attachment chips: one horizontally-scrollable strip across the top of the
+   input box (ChatView moves .cc-attach-pills in here on mobile). Muted, not
+   loud clay, so they frame the input instead of crowding it. Titles truncate
+   — a long note name must never claim a full row. */
 .is-mobile .cc-attach-pills {
   order: -1;
   flex-basis: 100%;
   width: 100%;
   margin: 0 0 2px;
   gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.is-mobile .cc-attach-pills::-webkit-scrollbar { display: none; }
 .is-mobile .cc-attach-pill {
+  flex: 0 0 auto;
+  max-width: 68%;
   background: var(--background-secondary);
   color: var(--text-muted);
   border-color: var(--background-modifier-border);
   font-size: 11px;
 }
-.is-mobile .cc-attach-pill .cc-attach-label { color: var(--text-normal); }
+.is-mobile .cc-attach-pill .cc-attach-label {
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ===== Agent mode: tool chips (spec 2026-07-05) ===== */
 
@@ -2250,3 +2264,49 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-source-capture-status { min-height: 1.2em; color: var(--text-muted); }
 .cc-rewrite-hint { color: var(--text-faint); font-size: var(--font-ui-smaller); margin-right: auto; }
 .is-mobile .cc-source-dropzone { display: none; }
+
+/* ---- mobile (native + emulation): `.is-mobile` body class ----
+   The research surfaces only had a 480px viewport media query, which never
+   fires in mobile emulation or a wide phone-webview window; mirror those
+   rules under `.is-mobile` and add touch-target sizing. */
+.is-mobile .cc-research-desk,
+.is-mobile .cc-research-workbench { padding: 10px; }
+.is-mobile .cc-desk-header { display: block; }
+.is-mobile .cc-desk-header-actions { display: flex; flex-wrap: wrap; width: 100%; margin-top: 10px; }
+.is-mobile .cc-desk-header-actions > button { flex: 1 1 100%; min-height: 44px; }
+.is-mobile .cc-desk-grid { grid-template-columns: 1fr; }
+.is-mobile .cc-desk-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.is-mobile .cc-desk-stage-step span:last-child { display: none; }
+.is-mobile .cc-desk-stage-step { justify-content: center; }
+.is-mobile .cc-desk-stage-step::before { right: 50%; left: -50%; }
+.is-mobile .cc-desk-quick-row button { flex: 1 1 45%; min-height: 44px; }
+.is-mobile .cc-desk-attention-row,
+.is-mobile .cc-desk-metric,
+.is-mobile .cc-desk-empty-controls button,
+.is-mobile .cc-desk-empty-controls select { min-height: 44px; }
+.is-mobile .cc-research-tabs { display: none; }
+.is-mobile .cc-research-tab-select { display: block; min-height: 44px; }
+.is-mobile .cc-research-metrics,
+.is-mobile .cc-research-health,
+.is-mobile .cc-research-actions { grid-template-columns: 1fr; }
+.is-mobile .cc-research-record,
+.is-mobile .cc-research-open,
+.is-mobile .cc-research-action { min-height: 44px; }
+.is-mobile .cc-draft-section button,
+.is-mobile .cc-revision-intent,
+.is-mobile .cc-revision-instruction { min-height: 44px; }
+
+/* Modals: stretch controls, 16px inputs (stops iOS auto-zoom), 44px targets. */
+.is-mobile .cc-rewrite-input,
+.is-mobile .cc-research-modal-field input,
+.is-mobile .cc-research-modal-field textarea,
+.is-mobile .cc-research-modal-field select,
+.is-mobile .cc-source-url-row input { font-size: 16px; min-height: 44px; }
+.is-mobile .cc-source-url-row { flex-direction: column; }
+.is-mobile .cc-source-url-row button { min-height: 44px; }
+.is-mobile .cc-research-modal-actions button,
+.is-mobile .cc-research-modal-submit-bar button,
+.is-mobile .cc-diff-buttons button { min-height: 44px; }
+.is-mobile .cc-research-claim-evidence label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.is-mobile .cc-diff-lines { font-size: 12px; }
+.is-mobile .cc-rewrite-presets .cc-rewrite-preset { min-height: 40px; }
