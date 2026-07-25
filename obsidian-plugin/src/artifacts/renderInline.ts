@@ -18,11 +18,21 @@ const ARTIFACT_CSP =
  * proposal and is NOT honored by Electron/Obsidian, so the meta tag — not the
  * attribute — is what restricts the artifact.
  */
+/**
+ * In-frame height reporter: posts the content's scrollHeight to the parent so
+ * the inline frame can fit the artifact instead of reserving a fixed band of
+ * screen. Scripts are allowed by the CSP; the parent validates event.source.
+ */
+const RESIZE_REPORTER = `<script>(function(){function h(){try{var d=document,b=d.body,h=d.documentElement.scrollHeight;if(b){for(var c=b.children,bt=0,i=0;i<c.length;i++){bt=Math.max(bt,c[i].getBoundingClientRect().bottom);}h=Math.max(h,Math.ceil(bt)+8);}parent.postMessage({__ccArtifactHeight:h},"*");}catch(e){}}if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement);}addEventListener("load",h);setTimeout(h,250);})();</script>`;
+
 function withCsp(html: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">`;
-  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}${meta}`);
-  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${meta}</head>`);
-  return `${meta}${html}`;
+  let out: string;
+  if (/<head[^>]*>/i.test(html)) out = html.replace(/<head[^>]*>/i, (m) => `${m}${meta}`);
+  else if (/<html[^>]*>/i.test(html)) out = html.replace(/<html[^>]*>/i, (m) => `${m}<head>${meta}</head>`);
+  else out = `${meta}${html}`;
+  if (/<\/body>/i.test(out)) return out.replace(/<\/body>/i, `${RESIZE_REPORTER}</body>`);
+  return `${out}${RESIZE_REPORTER}`;
 }
 
 function sandboxFrame(iframe: HTMLIFrameElement, html: string): void {
@@ -129,7 +139,28 @@ export function renderArtifactInline(
   const iframe = wrap.createEl("iframe", { cls: "cc-artifact-frame" });
   sandboxFrame(iframe, html);
   iframe.setAttribute("loading", "lazy");
-  iframe.setCssStyles({ height: `${Math.max(120, height)}px` });
+  // Start small: scrollHeight inside the frame is viewport-clamped, so the
+  // content's true height only shows once the frame is shorter than it.
+  iframe.setCssStyles({ height: "80px" });
+
+  // Fit the frame to the artifact's real height (reported from inside the
+  // sandbox), capped by the configured height — short artifacts stop reserving
+  // a dead band of screen, tall ones keep their cap and scroll internally.
+  const cap = Math.max(120, height);
+  const onResizeMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return;
+    const reported = (e.data as { __ccArtifactHeight?: unknown })?.__ccArtifactHeight;
+    if (typeof reported !== "number" || reported <= 0) return;
+    iframe.setCssStyles({ height: `${Math.min(Math.max(80, Math.ceil(reported)), cap)}px` });
+  };
+  window.addEventListener("message", onResizeMessage);
+  const detachGuard = new MutationObserver(() => {
+    if (!wrap.isConnected) {
+      window.removeEventListener("message", onResizeMessage);
+      detachGuard.disconnect();
+    }
+  });
+  detachGuard.observe(el.ownerDocument.body, { childList: true, subtree: true });
 
   // Flag faux-interactive artifacts (handlers wired to undefined JS) — a model
   // regression guard, so a tab bar that does nothing doesn't ship silently.
