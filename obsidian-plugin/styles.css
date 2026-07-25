@@ -2199,3 +2199,28 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-connect-title { font-weight: 600; margin-bottom: 2px; }
 .cc-connect-callout p { margin: 0; color: var(--text-muted); font-size: 13px; }
 .cc-input-invalid { border-color: var(--text-error) !important; }
+
+/* ---- inline rewrite modal ---- */
+.cc-rewrite-input {
+  width: 100%;
+  margin: 8px 0;
+  resize: vertical;
+}
+.cc-rewrite-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.cc-rewrite-preset { font-size: var(--font-ui-smaller); }
+
+/* ---- research: sharpen proposition preview ---- */
+.cc-research-sharpen-preview {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  background: var(--background-secondary);
+}
+.cc-research-sharpen-text { margin: 4px 0 8px; }
+.cc-research-sharpen-preview.is-hidden { display: none; }

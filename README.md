@@ -45,6 +45,9 @@ A full Claude chat experience that lives in your vault and speaks its language.
   write tools (create/edit/move notes) sit behind a per-action confirmation.
 - **Edits as reviewable diffs** — "improve this note" produces a red/green
   per-hunk diff you accept or reject before anything is written.
+- **Inline rewrite in the editor** — select text → *Rewrite selection with
+  Claude…* (palette or right-click): presets or your own instruction, reviewed
+  as the same per-hunk diff. No chat round-trip.
 - **Chat with vault context** — toggle `Context` chips to attach your active
   note, selection, linked/backlinked notes, or a keyword vault search to any
   message. **@-mention** notes, folders, **PDFs and images** — or paste a
@@ -105,7 +108,14 @@ In Claude Code, use `/claude-obsidian:research-workbench` for the skill-driven
 MCP workflow over the same canonical vault records.
 
 The core path is **Create project → Import source → Capture evidence → Review →
-Build claims → Generate outline → Draft → Revise → Assure**. Source captures receive a
+Build claims → Generate outline → Draft → Revise → Assure**. Getting started is
+guided: **Triage clippings** groups a junk-drawer clippings inbox into tagged
+research themes with a `Triage.md` board (a potential project per theme), and
+**New project from active note** seeds a project from the open note — question
+drafted, note imported as the first source, Discover pre-loaded for the
+preliminary scholarly search. Along the way, **Sharpen with Claude** rewrites
+claim propositions grounded in the evidence you checked, and **Draft with
+Claude** writes evidence interpretations from the excerpt. Source captures receive a
 content fingerprint; evidence records preserve the exact excerpt, locator, and
 captured fingerprint; claims keep supporting, challenging, and contextual
 relations distinct. The research workbench presents the resulting canonical
