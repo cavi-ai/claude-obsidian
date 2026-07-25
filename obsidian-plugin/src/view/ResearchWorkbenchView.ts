@@ -417,12 +417,17 @@ export class ResearchWorkbenchView extends ItemView {
       pickNote: () => new Promise<string | null>((resolve) => {
         new NotePickModal(this.app, (file) => {
           void (async () => {
-            const content = await this.app.vault.cachedRead(file);
-            const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
-            const clipUrl = parseClipUrl(content);
-            const res = await this.repository.importSource(project, { title: file.basename, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
-            await this.render();
-            resolve(res.kind === "duplicate" ? `Already in the library: ${file.basename}` : `Imported note: ${file.basename}`);
+            try {
+              const content = await this.app.vault.cachedRead(file);
+              const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+              const clipUrl = parseClipUrl(content);
+              const res = await this.repository.importSource(project, { title: file.basename, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
+              await this.render();
+              resolve(res.kind === "duplicate" ? `Already in the library: ${file.basename}` : `Imported note: ${file.basename}`);
+            } catch (e) {
+              // Resolve (not reject) so the capture modal leaves its busy state.
+              resolve(`Couldn’t import ${file.basename}: ${e instanceof Error ? e.message : String(e)}`);
+            }
           })();
         }, () => resolve(null)).open();
       }),
