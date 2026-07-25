@@ -128,6 +128,6 @@ export function renderTriageNote(groups: TriageGroup[], notesByPath: Map<string,
 
 /** Plain-text excerpt of a note body: frontmatter stripped, whitespace collapsed. */
 export function noteExcerpt(content: string, max = 400): string {
-  const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   return body.replace(/[\]#>*`[]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 }

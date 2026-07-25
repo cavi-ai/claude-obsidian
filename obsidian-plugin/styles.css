@@ -2224,3 +2224,29 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 .cc-research-sharpen-text { margin: 4px 0 8px; }
 .cc-research-sharpen-preview.is-hidden { display: none; }
+
+/* ---- source capture (drop/paste, no form) ---- */
+.cc-source-dropzone {
+  border: 2px dashed var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 22px 14px;
+  margin: 10px 0;
+  text-align: center;
+  color: var(--text-muted);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.cc-source-dropzone.is-dragover {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+.cc-source-url-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cc-source-url-row input { flex: 1; }
+.cc-source-file-input { display: none; }
+.cc-source-capture-status { min-height: 1.2em; color: var(--text-muted); }
+.cc-rewrite-hint { color: var(--text-faint); font-size: var(--font-ui-smaller); margin-right: auto; }
+.is-mobile .cc-source-dropzone { display: none; }

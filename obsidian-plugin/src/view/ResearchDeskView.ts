@@ -15,9 +15,8 @@ export interface ResearchDeskDependencies {
   createProject?(): void | Promise<void>;
   /** Group the clippings inbox into research themes (one click, project-independent). */
   triageClippings?(): void | Promise<void>;
-  /** Start a research project seeded from the currently open note. */
+  /** Start a research project seeded from the most recently focused markdown note. */
   startFromActiveNote?(): void | Promise<void>;
-  hasActiveNote?(): boolean;
 }
 
 function errorMessage(error: unknown): string {
@@ -83,7 +82,7 @@ export class ResearchDeskView extends ItemView {
       const triage = headerActions.createEl("button", { text: "Triage clippings", attr: { title: "Group your clippings inbox into research themes with tags and links" } });
       triage.addEventListener("click", () => void this.deps.triageClippings?.());
     }
-    if (this.deps.startFromActiveNote && this.deps.hasActiveNote?.()) {
+    if (this.deps.startFromActiveNote) {
       const fromNote = headerActions.createEl("button", { text: "New project from active note", attr: { title: "Seed a research project from the note you have open" } });
       fromNote.addEventListener("click", () => void this.deps.startFromActiveNote?.());
     }
@@ -146,7 +145,7 @@ export class ResearchDeskView extends ItemView {
     const controls = empty.createDiv({ cls: "cc-desk-empty-controls" });
     if (projects.length) { const select = controls.createEl("select", { attr: { "aria-label": "Choose research project" } }); select.createEl("option", { text: "Choose a project", value: "" }); for (const project of projects) select.createEl("option", { text: project.title, value: project.path }); select.addEventListener("change", () => { if (select.value) void this.setProjectPath(select.value); }); }
     const create = controls.createEl("button", { cls: "mod-cta", text: "Create project" }); create.addEventListener("click", () => this.deps.createProject ? void this.deps.createProject() : new Notice("Use the Research Workbench to create a project."));
-    if (!loadError && this.deps.startFromActiveNote && this.deps.hasActiveNote?.()) {
+    if (!loadError && this.deps.startFromActiveNote) {
       const fromNote = controls.createEl("button", { text: "Start from active note", attr: { title: "Seed a research project from the note you have open" } });
       fromNote.addEventListener("click", () => void this.deps.startFromActiveNote?.());
     }

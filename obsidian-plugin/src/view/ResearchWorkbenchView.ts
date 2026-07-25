@@ -1,7 +1,9 @@
-import { ItemView, Modal, Notice, TFile, type App, type WorkspaceLeaf } from "obsidian";
+import { ItemView, FuzzySuggestModal, Modal, Notice, TFile, type App, type WorkspaceLeaf } from "obsidian";
 import { auditProject } from "../research/audit";
 import type { ProjectSnapshot } from "../research/graph";
 import type { ResearchRepository } from "../research/repository";
+import type { WebCapture } from "../research/webCapture";
+import { parseClipUrl } from "../sources/detect";
 import { buildWorkbenchViewModel } from "../research/viewModel";
 import { isResearchProjectChange, resolveResearchProjectLink } from "../research/workbenchRouting";
 import type { IntelligenceCoordinator, IntelligenceNarratorMode } from "../research/intelligenceCoordinator";
@@ -55,6 +57,12 @@ export interface ResearchWorkbenchDependencies {
   revisionCoordinator?: RevisionCoordinator;
   /** Chat-free rewrite helper (inline rewrite) — sharpens draft prose, optionally grounded in supplied context. */
   rewriteText?: (input: { text: string; instruction: string; context?: string }) => Promise<string>;
+  /** Defuddle web capture for URL sources (renderer only — absent in tests/headless). */
+  captureWeb?: WebCapture;
+  /** Persist a dropped/uploaded file into the project's source-assets folder; returns its vault path. */
+  saveAsset?: (projectPath: string, name: string, data: ArrayBuffer) => Promise<string>;
+  /** Best-effort content tags (autoTagger) applied to freshly clipped sources. */
+  suggestTags?: (content: string) => Promise<string[]>;
   openDesk?(projectPath: string): void | Promise<void>;
   askCompanion?(projectPath: string): void | Promise<void>;
 }
@@ -356,9 +364,74 @@ export class ResearchWorkbenchView extends ItemView {
   }
 
   private openAddSource(project: string): void {
-    new SourceAddModal(this.app, async (input) => {
-      await this.repository.importSource(project, input);
-      await this.render();
+    new SourceCaptureModal(this.app, {
+      captureUrl: async (url) => {
+        const captureWeb = this.dependencies?.captureWeb;
+        if (!captureWeb) throw new Error("Web capture is unavailable in this environment.");
+        const result = await captureWeb(url);
+        if (!result) throw new Error("Couldn't extract readable content from that URL — paste the text into a note and import the note instead.");
+        const title = result.title ?? new URL(url).hostname;
+        const res = await this.repository.importSource(project, { title, sourceKind: "web", url, capturedContent: result.markdown, ...(result.author ? { authors: [result.author] } : {}), ...(result.published ? { published: result.published } : {}) });
+        if (res.kind === "duplicate") { await this.render(); return `Already in the library: ${title}`; }
+        let tagNote = "";
+        const suggest = this.dependencies?.suggestTags;
+        if (suggest) {
+          try {
+            const tags = await suggest(result.markdown);
+            const file = this.app.vault.getAbstractFileByPath(res.path);
+            if (file instanceof TFile && tags.length) {
+              await this.app.fileManager.processFrontMatter(file, (fm) => {
+                const record = fm as Record<string, unknown>;
+                const raw = record.tags;
+                const existing: string[] = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" ? [raw] : [];
+                record.tags = [...new Set([...existing, ...tags])];
+              });
+              tagNote = ` · tags: ${tags.join(", ")}`;
+            }
+          } catch { /* tagging is best-effort */ }
+        }
+        await this.render();
+        return `Clipped “${title}”${tagNote}`;
+      },
+      importFiles: async (files) => {
+        const saveAsset = this.dependencies?.saveAsset;
+        if (!saveAsset) throw new Error("File import is unavailable in this environment.");
+        const imported: string[] = [];
+        for (const file of files) {
+          const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+          const base = file.name.replace(/\.[^.]+$/, "");
+          if (ext === "md") {
+            const text = new TextDecoder().decode(file.data);
+            const clipUrl = parseClipUrl(text);
+            const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+            const res = await this.repository.importSource(project, { title: base, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
+            if (res.kind === "created") imported.push(base);
+            continue;
+          }
+          const asset = await saveAsset(project, file.name, file.data);
+          const res = await this.repository.importSource(project, { title: base, sourceKind: ext === "pdf" ? "pdf" : "vault", asset, capturedContent: new Uint8Array(file.data) });
+          if (res.kind === "created") imported.push(base);
+        }
+        await this.render();
+        return imported.length ? `Imported ${imported.map((n) => `“${n}”`).join(", ")}` : "Those files are already in the library.";
+      },
+      pickNote: () => new Promise<string | null>((resolve) => {
+        new NotePickModal(this.app, (file) => {
+          void (async () => {
+            try {
+              const content = await this.app.vault.cachedRead(file);
+              const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+              const clipUrl = parseClipUrl(content);
+              const res = await this.repository.importSource(project, { title: file.basename, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
+              await this.render();
+              resolve(res.kind === "duplicate" ? `Already in the library: ${file.basename}` : `Imported note: ${file.basename}`);
+            } catch (e) {
+              // Resolve (not reject) so the capture modal leaves its busy state.
+              resolve(`Couldn’t import ${file.basename}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          })();
+        }, () => resolve(null)).open();
+      }),
     }).open();
   }
 
@@ -473,57 +546,103 @@ export class ProjectCreateModal extends Modal {
   }
 }
 
-const SOURCE_KINDS = ["web", "pdf", "doi", "arxiv", "zotero", "vault"] as const;
-type SourceKind = (typeof SOURCE_KINDS)[number];
-const SOURCE_IDENTITY_LABEL: Record<SourceKind, string> = {
-  web: "URL",
-  pdf: "URL or vault asset path (optional)",
-  doi: "DOI",
-  arxiv: "arXiv id",
-  zotero: "Zotero key",
-  vault: "Vault note path (optional)",
-};
+interface SourceCaptureHandlers {
+  /** Clip a URL to clean markdown, import it, tag it. Returns a status message. */
+  captureUrl(url: string): Promise<string>;
+  /** Import dropped/uploaded files (md → text capture; others → project assets). Returns a status message. */
+  importFiles(files: Array<{ name: string; data: ArrayBuffer }>): Promise<string>;
+  /** Fuzzy-pick a vault note and import it. Resolves null when cancelled. */
+  pickNote(): Promise<string | null>;
+}
 
-class SourceAddModal extends Modal {
-  constructor(app: App, private readonly submit: (input: Parameters<ResearchRepository["importSource"]>[1]) => Promise<void>) { super(app); }
+function extractUrl(text: string): string | undefined {
+  return /https?:\/\/[^\s<>"']+/.exec(text.trim())?.[0];
+}
+
+/**
+ * Capture-first source intake: no form fields. Drop a URL or file, paste a
+ * link, pick a note, or upload — each gesture is one action with an inline
+ * status line instead of a multi-field dialog.
+ */
+class SourceCaptureModal extends Modal {
+  private busy = false;
+
+  constructor(app: App, private readonly handlers: SourceCaptureHandlers) { super(app); }
+
   override onOpen(): void {
     this.contentEl.empty();
+    this.contentEl.addClass("cc-source-capture");
     this.contentEl.createEl("h2", { text: "Add research source" });
-    this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: "A source is the raw material everything traces back to — a paper, article, or vault note. Paste its text below, or import scholarly works later from the Discover tab." });
+    this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: "Drop a link or file, paste a URL, or pick a note. URLs are clipped to clean markdown and tagged automatically — no forms." });
 
-    const titleWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    titleWrap.createEl("label", { text: "Title" });
-    const title = titleWrap.createEl("input", { attr: { "aria-label": "Source title", placeholder: "Smith 2024 — attention residue survey" } });
+    const status = this.contentEl.createEl("p", { cls: "cc-source-capture-status", attr: { role: "status" } });
+    const run = (label: string, action: () => Promise<string | null>) => {
+      if (this.busy) return;
+      this.busy = true;
+      status.setText(`${label}…`);
+      void action()
+        .then((message) => status.setText(message ?? ""))
+        .catch((cause) => status.setText(sanitizeLoadError(cause)))
+        .finally(() => { this.busy = false; });
+    };
+    const readFiles = (list: FileList | File[]) => {
+      const files = [...list];
+      if (!files.length) return;
+      void Promise.all(files.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })))
+        .then((payload) => run(`Importing ${files.length} file${files.length === 1 ? "" : "s"}`, () => this.handlers.importFiles(payload)))
+        .catch((cause: unknown) => status.setText(sanitizeLoadError(cause)));
+    };
 
-    const kindWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    kindWrap.createEl("label", { text: "Source kind" });
-    const kind = kindWrap.createEl("select", { attr: { "aria-label": "Source kind" } });
-    for (const value of SOURCE_KINDS) kind.createEl("option", { text: value, value });
-
-    const identityWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    const identityLabel = identityWrap.createEl("label", { text: SOURCE_IDENTITY_LABEL.web });
-    const identity = identityWrap.createEl("input", { attr: { "aria-label": "Source identifier" } });
-    kind.addEventListener("change", () => { identityLabel.setText(SOURCE_IDENTITY_LABEL[kind.value as SourceKind]); });
-
-    const capturedWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    capturedWrap.createEl("label", { text: "Captured text (optional) — the passage(s) you'll draw evidence from" });
-    const captured = capturedWrap.createEl("textarea", { attr: { "aria-label": "Captured text (optional)", rows: "5" } });
-
-    const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
-    const submitBar = this.contentEl.createDiv({ cls: "cc-research-modal-submit-bar" });
-    const button = submitBar.createEl("button", { cls: "mod-cta", text: "Add source" });
-    button.addEventListener("click", () => {
-      if (!title.value.trim()) { error.setText("Source title is required."); return; }
-      const kindValue = kind.value as SourceKind;
-      const id = identity.value.trim();
-      void this.submit({
-        title: title.value,
-        sourceKind: kindValue,
-        ...(id ? (kindValue === "doi" ? { doi: id } : kindValue === "arxiv" ? { arxivId: id } : { url: id }) : {}),
-        ...(captured.value.trim() ? { capturedContent: captured.value } : {}),
-      }).then(() => this.close()).catch((cause) => error.setText(sanitizeLoadError(cause)));
+    const drop = this.contentEl.createDiv({ cls: "cc-source-dropzone", text: "Drop a URL, PDF, or file here" });
+    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.addClass("is-dragover"); });
+    drop.addEventListener("dragleave", () => drop.removeClass("is-dragover"));
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.removeClass("is-dragover");
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      if (dt.files.length) { readFiles(dt.files); return; }
+      const url = extractUrl(dt.getData("text/uri-list") || dt.getData("text/plain"));
+      if (url) run("Clipping", () => this.handlers.captureUrl(url));
+      else status.setText("Drop a link or a file — that wasn't recognizable.");
     });
+
+    const urlRow = this.contentEl.createDiv({ cls: "cc-source-url-row" });
+    const urlInput = urlRow.createEl("input", { attr: { type: "url", placeholder: "https://… paste a link to clip", "aria-label": "URL to clip" } });
+    const clip = urlRow.createEl("button", { cls: "mod-cta", text: "Clip & add" });
+    const submitUrl = () => {
+      const url = extractUrl(urlInput.value);
+      if (!url) { status.setText("Paste a valid http(s) URL first."); return; }
+      run("Clipping", () => this.handlers.captureUrl(url));
+    };
+    clip.addEventListener("click", submitUrl);
+    urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitUrl(); } });
+
+    const actions = this.contentEl.createDiv({ cls: "cc-research-modal-actions" });
+    const pick = actions.createEl("button", { text: "Choose a vault note…" });
+    pick.addEventListener("click", () => run("Importing note", () => this.handlers.pickNote()));
+    const upload = actions.createEl("button", { text: "Upload a file…" });
+    const fileInput = this.contentEl.createEl("input", { attr: { type: "file", multiple: "multiple", "aria-label": "Upload source files" } });
+    fileInput.addClass("cc-source-file-input");
+    upload.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => { if (fileInput.files?.length) readFiles(fileInput.files); });
   }
+}
+
+class NotePickModal extends FuzzySuggestModal<TFile> {
+  private chosen = false;
+
+  constructor(app: App, private readonly choose: (file: TFile) => void, private readonly cancel: () => void) { super(app); }
+
+  override getItems(): TFile[] {
+    return this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
+  }
+
+  getItemText(file: TFile): string { return file.path; }
+
+  onChooseItem(file: TFile): void { this.chosen = true; this.choose(file); }
+
+  override onClose(): void { if (!this.chosen) this.cancel(); }
 }
 
 const INTERPRET_INSTRUCTION = "Write a one-to-three sentence interpretation of this evidence excerpt: what it shows and why it matters for the research project, stated cautiously without going beyond the excerpt.";

@@ -76,6 +76,8 @@ import { seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
 import { buildResearchDeskViewModel } from "./research/deskViewModel";
 import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, type TriageNote } from "./research/triage";
+import { captureWebSource } from "./research/webCapture";
+import { summarizeAndTag } from "./indexing/autoTagger";
 import { resolveCompanionWorkspace, type CompanionWorkspaceCard } from "./view/companionWorkspace";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
@@ -148,7 +150,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       createProject: () => this.activateResearchWorkbench(undefined, "Overview"),
       triageClippings: () => this.triageClippings(),
       startFromActiveNote: () => void this.startResearchFromActiveNote(),
-      hasActiveNote: () => !!this.app.workspace.getActiveViewOfType(MarkdownView)?.file,
     }));
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
@@ -167,6 +168,37 @@ export default class ClaudeCompanionPlugin extends Plugin {
           draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
           revisionCoordinator: new RevisionCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
           rewriteText: this.researchRewriteText(),
+          ...(typeof DOMParser === "undefined" ? {} : {
+            captureWeb: (url: string) => captureWebSource(url, {
+              fetchHtml: async (target) => {
+                const response = await requestUrl({ url: target, method: "GET", throw: false });
+                if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+                return response.text;
+              },
+              parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+            }),
+          }),
+          saveAsset: async (projectPath, name, data) => {
+            const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
+            await this.ensureFolder(folder);
+            let path = normalizePath(`${folder}/${name}`);
+            if (this.app.vault.getAbstractFileByPath(path)) {
+              const base = name.replace(/\.[^.]+$/, "");
+              const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
+              path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
+            }
+            await this.app.vault.createBinary(path, data);
+            return path;
+          },
+          suggestTags: async (content) => {
+            try {
+              const { tags } = await summarizeAndTag(this.app, this.router(), content, existingVaultTags(this.app));
+              return tags;
+            } catch (e) {
+              console.warn("[companion] source tagging failed", e);
+              return [];
+            }
+          },
           openDesk: (projectPath) => this.activateResearchDesk(projectPath),
           askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
         };
@@ -298,7 +330,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       id: "research-from-active-note",
       name: "Start research project from active note",
       checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? this.lastMarkdownFile;
         if (checking) return !!file;
         void this.startResearchFromActiveNote();
         return true;
@@ -454,6 +486,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     // Show a "Build" action in the header of any `type: plan` note.
     this.registerEvent(this.app.workspace.on("file-open", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+      if (file) this.lastMarkdownFile = file;
+    }));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
       this.scheduleResearchRefresh(file.path);
@@ -543,6 +579,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Tracks the Build header-action element we added to each plan-note view. */
   private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
+  /** Most recently focused markdown file — side views (Desk, Chat) steal active-leaf, so "active note" flows must remember it. */
+  private lastMarkdownFile: TFile | null = null;
 
   /**
    * Add (or remove) a "Build" icon in the header of every open markdown note that
@@ -753,7 +791,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * scholarly search is one click away.
    */
   private async startResearchFromActiveNote(): Promise<void> {
-    const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+    const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? this.lastMarkdownFile;
     if (!file) {
       new Notice("Open a note first — it becomes the project's first source.");
       return;
@@ -775,7 +813,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     new ProjectCreateModal(this.app, async (input) => {
       const record = await this.researchRepository().createProject(input);
       const url = parseClipUrl(content);
-      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+      const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
       await this.researchRepository().importSource(record.path, {
         title: file.basename,
         sourceKind: "vault",
@@ -1884,9 +1922,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private researchRepository(): ResearchRepository {
     const readNotes = async (files: TFile[]) => Promise.all(files.map(async (file) => {
       const content = await this.app.vault.cachedRead(file);
-      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+      const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
       const cached = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-      const match = /^---\n([\s\S]*?)\n---\n?/.exec(content);
+      const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
       const frontmatter = cached ?? (match ? parseYaml(match[1] ?? "") as Record<string, unknown> : undefined);
       return { path: file.path, ...(frontmatter ? { frontmatter } : {}), body };
     }));
