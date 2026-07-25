@@ -76,6 +76,8 @@ import { seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
 import { buildResearchDeskViewModel } from "./research/deskViewModel";
 import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, type TriageNote } from "./research/triage";
+import { captureWebSource } from "./research/webCapture";
+import { summarizeAndTag } from "./indexing/autoTagger";
 import { resolveCompanionWorkspace, type CompanionWorkspaceCard } from "./view/companionWorkspace";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
@@ -167,6 +169,37 @@ export default class ClaudeCompanionPlugin extends Plugin {
           draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
           revisionCoordinator: new RevisionCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
           rewriteText: this.researchRewriteText(),
+          ...(typeof DOMParser === "undefined" ? {} : {
+            captureWeb: (url: string) => captureWebSource(url, {
+              fetchHtml: async (target) => {
+                const response = await requestUrl({ url: target, method: "GET", throw: false });
+                if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+                return response.text;
+              },
+              parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+            }),
+          }),
+          saveAsset: async (projectPath, name, data) => {
+            const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
+            await this.ensureFolder(folder);
+            let path = normalizePath(`${folder}/${name}`);
+            if (this.app.vault.getAbstractFileByPath(path)) {
+              const base = name.replace(/\.[^.]+$/, "");
+              const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
+              path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
+            }
+            await this.app.vault.createBinary(path, data);
+            return path;
+          },
+          suggestTags: async (content) => {
+            try {
+              const { tags } = await summarizeAndTag(this.app, this.router(), content, existingVaultTags(this.app));
+              return tags;
+            } catch (e) {
+              console.warn("[companion] source tagging failed", e);
+              return [];
+            }
+          },
           openDesk: (projectPath) => this.activateResearchDesk(projectPath),
           askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
         };

@@ -270,4 +270,10 @@ export class Modal {
   open(): void { lastOpenedModal = this; this.onOpen(); }
   close(): void {}
   onOpen(): void {}
+  onClose(): void {}
+}
+export abstract class FuzzySuggestModal<T> extends Modal {
+  abstract getItems(): T[];
+  abstract getItemText(item: T): string;
+  abstract onChooseItem(item: T): void;
 }
