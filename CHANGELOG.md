@@ -6,6 +6,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Inline rewrite in the editor (Composer-style).** Select text and run
+  *Rewrite selection with Claude…* from the command palette or the right-click
+  menu: pick a preset (improve, fix grammar, shorten, expand, simplify, formal,
+  casual) or type a custom instruction, then review the result as the same
+  per-hunk red/green diff used everywhere else before it is applied. When the
+  selection isn't unique in the note, the apply anchors at the editor offsets.
+- **Triage clippings (one click, Research Desk).** Groups the clippings inbox
+  into research themes with a single model call, tags each note with its
+  `research/<theme>` tag (unioned, never clobbered), and writes a
+  `Clippings/Triage.md` board with per-theme summaries, wikilinks, source
+  URLs, and a potential project per theme. Un-typed clips are enriched through
+  the existing typed-source pipeline first. Also available as the *Triage
+  clippings folder into research themes* command.
+- **New project from active note (Research Desk / command palette).** Drafts a
+  sharp research question grounded in the open note, confirms through the
+  create-project modal (title and folder pre-filled), imports the note as the
+  project's first source (clip URL preserved), and lands on the Discover tab
+  with a pre-derived query so the preliminary OpenAlex/Crossref/arXiv search is
+  one click away.
+- **Sharpen with Claude (claim creation).** Rewrites a draft claim proposition
+  as one precise, defensible sentence, grounded in the evidence items checked
+  in the modal — the model is instructed to introduce no facts beyond them.
+  Preview with Use rewrite / Dismiss; the draft is never silently overwritten.
+- **Draft with Claude (evidence review).** Generates a one-to-three-sentence
+  interpretation of the excerpt, grounded in source + locator, into an
+  editable field that saves with the review decision.
+- **`ResearchRepository.updateEvidenceInterpretation()`** — replaces or
+  appends an evidence note's `Interpretation:` block in place; everything else
+  in the note stays byte-identical.
+
+### Changed
+- **Research onboarding copy.** Every workbench tab now states what the step
+  is and why it matters (with BUILD step numbers), empty states include a
+  concrete example record, and the Desk empty state explains the
+  sources → evidence → claims → outline → draft trail in plain language.
+- **Create project / Add source modals are dedicated.** The create-project
+  modal explains the trail, auto-suggests the folder from the title, offers
+  *Draft with Claude* for the research question, takes an optional audience,
+  and lands on the Sources tab after creation. The add-source modal uses a
+  kind dropdown with a per-kind identifier label instead of free text.
+
 ## [0.12.2] — 2026-07-24
 
 ### Fixed

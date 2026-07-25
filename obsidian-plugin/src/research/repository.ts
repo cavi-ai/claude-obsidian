@@ -2,6 +2,7 @@ import { buildProjectSnapshot, compareCodeUnits, type ProjectSnapshot } from "./
 import { canonicalSourceId, findDuplicate } from "./identity";
 import { parseResearchCandidate, parseResearchRecord, type ResearchNoteInput } from "./parse";
 import { renderResearchRecord } from "./render";
+import { upsertInterpretation } from "./interpretation";
 import { renderEvidenceOutline } from "./outline";
 import { applyDraftSection, draftMarkdownFingerprint, parseDraftSections, validateDocumentCitationKeys, type DraftSectionEnvelope, type DraftSectionParseResult, type ParsedDraftSection } from "./draftSections";
 import type { DraftGroundingPacket } from "./draftGrounding";
@@ -351,6 +352,18 @@ export class ResearchRepository {
     if (!result.record || result.record.type !== "evidence") throw new Error(`Research record is not evidence: ${path}`);
     await this.io.updateFrontmatter(path, (frontmatter) => { frontmatter.review_state = state; });
     return { ...result.record, reviewState: state };
+  }
+
+  /** Replace (or append) the evidence note's Interpretation block. */
+  async updateEvidenceInterpretation(path: string, interpretation: string): Promise<EvidenceRecord> {
+    safePath(path);
+    if (!this.io.updateText) throw new Error("Atomic research note updates are unavailable");
+    const note = (await this.io.listMarkdown()).find((candidate) => candidate.path === path);
+    if (!note) throw new Error(`Research evidence not found: ${path}`);
+    const result = parseResearchRecord(note);
+    if (!result.record || result.record.type !== "evidence") throw new Error(`Research record is not evidence: ${path}`);
+    await this.io.updateText(path, (current) => upsertInterpretation(current, interpretation));
+    return { ...result.record, interpretation: interpretation.trim() };
   }
 
   private async createTyped<T extends ResearchRecord>(record: T): Promise<T> {
