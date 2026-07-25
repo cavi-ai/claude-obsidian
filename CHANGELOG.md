@@ -4,9 +4,16 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] — 2026-07-24
 
 ### Added
+- **Capture-first Add source.** The Add source button no longer opens a form.
+  The popup takes one gesture: **drop a URL or file**, **paste a link** (the
+  page is clipped to clean markdown via Defuddle and **tagged automatically**
+  from content, reusing existing vault tags), **choose a vault note** from a
+  fuzzy picker, or **upload a file** (PDFs and binaries land in the project's
+  `Sources/assets/` folder and import as asset-backed sources). Duplicates are
+  detected against the project's canonical source ids.
 - **Inline rewrite in the editor (Composer-style).** Select text and run
   *Rewrite selection with Claude…* from the command palette or the right-click
   menu: pick a preset (improve, fix grammar, shorten, expand, simplify, formal,
@@ -42,11 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is and why it matters (with BUILD step numbers), empty states include a
   concrete example record, and the Desk empty state explains the
   sources → evidence → claims → outline → draft trail in plain language.
-- **Create project / Add source modals are dedicated.** The create-project
-  modal explains the trail, auto-suggests the folder from the title, offers
-  *Draft with Claude* for the research question, takes an optional audience,
-  and lands on the Sources tab after creation. The add-source modal uses a
-  kind dropdown with a per-kind identifier label instead of free text.
+- **Create project modal is dedicated.** It explains the trail, auto-suggests
+  the folder from the title, offers *Draft with Claude* for the research
+  question, takes an optional audience, and lands on the Sources tab after
+  creation.
+- **Version 0.13.0.**
 
 ## [0.12.2] — 2026-07-24
 

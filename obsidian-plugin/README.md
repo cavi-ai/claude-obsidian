@@ -135,6 +135,9 @@ Intelligence, and Discover. Getting started is guided rather than blank:
   inbox into research themes with one model call, tags each note with its
   `research/<theme>` tag, and writes a `Clippings/Triage.md` board with
   wikilinks, source URLs, and a potential project per theme.
+- **Add source is capture-first, not a form** — drop a URL (clipped to clean
+  markdown and auto-tagged), drop or upload a file (PDFs land in project
+  assets), or fuzzy-pick an existing vault note. One gesture per source.
 - **New project from active note** (Research Desk or command palette) —
   drafts a sharp research question grounded in the open note, creates the
   project, imports the note as the first source, and lands on Discover with a
