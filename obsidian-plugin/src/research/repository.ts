@@ -299,7 +299,7 @@ export class ResearchRepository {
     if (JSON.stringify(input.currentEvidence) !== JSON.stringify(input.envelope.evidence)) throw new Error("Draft evidence changed after the preview was generated");
     if (!input.envelope.claimFingerprint || input.currentClaimFingerprint !== input.envelope.claimFingerprint) throw new Error("Draft claim changed after the preview was generated");
     await this.io.updateText(input.documentPath, (current) => {
-      const frontmatter = /^---\n([\s\S]*?)\n---\n?/.exec(current);
+      const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(current);
       if (!frontmatter || !/^type:\s*["']?research-document["']?\s*$/m.test(frontmatter[1] ?? "")) throw new Error(`Research record is not a document: ${input.documentPath}`);
       const parsedSections = parseDraftSections(current);
       if (parsedSections.issues.length) throw new Error(`Research document has malformed managed sections: ${parsedSections.issues.join("; ")}`);
