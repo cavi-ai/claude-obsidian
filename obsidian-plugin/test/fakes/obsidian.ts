@@ -268,7 +268,7 @@ export class Modal {
   contentEl = new FakeElement() as unknown as HTMLElement;
   constructor(public app: App) {}
   open(): void { lastOpenedModal = this; this.onOpen(); }
-  close(): void {}
+  close(): void { this.onClose(); }
   onOpen(): void {}
   onClose(): void {}
 }
