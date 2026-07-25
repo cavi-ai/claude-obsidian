@@ -576,12 +576,8 @@ class SourceCaptureModal extends Modal {
     this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: "Drop a link or file, paste a URL, or pick a note. URLs are clipped to clean markdown and tagged automatically — no forms." });
 
     const status = this.contentEl.createEl("p", { cls: "cc-source-capture-status", attr: { role: "status" } });
-    const run = (label: string, action: () => Promise<string | null>) => {
-      if (this.busy) return;
-      this.busy = true;
-      status.setText(`${label}…`);
       void action()
-        .then((message) => { if (message) status.setText(message); })
+        .then((message) => { status.setText(message ?? ""); })
         .catch((cause) => status.setText(sanitizeLoadError(cause)))
         .finally(() => { this.busy = false; });
     };
