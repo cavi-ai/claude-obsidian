@@ -403,7 +403,7 @@ export class ResearchWorkbenchView extends ItemView {
           if (ext === "md") {
             const text = new TextDecoder().decode(file.data);
             const clipUrl = parseClipUrl(text);
-            const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+            const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
             const res = await this.repository.importSource(project, { title: base, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
             if (res.kind === "created") imported.push(base);
             continue;
@@ -420,7 +420,7 @@ export class ResearchWorkbenchView extends ItemView {
           void (async () => {
             try {
               const content = await this.app.vault.cachedRead(file);
-              const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+              const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
               const clipUrl = parseClipUrl(content);
               const res = await this.repository.importSource(project, { title: file.basename, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
               await this.render();
@@ -581,7 +581,7 @@ class SourceCaptureModal extends Modal {
       this.busy = true;
       status.setText(`${label}…`);
       void action()
-        .then((message) => { if (message) status.setText(message); })
+        .then((message) => status.setText(message ?? ""))
         .catch((cause) => status.setText(sanitizeLoadError(cause)))
         .finally(() => { this.busy = false; });
     };
@@ -589,7 +589,8 @@ class SourceCaptureModal extends Modal {
       const files = [...list];
       if (!files.length) return;
       void Promise.all(files.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })))
-        .then((payload) => run(`Importing ${files.length} file${files.length === 1 ? "" : "s"}`, () => this.handlers.importFiles(payload)));
+        .then((payload) => run(`Importing ${files.length} file${files.length === 1 ? "" : "s"}`, () => this.handlers.importFiles(payload)))
+        .catch((cause: unknown) => status.setText(sanitizeLoadError(cause)));
     };
 
     const drop = this.contentEl.createDiv({ cls: "cc-source-dropzone", text: "Drop a URL, PDF, or file here" });

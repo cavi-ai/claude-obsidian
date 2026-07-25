@@ -813,7 +813,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     new ProjectCreateModal(this.app, async (input) => {
       const record = await this.researchRepository().createProject(input);
       const url = parseClipUrl(content);
-      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+      const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
       await this.researchRepository().importSource(record.path, {
         title: file.basename,
         sourceKind: "vault",

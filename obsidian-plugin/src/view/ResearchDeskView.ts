@@ -15,7 +15,7 @@ export interface ResearchDeskDependencies {
   createProject?(): void | Promise<void>;
   /** Group the clippings inbox into research themes (one click, project-independent). */
   triageClippings?(): void | Promise<void>;
-  /** Start a research project seeded from the most recently edited note. */
+  /** Start a research project seeded from the most recently focused markdown note. */
   startFromActiveNote?(): void | Promise<void>;
 }
 
