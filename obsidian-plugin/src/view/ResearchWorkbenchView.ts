@@ -403,7 +403,8 @@ export class ResearchWorkbenchView extends ItemView {
           if (ext === "md") {
             const text = new TextDecoder().decode(file.data);
             const clipUrl = parseClipUrl(text);
-            const res = await this.repository.importSource(project, { title: base, sourceKind: "vault", capturedContent: text.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
+            const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+            const res = await this.repository.importSource(project, { title: base, sourceKind: "vault", capturedContent: body.slice(0, 50000), ...(clipUrl ? { url: clipUrl } : {}) });
             if (res.kind === "created") imported.push(base);
             continue;
           }

@@ -2248,3 +2248,5 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-source-url-row input { flex: 1; }
 .cc-source-file-input { display: none; }
 .cc-source-capture-status { min-height: 1.2em; color: var(--text-muted); }
+.cc-rewrite-hint { color: var(--text-faint); font-size: var(--font-ui-smaller); margin-right: auto; }
+.is-mobile .cc-source-dropzone { display: none; }

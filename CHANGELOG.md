@@ -55,6 +55,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   creation.
 - **Version 0.13.0.**
 
+### Fixed
+- **New project from active note works from the Desk.** The Desk leaf steals
+  the active view, so the flow saw "no note" and the button could hide; the
+  plugin now tracks the most recently focused markdown file and both the Desk
+  button and the command fall back to it.
+- **Dropped .md sources strip frontmatter** from their captured content,
+  matching the note-picker import path.
+- **Mobile source capture.** The desktop-only drag-and-drop zone is hidden on
+  mobile (paste/upload/pick remain); the rewrite modal shows its ⌘/Ctrl+Enter
+  shortcut hint.
+
 ## [0.12.2] — 2026-07-24
 
 ### Fixed

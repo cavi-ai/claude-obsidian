@@ -52,6 +52,7 @@ export class RewriteModal extends Modal {
     });
 
     const buttons = contentEl.createDiv({ cls: "cc-diff-buttons" });
+    buttons.createSpan({ cls: "cc-rewrite-hint", text: "⌘/Ctrl+Enter" });
     const go = buttons.createEl("button", { text: "Rewrite", cls: "mod-cta" });
     go.addEventListener("click", submit);
     const cancel = buttons.createEl("button", { text: "Cancel" });
