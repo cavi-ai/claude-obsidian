@@ -4,6 +4,23 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] — 2026-07-27
+
+### Changed
+- **Vault workflow renamed.** The *Frontmatter audit* workflow's id is now
+  `frontmatter-normalizer`, matching its skill and command in the
+  claude-obsidian Claude Code plugin. Its slash command changes with it:
+  `/frontmatter-audit` becomes `/frontmatter-normalizer`. The workflow's display
+  name and behaviour are unchanged.
+
+### Added
+- **Catalog drift test.** `registryDrift.test.ts` holds the workflow catalog to
+  the capability registry in the claude-obsidian plugin: every workflow must
+  resolve to a registry entry declaring a companion surface, with matching name
+  and group, and every such entry must have a workflow. The registry is read at
+  test time only and the suite skips when the submodule is absent, so
+  obsidian-plugin still builds and tests standalone.
+
 ## [0.14.0] — 2026-07-27
 
 ### Added
