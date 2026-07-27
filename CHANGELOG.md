@@ -4,6 +4,28 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] — 2026-07-27
+
+### Added
+- **Plan Mode.** A composer toggle next to *Act on vault*: Claude explores the
+  vault with read-only tools and ends the turn with a concrete plan — what it
+  would create or change, where, and why — instead of attempting writes. Write
+  tools and the edit-proposal tool are both withheld for the turn regardless of
+  the allow-writes setting. The mode is per conversation and never persisted.
+- **Your own slash commands (prompt templates).** Every markdown note in the
+  templates folder becomes a `/command` in chat: frontmatter carries the name,
+  description, and optional per-turn `model` and `context` overrides; the body
+  is the prompt. `{selection}` and `{active_note}` are substituted from the live
+  editor at run time and any other `{placeholder}` is left literal. The
+  *Create prompt template* command scaffolds a note with the schema, and the
+  chat palette refreshes as notes in the folder are added, edited, or renamed.
+- **Attach page content from a URL.** Typing or pasting a link into the composer
+  offers to attach the page; accepting clips it to clean markdown through
+  Defuddle and adds it to the request context as an attached-page pill with
+  pending and failure states. Nothing is fetched until the Attach click.
+- **Templates folder setting** (default `Claude/Templates`), searchable from
+  Obsidian's settings search.
+
 ## [0.13.0] — 2026-07-26
 
 ### Added
