@@ -5,6 +5,7 @@ on:
     branches: ["**"]
     paths:
       - "obsidian-plugin/**"
+      - "claude-plugin"
       - "claude-plugin/**"
       - ".github/workflows/obsidian-plugin-ci.yml"
   pull_request:
