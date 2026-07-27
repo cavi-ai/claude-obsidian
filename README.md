@@ -55,7 +55,9 @@ a per-action confirmation you control. → [agent-mode.md](guides/agent-mode.md)
 
 "Improve this note" produces a red/green **per-hunk** diff you accept or reject
 before anything touches disk. Same for inline rewrites: select text →
-*Rewrite selection with Claude…* — no chat round-trip.
+*Rewrite selection with Claude…* — no chat round-trip. Or flip on **Plan Mode**
+and Claude explores read-only and proposes a plan, with writes off for the turn
+regardless of your settings.
 → [agent-mode.md](guides/agent-mode.md#editing-notes-diffs-not-writes)
 
 <!-- screenshot: assets/diff-review.png — pending capture -->
@@ -80,7 +82,7 @@ as support, and revisions are validated so citations can't silently vanish.
 ### The same vault from Claude Code
 
 Companion runs a loopback-only, token-gated MCP server. Claude Code connects to
-it and operates on the notes you're looking at — 16 commands and 30 skills for
+it and operates on the notes you're looking at — 27 commands and 31 skills for
 synthesis, tagging, session capture, spec builds, and advisor roadmaps.
 → [claude-code-bridge.md](guides/claude-code-bridge.md)
 
@@ -142,7 +144,7 @@ depth over provider breadth.
 | Path | What it is | Ships to |
 |---|---|---|
 | [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: chat with agent mode, diff-reviewed edits, vault context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases output, inline `claude-html` artifacts, prompt caching, local-model fallback, and the MCP bridge. | Obsidian community store |
-| [`claude-plugin/`](https://github.com/cavi-ai/claude-obsidian-plugin) | **claude-obsidian** — the Claude Code plugin + marketplace: 16 commands and 30 skills that drive your vault over the Companion MCP bridge. Pinned submodule; see its [README](https://github.com/cavi-ai/claude-obsidian-plugin#readme). | Claude Code marketplace |
+| [`claude-plugin/`](https://github.com/cavi-ai/claude-obsidian-plugin) | **claude-obsidian** — the Claude Code plugin + marketplace: 27 commands and 31 skills that drive your vault over the Companion MCP bridge. Pinned submodule; see its [README](https://github.com/cavi-ai/claude-obsidian-plugin#readme). | Claude Code marketplace |
 | [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
 | [`upstream/obsidian-skills/`](upstream/) | Steph Ango's (@kepano, Obsidian CEO) [Obsidian Skills](https://github.com/kepano/obsidian-skills), vendored the same way (its own MIT license) and used as the canonical format reference for our Bases, Canvas, and Obsidian-Flavored-Markdown emitters. See [`NOTICE`](NOTICE). | — |
 
@@ -150,7 +152,7 @@ depth over provider breadth.
 flowchart LR
     companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
     bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>10 reads · 14 write-gated tools"])
-    code["claude-obsidian<br/>Claude Code plugin<br/>16 commands · 30 skills"]
+    code["claude-obsidian<br/>Claude Code plugin<br/>27 commands · 31 skills"]
 
     companion <-->|"exposes vault tools"| bridge
     code <-->|"connects and drives the same vault"| bridge

@@ -108,6 +108,7 @@ unmodified submodule. Full attribution is in [`NOTICE`](../NOTICE).
 | Open artifacts in | Target for the one-click **Open ↗** button |
 | Artifacts folder | Where saved artifact notes land |
 | Inline artifact height | Rendered height of the inline frame |
+| Templates folder | Notes here become your own slash commands — see [getting-started.md](getting-started.md#your-own-slash-commands) |
 
 See also: [agent-mode.md](agent-mode.md) for Canvas and Bases output, which are
 native Obsidian files rather than HTML artifacts.

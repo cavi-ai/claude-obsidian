@@ -73,6 +73,24 @@ with *Allow write tools* off — reviewing a diff is already your decision point
 Each replacement must match the note exactly once, which is why Claude includes
 surrounding lines instead of matching a bare word.
 
+## Plan Mode
+
+Sometimes you want Claude to work out *what* it would do before it does anything.
+The **Plan** button in the composer turns on Plan Mode for the conversation.
+
+While it's on:
+
+- Claude gets the **read-only tool set only** — write tools are excluded regardless of your *Allow write tools* setting.
+- `propose_note_edit` isn't offered either, so the turn ends in a plan rather than an edit proposal.
+- Claude is instructed to explore first (search and read the relevant notes), then propose concrete ordered steps naming the vault paths involved.
+
+Turn it off to execute. Plan Mode is **per-conversation and never persisted** — a
+fresh chat always starts with it off, so you can't leave it on by accident and
+wonder why nothing writes.
+
+This is the strongest guarantee in the plugin: not "Claude was asked not to
+write", but "the write tools were never handed over".
+
 ## The guardrails
 
 - **Per-action confirmation.** Every write tool call pops a confirmation showing what it's about to do. Decline and Claude gets "User declined." and carries on.
@@ -120,6 +138,9 @@ characters, oldest dropped first.
 | Let Claude use vault tools | On | Enables the read-only loop. Off = plain chat with pre-attached context only. |
 | Allow write tools | On | Adds the 14 write tools. Every call still asks first. |
 | Max tool iterations per turn | 10 | Rounds of search/read/write before Claude must answer. |
+
+Plan Mode has no setting — it's the **Plan** toggle in the composer, per
+conversation.
 
 One agent, three surfaces: in chat here, over the
 [MCP bridge](claude-code-bridge.md) for Claude Code on desktop, and via a cloud

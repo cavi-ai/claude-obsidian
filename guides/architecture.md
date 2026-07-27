@@ -14,10 +14,11 @@ the MCP bridge on layout-ready. Everything else is organized by concern.
 | `providers/` | `ProviderRouter` builds providers from settings and routes by `TaskRole`: `chat` → Anthropic, `utility` → Ollama when enabled. `anthropic.ts`/`ollama.ts` implement a common `Provider` interface; `auth.ts` resolves credential + headers + base URL; `fallback.ts` owns the offline/usage fallback policy; `errorHints.ts` turns raw failures into actionable messages. |
 | `claude/` | `sse.ts` parses the Anthropic streaming response; `models.ts` resolves the model id (dropdown vs custom). |
 | `artifacts/` | `designSystem.ts` holds the design-system prompt injected into every system prompt; `parse.ts` extracts `claude-html` blocks; `renderInline.ts` renders them in a sandboxed iframe with a restrictive CSP; `artifactStore.ts` saves them as notes. |
-| `context/` | `vaultContext.ts` assembles per-request context (active note, selection, linked/backlinked notes, vault search) within `contextCharBudget`; `search.ts` is keyword scoring; `attachments.ts` handles vault PDFs/images and pasted screenshots as multimodal blocks. |
+| `context/` | `vaultContext.ts` assembles per-request context (active note, selection, linked/backlinked notes, vault search, attached pages) within `contextCharBudget`; `search.ts` is keyword scoring; `attachments.ts` handles vault PDFs/images and pasted screenshots as multimodal blocks; `urlContext.ts` detects a pasted URL and shapes the attached-page record, with `webCapture.ts` doing the Defuddle fetch on explicit user action only. |
+| `templates/promptTemplates.ts` | User-defined prompt templates: parse a template note's frontmatter (name, description, optional model and context defaults) plus body into a slash command, and substitute `{selection}`/`{active_note}` at run time. Pure — vault IO lives upstream. |
 | `semantic/` | The local embeddings index: `indexer.ts` orchestrates traverse → chunk → embed → store (IO injected); `store.ts` is a pure vector store with (de)serialization; `similarity.ts` is vector math plus reciprocal-rank fusion. |
 | `mcp/` | `server.ts` is the loopback HTTP MCP server; `vaultTools.ts` implements the read tools always and write tools behind `mcpAllowWrites`; `protocol.ts` is JSON-RPC framing; `clientConfig.ts` emits paste-ready connection snippets. |
-| `agent/` | `loop.ts` runs the stream → execute tools → re-stream turn (pure, deps injected); `tools.ts` adapts MCP tool defs to Anthropic tool-use with write gating and result truncation; `prompt.ts` is the agent system-prompt addendum. |
+| `agent/` | `loop.ts` runs the stream → execute tools → re-stream turn (pure, deps injected); `tools.ts` adapts MCP tool defs to Anthropic tool-use with write gating and result truncation, and exposes `readOnlyAnthropicTools` for Plan Mode; `prompt.ts` holds the agent system-prompt addendum and the Plan Mode instruction. |
 | `edit/diff.ts` | The apply-edits model: validate exact-string replacements, render per-hunk diffs, apply the accepted subset. Pure. |
 | `links/` | `unlinkedMentions.ts` finds plain-text occurrences of other notes' titles/aliases; `suggest.ts` merges them with semantic neighbors into one ranked list. |
 | `build/` | The spec→build handoff. `spec.ts` extracts tasks from a plan note and renders the build spec plus Claude Code command; `tracker.ts` renders the live progress board as a `claude-html` artifact. |
@@ -50,8 +51,10 @@ Injection is used consistently to make that possible — `loop.ts` takes its str
 and tool executor as deps, `indexer.ts` takes its IO, `consolidate.ts` takes file
 contents and the model call.
 
-53 test files run under Vitest. CI runs typecheck, lint, test, and build on Node 20
-and 22 for every push and PR.
+123 test files and ~1,150 tests run under Vitest, grouped by concern
+(`test/research/`, `test/semantic/`, `test/discovery/`, `test/ontology/`,
+`test/sources/`). CI runs typecheck, lint, test, and build on Node 20 and 22 for
+every push and PR.
 
 ```bash
 pnpm run typecheck   # tsc --noEmit --skipLibCheck

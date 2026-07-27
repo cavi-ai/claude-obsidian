@@ -127,8 +127,10 @@ compatibility but are intentionally omitted from the advertised catalog.
 
 ## What the plugin adds on top
 
-**16 commands and 30 skills**, all built on a shared grounding discipline — cite
-real notes, never fabricate, writes confirmed:
+**27 commands and 31 skills**, all built on a shared grounding discipline — cite
+real notes, never fabricate, writes confirmed. Most skills have a matching
+`/claude-obsidian:` command, so you can invoke one explicitly or let Claude reach
+for it:
 
 | Area | Commands / skills |
 |---|---|
@@ -137,7 +139,7 @@ real notes, never fabricate, writes confirmed:
 | **Writing** | `outline-to-draft`, `daily-rollup`, `session-to-note`, `meeting-cleanup`, `summarize-and-link` |
 | **Build** | `plan-to-spec`, `tracker-driver`, `build-retrospective`, `task-harvester`, plus the `build-from-spec` command |
 | **Cloud** | `cloud-reply` — dispatch a cloud session; the result lands as a reply note plus a PR for vault import |
-| **Advisor personas (`manifest-*`)** | `vault`, `pm`, `infra`, `feature`, `content`, `risk`, `research`: survey the vault, produce a prioritized `claude-html` artifact, route work into the build pipeline |
+| **Advisor personas (`manifest-*`)** | `vault`, `pm`, `infra`, `feature`, `content`, `risk`, `research`: survey the vault, produce a prioritized `claude-html` artifact, route work into the build pipeline. All seven share the `manifest-core` spine (gather → prioritize → present → route), which Claude invokes for them rather than you calling it directly |
 | **Foundations** | `vault-grounding`, `vault-routines`, and the `note-to-artifact` design system |
 
 Headline command: `/claude-obsidian:session-to-note` distills a whole Claude

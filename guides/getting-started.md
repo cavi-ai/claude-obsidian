@@ -48,6 +48,11 @@ rides along with your next message:
 You can also **@-mention** a specific note, folder, PDF, or image in the
 composer, or paste a screenshot straight into it.
 
+Paste a **URL** and you'll get a pill offering to attach the page — Companion
+fetches it and reduces it to clean readable markdown (the same Defuddle engine
+behind Obsidian's Web Clipper). The fetch only happens when you ask for it, and a
+failure shows on the pill instead of derailing the chat.
+
 Try: open a note with some substance, toggle **Active note**, and ask
 *"What am I actually claiming here, and what's unsupported?"*
 
@@ -73,6 +78,17 @@ See [artifacts.md](artifacts.md) for the sandbox rules and the design system.
 
 Other good first commands: `/summarize`, `/ask` (answers across the whole
 vault), `/diagram`, `/canvas`, `/research`.
+
+### Your own slash commands
+
+Any Markdown note in your **templates folder** (*Settings → Companion for Claude
+→ Storage → Templates folder*, default `Claude/Templates`) becomes a slash
+command. Frontmatter carries `name` and `description`, plus optional `model` and
+context-toggle defaults; the body is the prompt.
+
+`{selection}` and `{active_note}` are substituted at run time — unknown
+placeholders are left alone rather than mangled. A note named `Standup Summary`
+becomes `/standup-summary`.
 
 ## 5. Agent mode
 
