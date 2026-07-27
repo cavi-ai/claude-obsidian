@@ -82,7 +82,7 @@ step it takes shows up as a tool chip you can expand.
 
 <!-- screenshot: assets/agent-tool-chips.png — pending capture -->
 
-Under *Settings → Companion for Claude → Agent*:
+Under *Settings → Companion for Claude → Agent (act on your vault)*:
 
 - **Let Claude use vault tools** — the read-only loop (search, read, follow links). On by default. Turn it off for plain chat with only pre-attached context.
 - **Allow write tools** — also lets Claude create, edit, and move notes. On by default, and **every single write asks you first**.
