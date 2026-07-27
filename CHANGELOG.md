@@ -4,7 +4,7 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.0] — 2026-07-24
+## [0.13.0] — 2026-07-26
 
 ### Added
 - **Capture-first Add source.** The Add source button no longer opens a form.
@@ -65,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mobile source capture.** The desktop-only drag-and-drop zone is hidden on
   mobile (paste/upload/pick remain); the rewrite modal shows its ⌘/Ctrl+Enter
   shortcut hint.
+- **CRLF frontmatter is parsed.** Every frontmatter reader (research records,
+  vault tools, unlinked mentions, memory consolidation, semantic chunking)
+  accepts `\r\n` delimiters, so notes written on Windows are no longer treated
+  as frontmatter-less.
+- **The capture modal recovers from a failed note import** instead of staying
+  stuck on the busy state; a cancelled note picker clears the status line, and
+  a failed multi-file read reports instead of throwing.
 
 ## [0.12.2] — 2026-07-24
 
