@@ -1,9 +1,8 @@
 # claude-obsidian
 
 **Cowork with Claude inside your [Obsidian](https://obsidian.md) vault.** Chat
-with your notes as context, generate gallery-grade interactive HTML artifacts,
-run extended-thinking sessions, and let Claude Code operate on the *same* vault —
-all with your vault as the single source of truth.
+with your notes as context, let Claude work the vault with its own tools, render
+interactive artifacts inline, and drive the *same* vault from Claude Code.
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
 [![Obsidian downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
@@ -15,185 +14,123 @@ all with your vault as the single source of truth.
 
 **Open source · MIT · bring your own Anthropic key · local-first**
 
-Two paired, complementary deliverables that meet at a local MCP bridge:
-
-| Path | What it is | Ships to |
-|---|---|---|
-| [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: side-panel chat with **agent mode** (Claude works your vault with its own tools), diff-reviewed note edits, vault-aware context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases generation, inline `claude-html` artifacts, prompt caching, offline local-model fallback, and a loopback MCP bridge. | Obsidian community store |
-| [`claude-plugin/`](claude-plugin/) | **claude-obsidian** — the Claude Code plugin + marketplace: commands and skills that drive your vault over the Companion MCP bridge (synthesis, tagging, drafting, session capture, artifacts, spec builds, advisor roadmaps). | Claude Code marketplace |
-| [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
-| [`upstream/obsidian-skills/`](upstream/) | Steph Ango's (@kepano, Obsidian CEO) [Obsidian Skills](https://github.com/kepano/obsidian-skills) — agent skills for Obsidian's open formats, vendored as a **pinned, unmodified submodule** (its own MIT license) and used as the canonical format reference for our Bases, Canvas, and Obsidian-Flavored-Markdown emitters. See [`NOTICE`](NOTICE). | — |
-
----
-
-## See it in action
+<!-- hero: assets/hero-session-to-note.gif — pending capture, see assets/CAPTURE.md -->
 
 | Chat with your vault | Interactive artifacts |
 |---|---|
 | ![Companion chat panel with vault context](obsidian-plugin/assets/chat-panel.png) | ![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png) |
 
-<!-- screenshots wanted: session-to-note.png, chat-controls.png — see assets/CAPTURE.md in the mirror repo -->
+---
+
+## Why cowork with Claude inside your vault
+
+An AI second brain only works if the AI can actually reach the brain. Copying
+notes into a chat window loses the links, the structure, and the history that
+make a vault worth keeping. Companion puts Claude *in* Obsidian: your notes are
+the context, your notes are the memory, and your notes are where the work lands.
+
+What makes this pairing different is that Claude doesn't just read a snippet you
+pasted — it searches and follows links across the live vault on its own, writes
+back only through diffs you approve, renders interactive artifacts inside your
+notes, and exposes the same vault to Claude Code so terminal work and vault work
+share one source of truth.
+
+## Who this is for
+
+- **New to Obsidian + AI** — install from the community store, paste one API key, and start asking questions about your own notes. No account with us, no subscription to us.
+- **Obsidian power user** — a real agent loop with visible tool calls, per-hunk diff review, native Canvas/Bases output, typed sources and vault ontology, an evidence-backed research desk, and local-model fallback. All MIT.
+- **Claude Code developer** — a loopback, token-gated MCP server over your live vault, plus a Claude Code plugin of commands and skills that drive it. Your session memory becomes vault knowledge.
+
+## What it does
+
+### Claude works your vault, not a copy of it
+
+Agent mode lets Claude search, read, and follow links across the vault **on its
+own** while it answers, each step visible as a tool chip. Write tools sit behind
+a per-action confirmation you control.
+
+<!-- screenshot: assets/agent-tool-chips.png — pending capture -->
+
+### Edits arrive as diffs, not overwrites
+
+"Improve this note" produces a red/green **per-hunk** diff you accept or reject
+before anything touches disk. Same for inline rewrites: select text →
+*Rewrite selection with Claude…* — no chat round-trip.
+
+<!-- screenshot: assets/diff-review.png — pending capture -->
+
+### Interactive artifacts, rendered in the note
+
+Claude emits a `claude-html` block; Companion renders it inline in a **sandboxed
+iframe** that cannot reach your vault, network, or cookies. Open it in your real
+browser or save it as a portable note.
+
+![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png)
+
+### Research you can defend
+
+The Research Desk keeps one active project moving: sources → evidence → claims →
+outline → draft → assurance. Only reviewed, locatable, non-stale evidence counts
+as support, and revisions are validated so citations can't silently vanish.
+
+<!-- screenshot: assets/research-desk.png — pending capture -->
+
+### The same vault from Claude Code
+
+Companion runs a loopback-only, token-gated MCP server. Claude Code connects to
+it and operates on the notes you're looking at — 16 commands and 30 skills for
+synthesis, tagging, session capture, spec builds, and advisor roadmaps.
+
+<!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
+
+### It keeps working offline
+
+The **Auto** chat backend falls back to a local Ollama model when Claude is
+offline or out of usage, with a live connectivity indicator. Or run **Local
+only**. Semantic search runs on a built-in on-device embedding model — no
+external runtime required, desktop and mobile.
+
+<!-- screenshot: assets/local-fallback-indicator.png — pending capture -->
+
+## How it compares
+
+<!-- facts retrieved 2026-07-26; re-verify before republishing -->
+
+| | Agent mode | Per-hunk diff review | In-note interactive artifacts | MCP server for Claude Code | Local-model fallback | Research workflow | Price & license |
+|---|---|---|---|---|---|---|---|
+| **Companion for Claude** | Yes, free | Yes | Yes, sandboxed | Yes | Yes — automatic Auto fallback + on-device embeddings | Yes — sources/evidence/claims | Free · MIT · BYO key |
+| Copilot for Obsidian | Yes — **Plus only** | One-click apply | Not documented | Not documented | Any OpenAI-compatible or local model | Not documented | Free tier · Plus $14.99/mo or $139.99/yr · AGPL-3.0 |
+| Smart Connections | Not documented | n/a — retrieval, not editing | Not documented | Not documented | Local embeddings built in; chat models via Pro | Not documented | Free core · Pro tier · Smart Plugins License (source-available) |
+| Smart Composer | Not documented (MCP **client**) | One-click apply | Not documented | Client only, not a server | Ollama, LM Studio | Not documented | Free · MIT · BYO key |
+| Text Generator | Not documented | Not documented | Not documented | No | Ollama | Not documented | Free · MIT · BYO key |
+
+Each of these is good at something we're not: **Copilot** has the largest install
+base and the broadest model and file-format support; **Smart Connections**
+pioneered local-embedding related-notes in Obsidian and still needs no API key;
+**Smart Composer** has the cleanest apply-edit UX and the longest provider list,
+free and MIT; **Text Generator** has the best reusable prompt-template engine and
+a community template library. Different philosophy, not a worse tool — we
+optimize for the vault as source of truth, safety-gated writes, and Claude-native
+depth over provider breadth.
+
+## Quick start
+
+1. **Install** — *Settings → Community plugins → Browse → "Companion for Claude" → Install → Enable*, or [open it in Obsidian](obsidian://show-plugin?id=claude-companion).
+2. **Add your key** — get one from the [Anthropic Console](https://console.anthropic.com/settings/keys), then paste it in *Settings → Companion for Claude → Connection → Anthropic API key* and click **Save & test connection**.
+3. **Ask something** — open the Companion panel, toggle the `Context` chip for your active note, and ask a question about it.
+
+<!-- Guides section — completed in Phase 2 -->
 
 ---
 
-## Companion for Claude (the Obsidian plugin)
+## The two halves
 
-A full Claude chat experience that lives in your vault and speaks its language.
-
-- **Agent mode** — Claude searches, reads, and follows links across your vault
-  **on its own** while answering, each step visible as a tool chip. Optional
-  write tools (create/edit/move notes) sit behind a per-action confirmation.
-- **Edits as reviewable diffs** — "improve this note" produces a red/green
-  per-hunk diff you accept or reject before anything is written.
-- **Inline rewrite in the editor** — select text → *Rewrite selection with
-  Claude…* (palette or right-click): presets or your own instruction, reviewed
-  as the same per-hunk diff. No chat round-trip.
-- **Chat with vault context** — toggle `Context` chips to attach your active
-  note, selection, linked/backlinked notes, or a keyword vault search to any
-  message. **@-mention** notes, folders, **PDFs and images** — or paste a
-  screenshot straight into the composer.
-- **Contextual workspaces in Companion** — when Chat is empty, Companion
-  recognizes the active note or canonical research project and offers the next
-  relevant continuation without becoming a separate homepage. Research views
-  can return to Chat with project context attached and ready for the user.
-- **Second-brain loops** — live **link suggestions** (unlinked mentions, one
-  click to wire up), and session digests consolidated into an evolving **"What
-  Claude Knows"** memory note that agent mode reads back.
-- **Native Canvas & Bases output** — Claude builds `.canvas` mind maps wired to
-  real notes and `.base` database views over your frontmatter, write-gated like
-  every other mutation.
-- **Evidence-backed research desk** — a guided daily view keeps one active
-  project, explains the next best action, surfaces work needing attention, and
-  hands off to the advanced workbench for sources, evidence, claims, outlining,
-  drafting, assurance, intelligence, and scholarly discovery.
-- **Prompt caching built in** — repeated context is cached server-side (reads at
-  0.1× the input rate); the cost gauge accounts for it.
-- **Three auth modes** — your Anthropic **API key** (default, community-store
-  safe), a long-term **OAuth subscription token** (`claude setup-token`, usage
-  bills to your plan), or **import from the environment**. Optional base-URL
-  override for gateways.
-- **In-chat controls** — switch model per message (Opus / Sonnet / Haiku),
-  toggle **extended thinking** with an **effort** dial, stream the model's
-  **reasoning** in a collapsible panel, and set per-message temperature / max
-  tokens. Every control is model-aware: anything a model would reject is hidden,
-  not broken.
-- **Slash commands** — type `/` in the composer for a fuzzy palette:
-  summarize, ask, improve, artifact, plan, canvas, workflows, capture, build,
-  research, and more.
-- **Interactive artifacts** — Claude emits a `claude-html` block;
-  Companion renders it inline in a **sandboxed iframe** and can open it in your
-  real browser or save it as a portable note.
-- **Conversation history** — every chat persists across restarts; resume any
-  past conversation from a fuzzy picker.
-- **Never lose functionality** — an **Auto** chat backend transparently falls
-  back to a local Ollama model when Claude is offline or out of usage, with a
-  live connectivity indicator. Or run **Local only** for full offline use.
-- **Unified bridge** — expose the vault as a loopback-only, token-gated MCP
-  server so Claude Code / Claude Desktop work against the same notes.
-- **Typed sources & vault ontology** — clipped files are enriched with typed
-  frontmatter from per-type schemas (one-time consent before auto-enrichment),
-  and schema notes define note types + typed wikilink relations that
-  Claude-created notes conform to.
-
-→ Full details: [`obsidian-plugin/README.md`](obsidian-plugin/README.md)
-
-### Evidence-backed research workflow
-
-Use `/research` in Companion to open the native **Research Desk**. It gives one
-active project a clear stage, deterministic next action with an explanation,
-document progress, attention queue, and fast routes into deeper work without
-requiring a model request. Pin or dismiss guidance, switch projects, or open the
-advanced Research Workbench when you need the complete record-level controls.
-In Claude Code, use `/claude-obsidian:research-workbench` for the skill-driven
-MCP workflow over the same canonical vault records.
-
-The core path is **Create project → Import source → Capture evidence → Review →
-Build claims → Generate outline → Draft → Revise → Assure**. Getting started is
-guided: **Triage clippings** groups a junk-drawer clippings inbox into tagged
-research themes with a `Triage.md` board (a potential project per theme), and
-**New project from active note** seeds a project from the open note — question
-drafted, note imported as the first source, Discover pre-loaded for the
-preliminary scholarly search. Along the way, **Sharpen with Claude** rewrites
-claim propositions grounded in the evidence you checked, and **Draft with
-Claude** writes evidence interpretations from the excerpt. Source captures receive a
-content fingerprint; evidence records preserve the exact excerpt, locator, and
-captured fingerprint; claims keep supporting, challenging, and contextual
-relations distinct. The research workbench presents the resulting canonical
-Markdown records and their audit health.
-
-Draft revisions are claim-preserving: each request carries the grounded section
-packet and explicit intent, the response is validated before preview, and the
-user reviews the proposed result before it can replace the section. Unsupported
-citations, silent claim loss, stale grounding, and malformed revision responses
-are rejected instead of being written into the document.
-
-Only **reviewed**, locatable, non-stale evidence linked to a valid source counts
-as trusted claim support. Proposed evidence remains visible but does not satisfy
-the audit.
-
-### Research Intelligence
-
-Open Research Desk with `/research`, continue into the advanced Workbench, then
-choose the **Intelligence** tab. Its deterministic analysis reads the project's canonical
-records locally, refreshes automatically when those records change, and groups
-traceable findings into four categories:
-
-- **Contradictions** identify a claim linked to both trusted supporting and
-  challenging evidence; they do not decide which evidence is stronger.
-- **Method differences** identify captured differences such as the source kinds
-  behind supporting and challenging evidence; they do not infer uncaptured
-  methodology.
-- **Research gaps** identify open questions, unsupported claims, or places where
-  counterevidence or independent sources should be investigated.
-- **Evidence quality** surfaces deterministic audit problems such as stale or
-  unreviewed evidence, missing locators, and broken references.
-
-The separate **Model narrative** is optional and runs only when you click
-**Analyze**. The result names the provider and model that produced it, and its
-citations are validated against paths in the current project before display.
-Choose its provider under *Settings → Research intelligence narrator*:
-
-- **Current chat backend** follows the chat setting. Local starts with Ollama;
-  Claude starts with Anthropic; Auto starts with Anthropic and retries with
-  Ollama only when Claude is unavailable, rejects credentials, is rate-limited
-  or out of usage, or returns a server error, and a local model is available.
-- **Claude only** uses Anthropic without a local fallback.
-- **Local only** uses Ollama.
-- **Disabled** removes the Analyze action while deterministic findings remain
-  available.
-
-Narratives are derived summaries, not vault records: they perform no vault
-writes and may be marked **Out of date** after the project changes. Neither the
-deterministic findings nor model narrative is a judgment of scientific validity;
-follow each finding's cited paths and verification guidance before drawing a
-conclusion.
-
-## claude-obsidian (the Claude Code plugin)
-
-Commands and skills that let Claude Code operate on your vault through the
-Companion MCP bridge — turning a chat agent into a vault collaborator. **16
-commands and 30 skills** across seven areas, all built on a shared grounding
-discipline (cite real notes, never fabricate, writes confirmed):
-
-| Area | Commands / skills |
-|---|---|
-| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest`, `research-workbench` |
-| **Hygiene** | `consistent-tagging`, `wikilink-weaver`, `moc-builder`, `frontmatter-normalizer`, `note-splitter`, `dedup-merge` |
-| **Writing** | `outline-to-draft`, `daily-rollup`, `session-to-note`, `meeting-cleanup`, `summarize-and-link` |
-| **Build** | `plan-to-spec`, `tracker-driver`, `build-retrospective`, `task-harvester` (plus the `build-from-spec` command) |
-| **Cloud** | `cloud-reply` (dispatch a cloud session; result lands as a reply note + PR for vault import) |
-| **Advisor personas (`manifest-*`)** | `vault`, `pm`, `infra`, `feature`, `content`, `risk`, `research`: survey the vault, produce a prioritized `claude-html` artifact, and route work into the build pipeline |
-| **Foundations** | `vault-grounding`, `vault-routines` (offer editable scheduled routines), and the `note-to-artifact` design system |
-
-Headline command: `/claude-obsidian:session-to-note` distills a whole Claude
-session into one consolidated, tagged, linked vault note — turning ephemeral
-session memory into persistent knowledge-graph points.
-
-→ Full details (all commands + skills): [`claude-plugin/README.md`](claude-plugin/README.md)
-
----
-
-## How the two fit together
+| Path | What it is | Ships to |
+|---|---|---|
+| [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: chat with agent mode, diff-reviewed edits, vault context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases output, inline `claude-html` artifacts, prompt caching, local-model fallback, and the MCP bridge. | Obsidian community store |
+| [`claude-plugin/`](https://github.com/cavi-ai/claude-obsidian-plugin) | **claude-obsidian** — the Claude Code plugin + marketplace: 16 commands and 30 skills that drive your vault over the Companion MCP bridge. Pinned submodule; see its [README](https://github.com/cavi-ai/claude-obsidian-plugin#readme). | Claude Code marketplace |
+| [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
+| [`upstream/obsidian-skills/`](upstream/) | Steph Ango's (@kepano, Obsidian CEO) [Obsidian Skills](https://github.com/kepano/obsidian-skills), vendored the same way (its own MIT license) and used as the canonical format reference for our Bases, Canvas, and Obsidian-Flavored-Markdown emitters. See [`NOTICE`](NOTICE). | — |
 
 ```mermaid
 flowchart LR
@@ -205,29 +142,9 @@ flowchart LR
     code <-->|"connects and drives the same vault"| bridge
 ```
 
-**Vault tools exposed over the bridge** — 10 reads/audits (always):
-`vault_search`, `note_read`, `list_recent`, `vault_tags`, `list_titles`,
-`get_backlinks`, `get_outgoing_links`, `frontmatter_query`,
-`research_project_read`, `research_audit`; 14 mutations (gated behind *Allow
-MCP writes*): `note_create`, `note_append`, `note_update`,
-`update_frontmatter`, `note_move` (rename/move with automatic backlink
-rewrite), `base_create`, `canvas_create`, `research_project_create`,
-`research_source_import`, `research_evidence_capture`,
-`research_evidence_review`, `research_claim_create`, `research_claim_link`,
-`research_outline_generate`.
-
-Research Workbench project reads and audits are therefore available even when
-writes are disabled. Project, source, evidence, evidence-review, claim, link,
-and outline mutations require *Allow MCP writes*; in Companion agent mode they
-also retain the normal confirmation gate. Review mutates evidence records only,
-and accepts the terminal states `reviewed` or `rejected`. Permanent legacy
-aliases remain callable for compatibility but are intentionally omitted from
-the advertised command catalog.
-
-Companion runs a local MCP server (`obsidian-vault`, bound to `127.0.0.1`,
-bearer-token auth, default port **22360**). The Claude Code plugin connects to
-it — so Claude Code and the in-vault chat operate on the **same** notes. The
-compliant way to unify them without subscription OAuth in third-party tools.
+Ten read/audit tools are always available; fourteen mutations sit behind *Allow
+writes*, so project reads and audits work even when writing is off. In agent
+mode, writes keep their normal per-action confirmation on top.
 
 ## Getting it
 
