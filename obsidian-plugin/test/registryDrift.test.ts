@@ -33,7 +33,9 @@ describe.skipIf(!present)("companion catalog ↔ capability registry", () => {
 
   it("every workflow's name and group match the registry", () => {
     for (const w of WORKFLOWS) {
-      const cap = byId.get(w.id)!;
+      const cap = byId.get(w.id);
+      expect(cap, `workflow '${w.id}' is not in capabilities.json`).toBeDefined();
+      if (!cap) continue;
       expect(w.name, `name drift on '${w.id}'`).toBe(cap.name);
       expect(w.group, `group drift on '${w.id}'`).toBe(cap.surfaces.companion);
     }
