@@ -47,7 +47,7 @@ share one source of truth.
 
 Agent mode lets Claude search, read, and follow links across the vault **on its
 own** while it answers, each step visible as a tool chip. Write tools sit behind
-a per-action confirmation you control.
+a per-action confirmation you control. → [agent-mode.md](guides/agent-mode.md)
 
 <!-- screenshot: assets/agent-tool-chips.png — pending capture -->
 
@@ -56,6 +56,7 @@ a per-action confirmation you control.
 "Improve this note" produces a red/green **per-hunk** diff you accept or reject
 before anything touches disk. Same for inline rewrites: select text →
 *Rewrite selection with Claude…* — no chat round-trip.
+→ [agent-mode.md](guides/agent-mode.md#editing-notes-diffs-not-writes)
 
 <!-- screenshot: assets/diff-review.png — pending capture -->
 
@@ -63,7 +64,7 @@ before anything touches disk. Same for inline rewrites: select text →
 
 Claude emits a `claude-html` block; Companion renders it inline in a **sandboxed
 iframe** that cannot reach your vault, network, or cookies. Open it in your real
-browser or save it as a portable note.
+browser or save it as a portable note. → [artifacts.md](guides/artifacts.md)
 
 ![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png)
 
@@ -72,6 +73,7 @@ browser or save it as a portable note.
 The Research Desk keeps one active project moving: sources → evidence → claims →
 outline → draft → assurance. Only reviewed, locatable, non-stale evidence counts
 as support, and revisions are validated so citations can't silently vanish.
+→ [research-workbench.md](guides/research-workbench.md)
 
 <!-- screenshot: assets/research-desk.png — pending capture -->
 
@@ -80,6 +82,7 @@ as support, and revisions are validated so citations can't silently vanish.
 Companion runs a loopback-only, token-gated MCP server. Claude Code connects to
 it and operates on the notes you're looking at — 16 commands and 30 skills for
 synthesis, tagging, session capture, spec builds, and advisor roadmaps.
+→ [claude-code-bridge.md](guides/claude-code-bridge.md)
 
 <!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
 
@@ -89,6 +92,7 @@ The **Auto** chat backend falls back to a local Ollama model when Claude is
 offline or out of usage, with a live connectivity indicator. Or run **Local
 only**. Semantic search runs on a built-in on-device embedding model — no
 external runtime required, desktop and mobile.
+→ [local-models.md](guides/local-models.md)
 
 <!-- screenshot: assets/local-fallback-indicator.png — pending capture -->
 
@@ -119,7 +123,17 @@ depth over provider breadth.
 2. **Add your key** — get one from the [Anthropic Console](https://console.anthropic.com/settings/keys), then paste it in *Settings → Companion for Claude → Connection → Anthropic API key* and click **Save & test connection**.
 3. **Ask something** — open the Companion panel, toggle the `Context` chip for your active note, and ask a question about it.
 
-<!-- Guides section — completed in Phase 2 -->
+## Guides
+
+- [Getting started](guides/getting-started.md) — install, key, first chat, first artifact
+- [Agent mode](guides/agent-mode.md) — the tool loop, the tools, the guardrails
+- [Artifacts](guides/artifacts.md) — `claude-html` blocks and the sandbox model
+- [Research Desk & Workbench](guides/research-workbench.md) — evidence-backed writing end to end
+- [The Claude Code bridge](guides/claude-code-bridge.md) — MCP setup and full tool reference
+- [Local models & semantic search](guides/local-models.md) — Ollama fallback and on-device embeddings
+- [Authentication & cost](guides/auth.md) — three credential modes, caching, key safety
+- [Architecture](guides/architecture.md) — module map, testability, bundling, security
+- [FAQ](guides/faq.md) — cost, privacy, mobile, troubleshooting
 
 ---
 
