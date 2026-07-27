@@ -4,6 +4,45 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] — 2026-07-27
+
+### Changed
+- **Vault workflow renamed.** The *Frontmatter audit* workflow's id is now
+  `frontmatter-normalizer`, matching its skill and command in the
+  claude-obsidian Claude Code plugin. Its slash command changes with it:
+  `/frontmatter-audit` becomes `/frontmatter-normalizer`. The workflow's display
+  name and behaviour are unchanged.
+
+### Added
+- **Catalog drift test.** `registryDrift.test.ts` holds the workflow catalog to
+  the capability registry in the claude-obsidian plugin: every workflow must
+  resolve to a registry entry declaring a companion surface, with matching name
+  and group, and every such entry must have a workflow. The registry is read at
+  test time only and the suite skips when the submodule is absent, so
+  obsidian-plugin still builds and tests standalone.
+
+## [0.14.0] — 2026-07-27
+
+### Added
+- **Plan Mode.** A composer toggle next to *Act on vault*: Claude explores the
+  vault with read-only tools and ends the turn with a concrete plan — what it
+  would create or change, where, and why — instead of attempting writes. Write
+  tools and the edit-proposal tool are both withheld for the turn regardless of
+  the allow-writes setting. The mode is per conversation and never persisted.
+- **Your own slash commands (prompt templates).** Every markdown note in the
+  templates folder becomes a `/command` in chat: frontmatter carries the name,
+  description, and optional per-turn `model` and `context` overrides; the body
+  is the prompt. `{selection}` and `{active_note}` are substituted from the live
+  editor at run time and any other `{placeholder}` is left literal. The
+  *Create prompt template* command scaffolds a note with the schema, and the
+  chat palette refreshes as notes in the folder are added, edited, or renamed.
+- **Attach page content from a URL.** Typing or pasting a link into the composer
+  offers to attach the page; accepting clips it to clean markdown through
+  Defuddle and adds it to the request context as an attached-page pill with
+  pending and failure states. Nothing is fetched until the Attach click.
+- **Templates folder setting** (default `Claude/Templates`), searchable from
+  Obsidian's settings search.
+
 ## [0.13.0] — 2026-07-26
 
 ### Added
