@@ -27,7 +27,8 @@ describe.skipIf(!present)("companion catalog ↔ capability registry", () => {
     for (const w of WORKFLOWS) {
       const cap = byId.get(w.id);
       expect(cap, `workflow '${w.id}' is not in capabilities.json`).toBeDefined();
-      expect(typeof cap!.surfaces.companion, `workflow '${w.id}' is not declared as a companion surface`).toBe("string");
+      if (!cap) continue;
+      expect(typeof cap.surfaces.companion, `workflow '${w.id}' is not declared as a companion surface`).toBe("string");
     }
   });
 
