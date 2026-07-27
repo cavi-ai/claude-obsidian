@@ -5,10 +5,13 @@ on:
     branches: ["**"]
     paths:
       - "obsidian-plugin/**"
+      - "claude-plugin"
+      - "claude-plugin/**"
       - ".github/workflows/obsidian-plugin-ci.yml"
   pull_request:
     paths:
       - "obsidian-plugin/**"
+      - "claude-plugin/**"
       - ".github/workflows/obsidian-plugin-ci.yml"
 
 permissions:
@@ -31,7 +34,10 @@ jobs:
       matrix:
         node-version: ["20.x", "22.x"]
     steps:
+      # The registry drift test reads claude-plugin/capabilities.json; it skips without it.
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
