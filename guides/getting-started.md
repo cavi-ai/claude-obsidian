@@ -60,7 +60,7 @@ under *Settings → Companion for Claude → Behavior*.
 Type `/` in the composer to open the slash palette — 24 built-in commands plus
 your workflows, fuzzy-searchable.
 
-<!-- screenshot: assets/slash-palette.png — pending capture -->
+<!-- screenshot: ../assets/slash-palette.png — pending capture -->
 
 Pick **`/artifact`** with a note open. Claude replies with a fenced
 `claude-html` block, and Companion renders it **inline in the chat, inside a
@@ -80,7 +80,7 @@ Agent mode is **on by default**. It's what lets Claude search and read your vaul
 on its own mid-answer instead of relying only on the chips you pre-attached. Each
 step it takes shows up as a tool chip you can expand.
 
-<!-- screenshot: assets/agent-tool-chips.png — pending capture -->
+<!-- screenshot: ../assets/agent-tool-chips.png — pending capture -->
 
 Under *Settings → Companion for Claude → Agent (act on your vault)*:
 

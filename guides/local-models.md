@@ -31,7 +31,7 @@ When a fallback happens you get a short reason rather than a silent model swap:
 *"No connection to Claude"*, *"Claude service error"*. A live connectivity
 indicator shows which backend is active.
 
-<!-- screenshot: assets/local-fallback-indicator.png — pending capture -->
+<!-- screenshot: ../assets/local-fallback-indicator.png — pending capture -->
 
 ## Setting up Ollama
 

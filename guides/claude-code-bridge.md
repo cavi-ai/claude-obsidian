@@ -11,7 +11,7 @@ features instead.
 
 *Settings → Companion for Claude → Agent bridge — MCP server (desktop)*
 
-<!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
+<!-- screenshot: ../assets/mcp-bridge-settings.png — pending capture -->
 
 | Setting | Default | Notes |
 |---|---|---|

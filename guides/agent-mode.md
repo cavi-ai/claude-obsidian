@@ -24,7 +24,7 @@ arguments, and a preview of what came back (green for success, flagged for error
 Chips are recorded with the conversation, so reopening an old chat shows the same
 trace.
 
-<!-- screenshot: assets/agent-tool-chips.png — pending capture -->
+<!-- screenshot: ../assets/agent-tool-chips.png — pending capture -->
 
 ## What Claude can do
 
@@ -66,7 +66,7 @@ Changing an existing note doesn't go through the write tools. Claude calls
 **per-hunk red/green diff**; only the hunks you accept are written, and Claude is
 told which ones those were.
 
-<!-- screenshot: assets/diff-review.png — pending capture -->
+<!-- screenshot: ../assets/diff-review.png — pending capture -->
 
 This is deliberately *not* classified as a write tool, so it stays available even
 with *Allow write tools* off — reviewing a diff is already your decision point.
