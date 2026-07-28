@@ -13,7 +13,7 @@ Type `/artifact` in the composer with a note open, or just ask — "turn this in
 dashboard", "audit this spec and score it", "diagram this architecture".
 `/diagram` and `/plan` are shortcuts to specific shapes.
 
-Claude replies with a fenced ` ```claude-html ` block. Companion registers a
+Claude replies with a fenced ```` ```claude-html ```` block. Companion registers a
 Markdown processor for that language, so **any note containing one renders it** —
 in chat, in a saved artifact note, in a note you wrote by hand.
 

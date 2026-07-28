@@ -27,7 +27,7 @@ claude setup-token
 ```
 
 Paste the resulting `sk-ant-oat…` token. It's sent as `Authorization: Bearer`
-along with the `oauth-2025-04-20` beta header.
+along with `anthropic-beta: oauth-2025-04-20`.
 
 One quirk worth knowing, because the failure mode is misleading: subscription
 tokens require the request to present as Claude Code, so Companion prepends
