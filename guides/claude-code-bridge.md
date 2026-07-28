@@ -62,24 +62,24 @@ to bridge HTTP→stdio):
 
 Obsidian has to be open — the bridge only runs while the app does.
 
-## 3. Install the claude-obsidian plugin
+## 3. Choose the integration you need
 
-The Claude Code plugin ships `.mcp.json` pre-wired to the bridge, so it picks up
-the connection from two environment variables instead of a hand-written config:
+The Companion MCP bridge described above is a specialized, optional live-vault
+integration. Configure it explicitly in the MCP client that will connect to it;
+no universal plugin installs or enables that connection for you.
 
-```bash
-export OBSIDIAN_MCP_PORT=22360
-export OBSIDIAN_MCP_TOKEN=<token from Companion settings>
+For portable vault workflows, install the separate `obsidian-agent` plugin. It
+uses the official Obsidian CLI, does not read Companion's MCP settings, and works
+without Companion:
+
+```text
+/plugin marketplace add cavi-ai/plugins
+/plugin install obsidian-agent@plugins
 ```
 
-Then, in Claude Code:
-
-```
-/plugin marketplace add cavi-ai/claude-obsidian
-/plugin install claude-obsidian@claude-obsidian
-```
-
-Try it: `/claude-obsidian:research-workbench "Investigate this project's sources"`.
+Enable the official CLI in Obsidian 1.12.7 or newer and verify that `obsidian`
+is on `PATH`. Try a portable command such as
+`/obsidian-agent:vault-synthesis "Summarize the project"`.
 
 ## The tool reference
 
@@ -125,28 +125,28 @@ In Companion's own agent mode these same writes additionally keep their
 per-action confirmation. Permanent legacy aliases stay callable for
 compatibility but are intentionally omitted from the advertised catalog.
 
-## What the plugin adds on top
+## What `obsidian-agent` adds separately
 
-**27 commands and 31 skills**, all built on a shared grounding discipline — cite
-real notes, never fabricate, writes confirmed. Most skills have a matching
-`/claude-obsidian:` command, so you can invoke one explicitly or let Claude reach
-for it:
+The universal package exposes 26 portable capabilities built on a shared
+grounding discipline: cite real notes, never fabricate, preview writes, and
+verify changes. Claude Code retains thin `/obsidian-agent:` command adapters;
+other hosts load the same canonical AgentSkills-compatible workflows.
 
 | Area | Commands / skills |
 |---|---|
-| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest`, `research-workbench` |
+| **Knowledge** | `vault-synthesis` (grounded, cited "what do I know about X"), `connection-finder`, `source-digest` |
 | **Hygiene** | `consistent-tagging`, `wikilink-weaver`, `moc-builder`, `frontmatter-normalizer`, `note-splitter`, `dedup-merge` |
-| **Writing** | `outline-to-draft`, `daily-rollup`, `session-to-note`, `meeting-cleanup`, `summarize-and-link` |
+| **Writing** | `outline-to-draft`, `daily-rollup`, `meeting-cleanup`, `summarize-and-link` |
 | **Build** | `plan-to-spec`, `tracker-driver`, `build-retrospective`, `task-harvester`, plus the `build-from-spec` command |
-| **Cloud** | `cloud-reply` — dispatch a cloud session; the result lands as a reply note plus a PR for vault import |
-| **Advisor personas (`manifest-*`)** | `vault`, `pm`, `infra`, `feature`, `content`, `risk`, `research`: survey the vault, produce a prioritized `claude-html` artifact, route work into the build pipeline. All seven share the `manifest-core` spine (gather → prioritize → present → route), which Claude invokes for them rather than you calling it directly |
-| **Foundations** | `vault-grounding`, `vault-routines`, and the `note-to-artifact` design system |
+| **Advisor personas (`manifest-*`)** | `vault`, `pm`, `infra`, `feature`, `content`, `risk`, `research`: survey the vault and produce grounded, prioritized Markdown or Mermaid output. All seven share the `manifest-core` spine. |
+| **Foundations** | `vault-grounding` and the official Obsidian CLI helper |
 
-Headline command: `/claude-obsidian:session-to-note` distills a whole Claude
-session into one consolidated, tagged, linked vault note — ephemeral session
-memory becomes a persistent point in your knowledge graph.
+Five workflows that require Claude sessions, cloud dispatch, Companion APIs, or
+Anthropic artifact conventions remain explicitly Claude-adapter-only and are not
+advertised as portable.
 
-Full list: the [claude-obsidian README](https://github.com/cavi-ai/claude-obsidian-plugin#readme).
+Full list and host-specific installation guidance:
+[`obsidian-agent`](https://github.com/cavi-ai/obsidian-agent#readme).
 
 ## Security model
 

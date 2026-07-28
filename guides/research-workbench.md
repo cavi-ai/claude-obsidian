@@ -29,8 +29,9 @@ The **Research Workbench** is the advanced surface, grouped into four phases:
 A project moves through seven stages: `frame` → `gather` → `read` → `reason` →
 `shape` → `write` → `assure`.
 
-In Claude Code, `/claude-obsidian:research-workbench` drives the same canonical
-records over the [MCP bridge](claude-code-bridge.md).
+External MCP clients can drive the same canonical records through Companion's
+optional [MCP bridge](claude-code-bridge.md). This specialized record API is a
+Companion feature; it is not part of the portable `obsidian-agent` CLI package.
 
 ## The core path
 

@@ -60,7 +60,7 @@ The first four live in `obsidian-plugin/assets/` and are already wired up;
 |---|---|---|
 | `chat-panel.png` | Companion side-panel chat with **Context** chips attached (active note + linked notes), showing a completed reply. | Root README hero table · `guides/getting-started.md` §3 |
 | `artifact-inline.png` | A `claude-html` artifact rendered inline in the sandboxed iframe — a dashboard or report in the clay/olive palette. | Root README hero table + §Interactive artifacts · `guides/getting-started.md` §4 · `guides/artifacts.md` |
-| `manifest-roadmap.png` | A `manifest-pm` (or `manifest-vault`) prioritized roadmap/health artifact. Run `/claude-obsidian:manifest-pm` against the demo vault. | `obsidian-plugin/README.md` |
+| `manifest-roadmap.png` | A `manifest-pm` (or `manifest-vault`) prioritized roadmap/health artifact. Run the matching Companion workflow against the demo vault. | `obsidian-plugin/README.md` |
 | `working-map.png` | A generated working map of the vault. | `obsidian-plugin/README.md` |
 | `social-card.png` | 1280×640 GitHub social preview: tagline, feature pills, MIT / bring-your-own-key / local-first badges, and the chat panel bleeding off the right edge. **Composed, not captured** — built from HTML at 2× and downsampled, so it needs no vault and can be regenerated whenever the pitch changes. | GitHub repo settings → Social preview (manual upload; no REST API exists for it) |
 
@@ -72,7 +72,7 @@ store visuals.
 
 | Filename | Scene setup | Consumed by |
 |---|---|---|
-| `hero-session-to-note.gif` | ≤15 s. Run `/claude-obsidian:session-to-note` in Claude Code, then cut to the produced note open in Obsidian — frontmatter (date, `type: session`, tags) and body wikilinks visible. Ephemeral session → permanent knowledge. | Root README hero slot (line ~17) |
+| `hero-daily-rollup.gif` | ≤15 s. Run `/obsidian-agent:daily-rollup` in Claude Code with the official Obsidian CLI, then cut to the grounded rollup note open in Obsidian. | Candidate root README hero slot |
 | `agent-tool-chips.png` | Chat mid-answer with a chain of tool chips visible — `vault_search` → `note_read` → `get_backlinks` — at least one expanded to show its result preview. | Root README §Claude works your vault · `guides/getting-started.md` §5 · `guides/agent-mode.md` §Tool chips |
 | `diff-review.png` | The per-hunk diff modal from `propose_note_edit`: red/green hunks with accept/reject controls visible, at least two hunks so "per-hunk" is legible. | Root README §Edits arrive as diffs · `guides/agent-mode.md` §Editing notes |
 | `research-desk.png` | Research Desk (`/research`) with one active project: current stage, the deterministic next action **with its explanation**, document progress, attention queue. | Root README §Research you can defend · `guides/research-workbench.md` §Desk vs Workbench |

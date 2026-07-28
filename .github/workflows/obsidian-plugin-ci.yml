@@ -34,7 +34,8 @@ jobs:
       matrix:
         node-version: ["20.x", "22.x"]
     steps:
-      # The registry drift test reads claude-plugin/capabilities.json; it skips without it.
+      # The adapter drift test reads the pinned obsidian-agent registry; it skips
+      # when the optional submodule is absent from a standalone plugin checkout.
       - uses: actions/checkout@v7
         with:
           submodules: recursive

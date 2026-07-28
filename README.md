@@ -9,12 +9,12 @@ interactive artifacts inline, and drive the *same* vault from Claude Code.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [**▶ Install the Obsidian plugin**](obsidian://show-plugin?id=claude-companion)
- · [**Add the Claude Code plugin**](#getting-it)
+ · [**Add portable agent workflows**](#getting-it)
  · [Latest release](https://github.com/cavi-ai/companion-for-claude/releases/latest)
 
 **Open source · MIT · bring your own Anthropic key · local-first**
 
-<!-- hero: assets/hero-session-to-note.gif — pending capture, see assets/CAPTURE.md -->
+<!-- hero: assets/hero-daily-rollup.gif — pending capture, see assets/CAPTURE.md -->
 
 | Chat with your vault | Interactive artifacts |
 |---|---|
@@ -59,10 +59,11 @@ Draft revisions are validated before preview and reject unsupported citations.
 
 <!-- screenshot: assets/research-desk.png — pending capture -->
 
-### MCP bridge to Claude Code
+### Optional MCP bridge
 
 Companion runs a loopback-only, token-gated MCP server over the live vault. The
-Claude Code plugin adds 27 commands and 31 skills that drive it.
+bridge is a specialized integration for explicitly configured MCP clients; it
+is separate from the CLI-only `obsidian-agent` plugin.
 → [claude-code-bridge.md](guides/claude-code-bridge.md)
 
 <!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
@@ -96,12 +97,12 @@ built-in on-device embedding model on desktop and mobile.
 
 ---
 
-## The two halves
+## Products and integrations
 
 | Path | What it is | Ships to |
 |---|---|---|
 | [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: chat with agent mode, diff-reviewed edits, vault context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases output, inline `claude-html` artifacts, prompt caching, local-model fallback, and the MCP bridge. | Obsidian community store |
-| [`claude-plugin/`](https://github.com/cavi-ai/claude-obsidian-plugin) | **claude-obsidian** — the Claude Code plugin + marketplace: 27 commands and 31 skills that drive your vault over the Companion MCP bridge. Pinned submodule; see its [README](https://github.com/cavi-ai/claude-obsidian-plugin#readme). | Claude Code marketplace |
+| [`claude-plugin/`](https://github.com/cavi-ai/obsidian-agent) | **obsidian-agent** — universal workflows for Claude, Codex, Gemini, OpenCode, and AgentSkills hosts over the official Obsidian CLI. It has no Companion or MCP dependency. The compatibility-named path is a pinned submodule; see its [README](https://github.com/cavi-ai/obsidian-agent#readme). | [`cavi-ai/plugins`](https://github.com/cavi-ai/plugins) and native host packages |
 | [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
 | [`upstream/obsidian-skills/`](upstream/) | Steph Ango's (@kepano) [Obsidian Skills](https://github.com/kepano/obsidian-skills), vendored the same way (its own MIT license) and used as the format reference for the Bases, Canvas, and Obsidian-Flavored-Markdown emitters. See [`NOTICE`](NOTICE). | — |
 
@@ -109,10 +110,12 @@ built-in on-device embedding model on desktop and mobile.
 flowchart LR
     companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
     bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>10 reads · 14 write-gated tools"])
-    code["claude-obsidian<br/>Claude Code plugin<br/>27 commands · 31 skills"]
+    agent["obsidian-agent<br/>cross-host plugin<br/>official Obsidian CLI"]
+    client["Optional MCP clients"]
 
     companion <-->|"exposes vault tools"| bridge
-    code <-->|"connects and drives the same vault"| bridge
+    client <-->|"specialized live-vault integration"| bridge
+    agent -->|"independent portable workflows"| cli["Official Obsidian CLI"]
 ```
 
 Ten read/audit tools are always available. Fourteen mutations require *Allow
@@ -124,9 +127,17 @@ writes*. In agent mode, writes also keep their per-action confirmation.
 plugins → Browse → search "Companion for Claude" → Install → Enable*, or
 [open it in Obsidian](obsidian://show-plugin?id=claude-companion).
 
-**Install the Claude Code plugin** —
-`/plugin marketplace add cavi-ai/claude-obsidian` then
-`/plugin install claude-obsidian@claude-obsidian`.
+**Install the universal Obsidian agent plugin for Claude Code** — enable the
+official CLI in Obsidian 1.12.7 or newer, then run:
+
+```text
+/plugin marketplace add cavi-ai/plugins
+/plugin install obsidian-agent@plugins
+```
+
+The universal plugin works without Companion and without MCP. Install Companion
+separately when you want its in-Obsidian chat, artifacts, local models, or
+optional live-vault MCP bridge.
 
 <details><summary>Build from source (development)</summary>
 

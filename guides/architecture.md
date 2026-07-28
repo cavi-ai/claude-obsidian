@@ -104,10 +104,14 @@ credential.
 
 ## Repo layout
 
-Two paired deliverables meeting at the bridge:
+One standalone Obsidian product plus an optional universal-agent reference:
 
 - `obsidian-plugin/` — Companion for Claude, the Obsidian community plugin.
-- `claude-plugin/` — the claude-obsidian Claude Code plugin; a pinned submodule of its own repo.
+- `claude-plugin/` — compatibility-named pinned submodule of
+  [`obsidian-agent`](https://github.com/cavi-ai/obsidian-agent), whose portable
+  workflows use the official Obsidian CLI and do not depend on Companion or MCP.
+  Companion-native adaptations live in this repository and use Companion's own
+  vault context. The optional MCP bridge is a separate Companion integration.
 - `upstream/html-effectiveness/`, `upstream/obsidian-skills/` — pinned, unmodified submodules. Provenance in [`NOTICE`](../NOTICE).
 
 Version numbers in `manifest.json`, `versions.json`, and `package.json` must match

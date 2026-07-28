@@ -4,12 +4,19 @@ This file provides guidance to AI coding agents (Cursor, Codex, Claude Code, etc
 
 ## What this repo is
 
-A monorepo with **two paired deliverables** that let you cowork with Claude inside an Obsidian vault:
+A monorepo for **Companion for Claude**, with a pinned reference to the separate
+universal Obsidian agent plugin:
 
 - **`obsidian-plugin/`** — *Claude Companion*, the Obsidian community plugin (TypeScript). The bulk of the code. Chat panel, vault-aware context, interactive `claude-html` artifacts, local-model routing, and a local MCP server that exposes the vault.
-- **`claude-plugin/`** — the *claude-obsidian* Claude Code plugin: commands (`/claude-obsidian:note-to-artifact`, `:build-from-spec`), the `note-to-artifact` skill, and `.mcp.json` pre-wired to Companion's MCP bridge.
+- **`claude-plugin/`** — compatibility-named submodule of
+  [`obsidian-agent`](https://github.com/cavi-ai/obsidian-agent). Its portable
+  workflows use the official Obsidian CLI across Claude, Codex, Gemini,
+  OpenCode, and AgentSkills hosts. It does not require Companion or MCP.
 
-The two halves meet at the **MCP bridge**: Companion runs a loopback HTTP MCP server exposing vault tools; the Claude Code plugin connects to it so Claude Code and Companion operate on the same vault.
+Companion can independently expose a loopback HTTP **MCP bridge** for clients
+that want live-vault tools. That specialized bridge is optional and is not the
+transport for `obsidian-agent`. Companion-native adaptations of selected
+portable workflows are owned in this repository.
 
 ## Commands
 
@@ -45,7 +52,10 @@ CI (`.github/workflows/obsidian-plugin-ci.yml`) runs typecheck, lint, test, buil
 - **`links/`** — link intelligence: `unlinkedMentions.ts` finds plain-text occurrences of other notes' titles/aliases; `suggest.ts` merges them with semantic neighbors into one ranked list and turns accepted mentions into diff-reviewable edits.
 - **`build/`** — the spec→build handoff. `spec.ts` extracts tasks from a plan note and renders the build spec + the Claude Code command; `tracker.ts` renders the live `claude-html` progress board. `main.ts:handoffToBuild` writes a spec note + tracker note and copies a Claude Code command; Claude Code then drives the tracker through the MCP bridge.
 - **`cloud/`** — the cloud loop (works on mobile, no local bridge needed): `routines.ts` dispatches a Claude Code cloud session via the experimental Routines API; `replies.ts` pulls the reply notes that session writes to the vault's GitHub repo over the Contents API.
-- **`workflows/catalog.ts`** — Companion-native adaptations of the claude-obsidian Claude Code workflows (manifest personas, rollups, MOCs, digests) as self-contained prompts. Pure data.
+- **`workflows/catalog.ts`** — Companion-owned adaptations of selected portable
+  `obsidian-agent` capabilities (manifest personas, rollups, MOCs, digests) as
+  self-contained prompts. The registry drift test verifies capability identity
+  and portability without adding Companion metadata upstream. Pure data.
 - **`indexing/`** — `frontmatter.ts` builds YAML frontmatter (title/tags/summary/type) on every saved artifact/chat so they index in the tag pane, search, and Dataview; `autoTagger.ts` (+ `taggerParse.ts`) uses the local model to suggest tags reusing existing vault tags.
 - **`memory/`** — session memory: `sessions.ts` + `transcript.ts` discover and digest Claude Code CLI sessions (the Node fs reader lives in desktop-only `nodeReader.ts`, lazy-imported); `consolidate.ts` merges digests into the evolving "What Claude Knows" note.
 - **`sources/`** — typed source capture (on by default; first auto-enrich asks one-time consent via `sourceCaptureConsent`): `watcher.ts` decides which new inbox files to enrich, `detect.ts` classifies the source type, `registry.ts` holds the per-type frontmatter schemas, `enrich.ts` fills them. `frontmatterMerge.ts` unions tags so clips keep their own.

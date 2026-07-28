@@ -60,14 +60,13 @@ export function specBody(input: SpecInput): string {
 }
 
 /**
- * The prompt to paste into Claude Code. The vault is exposed to Claude Code as
- * an MCP server (Companion for Claude, pre-wired in the plugin's .mcp.json), so
- * the build is driven through the `note_read` / `note_append` MCP tools — not a
- * separate CLI.
+ * The prompt to paste into Claude Code when the user has explicitly configured
+ * Companion's optional MCP bridge in that client. This specialized handoff is
+ * independent of the portable obsidian-agent plugin and its official-CLI flow.
  */
 export function buildPrompt(input: SpecInput): string {
   return [
-    `This Obsidian vault is exposed to you as an MCP server (Companion for Claude).`,
+    `This Obsidian vault is exposed through an optional Companion MCP server that is already configured in this client.`,
     `Drive this build through its tools — do not shell out to any CLI.`,
     ``,
     `1. Read the build spec with the \`note_read\` tool:  path = "${input.specPath}"`,

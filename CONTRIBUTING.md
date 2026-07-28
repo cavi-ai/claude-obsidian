@@ -1,11 +1,14 @@
 # Contributing
 
-Thanks for helping make `claude-obsidian` better.
+Thanks for helping make Companion for Claude better.
 
 ## Repository layout
 
 - `obsidian-plugin/` contains the Claude Companion Obsidian plugin.
-- `claude-plugin/` contains the Claude Code plugin, commands, and skills.
+- `claude-plugin/` is a compatibility-named, pinned submodule of the universal
+  [`obsidian-agent`](https://github.com/cavi-ai/obsidian-agent) plugin. Companion
+  owns its own native workflow adaptations; do not add Companion or MCP metadata
+  back to the universal registry.
 - `upstream/html-effectiveness/` is a pinned, unmodified submodule used for
   attribution and inspiration. Do not edit it in place.
 

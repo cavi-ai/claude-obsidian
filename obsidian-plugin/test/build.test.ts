@@ -47,7 +47,9 @@ describe("specBody", () => {
 describe("buildPrompt / claudeCodeBuildCommand", () => {
   it("drives the build through the MCP note tools, not a phantom CLI", () => {
     const p = buildPrompt(input);
-    expect(p).toContain("MCP server");
+    expect(p).toContain("optional Companion MCP server");
+    expect(p).toContain("already configured");
+    expect(p).not.toContain("obsidian-agent");
     expect(p).toContain("note_read");
     expect(p).toContain(`path = "${input.specPath}"`);
     expect(p).toContain("note_append");
