@@ -4,6 +4,17 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] — 2026-07-28
+
+### Added
+- **Zotero imports resolve themselves.** `research_source_import` with
+  `source_kind: zotero` and a `zotero_key` fills the missing title, authors,
+  publication date, publication, DOI, url, and abstract from the configured
+  Zotero library. A failed lookup still imports the key and reports
+  `zotero_resolved: false`.
+- **Zotero settings.** User id and optional API key under *Scholarly
+  discovery*. Requests fire only on an explicit import.
+
 ## [0.18.0] — 2026-07-28
 
 ### Added
