@@ -25,7 +25,8 @@ Apply to every asset — consistency across shots matters more than any single s
 
 ## Already captured
 
-These four live in `obsidian-plugin/assets/` and are already wired up.
+The first four live in `obsidian-plugin/assets/` and are already wired up;
+`social-card.png` lives here.
 
 | Filename | Scene | Consumed by |
 |---|---|---|
@@ -33,6 +34,7 @@ These four live in `obsidian-plugin/assets/` and are already wired up.
 | `artifact-inline.png` | A `claude-html` artifact rendered inline in the sandboxed iframe — a dashboard or report in the clay/olive palette. | Root README hero table + §Interactive artifacts · `guides/getting-started.md` §4 · `guides/artifacts.md` |
 | `manifest-roadmap.png` | A `manifest-pm` (or `manifest-vault`) prioritized roadmap/health artifact. Run `/claude-obsidian:manifest-pm` against the demo vault. | `obsidian-plugin/README.md` |
 | `working-map.png` | A generated working map of the vault. | `obsidian-plugin/README.md` |
+| `social-card.png` | 1280×640 GitHub social preview: tagline, feature pills, MIT / bring-your-own-key / local-first badges, and the chat panel bleeding off the right edge. **Composed, not captured** — built from HTML at 2× and downsampled, so it needs no vault and can be regenerated whenever the pitch changes. | GitHub repo settings → Social preview (manual upload; no REST API exists for it) |
 
 ## To capture
 
