@@ -4,20 +4,54 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] — 2026-07-28
+
+### Added
+- **Web Clipper schema sync.** The *Export Web Clipper templates* command (and
+  a button under *Source capture*) writes clipper templates generated from the
+  source schemas into `Claude/Clipper templates/`. Imported into the official
+  Web Clipper, clips land in the inbox already typed — `type`, `source`, and
+  every page-known field stamped — instead of clip-then-convert.
+- **Source inbox view.** A touch-first triage panel listing every inbox file
+  that isn't typed yet, with one-tap enrich and *Enrich all*. Open it with
+  *Open source inbox (clip triage)* or from the mobile chat menu.
+- **OpenAI-compatible local endpoint.** A third provider targets any `/v1`
+  server — LM Studio, mlx-lm, vLLM, Jan — as the chat backend, the utility
+  backend, or the embedding engine, including Apple-silicon-optimized servers
+  like `mlx_lm.server`.
+- **Built-in embedding model picker.** Three on-device embedding models
+  (xs/s/m); switching rebuilds the index automatically.
+- **Utility/chat model split.** Utility work (tagging, summaries, ingestion)
+  can run on its own smaller Ollama model while local chat keeps a bigger one.
+- **Mobile chat toggles.** The mobile ⋯ menu now carries Act on vault, Plan
+  mode, memory ingest, and Source inbox — previously desktop-only.
+
+### Changed
+- **Enrichment respects clipper-stamped fields.** Values the clipper already
+  wrote (title, author, site, published…) are trusted as-is; the utility model
+  is only asked for what the page couldn't say and never overwrites them.
+- **Build handoff works without MCP.** The Claude Code build command drives the
+  tracker through the official `obsidian` CLI when the bridge is off or writes
+  are disallowed.
+- **Mobile UX.** Code-block copy is always visible on touch; message actions,
+  send, and context buttons are 44px touch targets; the browser-only
+  *Open artifacts in* setting no longer shows on mobile; token fields size
+  fluidly.
+
 ## [0.14.1] — 2026-07-27
 
 ### Changed
 - **Vault workflow renamed.** The *Frontmatter audit* workflow's id is now
   `frontmatter-normalizer`, matching its skill and command in the
-  claude-obsidian Claude Code plugin. Its slash command changes with it:
+  obsidian-agent plugin. Its slash command changes with it:
   `/frontmatter-audit` becomes `/frontmatter-normalizer`. The workflow's display
   name and behaviour are unchanged.
 
 ### Added
 - **Catalog drift test.** `registryDrift.test.ts` holds the workflow catalog to
-  the capability registry in the claude-obsidian plugin: every workflow must
-  resolve to a registry entry declaring a companion surface, with matching name
-  and group, and every such entry must have a workflow. The registry is read at
+  the capability registry in the universal obsidian-agent plugin: every
+  Companion workflow must resolve to a portable registry entry with matching
+  name, and every portable entry must have a workflow. The registry is read at
   test time only and the suite skips when the submodule is absent, so
   obsidian-plugin still builds and tests standalone.
 
