@@ -26,3 +26,9 @@ docs/
 
 # Maintainer-only release tooling — not part of the published plugin
 scripts/
+
+# Screenshot/demo vault — local capture fixture, and it holds a live plugin copy
+demo-vault/
+
+# Plugin settings written by Obsidian at runtime — contains the API key and MCP token
+data.json
