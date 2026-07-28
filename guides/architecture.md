@@ -43,7 +43,7 @@ frontmatter, MCP protocol framing, provider parsing, the agent loop, diff
 application, fallback policy — is factored into **pure modules with no Obsidian
 imports**, so it unit-tests without a running app.
 
-Modules that genuinely need `obsidian` are tested against an in-memory fake:
+Modules that require `obsidian` are tested against an in-memory fake:
 `vitest.config.ts` aliases the `obsidian` module to `test/fakes/obsidian.ts`.
 
 The rule for new code: keep the logic in a pure module and test it directly.
@@ -97,10 +97,10 @@ widen the bind address, allow a tokenless mode, or expose writes by default.
 `allow-same-origin`, with network and form submission blocked by CSP. See
 [artifacts.md](artifacts.md) for the exact policy.
 
-**Auth surface** is deliberately narrow: a user-provided API key, a long-term CLI
-token from `claude setup-token`, or environment import. Browser/session OAuth from
-claude.ai is **not** supported — a pasted browser session cookie is not an
-accepted credential.
+**Auth surface** is limited to a user-provided API key, a long-term CLI token
+from `claude setup-token`, or environment import. Browser/session OAuth from
+claude.ai is not supported; a pasted browser session cookie is not an accepted
+credential.
 
 ## Repo layout
 

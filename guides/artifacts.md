@@ -17,14 +17,13 @@ Claude replies with a fenced ```` ```claude-html ```` block. Companion registers
 Markdown processor for that language, so **any note containing one renders it** —
 in chat, in a saved artifact note, in a note you wrote by hand.
 
-Claude is instructed *not* to over-use artifacts: the default is a normal Markdown
-reply, and an artifact is for a deliverable you'll keep and look at. If you get
-prose where you wanted a page, say so — or use `/artifact` explicitly.
+Claude is instructed to default to a Markdown reply and reserve artifacts for
+deliverables with visual structure. Use `/artifact` to request one explicitly.
 
 ## The sandbox
 
-This is the part worth understanding, because you're rendering model-generated
-JavaScript inside your notes.
+Artifacts are model-generated JavaScript rendered inside your notes, so they are
+treated as untrusted.
 
 The artifact runs in an `<iframe sandbox="allow-scripts">` — **without**
 `allow-same-origin`. Scripts run, so charts, tabs, and toggles work. But the
@@ -46,7 +45,7 @@ What that buys you:
 - **`default-src 'none'` with data/blob-only images, fonts, and media** — no remote asset can be pulled in as a side channel.
 - **`form-action 'none'`** — nothing can be POSTed anywhere.
 - **`base-uri 'none'`** — the document can't rewrite its own resolution base.
-- **`'unsafe-eval'` is deliberately allowed** so artifacts that use `eval`/`new Function` for charting or templating still render. It buys the artifact nothing extra, since it has no network and no same-origin access.
+- **`'unsafe-eval'` is allowed** so artifacts using `eval`/`new Function` for charting or templating render. It grants no additional reach, since the frame has no network and no same-origin access.
 
 Two implementation details that matter:
 
@@ -90,9 +89,8 @@ mono for small labels — plus per-template structure: a plan gets a goal box an
 milestone timeline, an audit leads with a verdict and a score, a dashboard is KPI
 tiles plus small charts.
 
-Charts are hand-drawn: CSS bars or inline `<svg>`, no libraries. That's not a
-limitation dressed up as a feature — it's what makes the artifact self-contained,
-and self-containment is what makes the sandbox airtight.
+Charts are CSS bars or inline `<svg>`, no libraries, which keeps each artifact
+self-contained and consistent with the CSP.
 
 That aesthetic is an **original reformulation** of the look in Thariq Shihipar's
 ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness)
