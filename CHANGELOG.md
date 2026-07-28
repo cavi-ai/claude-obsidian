@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] — 2026-07-28
+
+### Added
+- **Fallback to any local backend.** The Auto chat backend now falls back to a
+  configured OpenAI-compatible endpoint (LM Studio, mlx-lm, …) when Ollama
+  isn't reachable — not just to Ollama.
+- **Stale clipper-template detection.** Exported Web Clipper templates carry a
+  schema fingerprint; when schemas, the inbox folder, or base tags change,
+  Companion flags the templates as out of date (notice on load, status under
+  *Source capture*) so you can re-export.
+- **Rebuild offer on embedding switch.** Changing the built-in embedding model
+  or engine now offers to rebuild the semantic index instead of silently
+  invalidating it.
+
 ## [0.15.0] — 2026-07-28
 
 ### Added
