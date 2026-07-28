@@ -4,6 +4,17 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] — 2026-07-28
+
+### Changed
+- **Streaming pipeline consolidation.** Chat and agent turns now share one
+  `TurnRenderer` (throttled markdown, thinking panel, usage, artifact chip)
+  instead of two hand-mirrored copies.
+- **One next-step decision for research.** The desk and workbench next-action
+  lists derive from a single continuation-step decision, so they can't drift.
+- **One JSON repair loop.** Draft and revision coordinators share
+  `completeJsonWithRepair`. No user-facing behavior change in this release.
+
 ## [0.16.0] — 2026-07-28
 
 ### Added
