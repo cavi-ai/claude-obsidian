@@ -553,7 +553,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const { provider } = router.resolve("utility");
     return {
       app: this.app,
-      complete: async (system, user) => (await router.complete("utility", { system, user })).text,
+      complete: async (system, user, opts) =>
+        (
+          await router.complete("utility", {
+            system,
+            user,
+            ...(opts?.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+            ...(opts?.responseSchema ? { responseFormat: "json" as const, responseSchema: opts.responseSchema } : {}),
+            ...(opts?.disableThinking ? { thinking: { type: "disabled" as const } } : {}),
+          })
+        ).text,
       overrides: this.settings.sourceSchemaOverrides,
       baseTags: this.settings.sourceBaseTags,
       enrichedBy: provider.id === "anthropic" ? "claude" : "local",
