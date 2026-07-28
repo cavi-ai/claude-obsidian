@@ -361,7 +361,8 @@ export class VaultTools {
     return (key) => adapter.lookup(key);
   }
 
-  /** Readable-markdown web capture for research_source_import (renderer only). */  private webCapture(): WebCapture | undefined {
+  /** Readable-markdown web capture for research_source_import (renderer only). */
+  private webCapture(): WebCapture | undefined {
     if (typeof DOMParser === "undefined") return undefined;
     return (url) => captureWebSource(url, {
       fetchHtml: async (target) => {

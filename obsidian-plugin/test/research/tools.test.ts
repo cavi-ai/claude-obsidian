@@ -21,6 +21,15 @@ describe("ResearchTools", () => {
     expect(names).not.toEqual(expect.arrayContaining(["research_evidence_create", "research_outline_create"]));
   });
 
+  it("declares the conditional title requirement of research_source_import in its schema", () => {
+    const schema = new ResearchTools(repository() as never).definitions().find(({ name }) => name === "research_source_import")?.inputSchema as { required: string[]; anyOf: unknown[] };
+    expect(schema.required).toEqual(["project", "source_kind"]);
+    expect(schema.anyOf).toEqual([
+      { required: ["title"] },
+      { properties: { source_kind: { const: "zotero" } }, required: ["source_kind", "zotero_key"] },
+    ]);
+  });
+
   it.each(["research_evidence_capture", "research_evidence_create"])("dispatches %s to evidence creation", async (name) => {
     const repo = repository();
     await new ResearchTools(repo as never).call(name, { project: "P/Project.md", source: "P/Sources/S.md", title: "E", excerpt: "x" });
