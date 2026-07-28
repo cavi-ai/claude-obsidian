@@ -39,7 +39,9 @@ import { DiffModal } from "./view/DiffModal";
 import { RewriteModal } from "./view/RewriteModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
-import { VaultTools } from "./mcp/vaultTools";
+import { VaultTools, type VaultToolsOptions } from "./mcp/vaultTools";
+import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
+import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
 import { stripFrontmatter } from "./semantic/chunk";
 import { generateToken, resolveMcpToken } from "./mcp/clientConfig";
@@ -1108,6 +1110,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
       ontology: () => this.ontology(),
       zotero: () => this.zoteroLibrary(),
+      ...this.webToolImpls(),
     };
     if (!this.vaultTools) {
       this.vaultTools = new VaultTools(this.app, toolOpts);
@@ -1472,6 +1475,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
       ontology: () => this.ontology(),
       zotero: () => this.zoteroLibrary(),
+      ...this.webToolImpls(),
     };
     if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
     else this.agentVaultTools.setOptions(opts);
@@ -1494,6 +1498,54 @@ export default class ClaudeCompanionPlugin extends Plugin {
         },
         parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
       });
+  }
+
+  /**
+   * The agent's web tools, built from settings on every call. Each fires only
+   * on an explicit model tool call — nothing searches or fetches in the
+   * background. DOMParser-less environments (headless tests) get no tools.
+   */
+  private webToolImpls(): Pick<VaultToolsOptions, "webSearch" | "webFetch"> {
+    const s = this.settings;
+    const out: { webSearch?: (query: string, count: number) => Promise<string>; webFetch?: (url: string) => Promise<string> } = {};
+    if (s.webSearchEnabled) {
+      out.webSearch = async (query, count) => {
+        if (s.webSearchEngine === "brave") {
+          if (!s.braveSearchApiKey.trim()) {
+            throw new Error("Brave Search needs an API key — add it in Companion settings → Agent, or switch to DuckDuckGo.");
+          }
+          return formatSearchResults(query, await braveSearch(createObsidianDiscoveryHttp(), s.braveSearchApiKey, query, count));
+        }
+        if (typeof DOMParser === "undefined") throw new Error("Web search is unavailable in this environment.");
+        return formatSearchResults(
+          query,
+          await duckDuckGoSearch(
+            {
+              fetchHtml: async (url) => {
+                const response = await requestUrl({ url, method: "GET", throw: false });
+                if (response.status >= 400) throw new Error(`Search failed (${response.status}).`);
+                return response.text;
+              },
+              parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+            },
+            query,
+            count,
+          ),
+        );
+      };
+    }
+    if (s.webFetchEnabled && typeof DOMParser !== "undefined") {
+      out.webFetch = (url) =>
+        webFetchPage(url, {
+          fetchHtml: async (target) => {
+            const response = await requestUrl({ url: target, method: "GET", throw: false });
+            if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+            return response.text;
+          },
+          parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+        });
+    }
+    return out;
   }
 
   // ---------- prompt templates (user slash commands) ----------
