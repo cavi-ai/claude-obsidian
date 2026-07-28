@@ -1020,6 +1020,55 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    new Setting(containerEl)
+      .setName("Web search tool")
+      .setDesc("Let Claude search the public web from chat (explicit searches only — nothing fires in the background).")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.webSearchEnabled).onChange(async (v) => {
+          this.plugin.settings.webSearchEnabled = v;
+          await this.plugin.saveSettings();
+          this.renderSettings();
+        }),
+      );
+
+    if (this.plugin.settings.webSearchEnabled) {
+      new Setting(containerEl)
+        .setName("Search engine")
+        .setDesc("DuckDuckGo needs no key; Brave gives higher-quality results with an API key.")
+        .addDropdown((dd) => {
+          dd.addOption("duckduckgo", "DuckDuckGo (no key)");
+          dd.addOption("brave", "Brave Search (API key)");
+          dd.setValue(this.plugin.settings.webSearchEngine).onChange(async (v) => {
+            this.plugin.settings.webSearchEngine = v as "duckduckgo" | "brave";
+            await this.plugin.saveSettings();
+            this.renderSettings();
+          });
+        });
+
+      if (this.plugin.settings.webSearchEngine === "brave") {
+        new Setting(containerEl)
+          .setName("Brave Search API key")
+          .setDesc("Subscription token from brave.com/search/api. Stored locally in this vault's plugin data.")
+          .addText((text) => {
+            text.inputEl.type = "password";
+            text.setValue(this.plugin.settings.braveSearchApiKey).onChange(async (v) => {
+              this.plugin.settings.braveSearchApiKey = v.trim();
+              await this.plugin.saveSettings();
+            });
+          });
+      }
+    }
+
+    new Setting(containerEl)
+      .setName("Web fetch tool")
+      .setDesc("Let Claude read a public web page as clean markdown — after a search, or a URL you give it.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.webFetchEnabled).onChange(async (v) => {
+          this.plugin.settings.webFetchEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 
   private renderCloudSection(containerEl: HTMLElement): void {

@@ -148,6 +148,14 @@ export interface PluginSettings {
   agentAllowWrites: boolean;
   /** Max stream→tools→stream iterations per turn. */
   agentMaxIterations: number;
+  /** Offer the web_search agent tool (explicit calls only). */
+  webSearchEnabled: boolean;
+  /** Engine behind web_search: keyless DuckDuckGo HTML or the keyed Brave API. */
+  webSearchEngine: "duckduckgo" | "brave";
+  /** Brave Search API key (only when webSearchEngine is "brave"). */
+  braveSearchApiKey: string;
+  /** Offer the web_fetch agent tool (reads one public page per explicit call). */
+  webFetchEnabled: boolean;
 
   // ----- MCP bridge (vault-as-MCP-server) -----
   /** Run a local MCP server exposing vault tools to Claude Code / Desktop. */
@@ -288,6 +296,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   // "Act on vault" toggle flips it per session.
   agentAllowWrites: true,
   agentMaxIterations: 10,
+  webSearchEnabled: false,
+  webSearchEngine: "duckduckgo",
+  braveSearchApiKey: "",
+  webFetchEnabled: false,
 
   mcpEnabled: false,
   mcpPort: 22360,
