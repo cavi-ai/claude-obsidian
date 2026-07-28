@@ -23,6 +23,34 @@ Apply to every asset — consistency across shots matters more than any single s
 - **PNG:** ~1600 px wide max, under 1 MB.
 - **GIF:** ≤15 s, ≤8 MB, ends near its start state so the loop isn't jarring.
 
+## The demo vault
+
+`demo-vault/` at the repo root — **gitignored**, because it is a local capture
+fixture and carries a copy of the built plugin.
+
+Open it in Obsidian (*Open folder as vault*) and everything is preconfigured:
+light theme, Companion enabled, daily notes pointed at `Daily/`, graph tuned for a
+legible screenshot. **Add your own API key on first run** — plugin `data.json` is
+gitignored, so the key never lands in the repo.
+
+Contents: 45 notes across two believable clusters (a home-espresso hobby cluster
+and a learning-Rust cluster with an active project), book notes, four daily notes,
+a weekly review, two untriaged clippings in `Inbox/`, and a populated research
+project.
+
+`Research/Espresso Extraction/` is written in the plugin's canonical record format
+— 3 sources with real SHA-256 content fingerprints, 7 evidence cards, 3 claims, 2
+open questions, 1 outline. Two things are wrong **on purpose**, so the Audit and
+Intelligence tabs have genuine findings to show:
+
+- one evidence card left `proposed` and unlinked → `unreviewed-evidence` + `unused-evidence`
+- one claim overstated with challenging evidence attached → a real contradiction
+
+Regenerate it any time with `python3 demo-vault/_generate-demo-vault.py demo-vault`
+(idempotent). After rebuilding the plugin, re-copy `main.js`, `manifest.json`, and
+`styles.css` from `obsidian-plugin/` into
+`demo-vault/.obsidian/plugins/claude-companion/`.
+
 ## Already captured
 
 The first four live in `obsidian-plugin/assets/` and are already wired up;
