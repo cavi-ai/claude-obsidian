@@ -14,13 +14,12 @@ You don't need the first to get the second.
 | Backend | Behavior |
 |---|---|
 | **Claude** (default) | Starts on Claude. Still degrades to local if a request fails for an offline/usage reason and a local model is available. |
-| **Auto** | Starts on Claude, falls back to local on any offline/usage failure. This is the point of Auto. |
+| **Auto** | Starts on Claude, falls back to local on any offline/usage failure. |
 | **Local only** | Runs every request on Ollama. Never calls out. |
 
-Fallback is deliberately narrow. It triggers on network loss, rate limits and
-usage caps, rejected credentials, and server errors (429/401/403/5xx, plus
-message-level signals like `fetch failed`, `quota`, `overloaded`, `ECONNREFUSED`,
-`timeout`).
+Fallback triggers on network loss, rate limits and usage caps, rejected
+credentials, and server errors (429/401/403/5xx, plus message-level signals like
+`fetch failed`, `quota`, `overloaded`, `ECONNREFUSED`, `timeout`).
 
 It does **not** trigger on a genuine 400 bad request — that's your prompt or
 parameters, and a different model won't fix it. A request that already ran locally
@@ -113,8 +112,7 @@ chunk, so a brand-new note isn't invisible while the index catches up.
 | Session capture from Claude Code transcripts | Yes | No — browsing captured memory works |
 
 On mobile the settings tab collapses the desktop-only items into one
-*🖥 Desktop-only features* note, so nothing looks broken — it's just waiting for a
-computer.
+*🖥 Desktop-only features* note.
 
 ## Cost note
 

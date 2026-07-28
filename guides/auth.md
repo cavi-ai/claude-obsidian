@@ -29,18 +29,15 @@ claude setup-token
 Paste the resulting `sk-ant-oat…` token. It's sent as `Authorization: Bearer`
 along with `anthropic-beta: oauth-2025-04-20`.
 
-One quirk worth knowing, because the failure mode is misleading: subscription
-tokens require the request to present as Claude Code, so Companion prepends
-Anthropic's Claude Code identity string as the **first** system block. Your own
-system prompt follows it. Get that ordering wrong and the API returns a 429
-`rate_limit_error` that reads like "out of usage" even though your credits are
-untouched. Companion handles the ordering for you; this note exists so the error
-doesn't confuse you if you ever see it.
+Subscription tokens require the request to present as Claude Code: Companion
+prepends Anthropic's Claude Code identity string as the first system block, with
+your own system prompt after it. Wrong ordering returns a 429 `rate_limit_error`
+that reads as "out of usage" while credits are unaffected. Companion handles the
+ordering.
 
-Token shape matters too: an OAuth token sent on `x-api-key` is rejected with 401.
-Companion picks the header from the credential's shape, so pasting a token into
-the key field still works — but the two are not interchangeable at the protocol
-level.
+An OAuth token sent on `x-api-key` is rejected with 401. Companion selects the
+header from the credential's shape, so pasting a token into the key field still
+works.
 
 ### Import from the environment
 
@@ -112,7 +109,7 @@ running when usage runs out — see [local-models.md](local-models.md).
 - The credential is stored in this vault's plugin data (`data.json`) and is never logged.
 - It leaves your device only in requests to Anthropic, or to the gateway you configured.
 - The API-key and token fields render as password inputs, so the settings tab is safe to screen-share.
-- If you sync your vault, `data.json` syncs with it. That's worth knowing before putting a long-lived key in a vault synced to a shared location.
+- If you sync your vault, `data.json` syncs with it.
 - The [MCP bridge](claude-code-bridge.md) has a separate token with its own environment-variable escape hatch for exactly that reason.
 
 See [faq.md](faq.md) for what else does and doesn't leave your machine.

@@ -68,28 +68,24 @@ told which ones those were.
 
 <!-- screenshot: ../assets/diff-review.png — pending capture -->
 
-This is deliberately *not* classified as a write tool, so it stays available even
-with *Allow write tools* off — reviewing a diff is already your decision point.
-Each replacement must match the note exactly once, which is why Claude includes
-surrounding lines instead of matching a bare word.
+`propose_note_edit` is not classified as a write tool, so it remains available
+with *Allow write tools* off. Each replacement must match the note exactly once,
+so Claude includes surrounding lines to disambiguate.
 
 ## Plan Mode
 
-Sometimes you want Claude to work out *what* it would do before it does anything.
-The **Plan** button in the composer turns on Plan Mode for the conversation.
+The **Plan** button in the composer enables Plan Mode for the conversation.
 
-While it's on:
+While it is on:
 
 - Claude gets the **read-only tool set only** — write tools are excluded regardless of your *Allow write tools* setting.
 - `propose_note_edit` isn't offered either, so the turn ends in a plan rather than an edit proposal.
 - Claude is instructed to explore first (search and read the relevant notes), then propose concrete ordered steps naming the vault paths involved.
 
-Turn it off to execute. Plan Mode is **per-conversation and never persisted** — a
-fresh chat always starts with it off, so you can't leave it on by accident and
-wonder why nothing writes.
+Turn it off to execute. Plan Mode is per-conversation and never persisted; a
+fresh chat starts with it off.
 
-This is the strongest guarantee in the plugin: not "Claude was asked not to
-write", but "the write tools were never handed over".
+The write tools are withheld from the request rather than discouraged by prompt.
 
 ## The guardrails
 
