@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] — 2026-07-28
+
+### Added
+- **Wire into the graph.** The source inbox gains a second section: enriched
+  notes that still mention other notes without linking them, each with a
+  one-tap *Review* into the diff link flow. Ingestion now ends wired in, not
+  filed away.
+- **Inbox ribbon badge.** A new inbox ribbon icon shows the pending-clip count
+  and opens the source inbox.
+
+### Changed
+- **Related notes on mobile.** The chat ⋯ menu now opens the related-notes
+  panel (link suggestions + semantic neighbors).
+
 ## [0.15.1] — 2026-07-28
 
 ### Added
