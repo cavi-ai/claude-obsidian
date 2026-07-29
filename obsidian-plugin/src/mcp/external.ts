@@ -24,6 +24,7 @@ export function parseExternalToolName(name: string): { server: string; tool: str
   if (!name.startsWith(PREFIX)) return null;
   const rest = name.slice(PREFIX.length);
   const sep = rest.indexOf("__");
+  if (sep === -1) return null;
   if (sep <= 0 || sep === rest.length - 2) return null;
   return { server: rest.slice(0, sep), tool: rest.slice(sep + 2) };
 }
