@@ -49,7 +49,7 @@ interpretations from the excerpt.
 
 ## What gets recorded
 
-- **Sources** receive a content fingerprint at capture.
+- **Sources** receive a content fingerprint at capture. Kinds: web (auto-fetched to clean markdown), PDF, DOI, arXiv, **Zotero** (a `zotero_key` resolves title, authors, publication, DOI, and abstract from your library — set your Zotero user id and, for private libraries, API key under *Scholarly discovery*), and vault notes.
 - **Evidence** preserves the exact excerpt, the locator (page, section, paragraph, timestamp, or quote), and the fingerprint captured with it.
 - **Claims** keep supporting, challenging, and contextual relations distinct — a claim knows what argues against it.
 

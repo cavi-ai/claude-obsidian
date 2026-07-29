@@ -15,7 +15,7 @@ You don't need the first to get the second.
 |---|---|
 | **Claude** (default) | Starts on Claude. Still degrades to local if a request fails for an offline/usage reason and a local model is available. |
 | **Auto** | Starts on Claude, falls back to local on any offline/usage failure. |
-| **Local only** | Runs every request on Ollama. Never calls out. |
+| **Local only** | Runs every request on Ollama — including the agent, when the selected model supports tools (below). Never calls out. |
 
 Fallback triggers on network loss, rate limits and usage caps, rejected
 credentials, and server errors (429/401/403/5xx, plus message-level signals like
@@ -42,6 +42,23 @@ Desktop only — it needs a localhost model server.
 4. Check **Ollama host** — default `http://localhost:11434`.
 5. Pick a **Local model**. The field becomes a dropdown populated from your Ollama server once models are detected, and stays free text until then.
 6. Click **Test local connection**.
+
+### Capability badges
+
+Companion reads each detected model's metadata (`/api/show`) and badges it in
+settings:
+
+- **tools ✓** — the model can drive **agent mode** locally (llama3.1, qwen3,
+  and similar tool-trained families). Without it the agent switches off for
+  that model with a notice, and chat continues as plain completions.
+- **thinking ✓** — the model reasons before answering; the composer's
+  **reasoning indicator** lights up whenever the active backend thinks (this
+  flag on a local model, or extended thinking toggled on for Claude).
+
+Utility work (summaries, tagging, enrichment) always runs with thinking
+disabled and a structured-JSON request, so a reasoning model can't burn the
+reply budget on hidden reasoning — that failure mode used to surface as
+"reply was not valid JSON" during inbox ingestion.
 
 ## Routing cheap work locally
 
@@ -97,6 +114,12 @@ Indexing traverses the vault, chunks each note, embeds the chunks, and stores th
 vectors locally. Use **Rebuild index** after switching engines or models — vectors
 from different models aren't comparable, which is why the built-in model's index
 key is namespaced (`builtin:…`) so it can never collide with an Ollama model name.
+
+**PDFs are indexed too** (the **Index PDF text** toggle, on by default): text is
+extracted with pdf.js, chunked without ever crossing a page boundary, and every
+chunk carries its **page number** — so semantic results and evidence citations
+point at the page, not just the file. Encrypted or unreadable PDFs skip quietly
+and never abort a build.
 
 Related-note lookups handle a not-yet-indexed note by live-embedding its first
 chunk, so a brand-new note isn't invisible while the index catches up.
