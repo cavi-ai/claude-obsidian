@@ -135,6 +135,11 @@ Network requests fire **only on explicit user actions**, and results cache
 locally. Enable it under *Settings → Companion for Claude → Scholarly discovery*;
 OpenAlex asks for a contact email as a courtesy to their API.
 
+Set a **Zotero user id** (and an API key for a private library) in the same
+section and an import with `source_kind: zotero` plus a `zotero_key` resolves the
+item's title, authors, date, publication, DOI, url, and abstract from your
+library. A failed lookup still imports the key.
+
 ## See also
 
 - [agent-mode.md](agent-mode.md) — the two research tools available to Claude in chat, and the seven write-gated ones.
