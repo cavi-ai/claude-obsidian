@@ -48,6 +48,18 @@ export type AuthMode = "apiKey" | "oauthToken" | "environment";
 /** Where the "Open" button on an artifact sends it. "obsidian" = in-app fullscreen. */
 export type ArtifactOpenTarget = "obsidian" | "default" | "chrome" | "safari" | "brave" | "firefox";
 
+/** One external MCP server the in-chat agent may consume (roadmap: two-way MCP hub). */
+export interface McpServerConfig {
+  name: string;
+  enabled: boolean;
+  transport: "http" | "stdio";
+  /** HTTP transport: the server's streamable-HTTP endpoint. */
+  url: string;
+  /** stdio transport (desktop only): command + space-separated args. */
+  command: string;
+  args: string;
+}
+
 export interface PluginSettings {
   apiKey: string;
   /** How to authenticate to Anthropic: API key (default), long-term OAuth token, or the environment. */
@@ -170,6 +182,8 @@ export interface PluginSettings {
   mcpAllowWrites: boolean;
   /** Default folder for notes created via MCP. */
   mcpWriteFolder: string;
+  /** External MCP servers the agent can use (each call asks for confirmation). */
+  mcpClientServers: McpServerConfig[];
 
   // ----- cloud dispatch (Claude Code Routines API) -----
   /** Enable the "Send to cloud Claude session" command (fires a pre-created routine). */
@@ -309,6 +323,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   mcpToken: "",
   mcpAllowWrites: false,
   mcpWriteFolder: "Claude/Inbox",
+  mcpClientServers: [],
 
   cloudDispatchEnabled: false,
   cloudRoutineFireUrl: "",

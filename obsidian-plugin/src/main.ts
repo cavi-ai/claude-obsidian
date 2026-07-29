@@ -40,6 +40,9 @@ import { RewriteModal } from "./view/RewriteModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools, type VaultToolsOptions } from "./mcp/vaultTools";
+import { ExternalMcpManager } from "./mcp/externalManager";
+import { externalAnthropicTools } from "./mcp/external";
+import type { AnthropicToolDef } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
@@ -121,6 +124,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
   private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
   private mcpServer: McpHttpServer | null = null;
+  private _externalMcp: ExternalMcpManager | null = null;
+  private _mcpServersSnapshot = "[]";
   private vaultTools: VaultTools | null = null;
   /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
   private agentVaultTools: VaultTools | null = null;
@@ -929,12 +934,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._viewDiscoveryCoordinators?.clear();
     void this.mcpServer?.stop();
     this.mcpServer = null;
+    void this._externalMcp?.close();
+    this._externalMcp = null;
     this._builtinEmbedder?.terminate();
     this._builtinEmbedder = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
     if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
     if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
     if (this.inboxBadgeTimer !== null) window.clearTimeout(this.inboxBadgeTimer);
+  }
+
+  /** Lazy external-MCP manager; null until first configured use. */
+  externalMcp(): ExternalMcpManager {
+    if (!this._externalMcp) this._externalMcp = new ExternalMcpManager(() => this.settings.mcpClientServers);
+    return this._externalMcp;
+  }
+
+  /** External servers' namespaced tool lists (empty when none are configured/reachable). */
+  async externalMcpTools(): Promise<AnthropicToolDef[]> {
+    if (this.settings.mcpClientServers.every((s) => !s.enabled)) return [];
+    return externalAnthropicTools(await this.externalMcp().servers());
+  }
+
+  /** Route an mcp__<server>__<tool> call to its server. */
+  async callExternalMcp(name: string, args: Record<string, unknown>): Promise<string> {
+    return this.externalMcp().call(name, args);
   }
 
   // ---------- settings ----------
@@ -979,6 +1003,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.persist();
     // Rebuild providers if any credentials/hosts changed.
     this._router = null;
+    // External MCP server list changed → drop stale sessions so they reconnect fresh.
+    const serversJson = JSON.stringify(this.settings.mcpClientServers);
+    if (this._mcpServersSnapshot !== serversJson) {
+      this._mcpServersSnapshot = serversJson;
+      if (this._externalMcp) void this._externalMcp.close();
+    }
     // Rebuild the indexer if the embedding engine/model or enabled state changed.
     const activeEmbedder = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel, this.settings.builtinEmbeddingModel, this.settings.openaiCompatEmbeddingModel);
     if (this.indexerModel !== activeEmbedder || (!this.settings.semanticEnabled && this._indexer)) {

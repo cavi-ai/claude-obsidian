@@ -2,7 +2,8 @@ import { ItemView, MarkdownRenderer, MarkdownView, Menu, Modal, Notice, Platform
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ContextToggles, ToolTraceEntry } from "../types";
 import { runAgentTurn, type AgentTurnDeps } from "../agent/loop";
-import { executeTool, toAnthropicTools, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL } from "../agent/tools";
+import { executeTool, toAnthropicTools, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
+import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
 import { DiffModal } from "./DiffModal";
 import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
@@ -1524,6 +1525,7 @@ export class ChatView extends ItemView {
     const provider = this.plugin.router().anthropic;
     const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
     const renderer = new TurnRenderer(this.turnHost(), bubble, body, this.controls.thinking && this.controls.showThinking);
+    const externalTools = this.planMode ? [] : await this.plugin.externalMcpTools().catch(() => []);
 
     const request: CompletionRequest = {
       system: this.plugin.composeSystemPrompt({ agent: true, plan: this.planMode }),
@@ -1536,7 +1538,7 @@ export class ChatView extends ItemView {
       // the diff modal is its own gate (spec 2026-07-05 apply-to-note, §7 Q1).
       tools: this.planMode
         ? readOnlyAnthropicTools(this.plugin.agentTools().definitions())
-        : [...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL],
+        : [...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL, ...externalTools],
     };
     if (shape.temperature !== undefined) request.temperature = shape.temperature;
     if (shape.thinking !== undefined) request.thinking = shape.thinking;
@@ -1548,14 +1550,16 @@ export class ChatView extends ItemView {
     const deps: AgentTurnDeps = {
       stream: (req, handlers) => provider.stream(req, handlers),
       execute: (block) =>
-        executeTool(
-          {
-            call: (name, args) => this.plugin.agentTools().call(name, args),
-            confirmWrite: (b) => this.confirmAgentWrite(b),
-            proposeEdit: (b) => this.proposeAgentEdit(b),
-          },
-          block,
-        ),
+        parseExternalToolName(block.name)
+          ? this.executeExternalMcp(block)
+          : executeTool(
+              {
+                call: (name, args) => this.plugin.agentTools().call(name, args),
+                confirmWrite: (b) => this.confirmAgentWrite(b),
+                proposeEdit: (b) => this.proposeAgentEdit(b),
+              },
+              block,
+            ),
       maxIterations: this.plugin.settings.agentMaxIterations,
       ...(this.abort?.signal ? { signal: this.abort.signal } : {}),
     };
@@ -1618,8 +1622,28 @@ export class ChatView extends ItemView {
       : `Applied ${applied} of ${plan.hunks.length} edits to ${path} (the user rejected the rest).`;
   }
 
-  /** Ask the user before an agent write tool runs; honors "allow for this session". */
-  private confirmAgentWrite(block: ToolUseBlock): Promise<boolean> {
+  /**
+   * Route an external MCP tool call: every call confirms first (external
+   * servers can do anything), then dispatch; errors become is_error results
+   * so the model adapts instead of the turn dying.
+   */
+  private async executeExternalMcp(block: ToolUseBlock): Promise<ToolResultBlock> {
+    const result = (content: string, isError?: boolean): ToolResultBlock => ({
+      type: "tool_result",
+      tool_use_id: block.id,
+      content,
+      ...(isError ? { is_error: true } : {}),
+    });
+    if (block.parseError) return result(block.parseError, true);
+    if (!(await this.confirmAgentWrite(block))) return result("User declined.", true);
+    try {
+      return result(truncateResult(await this.plugin.callExternalMcp(block.name, block.input)));
+    } catch (err) {
+      return result(err instanceof Error ? err.message : String(err), true);
+    }
+  }
+
+  /** Ask the user before an agent write tool runs; honors "allow for this session". */  private confirmAgentWrite(block: ToolUseBlock): Promise<boolean> {
     if (this.agentWriteAlways) return Promise.resolve(true);
     return new Promise((resolve) => {
       new WriteConfirmModal(this.app, block, (choice) => {
