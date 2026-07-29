@@ -55,6 +55,10 @@ while chat stays on Claude. That's the setting that saves the most tokens for th
 least quality cost: bulk summarizing and tagging don't need a frontier model, and
 a small local model is fine at them. It's off by default.
 
+Structured utility work (source enrichment) requests JSON against a field-derived
+schema and turns thinking off, so reasoning models like qwen3 answer with the
+fields instead of spending the token budget on hidden reasoning.
+
 Routing checks that an Ollama host is configured, not that it's answering — so if
 you enable this and then stop Ollama, utility tasks will fail rather than silently
 re-route to Claude. Use **Test local connection** after changing anything. (The
