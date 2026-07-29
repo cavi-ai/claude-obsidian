@@ -124,6 +124,31 @@ export class OllamaProvider implements Provider {
   }
 
   /**
+   * Model capability flags from /api/show ("tools", "thinking", "vision", …),
+   * cached per model. Empty array when the server or model can't be queried —
+   * callers treat that as "unknown", not as proof of incapability.
+   */
+  private capsCache = new Map<string, string[]>();
+
+  async capabilities(model: string): Promise<readonly string[]> {
+    const key = model.trim() || this.defaultModel;
+    const cached = this.capsCache.get(key);
+    if (cached) return cached;
+    let caps: string[] = [];
+    try {
+      const res = await requestUrl({ url: `${this.base()}/api/show`, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: key }), throw: false });
+      if (res.status >= 200 && res.status < 300) {
+        const data = res.json as { capabilities?: unknown };
+        if (Array.isArray(data.capabilities)) caps = data.capabilities.filter((c): c is string => typeof c === "string");
+      }
+    } catch {
+      /* unreachable → empty */
+    }
+    this.capsCache.set(key, caps);
+    return caps;
+  }
+
+  /**
    * Embed one or more texts with the given embedding model (e.g. nomic-embed-text).
    * Uses Ollama's /api/embed; returns one vector per input in order. Throws
    * ProviderError on failure so the indexer can surface a clear message.

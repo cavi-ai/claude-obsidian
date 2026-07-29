@@ -464,6 +464,25 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         }),
     );
 
+    // Capability badges per detected model — tools gates the agent; thinking
+    // means the model reasons before answering (shows in the chat indicator).
+    const capsEl = containerEl.createDiv({ cls: "cc-model-caps setting-item-description" });
+    void (async () => {
+      const models = this.detectedOllamaModels ?? [];
+      if (models.length === 0) return;
+      const ollama = this.plugin.router().ollama;
+      for (const m of models) {
+        const caps = await ollama.capabilities(m);
+        const tools = caps.includes("tools");
+        const thinking = caps.includes("thinking");
+        const row = capsEl.createDiv({ cls: "cc-model-caps-row" });
+        row.createSpan({ text: m, cls: "cc-model-caps-name" });
+        row.createSpan({ text: `tools ${tools ? "✓" : "✗"}`, cls: tools ? "is-ok" : "is-err" });
+        row.createSpan({ text: `thinking ${thinking ? "✓" : "✗"}`, cls: thinking ? "is-ok" : "" });
+        if (!tools) row.createSpan({ text: " — chat only, no agent", cls: "setting-item-description" });
+      }
+    })();
+
     const ollamaStatus = containerEl.createDiv({ cls: "cc-conn-status" });
     new Setting(containerEl)
       .setName("Test local connection")
@@ -932,6 +951,16 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       .addText((text) =>
         text.setValue(this.plugin.settings.sourceInboxFolder).onChange(async (v) => {
           this.plugin.settings.sourceInboxFolder = v.trim() || "Clippings";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Organized folder")
+      .setDesc("Where “Organize clippings” moves reviewed clips — one subfolder per inferred topic/project.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.clipOrganizedFolder).onChange(async (v) => {
+          this.plugin.settings.clipOrganizedFolder = v.trim() || "Library";
           await this.plugin.saveSettings();
         }),
       );

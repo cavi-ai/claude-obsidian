@@ -27,7 +27,11 @@ interactive artifacts inline, and drive the *same* vault from Claude Code.
 ### Agent mode
 
 Claude searches, reads, and follows links across the vault while answering, each
-step shown as a tool chip. Write tools require per-action confirmation.
+step shown as a tool chip. Write tools require per-action confirmation. The same
+agent runs **fully local** on a tool-capable Ollama model (llama3.1, qwen3) —
+the composer tells you when the selected model lacks tool support. Optional
+**web search & fetch** tools and **external MCP servers** extend the agent past
+the vault, both off by default and per-call confirmed.
 → [agent-mode.md](guides/agent-mode.md)
 
 <!-- screenshot: assets/agent-tool-chips.png — pending capture -->
@@ -63,16 +67,32 @@ Draft revisions are validated before preview and reject unsupported citations.
 
 Companion runs a loopback-only, token-gated MCP server over the live vault. The
 bridge is a specialized integration for explicitly configured MCP clients; it
-is separate from the CLI-only `obsidian-agent` plugin.
+is separate from the CLI-only `obsidian-agent` plugin. The client direction
+works too: the agent can consume **external MCP servers** (HTTP or stdio) from
+chat, each call confirmed — Companion is the two-way hub.
 → [claude-code-bridge.md](guides/claude-code-bridge.md)
 
 <!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
 
+### Sources, clippings & research import
+
+A watched clippings inbox auto-enriches new clips with typed frontmatter
+(title, tags, summary — works on a thinking-free local utility call, so bulk
+ingest stays cheap and reliable). The **Organize clippings** command takes the
+existing pile: meaningful renames, tags, and an LLM-inferred domain/project
+folder per clip, shown as a reviewable move plan before anything is filed.
+Research sources import from web, PDF, DOI, arXiv, **Zotero**, or the vault.
+→ [research-workbench.md](guides/research-workbench.md)
+
 ### Local models
 
 The Auto chat backend falls back to a local Ollama model when Claude is offline
-or out of usage; Local only runs every request on Ollama. Semantic search uses a
-built-in on-device embedding model on desktop and mobile.
+or out of usage; Local only runs every request on Ollama — **including the
+agent**, on models whose metadata reports tool support. Settings badge every
+detected model with its tools/thinking capabilities, and a composer indicator
+shows when the current backend reasons before answering. Semantic search uses a
+built-in on-device embedding model on desktop and mobile — and also indexes
+**vault PDFs**, keeping page locators in every result.
 → [local-models.md](guides/local-models.md)
 
 <!-- screenshot: assets/local-fallback-indicator.png — pending capture -->
@@ -119,7 +139,8 @@ flowchart LR
 ```
 
 Ten read/audit tools are always available. Fourteen mutations require *Allow
-writes*. In agent mode, writes also keep their per-action confirmation.
+writes*. Optional **web_search** and **web_fetch** join the read set when
+enabled. In agent mode, writes also keep their per-action confirmation.
 
 ## Getting it
 

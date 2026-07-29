@@ -1,8 +1,10 @@
 # Agent mode
 
-In agent mode Claude works the vault itself instead of answering from whatever
-you pasted. It searches, reads, follows links, and — when you allow it — writes,
-all inside a single turn, with every step shown to you.
+In agent mode the model works the vault itself instead of answering from
+whatever you pasted. It searches, reads, follows links, and — when you allow
+it — writes, all inside a single turn, with every step shown to you. The agent
+runs on Claude, or **fully local** on a tool-capable Ollama model — see
+[Runs on local models](#runs-on-local-models).
 
 ## The loop
 
@@ -43,6 +45,16 @@ trace.
 | `research_project_read` | Read a research project snapshot |
 | `research_audit` | Audit a research project and return findings |
 
+**Web tools — off by default, enabled individually in settings:**
+
+| Tool | What it does |
+|---|---|
+| `web_search` | Search the public web (DuckDuckGo keyless, or Brave with an API key); explicit searches only |
+| `web_fetch` | Read one public page as clean readable markdown — after a search, or a URL you gave it |
+
+Web results come back with URLs the model is told to cite. Both tools also join
+the [MCP bridge](claude-code-bridge.md) catalog when enabled.
+
 **Writes — only with *Allow write tools* on, and each one asks you first:**
 
 | Tool | What it does |
@@ -56,8 +68,34 @@ trace.
 | `base_create` | Build a `.base` database view over frontmatter |
 | `research_project_create` · `research_source_import` · `research_evidence_capture` · `research_evidence_review` · `research_claim_create` · `research_claim_link` · `research_outline_generate` | Research record mutations |
 
-That's **10 reads and 14 write-gated tools**. The same set is what the
-[MCP bridge](claude-code-bridge.md) exposes to Claude Code.
+That's **10 reads and 14 write-gated tools** (plus the two optional web tools).
+The same set is what the [MCP bridge](claude-code-bridge.md) exposes to Claude
+Code.
+
+## Runs on local models
+
+The agent is not Claude-only. On the **Local only** backend — or after an
+offline fallback — the same loop runs against your Ollama server, with the same
+vault tools, write confirmations, and Plan Mode. The gate is the *model*, not
+the provider: Companion reads each model's metadata (`/api/show`) and only
+offers the agent when it reports **tool support** (llama3.1, qwen3, and similar
+families). Settings badges every detected model with its tools/thinking
+capabilities; if the selected model lacks tools the agent switches off with an
+explanatory notice rather than silently plain-chatting. A **reasoning
+indicator** in the composer lights up whenever the current backend thinks
+before answering (Claude with thinking on, or a local model with thinking
+metadata).
+
+## External MCP servers
+
+Companion is the two-way hub: as well as *serving* the vault over the bridge,
+the agent can *consume* tools from external MCP servers — configured under
+*Settings → External tools — MCP client* (HTTP servers work on mobile too;
+stdio commands run on desktop). Each server's tools appear to the model as
+`mcp__<server>__<tool>`, so they can never collide with vault tools. External
+calls are confirm-per-call like vault writes (the session grant covers them),
+and Plan Mode excludes them. A per-server **Test connection** button verifies
+the URL/command and counts the exposed tools.
 
 ## Editing notes: diffs, not writes
 
@@ -133,7 +171,9 @@ characters, oldest dropped first.
 |---|---|---|
 | Let Claude use vault tools | On | Enables the read-only loop. Off = plain chat with pre-attached context only. |
 | Allow write tools | On | Adds the 14 write tools. Every call still asks first. |
-| Max tool iterations per turn | 10 | Rounds of search/read/write before Claude must answer. |
+| Max tool iterations per turn | 10 | Rounds of search/read/write before the model must answer. |
+| Web search tool | Off | Adds `web_search` (engine: DuckDuckGo keyless, or Brave with an API key). |
+| Web fetch tool | Off | Adds `web_fetch` — read one public page per explicit call. |
 
 Plan Mode has no setting — it's the **Plan** toggle in the composer, per
 conversation.

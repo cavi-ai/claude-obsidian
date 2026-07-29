@@ -123,7 +123,14 @@ when writing is off.
 
 In Companion's own agent mode these same writes additionally keep their
 per-action confirmation. Permanent legacy aliases stay callable for
-compatibility but are intentionally omitted from the advertised catalog.
+compatibility but are intentionally omitted from the advertised catalog. When
+the optional **web search** and **web fetch** tools are enabled in settings,
+they join the bridge's read set as well.
+
+The client direction works too: the in-chat agent can consume **external MCP
+servers** configured under *Settings → External tools — MCP client* — HTTP or
+(desktop) stdio, namespaced per server, each call confirmed. See
+[agent-mode.md](agent-mode.md#external-mcp-servers).
 
 ## What `obsidian-agent` adds separately
 

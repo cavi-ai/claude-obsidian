@@ -41,8 +41,11 @@ The complete list of hosts the plugin can ever contact:
 | `localhost:11434` | Your own Ollama server, if enabled |
 | `huggingface.co` + `cdn.jsdelivr.net` | One-time embedding-model download, only after you click **Download** |
 | `api.openalex.org`, `api.crossref.org`, `export.arxiv.org` | Scholarly Discover searches, only on an explicit action |
+| `api.zotero.org` | Resolving a Zotero source on an explicit import, only if you configured a user id |
 | `api.github.com` | Cloud replies, only if you configure a vault repo |
-| A page you asked to capture | Web-source capture in the research workbench |
+| `html.duckduckgo.com` or `api.search.brave.com` | Agent web search, only on an explicit search and only if you enabled the tool |
+| A page you asked to capture or fetch | Web-source capture, attach-page, or the agent's web fetch tool |
+| Any MCP server URL you configure | External MCP client tools, on explicit agent tool calls |
 
 On desktop, two optional features touch files outside the vault: session capture
 reads Claude Code transcripts from your Claude projects folder, and "open artifact

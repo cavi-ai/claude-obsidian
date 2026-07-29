@@ -108,6 +108,11 @@ Note edits are a separate, safer path: Claude proposes exact replacements, you
 review a **per-hunk red/green diff**, and only the hunks you accept are written.
 That happens even with write tools off.
 
+The agent isn't Claude-only: on the **Local only** backend it runs against your
+Ollama server too, as long as the selected model supports tools (settings badge
+each detected model's tools/thinking capabilities). The composer's **reasoning
+indicator** lights up whenever the active backend thinks before answering.
+
 Full detail in [agent-mode.md](agent-mode.md).
 
 ## Next steps
