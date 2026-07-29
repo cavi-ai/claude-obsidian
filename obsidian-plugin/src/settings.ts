@@ -787,6 +787,17 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         .catch(() => idxStatus.setText("Index: not built yet."));
 
       new Setting(containerEl)
+        .setName("Index PDF text")
+        .setDesc("Extract text from vault PDFs into the semantic index (page numbers kept, so results cite the page). Rebuilds the index on the next save or manual rebuild.")
+        .addToggle((t) =>
+          t.setValue(this.plugin.settings.semanticIndexPdfs).onChange(async (v) => {
+            this.plugin.settings.semanticIndexPdfs = v;
+            await this.plugin.saveSettings();
+            this.plugin.invalidateIndexer();
+          }),
+        );
+
+      new Setting(containerEl)
         .setName("Rebuild index")
         .setDesc("Embed every note now. Re-embeds only changed notes on save afterward.")
         .addButton((btn) =>

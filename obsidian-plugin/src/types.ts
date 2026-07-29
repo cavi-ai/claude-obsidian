@@ -132,6 +132,8 @@ export interface PluginSettings {
   builtinEmbeddingModel: string;
   /** Set once the built-in embedding-model download prompt has been shown. */
   semanticModelPrompted: boolean;
+  /** Also extract and index text from vault PDFs (page locators preserved). */
+  semanticIndexPdfs: boolean;
 
   // ----- indexing -----
   /** Auto-add tags + summary frontmatter when saving artifacts/chats. */
@@ -284,6 +286,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   builtinEmbeddingModel: "builtin:snowflake-arctic-embed-xs",
   /** Set once the built-in embedding-model download prompt has been shown. */
   semanticModelPrompted: false,
+  semanticIndexPdfs: true,
 
   autoTagOnSave: true,
   artifactBaseTags: ["claude", "artifact"],

@@ -54,6 +54,8 @@ import { existingVaultTags } from "./indexing/autoTagger";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
+import { extractPdfPages } from "./semantic/pdf";
+import { loadPdf } from "./semantic/pdfjs";
 import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, migrateEmbeddingEngine, type Embedder } from "./semantic/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
@@ -509,13 +511,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
       // doesn't fire create/modify for every note and stampede the indexer —
       // a full build only happens via the explicit "Rebuild" command.
-      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && f.extension === "md") this.queueReindex(f.path); }));
-      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md") this.queueReindex(f.path); }));
+      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => {
         if (f instanceof TFile && (f.extension === "md" || f.extension === "csv") && this.settings.sourceCaptureEnabled && this.settings.sourceEnrichOnCreate) this.queueEnrich(f);
       }));
-      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.removeNote(f.path); }));
-      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.indexer()?.renameNote(oldPath, f.path); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.indexer()?.removeNote(f.path); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.indexer()?.renameNote(oldPath, f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleResearchRefresh(f.path, oldPath); }));
@@ -1625,6 +1627,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const f = this.app.vault.getAbstractFileByPath(p);
         return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
       },
+      ...(this.settings.semanticIndexPdfs
+        ? {
+            listPdf: (): IndexFile[] =>
+              this.app.vault.getFiles().filter((f) => f.extension === "pdf").map((f) => ({ path: f.path, mtime: f.stat.mtime })),
+            readPdfPages: async (p: string) => {
+              const f = this.app.vault.getAbstractFileByPath(p);
+              if (!(f instanceof TFile)) return null;
+              try {
+                return await extractPdfPages(loadPdf, await this.app.vault.readBinary(f));
+              } catch {
+                return null; // encrypted/corrupt PDFs skip, they never abort a build
+              }
+            },
+          }
+        : {}),
       embed: async (input: string[]) => {
         // Belt-and-braces consent gate: no indexer path (build, update, query,
         // related-notes fallback) may implicitly fetch weights from the network.
