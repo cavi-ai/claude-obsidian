@@ -4,6 +4,46 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] — 2026-07-28
+
+### Added
+- **Guided cloud setup.** *Agent in the cloud* settings show a live ✓/✗
+  checklist for dispatch and replies that updates as you type, and replies gains
+  a **Test connection** button that reads the configured folder over the
+  Contents API and reports inline.
+
+### Fixed
+- **Inbox enrichment on thinking models.** Utility extraction now requests JSON
+  against a field-derived schema, disables thinking on Ollama, and raises the
+  token budget, so models like qwen3 no longer spend the budget on hidden
+  reasoning and return an empty reply.
+- **Agent acts instead of planning.** With a tool available, the agent
+  instruction requires performing the action and forbids substituting a plan
+  artifact or task checklist for it.
+- **Cloud pull failures** append the same offline/error hint dispatch does.
+
+## [0.19.0] — 2026-07-28
+
+### Added
+- **Zotero imports resolve themselves.** `research_source_import` with
+  `source_kind: zotero` and a `zotero_key` fills the missing title, authors,
+  publication date, publication, DOI, url, and abstract from the configured
+  Zotero library. A failed lookup still imports the key and reports
+  `zotero_resolved: false`.
+- **Zotero settings.** User id and optional API key under *Scholarly
+  discovery*. Requests fire only on an explicit import.
+
+## [0.18.0] — 2026-07-28
+
+### Added
+- **Graph neighborhood in Related notes.** The panel gains a Connections
+  section: backlinks, outgoing links, and typed ontology relations from
+  frontmatter, grouped by relation key. Unresolved targets render muted.
+
+### Fixed
+- **First streamed paint.** The first flush of a turn renders immediately
+  instead of being throttled away, so a turn no longer stays blank.
+
 ## [0.17.0] — 2026-07-28
 
 ### Changed
