@@ -4,6 +4,43 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] — 2026-07-29
+
+### Added
+- **The agent runs on local models.** Vault tools now go over Ollama's native
+  function calling, so agent mode works fully local instead of degrading to
+  plain chat. Models without tool support fall back to chat with an explanatory
+  notice.
+- **Per-model capability detection.** Ollama models are inspected through
+  `/api/show` and cached: agent mode and the chat toggles gate on the selected
+  model's tools/thinking metadata, settings list every model with capability
+  badges, and the composer shows a reasoning indicator when the backend thinks
+  before answering.
+- **Web search and web fetch tools.** `web_search` (DuckDuckGo by default,
+  Brave Search with a key) and `web_fetch` (one public page as bounded readable
+  markdown) are available to the chat agent and the MCP bridge. Both are off by
+  default and configured under *Agent*.
+- **MCP client — the agent uses external MCP servers.** Add servers under
+  *External tools* over streamable HTTP or, on desktop, stdio. Their tools are
+  namespaced `mcp__<server>__<tool>`, confirmed like a vault write, excluded in
+  Plan Mode, and tested from settings.
+- **PDF RAG.** Vault PDFs join the semantic index, chunked so no chunk crosses a
+  page boundary and every chunk carries its *Page N* locator, so snippets and
+  evidence keep page citations. Toggle *Index PDF text* (on by default);
+  unreadable or encrypted PDFs skip without aborting a build.
+- **Organize clippings.** A command that enriches any unenriched inbox clip,
+  infers a domain folder per clip in one batch call (preferring existing
+  folders), and files accepted moves into `<Organized folder>/<domain>/` after a
+  review modal shows old path → new path.
+
+### Fixed
+- **The artifact-everything loop.** Past `claude-html` blocks in the request
+  acted as few-shot examples, so one artifact made every later turn an artifact;
+  older assistant turns now send an elided placeholder while the latest stays
+  intact for edit follow-ups. Settings saved before 0.12.1 that still carry the
+  legacy "prefer producing an artifact" system prompt are migrated to the
+  current default; customized prompts are untouched.
+
 ## [0.20.0] — 2026-07-28
 
 ### Added
