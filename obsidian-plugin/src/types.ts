@@ -369,6 +369,21 @@ export function normalizeDiscoverySettings(settings: Partial<DiscoveryNumericSet
   };
 }
 
+/**
+ * The pre-0.12.1 default system prompt told the model to PREFER artifacts;
+ * persisted settings keep it forever, so those installs see artifact-everything
+ * behavior long after the default changed. Upgrade only an exact match of the
+ * legacy default — never a user-customized prompt.
+ */
+const LEGACY_DEFAULT_SYSTEM_PROMPT =
+  "You are Claude, working inside the user's Obsidian vault. Be concise and precise. " +
+  "When the user asks for a plan, report, diagram, or anything visual, prefer producing a single " +
+  "self-contained HTML artifact in a ```claude-html code block using the provided design system.";
+
+export function migrateSystemPrompt(value: string | undefined): string | undefined {
+  return value !== undefined && value.trim() === LEGACY_DEFAULT_SYSTEM_PROMPT ? DEFAULT_SETTINGS.systemPrompt : undefined;
+}
+
 /** Streaming callbacks for a single Claude request. */
 export interface StreamHandlers {
   onText: (delta: string) => void;

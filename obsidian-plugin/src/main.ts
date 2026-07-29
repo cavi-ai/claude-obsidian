@@ -27,7 +27,7 @@ import { listSessionsForVault, type SessionMeta } from "./memory/sessions";
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { ProviderRouter, migrateUtilityBackend } from "./providers/router";
-import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
+import { DEFAULT_SETTINGS, migrateSystemPrompt, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, type LinkCandidate } from "./links/unlinkedMentions";
@@ -974,12 +974,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     // the next save, like the shape migration above.
     const migratedEngine = migrateEmbeddingEngine(settingsData);
     const migratedUtility = migrateUtilityBackend(settingsData);
+    const migratedPrompt = migrateSystemPrompt(settingsData?.systemPrompt);
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...settingsData,
       ...normalizeDiscoverySettings(settingsData ?? {}),
       ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
       ...(migratedUtility ? { utilityBackend: migratedUtility } : {}),
+      ...(migratedPrompt ? { systemPrompt: migratedPrompt } : {}),
       context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
     };
     this.convState = isNamespaced
