@@ -226,6 +226,8 @@ export interface PluginSettings {
   sourceCaptureConsent: "ask" | "allow" | "deny";
   /** Folder the Web Clipper writes to and Companion watches. */
   sourceInboxFolder: string;
+  /** Base folder organized clippings move into (per-domain subfolders inside). */
+  clipOrganizedFolder: string;
   /** Tags every enriched source note gets. */
   sourceBaseTags: string[];
   /** Per-type schema overrides, keyed by source type. */
@@ -345,6 +347,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   sourceEnrichOnCreate: true,
   sourceCaptureConsent: "ask",
   sourceInboxFolder: "Clippings",
+  clipOrganizedFolder: "Library",
   sourceBaseTags: ["source"],
   sourceSchemaOverrides: {},
   clipperTemplateFingerprint: "",

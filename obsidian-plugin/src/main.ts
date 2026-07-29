@@ -46,6 +46,8 @@ import type { AnthropicToolDef } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
+import { buildOrganizePrompt, parseOrganizeResponse, planOrganizeMoves, type OrganizeCandidate } from "./sources/organize";
+import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
 import { stripFrontmatter } from "./semantic/chunk";
 import { generateToken, resolveMcpToken } from "./mcp/clientConfig";
 import { extractTasks, specBody, claudeCodeBuildCommand, type SpecInput } from "./build/spec";
@@ -409,6 +411,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "organize-clippings",
+      name: "Organize clippings (rename, tag, sort into folders)",
+      callback: () => void this.organizeClippings(),
+    });
+
+    this.addCommand({
       id: "dispatch-cloud-session",
       name: "Send to cloud Claude session (mobile-friendly)",
       callback: () => void this.dispatchCloudSession(),
@@ -680,8 +688,88 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  /** Tracks the Build header-action element we added to each plan-note view. */
-  private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
+  /**
+   * Clipping organizer: enrich every unenriched inbox clip (meaningful title,
+   * tags, summary via the existing pipeline), batch-infer a domain folder per
+   * clip, review the proposed rename+move plan, then apply the accepted subset.
+   */
+  async organizeClippings(): Promise<void> {
+    const inbox = this.settings.sourceInboxFolder.replace(/\/+$/, "");
+    const base = this.settings.clipOrganizedFolder.replace(/\/+$/, "");
+    const files = this.app.vault
+      .getMarkdownFiles()
+      .filter((f) => (f.path === inbox || f.path.startsWith(`${inbox}/`)) && !(base && (f.path === base || f.path.startsWith(`${base}/`))));
+    if (files.length === 0) {
+      new Notice(`No clippings found in ${inbox}/.`);
+      return;
+    }
+
+    const pending = new Notice(`Organizing ${files.length} clipping${files.length === 1 ? "" : "s"}…`, 0);
+    try {
+      // 1) Enrich anything not yet enriched (per-file consent + errors handled inside).
+      for (const file of files) {
+        const content = await this.app.vault.cachedRead(file);
+        if (!/^source_enriched:\s*true\s*$/m.test(content)) await this.enrichFile(file);
+      }
+
+      // 2) Titles + summaries from the (now enriched) frontmatter.
+      const candidates: OrganizeCandidate[] = [];
+      const titles = new Map<string, string>();
+      for (const file of files) {
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+        const title = typeof fm?.title === "string" && fm.title.trim() ? fm.title.trim() : file.basename;
+        const summary = typeof fm?.summary === "string" ? fm.summary.trim() : "";
+        titles.set(file.path, title);
+        candidates.push({ path: file.path, title, summary });
+      }
+
+      // 3) One batch call infers the domain folder for the whole set.
+      const existingFolders = [...new Set(this.app.vault.getMarkdownFiles().map((f) => f.parent?.path ?? "").filter((p) => p.startsWith(`${base}/`)))].sort();
+      const { system, user } = buildOrganizePrompt(candidates, existingFolders);
+      let proposals = candidates.map((c) => ({ path: c.path, domain: "misc" }));
+      try {
+        const raw = (
+          await this.router().complete("utility", {
+            system,
+            user,
+            maxTokens: 2048,
+            responseFormat: "json",
+            thinking: { type: "disabled" },
+          })
+        ).text;
+        proposals = parseOrganizeResponse(raw, candidates);
+      } catch {
+        // Folder inference failed — the review modal still offers the misc move.
+      }
+
+      // 4) Review, then apply the accepted subset.
+      const moves = planOrganizeMoves(proposals, titles, { baseFolder: base, taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null });
+      pending.hide();
+      if (moves.length === 0) {
+        new Notice("Everything is already named and filed.");
+        return;
+      }
+      new OrganizeReviewModal(this.app, moves, (accepted) => {
+        if (!accepted || accepted.length === 0) return;
+        void (async () => {
+          let moved = 0;
+          for (const move of accepted) {
+            const file = this.app.vault.getAbstractFileByPath(move.from);
+            if (!(file instanceof TFile)) continue;
+            const dir = move.to.slice(0, move.to.lastIndexOf("/"));
+            await this.ensureFolder(dir);
+            await this.app.fileManager.renameFile(file, move.to);
+            moved++;
+          }
+          new Notice(`Organized ${moved} clipping${moved === 1 ? "" : "s"} into ${base}/.`);
+        })();
+      }).open();
+    } finally {
+      pending.hide();
+    }
+  }
+
+  /** Tracks the Build header-action element we added to each plan-note view. */  private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
   /** Most recently focused markdown file — side views (Desk, Chat) steal active-leaf, so "active note" flows must remember it. */
   private lastMarkdownFile: TFile | null = null;
 
