@@ -1568,7 +1568,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice("Mentions found, but none could be linked unambiguously.");
       return;
     }
-    const plan = planEdits(content, edits);
+    // Planning validates the edits; a rejected plan is a notice, never an unhandled rejection.
+    let plan;
+    try {
+      plan = planEdits(content, edits);
+    } catch (e) {
+      new Notice(e instanceof Error ? e.message : String(e));
+      return;
+    }
     const accepted = await new Promise<boolean[] | null>((resolve) => {
       new DiffModal(this.app, { path: file.path, description: `Link ${plan.hunks.length} unlinked mention${plan.hunks.length === 1 ? "" : "s"}`, plan }, resolve).open();
     });
