@@ -59,7 +59,7 @@ contents and the model call.
 
 ```bash
 pnpm run typecheck   # tsc --noEmit --skipLibCheck
-pnpm run lint        # eslint src test
+pnpm run lint        # eslint src (tests are typechecked, not linted)
 pnpm test            # vitest run
 pnpm run build       # typecheck + production bundle
 ```

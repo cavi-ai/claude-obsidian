@@ -26,7 +26,7 @@ All build/test commands run from `obsidian-plugin/`:
 pnpm run dev         # esbuild watch → main.js (for live dev against a test vault)
 pnpm run build       # tsc --noEmit + production bundle to main.js
 pnpm run typecheck   # tsc --noEmit --skipLibCheck
-pnpm run lint        # eslint src test
+pnpm run lint        # eslint src (tests are typechecked, not linted)
 pnpm test            # vitest run (all unit tests)
 pnpm run test:watch  # vitest watch
 pnpm exec vitest run test/parse.test.ts   # run a single test file
