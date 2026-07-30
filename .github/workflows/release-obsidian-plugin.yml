@@ -20,16 +20,50 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Tagging the monorepo needs write; the GITHUB_TOKEN push can't re-trigger this workflow.
+    permissions:
+      contents: write
     steps:
       - name: Checkout monorepo
         uses: actions/checkout@v7
 
+      # A tag push for an already-published version is a backfill, not a re-cut:
+      # skip it instead of failing. An explicit dispatch still errors.
+      - name: Resolve release state
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TRIGGER="${{ github.event.inputs.version }}"
+          else
+            TRIGGER="${GITHUB_REF_NAME#obsidian-v}"
+          fi
+          echo "version=$TRIGGER" >> "$GITHUB_OUTPUT"
+          if ! gh release view "$TRIGGER" --repo cavi-ai/companion-for-claude >/dev/null 2>&1; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::Release $TRIGGER already exists on cavi-ai/companion-for-claude. Delete the release and tag to re-cut it."
+            exit 1
+          fi
+          echo "::notice::Release $TRIGGER already published; nothing to mirror for this tag."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          if [ "$TRIGGER" != "$VERSION" ]; then
+            echo "::notice::Tag version $TRIGGER predates the current manifest version $VERSION."
+          fi
+
       - name: Install pnpm
+        if: steps.state.outputs.skip != 'true'
         uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
       - name: Use Node 22
+        if: steps.state.outputs.skip != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
@@ -37,6 +71,7 @@ jobs:
           cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
 
       - name: Install, verify, build
+        if: steps.state.outputs.skip != 'true'
         working-directory: obsidian-plugin
         run: |
           pnpm install --frozen-lockfile
@@ -46,21 +81,14 @@ jobs:
           pnpm run build
           test -f main.js
 
-      - name: Check version matches the trigger
-        run: |
-          MANIFEST_VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            INPUT="${{ github.event.inputs.version }}"
-          else
-            INPUT="${GITHUB_REF_NAME#obsidian-v}"
-          fi
-          if [ "$INPUT" != "$MANIFEST_VERSION" ]; then
-            echo "::error::Trigger version ($INPUT) != manifest version ($MANIFEST_VERSION)"
-            exit 1
-          fi
-          echo "Releasing version $MANIFEST_VERSION"
+      # manifest, package.json, versions.json, and CHANGELOG must agree with the trigger.
+      - name: Verify version lockstep
+        if: steps.state.outputs.skip != 'true'
+        working-directory: obsidian-plugin
+        run: pnpm run verify:version "${{ steps.state.outputs.version }}"
 
       - name: Mirror source into the release repo
+        if: steps.state.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
@@ -97,6 +125,7 @@ jobs:
 
       # The tag triggers release.yml on the release repo.
       - name: Tag the release repo
+        if: steps.state.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
@@ -111,6 +140,7 @@ jobs:
           git push origin "refs/tags/$VERSION"
 
       - name: Wait for the release repo to publish
+        if: steps.state.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
@@ -125,3 +155,16 @@ jobs:
           done
           echo "::error::Release $VERSION never appeared. Check the Release workflow on cavi-ai/companion-for-claude."
           exit 1
+
+      # Dispatch-cut releases left the monorepo untagged; a GITHUB_TOKEN push can't re-trigger this workflow.
+      - name: Tag the monorepo
+        if: steps.state.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          TAG="obsidian-v${{ steps.state.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::notice::$TAG already exists."
+            exit 0
+          fi
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"

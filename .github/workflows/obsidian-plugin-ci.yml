@@ -7,11 +7,14 @@ on:
       - "obsidian-plugin/**"
       - "claude-plugin"
       - "claude-plugin/**"
+      - "CHANGELOG.md"
       - ".github/workflows/obsidian-plugin-ci.yml"
   pull_request:
     paths:
       - "obsidian-plugin/**"
+      - "claude-plugin"
       - "claude-plugin/**"
+      - "CHANGELOG.md"
       - ".github/workflows/obsidian-plugin-ci.yml"
 
 permissions:
@@ -54,6 +57,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify version lockstep
+        run: pnpm run verify:version
 
       - name: Type-check
         run: pnpm run typecheck
