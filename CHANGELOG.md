@@ -4,6 +4,25 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] — 2026-08-01
+
+### Added
+- **Enrich with Claude (right-click).** The file-explorer menu on a note (and
+  a command for the active note) runs a full enrichment pass behind one review
+  modal: a meaningful collision-safe rename from a model-generated title, tag
+  suggestions that reuse existing vault tags plus a one-line summary into
+  frontmatter, wikilinks for unlinked mentions, and a copyedit lint pass. A
+  step picker toggles each part (all on by default), and the review modal shows
+  the rename, the frontmatter changes, and every content diff hunk with its own
+  checkbox — nothing is written until the accepted subset is applied.
+- **Enrich a whole folder.** The folder right-click runs the same pass across
+  every note in the folder (recursively): one step picker, then a review modal
+  per note.
+- **Organize notes into subfolders.** The folder right-click infers a
+  subfolder per note from titles and summaries in one batch call (preferring
+  existing subfolders), then shows the proposed old path → new path layout in
+  the review modal and executes only the accepted moves.
+
 ## [0.21.0] — 2026-07-29
 
 ### Added
