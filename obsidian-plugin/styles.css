@@ -1631,7 +1631,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
    already says who spoke; a phone can't afford per-message chrome. */
 .is-mobile .cc-messages { padding: 14px 14px 10px; gap: 16px; }
 .is-mobile .cc-body { font-size: var(--cc-chat-font, 16px); }
-.is-mobile .cc-role { display: none; }
+.is-mobile .cc-role { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 /* Your words are the only tinted surface on the phone: a right-aligned clay
    bubble, its tail corner pointing at the composer. */
 .is-mobile .cc-user { align-items: flex-end; }
