@@ -4,6 +4,19 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] — 2026-08-01
+
+### Fixed
+- **Mobile chat redesigned.** The phone UI was a shrunken desktop panel; it's
+  now a messenger-grade surface. The composer is a single bar — [+] · an
+  auto-growing field (1 to ~6 rows, no forced minimum height) · [↑] — ~52px
+  tall when empty instead of a 92px-plus box. Attached-context pills moved out
+  of the input box into a single horizontally-scrolling tape above it that
+  never wraps and disappears when empty. Per-message role labels are gone
+  (bubble alignment shows the speaker), your messages are right-aligned clay
+  bubbles, action chips shrink and dim until tapped, and the header's
+  write-grant pill can no longer crowd the model name.
+
 ## [0.22.0] — 2026-08-01
 
 ### Added
