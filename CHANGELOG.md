@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.2] — 2026-08-03
+
+### Fixed
+- **Mobile model options restored.** The compact mobile header hid the desktop
+  model controls but only recreated Claude choices, making configured Ollama
+  and OpenAI-compatible models disappear. The mobile picker now keeps those
+  configured backends reachable and marks the actual active backend.
+
 ## [0.22.1] — 2026-08-01
 
 ### Fixed
