@@ -12,6 +12,7 @@ import { TFile } from "obsidian";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
+import { mobileModelChoices } from "./mobileModelChoices";
 import { capabilitiesFor, effortLevels } from "../claude/capabilities";
 import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
@@ -2105,12 +2106,25 @@ export class ChatView extends ItemView {
   /** Mobile: model picker opened by tapping the model name in the header. */
   private openModelMenu(evt: MouseEvent): void {
     const menu = new Menu();
-    for (const m of CLAUDE_MODELS) {
+    const activeProvider = this.plugin.settings.chatBackend;
+    for (const choice of mobileModelChoices({
+      // Avoid a network probe on tap: the configured local model is the one
+      // mobile users need to retain/switch back to. Discovery remains in settings.
+      ollamaModels: [],
+      configuredOllamaModel: this.plugin.settings.ollamaModel,
+      openaiCompatHost: this.plugin.settings.openaiCompatHost,
+      openaiCompatModel: this.plugin.settings.openaiCompatModel,
+    })) {
+      const checked = choice.provider === "local"
+        ? activeProvider === "local" && choice.value === `ollama:${this.plugin.settings.ollamaModel}`
+        : choice.provider === "custom"
+          ? activeProvider === "custom"
+          : activeProvider !== "local" && activeProvider !== "custom" && choice.value === this.controls.model;
       menu.addItem((i) =>
         i
-          .setTitle(m.label)
-          .setChecked(m.id === this.controls.model)
-          .onClick(() => void this.onModelSelect(m.id)),
+          .setTitle(choice.label)
+          .setChecked(checked)
+          .onClick(() => void this.onModelSelect(choice.value)),
       );
     }
     menu.showAtMouseEvent(evt);
