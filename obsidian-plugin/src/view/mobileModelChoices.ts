@@ -1,9 +1,20 @@
 import { CLAUDE_MODELS } from "../claude/models";
+import type { ProviderId } from "../providers/types";
 
 export interface MobileModelChoice {
   value: string;
   label: string;
   provider: "claude" | "local" | "custom";
+}
+
+export function isMobileModelChoiceActive(
+  choice: MobileModelChoice,
+  activeProvider: ProviderId,
+  activeModel: string,
+): boolean {
+  if (choice.provider === "local") return activeProvider === "ollama" && choice.value === `ollama:${activeModel}`;
+  if (choice.provider === "custom") return activeProvider === "openai-compat" && choice.value === `custom:${activeModel}`;
+  return activeProvider === "anthropic" && choice.value === activeModel;
 }
 
 export function mobileModelChoices(input: {

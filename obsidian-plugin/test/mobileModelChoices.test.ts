@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mobileModelChoices } from "../src/view/mobileModelChoices";
+import { isMobileModelChoiceActive, mobileModelChoices } from "../src/view/mobileModelChoices";
 
 describe("mobileModelChoices", () => {
   it("keeps configured local and endpoint models reachable when desktop controls are hidden", () => {
@@ -12,5 +12,17 @@ describe("mobileModelChoices", () => {
       { value: "ollama:llama3.1:8b", label: "llama3.1:8b · local", provider: "local" },
       { value: "custom:mlx-3b", label: "mlx-3b · endpoint", provider: "custom" },
     ]));
+  });
+
+  it("checks Claude when an unavailable configured local backend resolves to Anthropic", () => {
+    const choices = mobileModelChoices({
+      ollamaModels: [],
+      configuredOllamaModel: "qwen3:8b",
+      openaiCompatHost: "",
+      openaiCompatModel: "",
+    });
+
+    expect(choices.filter((choice) => isMobileModelChoiceActive(choice, "anthropic", "claude-sonnet-5")))
+      .toEqual([{ value: "claude-sonnet-5", label: "Claude Sonnet 5", provider: "claude" }]);
   });
 });
