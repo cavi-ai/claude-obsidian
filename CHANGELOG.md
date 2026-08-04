@@ -4,6 +4,25 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.3] — 2026-08-04
+
+### Changed
+- **Settings are grouped.** The fourteen accordions now sit under three
+  headings — Agent, Vault intelligence, and Files, memory, and privacy —
+  ordered by the journey through them.
+- **Settings stay put.** Changing auth mode, web search, the MCP bridge or
+  client, cloud dispatch, or Ollama detection re-renders only that accordion
+  instead of the whole tab, so the other sections no longer collapse and the
+  scroll position holds.
+
+### Fixed
+- **Semantic index survives a lost WebGPU device.** A GPU session that dies
+  mid-inference now rebuilds the pipeline on wasm and retries the batch, and
+  later loads skip the WebGPU probe instead of failing the same way again.
+- **Concurrent embeds share one rebuild.** Requests arriving during a rebuild
+  await it rather than racing a second pipeline or reporting the model as not
+  loaded.
+
 ## [0.22.2] — 2026-08-03
 
 ### Fixed
