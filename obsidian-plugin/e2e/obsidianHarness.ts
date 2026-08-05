@@ -69,7 +69,7 @@ export async function launchObsidianHarness(): Promise<ObsidianHarness> {
   if (!page) throw new Error(`Obsidian page not found. ${processOutput.slice(-1000)}`);
   await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
   const trustButton = page.getByRole("button", { name: "Trust author and enable plugins" });
-  if (await trustButton.isVisible().catch(() => false)) await trustButton.click();
+  await trustButton.waitFor({ state: "visible", timeout: 10_000 }).then(() => trustButton.click()).catch(() => undefined);
   await page.waitForFunction(() => {
     const app = (window as unknown as { app?: { commands?: { commands?: Record<string, unknown> } } }).app;
     return Boolean(app?.commands?.commands?.["claude-companion:open-research-desk"]);
