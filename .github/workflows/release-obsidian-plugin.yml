@@ -96,7 +96,8 @@ jobs:
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/cavi-ai/companion-for-claude.git" release-repo
           # .github/ excluded: token has no workflow scope.
-          for dir in src test e2e assets; do
+          # tools/ carries the release-facts generator the release repo's workflow runs.
+          for dir in src test e2e assets tools; do
             rsync -a --delete "obsidian-plugin/$dir/" "release-repo/$dir/"
           done
           cp obsidian-plugin/package.json       release-repo/package.json
