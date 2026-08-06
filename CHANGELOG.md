@@ -4,6 +4,18 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.5] — 2026-08-06
+
+### Fixed
+- **Mobile settings and options respond again.** The overflow menu and the model
+  picker used coordinate-based mouse menus, which touch WebViews don't deliver
+  reliably, so tapping them did nothing. Both now open a touch-safe sheet with
+  44px rows, Companion settings opens from it, and the fallback goes through
+  Obsidian's own settings command when the mobile controller isn't available.
+- **Accordion headers work as buttons.** Settings accordion summaries are real
+  buttons styled flat, so the open state no longer depends on native
+  `details` toggling alone.
+
 ## [0.22.4] — 2026-08-05
 
 ### Fixed
