@@ -4,6 +4,26 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.4] — 2026-08-05
+
+### Fixed
+- **Research headers stop overflowing.** Between the 600px stacking breakpoint
+  and the row's intrinsic width, the desk and workbench header rows now wrap
+  instead of pushing the project switcher and action buttons past the edge of a
+  narrow side pane.
+
+### Changed
+- **Settings loading is covered.** The `data.json` merge moved out of `main.ts`
+  into `resolveSettings()`, with tests for the legacy flat shape, the
+  pre-`utilityBackend` and pre-engine migrations, and a full settings-tab render
+  against a migrated legacy config.
+- **End-to-end settings coverage.** A Playwright suite drives real Obsidian
+  through the settings tab, and the harness can seed a real `data.json` instead
+  of only the pristine one a fresh install writes.
+- **Release tooling is tracked at source.** The CAVI release-facts generator and
+  its contract test live in this repository and are mirrored into the release
+  repo, so a release can no longer delete them.
+
 ## [0.22.3] — 2026-08-04
 
 ### Changed
