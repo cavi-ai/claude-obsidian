@@ -142,13 +142,18 @@ export class InboxView extends ItemView {
     const entries: WireUpEntry[] = [];
     for (const f of files) {
       const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
-      entries.push({
-        path: f.path,
-        basename: f.basename,
-        ext: f.extension,
-        frontmatter: fm,
-        content: await this.app.vault.cachedRead(f),
-      });
+      try {
+        entries.push({
+          path: f.path,
+          basename: f.basename,
+          ext: f.extension,
+          frontmatter: fm,
+          content: await this.app.vault.cachedRead(f),
+        });
+      } catch {
+        // A file can vanish or become unreadable while scanning; any stored
+        // batch result keeps its actionable error details visible below.
+      }
     }
     const items = wireUpItems(entries, this.plugin.linkCandidates(), inbox);
     if ((items.length === 0 && !this.linkSummary) || !this.refresh.isCurrent(generation)) return;
@@ -156,7 +161,7 @@ export class InboxView extends ItemView {
     const section = root.createDiv({ cls: "cc-inbox-wireup" });
     const header = section.createDiv({ cls: "cc-inbox-wireup-header" });
     header.createEl("div", { cls: "cc-eyebrow", text: "WIRE INTO THE GRAPH" });
-    if (items.length > 0) {
+    if (items.length > 0 || this.linkSummary) {
       const mentions = items.reduce((total, item) => total + item.mentionCount, 0);
       header.createSpan({
         cls: "cc-inbox-wireup-count",
@@ -248,7 +253,7 @@ export class InboxView extends ItemView {
       ? ` ${result.conflicts.length} note${result.conflicts.length === 1 ? " changed" : "s changed"} during review.`
       : "";
     const failures = result.failures.length > 0
-      ? ` ${result.failures.length} note${result.failures.length === 1 ? " failed" : "s failed"} to save.`
+      ? ` ${result.failures.length} note${result.failures.length === 1 ? " failed" : "s failed"}.`
       : "";
     return summary + conflicts + failures;
   }

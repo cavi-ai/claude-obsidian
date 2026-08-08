@@ -39,7 +39,7 @@ export async function reviewInboxBatchLinks<File extends InboxBatchFile>(
     try {
       entries.push({ path: file.path, basename: file.basename, content: await deps.read(file) });
     } catch (error) {
-      failures.push({ path: file.path, message: error instanceof Error ? error.message : String(error) });
+      failures.push({ path: file.path, message: `Read failed: ${error instanceof Error ? error.message : String(error)}` });
     }
   }
 
@@ -48,7 +48,7 @@ export async function reviewInboxBatchLinks<File extends InboxBatchFile>(
     try {
       plans.push(...planBatchLinks([entry], candidates));
     } catch (error) {
-      failures.push({ path: entry.path, message: error instanceof Error ? error.message : String(error) });
+      failures.push({ path: entry.path, message: `Planning failed: ${error instanceof Error ? error.message : String(error)}` });
     }
   }
   plans.sort((a, b) => a.path.localeCompare(b.path));
@@ -71,5 +71,11 @@ export async function reviewInboxBatchLinks<File extends InboxBatchFile>(
       await deps.write(file, content);
     },
   });
-  return { ...applied, failures: [...failures, ...applied.failures] };
+  return {
+    ...applied,
+    failures: [
+      ...failures,
+      ...applied.failures.map((failure) => ({ ...failure, message: `Apply failed: ${failure.message}` })),
+    ],
+  };
 }

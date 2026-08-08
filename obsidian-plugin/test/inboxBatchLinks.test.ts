@@ -73,7 +73,7 @@ describe("Inbox batch link review", () => {
       appliedFiles: 1,
       appliedHunks: 1,
       conflicts: [],
-      failures: [{ path: "Clippings/broken.md", message: "permission denied" }],
+      failures: [{ path: "Clippings/broken.md", message: "Read failed: permission denied" }],
     });
     expect(readable._content).toBe("[[Project Atlas]] remains.\n");
   });
@@ -96,7 +96,7 @@ describe("Inbox batch link review", () => {
       appliedFiles: 0,
       appliedHunks: 0,
       conflicts: [],
-      failures: [{ path: "Clippings/broken.md", message: "file disappeared" }],
+      failures: [{ path: "Clippings/broken.md", message: "Read failed: file disappeared" }],
     });
   });
 
@@ -141,7 +141,7 @@ describe("Inbox batch link review", () => {
       appliedFiles: 1,
       appliedHunks: 1,
       conflicts: [],
-      failures: [{ path: "Clippings/alpha.md", message: "permission denied" }],
+      failures: [{ path: "Clippings/alpha.md", message: "Read failed: permission denied" }],
     });
     expect(beta._content).toBe("[[Ada Lovelace]] follows.\n");
   });
@@ -209,7 +209,7 @@ describe("Inbox batch link review", () => {
     const read = vault.cachedRead.bind(vault);
     let alphaReads = 0;
     vault.cachedRead = async (file) => {
-      if (file.path === alpha.path && ++alphaReads === 3) throw new Error("permission denied");
+      if (file.path === alpha.path && ++alphaReads === 2) throw new Error("permission denied");
       return read(file);
     };
 
@@ -220,7 +220,34 @@ describe("Inbox batch link review", () => {
 
     const details = (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-link-result-details");
     expect(text(details!)).toContain("Could not complete");
-    expect(text(details!)).toContain("Clippings/alpha.md: permission denied");
+    expect(text(details!)).toContain("Clippings/alpha.md: Read failed: permission denied");
+  });
+
+  it("catches a regression that lets persistent unreadable Inbox files erase batch failures or reject unhandled", async () => {
+    const { app, view } = createHarness();
+    await view.render();
+    await settle();
+    const vault = app.vault as unknown as { cachedRead(file: TFile): Promise<string> };
+    vault.cachedRead = async (file) => { throw new Error(`read denied: ${file.path}`); };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      reviewAll(view);
+      await settle(64);
+
+      expect(unhandled).toEqual([]);
+      expect(text(view.contentEl as unknown as FakeElement)).toContain("No link changes were applied. 2 notes failed.");
+      expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-review-all")).not.toBeNull();
+      const details = (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-link-result-details");
+      expect(details).not.toBeNull();
+      const detailText = text(details!);
+      expect(detailText).toContain("Clippings/alpha.md: Read failed: read denied: Clippings/alpha.md");
+      expect(detailText).toContain("Clippings/beta.md: Read failed: read denied: Clippings/beta.md");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("catches a regression that removes individual-note review controls from the graph section", async () => {
