@@ -17,7 +17,7 @@ export interface InboxBatchFile {
 export interface InboxBatchReviewDeps<File extends InboxBatchFile> {
   read(file: File): Promise<string>;
   getFile(path: string): File | null;
-  write(file: File, content: string): Promise<void>;
+  process(file: File, transform: (current: string) => string): Promise<void>;
   select(plans: BatchLinkPlan[]): Promise<BatchLinkSelection | null>;
 }
 
@@ -60,15 +60,10 @@ export async function reviewInboxBatchLinks<File extends InboxBatchFile>(
   if (!selected) return failures.length > 0 ? empty : null;
 
   const applied = await applyBatchLinkPlans(plans, selected, {
-    read: async (path) => {
+    process: async (path, transform) => {
       const file = deps.getFile(path);
       if (!file) throw new Error(`Note no longer exists: ${path}`);
-      return deps.read(file);
-    },
-    write: async (path, content) => {
-      const file = deps.getFile(path);
-      if (!file) throw new Error(`Note no longer exists: ${path}`);
-      await deps.write(file, content);
+      await deps.process(file, transform);
     },
   });
   return {

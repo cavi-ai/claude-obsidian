@@ -40,8 +40,7 @@ describe("applyBatchLinkPlans", () => {
     ]);
 
     const result = await applyBatchLinkPlans(plans(), [[true], [true]], {
-      read: async (path) => files.get(path)!,
-      write: async (path, content) => { files.set(path, content); },
+      process: async (path, transform) => { files.set(path, transform(files.get(path)!)); },
     });
 
     expect(result).toEqual({ appliedFiles: 2, appliedHunks: 2, conflicts: [], failures: [] });
@@ -56,13 +55,27 @@ describe("applyBatchLinkPlans", () => {
     ]);
 
     const result = await applyBatchLinkPlans(plans(), [[true], [true]], {
-      read: async (path) => files.get(path)!,
-      write: async (path, content) => { files.set(path, content); },
+      process: async (path, transform) => { files.set(path, transform(files.get(path)!)); },
     });
 
     expect(result).toEqual({ appliedFiles: 1, appliedHunks: 1, conflicts: ["Notes/alpha.md"], failures: [] });
     expect(files.get("Notes/alpha.md")).toBe("Project Atlas changed.\n");
     expect(files.get("Notes/beta.md")).toBe("[[Ada Lovelace]] follows.\n");
+  });
+
+  it("catches a regression that overwrites a mutation visible only inside the atomic transform", async () => {
+    let current = "Project Atlas changed after the review opened.\n";
+
+    const result = await applyBatchLinkPlans(plans().slice(0, 1), [[true]], {
+      // The storage transform receives the authoritative value held under its
+      // write lock, after any state used while the review was being prepared.
+      process: async (_path: string, transform: (content: string) => string) => {
+        current = transform(current);
+      },
+    });
+
+    expect(result).toEqual({ appliedFiles: 0, appliedHunks: 0, conflicts: ["Notes/alpha.md"], failures: [] });
+    expect(current).toBe("Project Atlas changed after the review opened.\n");
   });
 
   it("catches a regression that lets one write rejection prevent other selected files from applying", async () => {
@@ -72,8 +85,8 @@ describe("applyBatchLinkPlans", () => {
     ]);
 
     const result = await applyBatchLinkPlans(plans(), [[true], [true]], {
-      read: async (path) => files.get(path)!,
-      write: async (path, content) => {
+      process: async (path, transform) => {
+        const content = transform(files.get(path)!);
         if (path === "Notes/alpha.md") throw new Error("disk full");
         files.set(path, content);
       },
@@ -96,13 +109,9 @@ describe("applyBatchLinkPlans", () => {
     ]);
 
     const result = await applyBatchLinkPlans(plans(), [[false], [true]], {
-      read: async (path) => {
-        if (path === "Notes/alpha.md") throw new Error("unselected file should not be read");
-        return files.get(path)!;
-      },
-      write: async (path, content) => {
-        if (path === "Notes/alpha.md") throw new Error("unselected file should not be written");
-        files.set(path, content);
+      process: async (path, transform) => {
+        if (path === "Notes/alpha.md") throw new Error("unselected file should not be processed");
+        files.set(path, transform(files.get(path)!));
       },
     });
 

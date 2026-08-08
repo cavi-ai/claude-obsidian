@@ -59,7 +59,11 @@ export class BatchDiffModal extends Modal {
       });
 
       const details = file.createEl("details", { cls: "cc-batch-diff-details" });
-      details.createEl("summary", { cls: "cc-batch-diff-summary", text: "Review changes" });
+      details.createEl("summary", {
+        cls: "cc-batch-diff-summary",
+        text: "Review changes",
+        attr: { "aria-label": `Review changes in ${item.path}` },
+      });
       const body = details.createDiv({ cls: "cc-batch-diff-body" });
       const hunkCheckboxes: HTMLInputElement[] = [];
       const hunkBoxes: HTMLElement[] = [];

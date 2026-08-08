@@ -32,6 +32,10 @@ describe("BatchDiffModal", () => {
 
     expect(files).toHaveLength(2);
     expect(files.every((file) => file.getAttribute("open") === null)).toBe(true);
+    expect(files.map((file) => file.querySelector("summary")?.getAttribute("aria-label"))).toEqual([
+      "Review changes in Inbox/alpha.md",
+      "Review changes in Inbox/beta.md",
+    ]);
     expect(files[0]?.querySelectorAll("input")).toHaveLength(2);
     expect(content.querySelectorAll(".cc-batch-diff-file-checkbox")).toHaveLength(2);
     expect(content.querySelectorAll(".cc-diff-line").map((line) => line.textContent)).toEqual(["- Alpha", "+ [[Alpha]]"]);

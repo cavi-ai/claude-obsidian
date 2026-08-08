@@ -136,7 +136,7 @@ describe("ProviderRouter.resolveUtilityForRuntime", () => {
 
   it.each([
     ["http://127.0.0.1:8787", "http://127.0.0.1:8787"],
-    ["ftp://gateway.example.com/v1", "ftp://gateway.example.com/v1"],
+    ["ftp://gateway.example.com/v1", "(invalid endpoint)"],
     ["https://alice:supersecret@gateway.example.com/v1", "https://gateway.example.com/v1"],
     ["https://gateway.example.com/v1?token=private", "https://gateway.example.com/v1"],
     ["https://gateway.example.com/v1#private", "https://gateway.example.com/v1"],

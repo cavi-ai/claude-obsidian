@@ -27,8 +27,10 @@ export type RuntimeUtilitySelection =
   | Exclude<UtilityRuntimeResolution, { state: "configured-provider" | "approved-Claude-fallback" }>;
 
 export interface UtilityFallbackConsentContext {
-  /** Opaque, non-secret identity for exactly the configured source and fallback destination. */
-  fingerprint: string;
+  /** Opaque in-memory identity for this exact provider/router revision. */
+  identity: object;
+  /** Non-secret identity for the configured source and displayed destination. */
+  destinationFingerprint: string;
   configuredBackend: "ollama" | "custom";
   configuredEndpoint: string;
   fallbackProvider: "anthropic";
@@ -68,6 +70,7 @@ export class ProviderRouter {
   readonly ollama: OllamaProvider;
   readonly openaiCompat: OpenAICompatProvider;
   private readonly anthropicEnv: AnthropicEnv;
+  private readonly utilityConsentIdentity = Object.freeze({});
 
   constructor(
     private settings: PluginSettings,
@@ -193,25 +196,20 @@ export class ProviderRouter {
   utilityFallbackConsentContext(isMobile: boolean): UtilityFallbackConsentContext | null {
     const resolution = this.resolveUtilityForRuntime({ isMobile });
     if (resolution.state !== "unavailable-loopback") return null;
-    const configuredEndpointRaw = resolution.backend === "ollama"
-      ? this.settings.ollamaHost
-      : this.settings.openaiCompatHost;
-    const fallback = this.anthropic.consentIdentity();
+    const fallbackEndpoint = sanitizeEndpointForDisplay(this.anthropic.resolvedEndpoint());
     return {
-      fingerprint: JSON.stringify({
+      identity: this.utilityConsentIdentity,
+      destinationFingerprint: JSON.stringify({
         configuredBackend: resolution.backend,
-        configuredEndpoint: configuredEndpointRaw.trim(),
+        configuredEndpoint: resolution.endpoint,
         fallbackProvider: "anthropic",
-        fallbackEndpoint: fallback.endpoint,
-        fallbackAuthMode: fallback.authMode,
-        fallbackCredentialAvailable: fallback.credentialAvailable,
-        fallbackCredentialScheme: fallback.credentialScheme ?? null,
-        fallbackIsOAuth: fallback.isOAuth,
+        fallbackEndpoint,
+        fallbackAuthMode: this.settings.authMode,
       }),
       configuredBackend: resolution.backend,
       configuredEndpoint: resolution.endpoint,
       fallbackProvider: "anthropic",
-      fallbackEndpoint: sanitizeEndpointForDisplay(fallback.endpoint),
+      fallbackEndpoint,
     };
   }
 

@@ -624,6 +624,122 @@ describe("source enrichment wiring", () => {
     expect(await app.vault.cachedRead(file)).toBe(before);
   });
 
+  it("invalidates cached Allow after an API-key-only settings rotation", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin } = mobilePlugin({ apiKey: "sk-ant-api-settings-a" });
+    const before = await app.vault.cachedRead(file);
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const first = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+    choose("Use Claude this session");
+    await first;
+
+    plugin.settings.apiKey = "sk-ant-api-settings-b";
+    await saveHarnessSettings(plugin);
+    const complete = vi.spyOn(AnthropicProvider.prototype, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+
+    expect(opened).toHaveBeenCalledTimes(2);
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    choose("Don't send");
+    await pending;
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+  });
+
+  it("does not apply an open consent modal after an OAuth-token-only settings rotation", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin } = mobilePlugin({
+      authMode: "oauthToken",
+      apiKey: "",
+      oauthToken: "sk-ant-oat-settings-a",
+    });
+    const before = await app.vault.cachedRead(file);
+    const complete = vi.spyOn(AnthropicProvider.prototype, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    plugin.settings.oauthToken = "sk-ant-oat-settings-b";
+    await saveHarnessSettings(plugin);
+    choose("Use Claude this session");
+    await pending;
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/changed.*retry/i);
+  });
+
+  it("invalidates cached Allow after a live environment key-only rotation", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-env-a");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway.example.com/v1");
+    const { app, file, plugin } = mobilePlugin({ authMode: "environment", apiKey: "", baseUrl: "" });
+    const before = await app.vault.cachedRead(file);
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const first = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+    choose("Use Claude this session");
+    await first;
+
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-env-b");
+    const complete = vi.spyOn(AnthropicProvider.prototype, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+
+    expect(opened).toHaveBeenCalledTimes(2);
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    choose("Don't send");
+    await pending;
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+  });
+
+  it("does not apply an open consent modal after a live environment token-only rotation", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "gateway-token-a");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway.example.com/v1");
+    const { app, file, plugin } = mobilePlugin({ authMode: "environment", apiKey: "", baseUrl: "" });
+    const before = await app.vault.cachedRead(file);
+    const complete = vi.spyOn(AnthropicProvider.prototype, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "gateway-token-b");
+    choose("Use Claude this session");
+    await pending;
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/changed.*retry/i);
+  });
+
   it("scopes cached Deny to the fallback auth context instead of the whole session", async () => {
     Platform.isMobile = true;
     Platform.isDesktop = false;

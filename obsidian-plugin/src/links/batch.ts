@@ -27,6 +27,8 @@ export interface BatchLinkApplyResult {
   failures: Array<{ path: string; message: string }>;
 }
 
+class BatchLinkConflictError extends Error {}
+
 /** Build one reviewable edit plan per note with at least one usable mention. */
 export function planBatchLinks(entries: BatchLinkEntry[], candidates: LinkCandidate[]): BatchLinkPlan[] {
   const plans: BatchLinkPlan[] = [];
@@ -46,12 +48,12 @@ export function planBatchLinks(entries: BatchLinkEntry[], candidates: LinkCandid
 
 /**
  * Apply selected plans independently. A note that changed after review is a
- * conflict, while read, planning, or write errors are recorded per file.
+ * conflict, while planning or process/write errors are recorded per file.
  */
 export async function applyBatchLinkPlans(
   plans: BatchLinkPlan[],
   selected: BatchLinkSelection,
-  deps: { read(path: string): Promise<string>; write(path: string, content: string): Promise<void> },
+  deps: { process(path: string, transform: (current: string) => string): Promise<void> },
 ): Promise<BatchLinkApplyResult> {
   const result: BatchLinkApplyResult = { appliedFiles: 0, appliedHunks: 0, conflicts: [], failures: [] };
 
@@ -61,16 +63,17 @@ export async function applyBatchLinkPlans(
     if (!accepted.some(Boolean)) continue;
 
     try {
-      const current = await deps.read(item.path);
-      if (current !== item.original) {
-        result.conflicts.push(item.path);
-        continue;
-      }
-      const next = applyPlan(current, item.plan, accepted);
-      await deps.write(item.path, next);
+      await deps.process(item.path, (current) => {
+        if (current !== item.original) throw new BatchLinkConflictError();
+        return applyPlan(current, item.plan, accepted);
+      });
       result.appliedFiles++;
       result.appliedHunks += accepted.filter(Boolean).length;
     } catch (error) {
+      if (error instanceof BatchLinkConflictError) {
+        result.conflicts.push(item.path);
+        continue;
+      }
       result.failures.push({ path: item.path, message: error instanceof Error ? error.message : String(error) });
     }
   }

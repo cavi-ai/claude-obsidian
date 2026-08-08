@@ -129,6 +129,15 @@ type EnrichRunOutcome =
   | { status: "skipped"; reason: string }
   | { status: "failed"; error: Error };
 
+type UtilityFallbackConsentKey = Pick<UtilityFallbackConsentContext, "identity" | "destinationFingerprint">;
+
+function sameUtilityFallbackConsentContext(
+  left: UtilityFallbackConsentKey,
+  right: UtilityFallbackConsentKey | null | undefined,
+): boolean {
+  return !!right && left.identity === right.identity && left.destinationFingerprint === right.destinationFingerprint;
+}
+
 export default class ClaudeCompanionPlugin extends Plugin {
   override settings: PluginSettings = DEFAULT_SETTINGS;
   private convState: ConversationState = emptyState();
@@ -168,9 +177,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private utilityLifecycleEnded = false;
   private utilityLifecycleGeneration = 0;
   /** Mobile loopback → Claude consent, scoped to one exact source/destination context. */
-  private mobileUtilityFallbackApproval: { fingerprint: string; decision: UtilityFallbackApproval } | undefined;
+  private mobileUtilityFallbackApproval: UtilityFallbackConsentKey & { decision: UtilityFallbackApproval } | undefined;
   /** Coalesces concurrent automatic enrichments onto one consent decision. */
-  private mobileUtilityFallbackConsentInFlight: { fingerprint: string; promise: Promise<UtilityFallbackApproval> } | null = null;
+  private mobileUtilityFallbackConsentInFlight: UtilityFallbackConsentKey & { promise: Promise<UtilityFallbackApproval> } | null = null;
   /** Active fallback disclosure, closed fail-safe when the plugin unloads. */
   private mobileUtilityFallbackModal: ChoiceModal<UtilityFallbackApproval> | null = null;
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
@@ -680,8 +689,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const currentRouter = this.router();
       const current = currentRouter.resolveUtilityForRuntime({ isMobile: Platform.isMobile });
       const currentContext = currentRouter.utilityFallbackConsentContext(Platform.isMobile);
-      if (!currentContext || currentContext.fingerprint !== promptedContext.fingerprint) {
-        if (this.mobileUtilityFallbackApproval?.fingerprint === promptedContext.fingerprint) {
+      if (!sameUtilityFallbackConsentContext(promptedContext, currentContext)) {
+        if (sameUtilityFallbackConsentContext(promptedContext, this.mobileUtilityFallbackApproval)) {
           this.mobileUtilityFallbackApproval = undefined;
         }
         if (current.state === "unavailable-loopback" || current.state === "unavailable-without-Claude") {
@@ -712,12 +721,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mobileUtilityFallbackConsent(context: UtilityFallbackConsentContext): Promise<UtilityFallbackApproval> {
     if (this.utilityLifecycleEnded) return Promise.resolve("deny");
     const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
-    if (this.mobileUtilityFallbackApproval?.fingerprint !== context.fingerprint) {
+    if (this.mobileUtilityFallbackApproval && !sameUtilityFallbackConsentContext(context, this.mobileUtilityFallbackApproval)) {
       this.mobileUtilityFallbackApproval = undefined;
     }
     if (this.mobileUtilityFallbackApproval) return Promise.resolve(this.mobileUtilityFallbackApproval.decision);
-    if (this.mobileUtilityFallbackConsentInFlight?.fingerprint === context.fingerprint) {
-      return this.mobileUtilityFallbackConsentInFlight.promise;
+    const inFlight = this.mobileUtilityFallbackConsentInFlight;
+    if (inFlight && sameUtilityFallbackConsentContext(context, inFlight)) {
+      return inFlight.promise;
     }
     if (this.mobileUtilityFallbackConsentInFlight) {
       // A different destination appeared while the old disclosure was open.
@@ -731,8 +741,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const cached = this.mobileUtilityFallbackApproval;
       // Denial is monotonic for concurrent callers in this exact context: no
       // late/racing Allow can replace it.
-      if (cached?.fingerprint !== context.fingerprint || cached.decision !== "deny") {
-        this.mobileUtilityFallbackApproval = { fingerprint: context.fingerprint, decision };
+      if (!sameUtilityFallbackConsentContext(context, cached) || cached?.decision !== "deny") {
+        this.mobileUtilityFallbackApproval = {
+          identity: context.identity,
+          destinationFingerprint: context.destinationFingerprint,
+          decision,
+        };
         return decision;
       }
       return cached.decision;
@@ -740,14 +754,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const shared = pending.finally(() => {
       if (this.mobileUtilityFallbackConsentInFlight?.promise === shared) this.mobileUtilityFallbackConsentInFlight = null;
     });
-    this.mobileUtilityFallbackConsentInFlight = { fingerprint: context.fingerprint, promise: shared };
+    this.mobileUtilityFallbackConsentInFlight = {
+      identity: context.identity,
+      destinationFingerprint: context.destinationFingerprint,
+      promise: shared,
+    };
     return shared;
   }
 
   private runtimeUtilitySelection(): RuntimeUtilitySelection {
     const router = this.router();
     const context = router.utilityFallbackConsentContext(Platform.isMobile);
-    if (this.mobileUtilityFallbackApproval && this.mobileUtilityFallbackApproval.fingerprint !== context?.fingerprint) {
+    if (this.mobileUtilityFallbackApproval && !sameUtilityFallbackConsentContext(this.mobileUtilityFallbackApproval, context)) {
       this.mobileUtilityFallbackApproval = undefined;
     }
     return router.resolveUtilityForRuntime({
@@ -1894,7 +1912,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const file = this.app.vault.getAbstractFileByPath(path);
         return file instanceof TFile ? file : null;
       },
-      write: (file, content) => this.app.vault.modify(file, content),
+      process: async (file, transform) => { await this.app.vault.process(file, transform); },
       select: (plans) => new Promise((resolve) => {
         new BatchDiffModal(this.app, plans, resolve).open();
       }),
@@ -2747,8 +2765,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Inbox-view entry point: guard + consent + enrich, then refresh open inbox views. */
-  async enrichInboxItem(file: TFile, options?: { inline?: boolean }): Promise<EnrichRunOutcome> {
+  async enrichInboxItem(file: TFile, options?: { inline?: boolean; refreshInboxViews?: boolean }): Promise<EnrichRunOutcome> {
     const outcome = await this.enrichFile(file, !options?.inline);
+    if (options?.refreshInboxViews === false) return outcome;
     for (const leaf of this.app.workspace.getLeavesOfType(INBOX_VIEW_TYPE)) {
       if (leaf.view instanceof InboxView) {
         try {

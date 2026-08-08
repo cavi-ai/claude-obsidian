@@ -33,6 +33,8 @@ export type UnavailableUtilityResolution = Exclude<
   { state: "configured-provider" | "approved-Claude-fallback" }
 >;
 
+const INVALID_ENDPOINT_DISPLAY = "(invalid endpoint)";
+
 export class UtilityUnavailableError extends Error {
   constructor(
     message: string,
@@ -70,16 +72,16 @@ export function sanitizeEndpointForDisplay(endpoint: string): string {
   const raw = endpoint.trim();
   try {
     const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return INVALID_ENDPOINT_DISPLAY;
     parsed.username = "";
     parsed.password = "";
     parsed.search = "";
     parsed.hash = "";
     const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
-    return `${parsed.protocol}//${parsed.host}${path}`;
+    const sanitized = `${parsed.protocol}//${parsed.host}${path}`;
+    return validEndpoint(sanitized) ? sanitized : INVALID_ENDPOINT_DISPLAY;
   } catch {
-    return raw
-      .replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, "$1")
-      .split(/[?#]/, 1)[0] ?? "";
+    return INVALID_ENDPOINT_DISPLAY;
   }
 }
 
@@ -112,7 +114,18 @@ export function classifyEndpoint(url: string): EndpointClassification {
   const parsed = validEndpoint(url);
   if (!parsed) return "invalid";
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "::1" || /^127(?:\.|$)/.test(hostname)) {
+  // This is intentionally lexical: an Obsidian mobile WebView cannot prove
+  // arbitrary DNS resolution or rebinding synchronously. Keep ordinary LAN
+  // hostnames usable, while covering the standard/common local aliases.
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "localhost.localdomain" ||
+    hostname === "ip6-localhost" ||
+    hostname === "ip6-loopback" ||
+    hostname === "::1" ||
+    /^127(?:\.|$)/.test(hostname)
+  ) {
     return "loopback";
   }
   if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::0") return "wildcard-local";

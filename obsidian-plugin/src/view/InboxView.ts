@@ -57,15 +57,21 @@ export class InboxView extends ItemView {
   }
 
   override async onOpen(): Promise<void> {
-    this.registerEvent(this.app.vault.on("create", () => this.refresh.request()));
-    this.registerEvent(this.app.vault.on("delete", () => this.refresh.request()));
-    this.registerEvent(this.app.vault.on("rename", () => this.refresh.request()));
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.refresh.request()));
+    this.registerEvent(this.app.vault.on("create", () => this.requestRefresh()));
+    this.registerEvent(this.app.vault.on("delete", () => this.requestRefresh()));
+    this.registerEvent(this.app.vault.on("rename", () => this.requestRefresh()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.requestRefresh()));
     await this.render();
   }
 
   override async onClose(): Promise<void> {
     this.refresh.dispose();
+  }
+
+  /** The batch's final render reconciles every event emitted while it runs. */
+  private requestRefresh(): void {
+    if (this.batchOperation !== null) return;
+    this.refresh.request();
   }
 
   private pending(): InboxItem[] {
@@ -104,7 +110,11 @@ export class InboxView extends ItemView {
       });
     } else {
       const bar = root.createDiv({ cls: "cc-inbox-bar" });
-      bar.createSpan({ cls: "cc-inbox-count", text: `${items.length} to type` });
+      bar.createSpan({
+        cls: "cc-inbox-count",
+        text: `${items.length} to type`,
+        attr: { role: "status", "aria-live": "polite" },
+      });
       bar.createSpan({ cls: "cc-inbox-backend", text: `Utility: ${this.plugin.sourceEnrichmentBackendLabel()}` });
       const all = bar.createEl("button", { cls: "cc-inbox-enrich-all", text: "Enrich all" });
       all.disabled = this.batchOperation !== null;
@@ -154,6 +164,7 @@ export class InboxView extends ItemView {
     root.createEl("p", {
       cls: `cc-inbox-operation-status cc-inbox-operation-${this.operationFeedback.state}`,
       text: this.operationFeedback.message,
+      attr: { role: "status", "aria-live": "polite" },
     });
   }
 
@@ -162,6 +173,7 @@ export class InboxView extends ItemView {
     row.createEl("span", {
       cls: `cc-inbox-enrichment-status cc-inbox-enrichment-${feedback.state}`,
       text: feedback.message,
+      attr: { role: "status", "aria-live": "polite" },
     });
   }
 
@@ -192,16 +204,20 @@ export class InboxView extends ItemView {
     const files = this.enrichedInboxFiles();
     const entries: WireUpEntry[] = [];
     for (const f of files) {
+      if (!this.refresh.isCurrent(generation)) return;
       const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
       try {
+        const content = await this.app.vault.cachedRead(f);
+        if (!this.refresh.isCurrent(generation)) return;
         entries.push({
           path: f.path,
           basename: f.basename,
           ext: f.extension,
           frontmatter: fm,
-          content: await this.app.vault.cachedRead(f),
+          content,
         });
       } catch {
+        if (!this.refresh.isCurrent(generation)) return;
         // A file can vanish or become unreadable while scanning; any stored
         // batch result keeps its actionable error details visible below.
       }
@@ -217,12 +233,19 @@ export class InboxView extends ItemView {
       header.createSpan({
         cls: "cc-inbox-wireup-count",
         text: `${items.length} note${items.length === 1 ? "" : "s"} · ${mentions} mention${mentions === 1 ? "" : "s"}`,
+        attr: { role: "status", "aria-live": "polite" },
       });
       const reviewAll = header.createEl("button", { cls: "cc-inbox-review-all", text: "Review all links" });
       reviewAll.disabled = this.batchOperation !== null;
       reviewAll.addEventListener("click", () => void this.reviewAllLinks());
     }
-    if (this.linkSummary) section.createEl("p", { cls: "cc-inbox-link-summary", text: this.linkSummary });
+    if (this.linkSummary) {
+      section.createEl("p", {
+        cls: "cc-inbox-link-summary",
+        text: this.linkSummary,
+        attr: { role: "status", "aria-live": "polite" },
+      });
+    }
     this.renderLinkResultDetails(section);
     if (items.length === 0) return;
 
@@ -258,8 +281,8 @@ export class InboxView extends ItemView {
     this.enrichmentFeedback.set(item.path, { state: "running", message: "Enriching…" });
     if (!fromBatch) this.setOperationFeedback("running", `Enriching ${item.basename}…`);
     try {
-      await this.renderSafely();
-      const outcome = await this.plugin.enrichInboxItem(f, { inline: true });
+      if (!fromBatch) await this.renderSafely();
+      const outcome = await this.plugin.enrichInboxItem(f, { inline: true, refreshInboxViews: !fromBatch });
       if (outcome.status === "enriched") {
         this.enrichmentFeedback.delete(item.path);
         if (!fromBatch) this.setOperationFeedback("success", `Typed source note: ${item.basename}.`);
@@ -276,7 +299,7 @@ export class InboxView extends ItemView {
       return false;
     } finally {
       this.enriching.delete(item.path);
-      await this.renderSafely();
+      if (!fromBatch) await this.renderSafely();
     }
   }
 
@@ -287,9 +310,7 @@ export class InboxView extends ItemView {
     try {
       await this.renderSafely();
       let enriched = 0;
-      for (const [index, item] of items.entries()) {
-        this.setOperationFeedback("running", `Enriching ${index + 1} of ${items.length}: ${item.basename}…`);
-        await this.renderSafely();
+      for (const item of items) {
         if (await this.enrichOne(item, true)) enriched++;
       }
       const failed = items.length - enriched;

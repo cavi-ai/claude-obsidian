@@ -50,6 +50,26 @@ function applyButton(modal: BatchDiffModal): FakeElement {
 afterEach(() => vi.useRealTimers());
 
 describe("Inbox batch link review", () => {
+  it("catches a regression that hides dynamic Inbox feedback and counts from assistive technology", async () => {
+    const { app, plugin, view } = createHarness();
+    Object.assign(plugin, { sourceEnrichmentBackendLabel: () => "Ollama · utility-model" });
+    app.vault.seed("Clippings/pending.md", "Pending private clip.");
+
+    await view.render();
+    await settle();
+
+    for (const selector of [
+      ".cc-inbox-operation-status",
+      ".cc-inbox-count",
+      ".cc-inbox-enrichment-status",
+      ".cc-inbox-wireup-count",
+    ]) {
+      const element = (view.contentEl as unknown as FakeElement).querySelector(selector);
+      expect(element?.getAttribute("role"), selector).toBe("status");
+      expect(element?.getAttribute("aria-live"), selector).toBe("polite");
+    }
+  });
+
   it("catches a regression that abandons readable notes when one initial read fails", async () => {
     const broken = new TFile("Clippings/broken.md", "", 0);
     const readable = new TFile("Clippings/readable.md", "Project Atlas remains.\n", 0);
@@ -64,7 +84,7 @@ describe("Inbox batch link review", () => {
           return file._content;
         },
         getFile: (path) => files.get(path) ?? null,
-        write: async (file, content) => { file._content = content; },
+        process: async (file, transform) => { file._content = transform(file._content); },
         select: async (plans) => plans.map((item) => item.plan.hunks.map(() => true)),
       },
     );
@@ -87,7 +107,7 @@ describe("Inbox batch link review", () => {
       {
         read: async () => { throw new Error("file disappeared"); },
         getFile: () => broken,
-        write: async () => undefined,
+        process: async () => undefined,
         select: async () => { throw new Error("The modal must not open without a plan."); },
       },
     );
@@ -114,7 +134,7 @@ describe("Inbox batch link review", () => {
       {
         read: async (file) => file._content,
         getFile: (path) => files.get(path) ?? null,
-        write: async (file, content) => { file._content = content; },
+        process: async (file, transform) => { file._content = transform(file._content); },
         select: async () => [[false], [true]],
       },
     );
@@ -182,12 +202,12 @@ describe("Inbox batch link review", () => {
     await settle();
     alpha._content = "Project Atlas changed while reviewing.\n";
     const vault = app.vault as unknown as {
-      modify(file: TFile, content: string): Promise<void>;
+      process(file: TFile, transform: (current: string) => string): Promise<string>;
     };
-    const modify = vault.modify.bind(vault);
-    vault.modify = async (file, content) => {
+    const processFile = vault.process.bind(vault);
+    vault.process = async (file, transform) => {
       if (file.path === beta.path) throw new Error("disk full");
-      await modify(file, content);
+      return processFile(file, transform);
     };
     applyButton(getLastOpenedModal() as BatchDiffModal).dispatchEvent({ type: "click" });
     await settle();
@@ -326,5 +346,6 @@ describe("Inbox batch link review", () => {
     await settle();
 
     expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-wireup")).toBeNull();
+    expect(reads).toBe(3);
   });
 });

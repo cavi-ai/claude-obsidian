@@ -4,6 +4,10 @@ import { classifyEndpoint, resolveUtilityForRuntime, sanitizeEndpointForDisplay 
 describe("classifyEndpoint", () => {
   it.each([
     ["http://localhost:11434", "loopback"],
+    ["http://worker.localhost:11434", "loopback"],
+    ["http://localhost.localdomain:11434", "loopback"],
+    ["http://ip6-localhost:11434", "loopback"],
+    ["http://ip6-loopback:11434", "loopback"],
     ["http://127.0.0.1:11434", "loopback"],
     ["http://[::1]:11434", "loopback"],
     ["http://0.0.0.0:11434", "wildcard-local"],
@@ -15,6 +19,8 @@ describe("classifyEndpoint", () => {
     ["http://[::ffff:0.0.0.0]:11434", "wildcard-local"],
     ["http://[::ffff:0:0]:11434", "wildcard-local"],
     ["http://192.168.1.24:11434", "lan"],
+    ["http://ollama.lan:11434", "remote"],
+    ["http://studio.local:1234", "remote"],
     ["https://models.example.com", "remote"],
     ["https://models.example.com/v1", "remote"],
     ["ftp://models.example.com/v1", "invalid"],
@@ -44,6 +50,16 @@ describe("sanitizeEndpointForDisplay", () => {
     const display = sanitizeEndpointForDisplay("http://alice:supersecret@");
     expect(display).not.toContain("alice");
     expect(display).not.toContain("supersecret");
+  });
+
+  it.each([
+    "ssh://alice:supersecret@models.example.com/v1",
+    "ftp://alice:supersecret@models.example.com/v1",
+    "alice:supersecret@models.example.com",
+  ])("uses a generic placeholder for a non-HTTP userinfo-like endpoint %s", (endpoint) => {
+    const display = sanitizeEndpointForDisplay(endpoint);
+    expect(display).toBe("(invalid endpoint)");
+    expect(display).not.toMatch(/alice|supersecret|ssh|ftp/i);
   });
 });
 
@@ -135,7 +151,7 @@ describe("resolveUtilityForRuntime", () => {
     })).toEqual({
       state: "unavailable-without-Claude",
       backend: "custom",
-      endpoint: "not a url",
+      endpoint: "(invalid endpoint)",
       reason: "invalid-endpoint",
     });
   });
@@ -168,5 +184,21 @@ describe("resolveUtilityForRuntime", () => {
       reason: "invalid-endpoint",
     });
     expect(JSON.stringify(result)).not.toContain("supersecret");
+  });
+
+  it("does not echo a non-HTTP scheme or its userinfo from an invalid resolution", () => {
+    const result = resolveUtilityForRuntime({
+      backend: "custom",
+      endpoint: "ssh://alice:supersecret@models.example.com/v1",
+      isMobile: true,
+      claudeAvailable: true,
+    });
+    expect(result).toEqual({
+      state: "unavailable-without-Claude",
+      backend: "custom",
+      endpoint: "(invalid endpoint)",
+      reason: "invalid-endpoint",
+    });
+    expect(JSON.stringify(result)).not.toMatch(/alice|supersecret|ssh/i);
   });
 });

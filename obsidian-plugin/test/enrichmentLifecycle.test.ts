@@ -8,7 +8,7 @@ vi.mock("obsidian", async (importOriginal) => ({
 import { App, FakeElement, TFile, WorkspaceLeaf } from "obsidian";
 import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
-import { InboxView } from "../src/view/InboxView";
+import { InboxView, INBOX_VIEW_TYPE } from "../src/view/InboxView";
 
 type EnrichRunOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxItem"]>>;
 
@@ -41,6 +41,80 @@ function inboxPlugin(
 afterEach(() => vi.useRealTimers());
 
 describe("enrichment lifecycle", () => {
+  it("catches a regression that rescans the full Inbox for every item in enrich-all", async () => {
+    vi.useFakeTimers();
+    const app = new App();
+    const pendingCount = 4;
+    const enrichedCount = 4;
+    for (let index = 0; index < pendingCount; index++) {
+      app.vault.seed(`Clippings/pending-${index}.md`, `Private clip ${index}.`);
+    }
+    for (let index = 0; index < enrichedCount; index++) {
+      app.vault.seed(`Clippings/enriched-${index}.md`, "No unlinked mentions.", {
+        frontmatter: { source_enriched: true },
+      });
+    }
+
+    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    Object.assign(plugin, {
+      app,
+      settings: {
+        ...DEFAULT_SETTINGS,
+        sourceCaptureEnabled: true,
+        sourceCaptureConsent: "allow",
+        sourceInboxFolder: "Clippings",
+        utilityBackend: "custom",
+        openaiCompatHost: "https://models.example.com/v1",
+        openaiCompatModel: "remote-model",
+      },
+      enrichTimers: new Map<string, number>(),
+      enrichRecentlyWritten: new Set<string>(),
+      enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
+    });
+    vi.spyOn(plugin.router().openaiCompat, "complete").mockImplementation(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+      return JSON.stringify({
+        title: "Useful private capture",
+        site: "Vault",
+        summary: "A concise private capture summary.",
+      });
+    });
+    const view = new InboxView(new WorkspaceLeaf(app), plugin);
+    app.workspace = {
+      getLeaf: () => ({ openFile: async () => undefined }),
+      getLeavesOfType: (type: string) => type === INBOX_VIEW_TYPE ? [{ view }] : [],
+    } as never;
+
+    const vault = app.vault as unknown as {
+      cachedRead(file: TFile): Promise<string>;
+      process(file: TFile, transform: (current: string) => string): Promise<string>;
+    };
+    const cachedRead = vault.cachedRead.bind(vault);
+    const processFile = vault.process.bind(vault);
+    const metadataCache = app.metadataCache as unknown as { trigger(name: string, file: TFile): void };
+    let reads = 0;
+    vault.cachedRead = async (file) => {
+      reads++;
+      return cachedRead(file);
+    };
+    vault.process = async (file, transform) => {
+      const next = await processFile(file, transform);
+      metadataCache.trigger("changed", file);
+      return next;
+    };
+
+    await view.onOpen();
+    await settle(32);
+    reads = 0;
+    (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich-all")?.dispatchEvent({ type: "click" });
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle(160);
+
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich-all")?.disabled).toBe(false);
+    expect(reads).toBeLessThanOrEqual((pendingCount * 2) + (enrichedCount * 2));
+    plugin.onunload();
+  });
+
   it("catches a regression that leaves queued enrichment or expiry work alive after unload", () => {
     vi.useFakeTimers();
     const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
