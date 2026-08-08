@@ -7,8 +7,9 @@
 // new dependency on the Obsidian API appears, add it here.
 
 import { buildFrontmatter, type FrontmatterData } from "../../src/indexing/frontmatter";
-import { parse as parseYamlImpl } from "yaml";
+import { parse as parseYamlImpl, stringify as stringifyYamlImpl } from "yaml";
 export const parseYaml = (value: string): unknown => parseYamlImpl(value);
+export const stringifyYaml = (value: unknown): string => stringifyYamlImpl(value);
 
 export function normalizePath(p: string): string {
   return p
@@ -140,6 +141,13 @@ class FakeVault extends FakeEventSource {
     file._content = content;
     file.stat.size = content.length;
     return Promise.resolve();
+  }
+
+  process(file: TFile, fn: (content: string) => string): Promise<string> {
+    const next = fn(file._content);
+    file._content = next;
+    file.stat.size = next.length;
+    return Promise.resolve(next);
   }
 
   /** Test helper used by FakeFileManager.renameFile. */

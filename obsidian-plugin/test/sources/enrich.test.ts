@@ -12,6 +12,58 @@ function deps(app: App, complete: EnrichDeps["complete"]): EnrichDeps {
 }
 
 describe("enrichCapture — markdown clip", () => {
+  it("preserves newer user frontmatter written while extraction is in flight", async () => {
+    const app = new App();
+    const initial = [
+      "---",
+      "title: Initial title",
+      "site: Example",
+      "tags:",
+      "  - initial",
+      "---",
+      "",
+      "Body.",
+    ].join("\n");
+    const file = app.vault.seed("Clippings/concurrent.md", initial);
+    let extractionStarted!: () => void;
+    const started = new Promise<void>((resolve) => { extractionStarted = resolve; });
+    let finishExtraction!: (reply: string) => void;
+    const completion = new Promise<string>((resolve) => { finishExtraction = resolve; });
+    const complete = async () => {
+      extractionStarted();
+      return completion;
+    };
+
+    const pending = enrichCapture(deps(app, complete), {
+      kind: "markdown",
+      path: "Clippings/concurrent.md",
+      basename: "concurrent",
+      content: initial,
+    });
+    await started;
+    await app.vault.modify(file as TFile, [
+      "---",
+      "title: User title",
+      "site: Example",
+      "summary: User summary",
+      "tags:",
+      "  - '#Source'",
+      "  - Research Notes",
+      "---",
+      "",
+      "Body.",
+    ].join("\n"));
+    finishExtraction(JSON.stringify({ summary: "Model summary", topics: ["model-topic"] }));
+
+    const result = await pending;
+    const out = await app.vault.cachedRead(result.file);
+    const frontmatter = parseYaml(/^---\n([\s\S]*?)\n---/.exec(out)?.[1] ?? "");
+    expect(frontmatter.title).toBe("User title");
+    expect(frontmatter.summary).toBe("User summary");
+    expect(frontmatter.tags).toEqual(["source", "research-notes", "model-topic"]);
+    expect(markdownBody(out)).toBe("\nBody.");
+  });
+
   it("changes frontmatter while preserving every body byte", async () => {
     const app = new App();
     const file = app.vault.seed("Clippings/a.md", "---\nsource: https://stratechery.com/p\n---\n\n# Article body\n\nLine with two spaces.  \n---\nFinal line.\n");
@@ -19,9 +71,27 @@ describe("enrichCapture — markdown clip", () => {
     const res = await enrichCapture(deps(app, complete), { kind: "markdown", path: "Clippings/a.md", basename: "a", content: (file as TFile)._content });
     expect(res.type).toBe("article");
     const out = await app.vault.cachedRead(res.file);
-    expect(out).toContain('type: "article"');
+    expect(parseYaml(/^---\n([\s\S]*?)\n---/.exec(out)?.[1] ?? "").type).toBe("article");
     expect(out).toContain("source_enriched: true");
     expect(markdownBody(out)).toBe("\n# Article body\n\nLine with two spaces.  \n---\nFinal line.\n");
+  });
+
+  it("enriches CRLF Markdown through the atomic write path without changing a body byte", async () => {
+    const app = new App();
+    const before = "---\r\ntitle: CRLF capture\r\nsite: Example\r\n---\r\n\r\n# Body\r\n\r\nTrailing spaces.  \r\n";
+    const file = app.vault.seed("Clippings/crlf.md", before);
+    const complete = async () => JSON.stringify({ summary: "A concise summary." });
+
+    const res = await enrichCapture(deps(app, complete), {
+      kind: "markdown",
+      path: "Clippings/crlf.md",
+      basename: "crlf",
+      content: before,
+    });
+
+    const out = await app.vault.cachedRead(res.file);
+    expect(out).toContain("\r\n---\r\n\r\n# Body");
+    expect(markdownBody(out)).toBe("\r\n# Body\r\n\r\nTrailing spaces.  \r\n");
   });
 
   it("adds frontmatter to a plain Markdown capture without adding or removing a body byte", async () => {
@@ -40,6 +110,23 @@ describe("enrichCapture — markdown clip", () => {
     const out = await app.vault.cachedRead(res.file);
     expect(out).toContain("source_enriched: true");
     expect(markdownBody(out)).toBe(before);
+  });
+
+  it("rejects secret-bearing URL provenance before touching the note", async () => {
+    const app = new App();
+    const before = "---\nsource: https://example.com/\n---\n\nUntouched.\n";
+    const file = app.vault.seed("Clippings/provenance.md", before);
+    const complete = async () => JSON.stringify({ title: "Credential safety", site: "Example", summary: "A concise summary." });
+
+    await expect(enrichCapture(deps(app, complete), {
+      kind: "markdown",
+      path: "Clippings/provenance.md",
+      basename: "provenance",
+      content: before,
+      url: "https://example.com/?token=ghp_abcdefghijklmnopqrstuvwxyz0123",
+    })).rejects.toThrow("provenance.url: contains secret-bearing content");
+
+    expect(await app.vault.cachedRead(file as TFile)).toBe(before);
   });
 
   it("unions existing, base, and normalized topic tags without duplicates", async () => {
@@ -139,23 +226,17 @@ describe("enrichCapture — extraction failure", () => {
     expect(await app.vault.cachedRead(file as TFile)).toBe(before);
   });
 
-  it("rolls back the exact original content when the Obsidian merge changes a body byte", async () => {
+  it("leaves the complete note unchanged when the atomic pure merge rejects current YAML", async () => {
     const app = new App();
-    const before = "---\nsource: https://x.com/p\n---\n\nOriginal body.  \n";
-    const file = app.vault.seed("Clippings/rollback.md", before);
-    const manager = app.fileManager as unknown as {
-      processFrontMatter(target: TFile, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void>;
-    };
-    const processFrontMatter = manager.processFrontMatter.bind(manager);
-    manager.processFrontMatter = async (target, mutate) => {
-      await processFrontMatter(target, mutate);
-      target._content = target._content.replace("Original body.", "Changed body.");
-    };
-    const complete = async () => JSON.stringify({ title: "Rollback safety", site: "Example", summary: "A concise summary." });
+    const captured = "---\ntitle: Captured title\nsite: Example\n---\n\nOriginal body.  \n";
+    const file = app.vault.seed("Clippings/atomic.md", captured);
+    const complete = async () => JSON.stringify({ summary: "A concise summary." });
+    const before = "---\ntitle: [invalid yaml\nsite: Example\n---\n\nOriginal body.  \n";
+    await app.vault.modify(file as TFile, before);
 
     await expect(
-      enrichCapture(deps(app, complete), { kind: "markdown", path: "Clippings/rollback.md", basename: "rollback", content: (file as TFile)._content }),
-    ).rejects.toThrow("markdown body changed during enrichment");
+      enrichCapture(deps(app, complete), { kind: "markdown", path: "Clippings/atomic.md", basename: "atomic", content: captured }),
+    ).rejects.toThrow();
 
     expect(await app.vault.cachedRead(file as TFile)).toBe(before);
   });

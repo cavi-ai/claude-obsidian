@@ -5,7 +5,8 @@ import {
   markdownBody,
   validateEnrichment,
 } from "../../src/sources/enrichmentQuality";
-import type { SourceRecord } from "../../src/sources/types";
+import type { SourceRecord, SourceTypeSchema } from "../../src/sources/types";
+import { getSchema } from "../../src/sources/registry";
 
 function article(fields: Record<string, unknown> = {}): SourceRecord {
   return {
@@ -24,9 +25,9 @@ function article(fields: Record<string, unknown> = {}): SourceRecord {
   } as SourceRecord;
 }
 
-function qualityErrors(record: SourceRecord): string[] {
+function qualityErrors(record: SourceRecord, schema: SourceTypeSchema = getSchema(record.type)): string[] {
   try {
-    validateEnrichment(record);
+    validateEnrichment(record, schema);
     return [];
   } catch (error) {
     expect(error).toBeInstanceOf(EnrichmentQualityError);
@@ -36,11 +37,19 @@ function qualityErrors(record: SourceRecord): string[] {
 
 describe("validateEnrichment", () => {
   it("accepts a valid record with a 200-character summary boundary", () => {
-    expect(() => validateEnrichment(article({ summary: "s".repeat(200), topics: ["local-ai", "research"] }))).not.toThrow();
+    expect(() => validateEnrichment(article({ summary: "s".repeat(200), topics: ["local-ai", "research"] }), getSchema("article"))).not.toThrow();
   });
 
   it.each(["", "   ", "Untitled", "untitled document"])("rejects blank or placeholder title %j", (title) => {
     expect(qualityErrors(article({ title }))).toContain("title: must be a meaningful, non-placeholder title");
+  });
+
+  it.each(["Untitled.", "No title!"])("rejects a punctuation-decorated placeholder title %j", (title) => {
+    expect(qualityErrors(article({ title }))).toContain("title: must be a meaningful, non-placeholder title");
+  });
+
+  it.each(["Article", "Source"])("accepts the legitimate descriptive title %j", (title) => {
+    expect(() => validateEnrichment(article({ title }), getSchema("article"))).not.toThrow();
   });
 
   it.each(["document.md", "article.pdf", "capture.txt"])("rejects generic filename-only title %j", (title) => {
@@ -58,10 +67,38 @@ describe("validateEnrichment", () => {
   it("reports each field whose runtime value has an invalid type", () => {
     const errors = qualityErrors(article({ topics: ["research", 42], rows: Number.POSITIVE_INFINITY, metadata: { private: true } }));
     expect(errors).toEqual([
-      "fields.topics: expected an array of strings",
-      "fields.rows: expected a finite number",
-      "fields.metadata: expected a string, finite number, or array of strings",
+      "fields.topics: expected string[]",
+      "fields.rows: not declared by article schema",
+      "fields.metadata: not declared by article schema",
     ]);
+  });
+
+  it("rejects a missing required article site", () => {
+    const record = article();
+    delete record.fields.site;
+    expect(qualityErrors(record)).toContain("fields.site: missing required field");
+  });
+
+  it("rejects an article site with the wrong schema type", () => {
+    expect(qualityErrors(article({ site: 42 }))).toContain("fields.site: expected string");
+  });
+
+  it("rejects fields not declared by the resolved schema", () => {
+    expect(qualityErrors(article({ extra: "not declared" }))).toContain("fields.extra: not declared by article schema");
+  });
+
+  it("uses a dataset override when validating a derived rows field", () => {
+    const schema = getSchema("dataset", {
+      dataset: {
+        fields: [{ key: "rows", type: "string", required: false, source: "derived", description: "row count label" }],
+      },
+    });
+    const record: SourceRecord = {
+      type: "dataset",
+      fields: { title: "Sales by month", summary: "Monthly sales totals.", rows: 12 },
+      provenance: { capturedAt: "2026-08-08T00:00:00Z", schemaVersion: 1, enrichedBy: "claude", assetPath: "Clippings/sales.csv" },
+    };
+    expect(qualityErrors(record, schema)).toContain("fields.rows: expected string");
   });
 
   it("rejects sanitized and raw secret-bearing field values", () => {
@@ -69,6 +106,16 @@ describe("validateEnrichment", () => {
     expect(errors).toEqual([
       "fields.summary: contains secret-bearing content",
       "fields.topics[1]: contains secret-bearing content",
+    ]);
+  });
+
+  it("rejects secret-bearing URL and asset provenance", () => {
+    const record = article();
+    record.provenance.url = "https://example.com/?token=ghp_abcdefghijklmnopqrstuvwxyz0123";
+    record.provenance.assetPath = "Clippings/API_KEY=abcdef123.csv";
+    expect(qualityErrors(record)).toEqual([
+      "provenance.url: contains secret-bearing content",
+      "provenance.assetPath: contains secret-bearing content",
     ]);
   });
 });

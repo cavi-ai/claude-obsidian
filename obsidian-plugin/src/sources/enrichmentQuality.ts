@@ -1,22 +1,16 @@
-import type { SourceRecord } from "./types";
+import type { FieldType, SourceRecord, SourceTypeSchema } from "./types";
 import { sanitize } from "../memory/sanitize";
 
 const REDACTION_MARKER = "‹REDACTED›";
 const PLACEHOLDER_TITLES = new Set([
-  "article",
-  "capture",
-  "clipping",
-  "dataset",
-  "document",
-  "file",
   "no title",
-  "note",
-  "source",
   "title",
   "unknown title",
   "untitled",
   "untitled document",
-  "video",
+]);
+const GENERIC_FILENAME_TITLES = new Set([
+  "article", "capture", "clipping", "dataset", "document", "file", "note", "source", "title", "untitled", "video",
 ]);
 
 export class EnrichmentQualityError extends Error {
@@ -31,13 +25,25 @@ function hasSecretBearingContent(value: string): boolean {
 }
 
 function isPlaceholderTitle(value: string): boolean {
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  const raw = value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+  const normalized = raw.replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, "").trim();
   if (normalized.length === 0 || PLACEHOLDER_TITLES.has(normalized)) return true;
-  const filename = /^(.+)\.[a-z0-9]{1,8}$/i.exec(normalized);
-  return filename !== null && PLACEHOLDER_TITLES.has(filename[1] ?? "");
+  const filename = /^(.+)\.[a-z0-9]{1,8}$/i.exec(raw);
+  return filename !== null && GENERIC_FILENAME_TITLES.has(filename[1] ?? "");
 }
 
-export function validateEnrichment(record: SourceRecord): void {
+function fieldTypeError(type: FieldType, value: unknown): string | undefined {
+  if (type === "number") return typeof value === "number" && Number.isFinite(value) ? undefined : "expected number";
+  if (type === "string[]") return Array.isArray(value) && value.every((item) => typeof item === "string") ? undefined : "expected string[]";
+  if (typeof value === "string") return undefined;
+  return type === "string" ? "expected string" : `expected ${type} string`;
+}
+
+function missingRequired(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === "string" && value.trim().length === 0) || (Array.isArray(value) && value.length === 0);
+}
+
+export function validateEnrichment(record: SourceRecord, schema: SourceTypeSchema): void {
   const errors: string[] = [];
   const fields = record?.fields as Record<string, unknown> | undefined;
   if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
@@ -49,21 +55,33 @@ export function validateEnrichment(record: SourceRecord): void {
       if (hasSecretBearingContent(value)) errors.push(`fields.${key}: contains secret-bearing content`);
       continue;
     }
-    if (typeof value === "number") {
-      if (!Number.isFinite(value)) errors.push(`fields.${key}: expected a finite number`);
-      continue;
-    }
     if (Array.isArray(value)) {
-      if (!value.every((item) => typeof item === "string")) {
-        errors.push(`fields.${key}: expected an array of strings`);
-        continue;
-      }
       for (const [index, item] of value.entries()) {
-        if (hasSecretBearingContent(item)) errors.push(`fields.${key}[${index}]: contains secret-bearing content`);
+        if (typeof item === "string" && hasSecretBearingContent(item)) errors.push(`fields.${key}[${index}]: contains secret-bearing content`);
       }
+    }
+  }
+
+  if (record.type !== schema.type) errors.push(`record type ${record.type}: does not match ${schema.type} schema`);
+  const declared = new Map(schema.fields.map((field) => [field.key, field]));
+  for (const field of schema.fields) {
+    const value = fields[field.key];
+    if (missingRequired(value)) {
+      if (field.required) errors.push(`fields.${field.key}: missing required field`);
       continue;
     }
-    errors.push(`fields.${key}: expected a string, finite number, or array of strings`);
+    const typeError = fieldTypeError(field.type, value);
+    if (typeError) errors.push(`fields.${field.key}: ${typeError}`);
+  }
+  for (const key of Object.keys(fields)) {
+    if (!declared.has(key)) errors.push(`fields.${key}: not declared by ${schema.type} schema`);
+  }
+
+  for (const key of ["url", "assetPath", "capturedAt", "enrichedBy"] as const) {
+    const value = record.provenance[key];
+    if (typeof value === "string" && hasSecretBearingContent(value)) {
+      errors.push(`provenance.${key}: contains secret-bearing content`);
+    }
   }
 
   const title = fields.title;
