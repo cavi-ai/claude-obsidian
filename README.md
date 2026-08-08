@@ -78,10 +78,14 @@ chat, each call confirmed — Companion is the two-way hub.
 
 A watched clippings inbox auto-enriches new clips with typed frontmatter
 (title, tags, summary — works on a thinking-free local utility call, so bulk
-ingest stays cheap and reliable). The **Organize clippings** command takes the
-existing pile: meaningful renames, tags, and an LLM-inferred domain/project
-folder per clip, shown as a reviewable move plan before anything is filed.
-Research sources import from web, PDF, DOI, arXiv, **Zotero**, or the vault.
+ingest stays cheap and reliable) without replacing the clip body or existing
+metadata. After enrichment, **Review all links** collects every suggested
+wikilink into one Git-style review: a collapsed accordion per note, with
+note-level and per-hunk selection before the accepted set is written. The
+**Organize clippings** command takes the existing pile: meaningful renames,
+tags, and an LLM-inferred domain/project folder per clip, shown as a reviewable
+move plan before anything is filed. Research sources import from web, PDF, DOI,
+arXiv, **Zotero**, or the vault.
 → [research-workbench.md](guides/research-workbench.md)
 
 ### Local models

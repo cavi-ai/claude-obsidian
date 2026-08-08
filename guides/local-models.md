@@ -2,7 +2,8 @@
 
 Two independent local-first paths:
 
-- **Chat and utility work on a local LLM** via Ollama — desktop, optional.
+- **Chat and utility work on a local LLM** via Ollama — optional. A loopback
+  server is desktop-only; mobile utility work can use a LAN or remote endpoint.
 - **Semantic search on an on-device embedding model** — every platform, on by default, no external runtime.
 
 You don't need the first to get the second.
@@ -34,7 +35,9 @@ indicator shows which backend is active.
 
 ## Setting up Ollama
 
-Desktop only — it needs a localhost model server.
+A localhost Ollama server is desktop-only. Mobile utility work can reach an
+Ollama server exposed at a valid LAN or remote HTTP(S) endpoint; do not expose
+an unauthenticated model server to the public internet.
 
 1. Install [Ollama](https://ollama.com) and start it.
 2. Pull a model: `ollama pull llama3.1` (any chat model works).
@@ -80,6 +83,16 @@ Routing checks that an Ollama host is configured, not that it's answering — so
 you enable this and then stop Ollama, utility tasks will fail rather than silently
 re-route to Claude. Use **Test local connection** after changing anything. (The
 chat-backend fallback described above *does* probe reachability.)
+
+On mobile, Companion evaluates the utility destination before sending note
+content. Loopback and wildcard hosts—including `localhost`, `127.0.0.1`,
+`*.localhost`, and IPv6 loopback aliases—cannot reach the desktop from a phone.
+For those endpoints, Companion asks whether to use Claude for utility work for
+the current plugin session. Choosing **Don't send**, changing the endpoint or
+credential, closing the plugin, or lacking an Anthropic credential aborts the
+operation without a provider call or vault write. A configured LAN or remote
+HTTP(S) endpoint is used directly, and the Source Inbox displays the backend
+selected at runtime.
 
 ## Semantic search
 
@@ -134,7 +147,9 @@ chunk, so a brand-new note isn't invisible while the index catches up.
 |---|---|---|
 | Chat, artifacts, agent mode | Yes | Yes |
 | Built-in semantic search + index build | Yes | Yes |
-| Ollama chat / utility / embeddings | Yes | No — needs a local server |
+| Ollama chat | Yes | No — localhost cannot be reached from mobile |
+| Ollama utility work | Yes | Yes — with a reachable LAN/remote HTTP(S) endpoint |
+| Ollama embeddings | Yes | No — use the built-in mobile engine |
 | MCP bridge | Yes | No — use cloud sessions |
 | Session capture from Claude Code transcripts | Yes | No — browsing captured memory works |
 

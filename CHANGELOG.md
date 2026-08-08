@@ -4,6 +4,33 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Batch-review Inbox links.** *Review all links* now opens one Git-style
+  review modal with a collapsed accordion per note. Select whole notes or
+  individual hunks, then apply the accepted set together; changed or unreadable
+  notes are reported independently without blocking the rest of the batch.
+
+### Changed
+- **Enrichment is non-destructive by construction.** Source enrichment keeps
+  the Markdown body byte-for-byte, preserves existing metadata, unions tags,
+  and validates the final title, summary, schema fields, and source provenance
+  inside the atomic write before anything reaches the vault.
+- **Inbox batches stay responsive.** Enrich-all coalesces refreshes instead of
+  rescanning the complete Inbox after every note, and stale scans stop as soon
+  as a newer render supersedes them.
+
+### Fixed
+- **Mobile Inbox utility routing.** The Inbox shows the backend it will really
+  use. A loopback desktop model is never called from mobile; Companion either
+  uses a configured LAN/remote endpoint or asks before sending source content
+  to Claude for the current session. Denial, missing credentials, endpoint
+  changes, and credential rotation fail closed with actionable inline errors.
+- **Inbox lifecycle cleanup.** Closing or refreshing the Inbox during an
+  operation no longer leaves disabled controls, detached scans, unhandled
+  rejections, or late writes after the plugin unloads.
+
 ## [0.22.5] — 2026-08-07
 
 ### Fixed

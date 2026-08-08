@@ -18,10 +18,12 @@ keep vault work cheap.
 Mostly, yes. Chat, agent mode, artifacts, the research workbench, and semantic
 search — including building the index — all work on mobile.
 
-Three things are desktop-only because they need a local runtime:
+Three things need special handling because they rely on a desktop-local runtime:
 
 - **The MCP bridge** — it runs an HTTP server. Use cloud sessions on mobile instead.
-- **Ollama** — local chat/utility/embedding models need a localhost model server.
+- **Ollama** — local chat and embedding models need a localhost server. Utility
+  work can use a reachable LAN/remote endpoint; if only a loopback endpoint is
+  configured, Companion asks before using Claude for that mobile session.
 - **Session capture** — it reads Claude Code transcripts from disk. Browsing already-captured memory works fine on mobile.
 
 On mobile the settings tab collapses those into one *🖥 Desktop-only features*
