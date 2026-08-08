@@ -60,4 +60,20 @@ describe("BatchDiffModal", () => {
 
     expect(result).toEqual([[false, false], [true]]);
   });
+
+  it("catches a regression that leaves the file toggle too small or inside its accordion", () => {
+    const modal = new BatchDiffModal(new App(), plans, () => undefined);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+    const fileToggle = content.querySelectorAll(".cc-batch-diff-file-toggle")[0];
+    const fileCheckbox = content.querySelectorAll(".cc-batch-diff-file-checkbox")[0] as unknown as HTMLInputElement;
+    const details = content.querySelectorAll("details")[0];
+
+    expect(fileToggle?.tagName).toBe("LABEL");
+    expect(fileToggle?.querySelectorAll(".cc-batch-diff-file-checkbox")).toHaveLength(1);
+    expect(details?.querySelectorAll(".cc-batch-diff-file-checkbox")).toHaveLength(0);
+    fileCheckbox.checked = false;
+    fileCheckbox.dispatchEvent({ type: "change" });
+    expect(details?.getAttribute("open")).toBeNull();
+  });
 });

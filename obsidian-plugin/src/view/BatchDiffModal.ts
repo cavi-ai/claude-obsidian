@@ -45,7 +45,10 @@ export class BatchDiffModal extends Modal {
     for (const [fileIndex, item] of this.plans.entries()) {
       const file = contentEl.createDiv({ cls: "cc-batch-diff-file" });
       const header = file.createDiv({ cls: "cc-batch-diff-file-header" });
-      const fileCheckbox = header.createEl("input", {
+      const fileToggle = header.createEl("label", {
+        cls: "cc-batch-diff-file-toggle",
+      });
+      const fileCheckbox = fileToggle.createEl("input", {
         cls: "cc-batch-diff-file-checkbox",
         attr: { type: "checkbox", "aria-label": "Select all changes in " + item.path },
       });
