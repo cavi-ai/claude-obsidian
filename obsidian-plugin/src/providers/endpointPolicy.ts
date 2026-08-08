@@ -4,6 +4,7 @@ export type UtilityFallbackApproval = "allow" | "deny";
 export interface UtilityRuntimePolicy {
   backend: UtilityBackend;
   endpoint?: string;
+  claudeEndpoint?: string;
   isMobile: boolean;
   claudeAvailable: boolean;
   fallbackApproval?: UtilityFallbackApproval;
@@ -24,7 +25,7 @@ export type UtilityRuntimeResolution =
       state: "unavailable-without-Claude";
       backend: UtilityBackend;
       endpoint: string;
-      reason: "claude-unavailable" | "fallback-denied" | "invalid-endpoint";
+      reason: "claude-unavailable" | "fallback-denied" | "invalid-endpoint" | "mobile-local-endpoint";
     };
 
 export type UnavailableUtilityResolution = Exclude<
@@ -138,21 +139,34 @@ export function classifyEndpoint(url: string): EndpointClassification {
 export function resolveUtilityForRuntime(policy: UtilityRuntimePolicy): UtilityRuntimeResolution {
   const rawEndpoint = policy.endpoint ?? (policy.backend === "claude" ? "https://api.anthropic.com" : "");
   const endpoint = sanitizeEndpointForDisplay(rawEndpoint);
-  if (policy.backend === "claude" && !policy.claudeAvailable) {
-    return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "claude-unavailable" };
-  }
   const classification = classifyEndpoint(rawEndpoint);
   if (classification === "invalid") {
     return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "invalid-endpoint" };
   }
-  if (!policy.isMobile || policy.backend === "claude") {
+  if (policy.backend === "claude") {
+    if (!policy.claudeAvailable) {
+      return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "claude-unavailable" };
+    }
+    if (policy.isMobile && (classification === "loopback" || classification === "wildcard-local")) {
+      return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "mobile-local-endpoint" };
+    }
     return { state: "configured-provider", backend: policy.backend };
   }
+  if (!policy.isMobile) return { state: "configured-provider", backend: policy.backend };
   if (classification === "lan" || classification === "remote") {
     return { state: "configured-provider", backend: policy.backend };
   }
   if (!policy.claudeAvailable) {
     return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "claude-unavailable" };
+  }
+  const rawClaudeEndpoint = policy.claudeEndpoint ?? "https://api.anthropic.com";
+  const claudeEndpoint = sanitizeEndpointForDisplay(rawClaudeEndpoint);
+  const claudeClassification = classifyEndpoint(rawClaudeEndpoint);
+  if (claudeClassification === "invalid") {
+    return { state: "unavailable-without-Claude", backend: "claude", endpoint: claudeEndpoint, reason: "invalid-endpoint" };
+  }
+  if (claudeClassification === "loopback" || claudeClassification === "wildcard-local") {
+    return { state: "unavailable-without-Claude", backend: "claude", endpoint: claudeEndpoint, reason: "mobile-local-endpoint" };
   }
   if (policy.fallbackApproval === "allow") {
     return {

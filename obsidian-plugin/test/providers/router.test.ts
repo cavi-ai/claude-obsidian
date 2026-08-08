@@ -7,6 +7,24 @@ function settings(overrides: Partial<PluginSettings>): PluginSettings {
   return { ...DEFAULT_SETTINGS, apiKey: "sk-ant-api-test", ...overrides };
 }
 
+function routerWithAnthropicEnv(overrides: Partial<PluginSettings>, env: Record<string, string>): ProviderRouter {
+  const target = window as typeof window & { process?: { env?: Record<string, string | undefined> } };
+  const previous = target.process;
+  target.process = { env };
+  try {
+    return new ProviderRouter(settings({
+      authMode: "environment",
+      apiKey: "",
+      oauthToken: "",
+      baseUrl: "",
+      utilityBackend: "claude",
+      ...overrides,
+    }));
+  } finally {
+    target.process = previous;
+  }
+}
+
 describe("ProviderRouter.resolve", () => {
   it("routes utility to claude by default", () => {
     const r = new ProviderRouter(settings({}));
@@ -100,6 +118,76 @@ describe("ProviderRouter.resolveUtilityForRuntime", () => {
     if (result.state !== "approved-Claude-fallback") throw new Error("expected an approved fallback");
     expect(result.provider.id).toBe("anthropic");
     expect(result.model).toBe("claude-sonnet-5-20260203");
+  });
+
+  it("uses the environment auth gateway as the Claude policy and attribution endpoint", () => {
+    const r = routerWithAnthropicEnv({}, {
+      ANTHROPIC_API_KEY: "sk-ant-api-env",
+      ANTHROPIC_BASE_URL: "https://gateway.example.com/anthropic",
+    });
+
+    const result = r.resolveUtilityForRuntime({ isMobile: true });
+
+    expect(result.state).toBe("configured-provider");
+    if (result.state !== "configured-provider") throw new Error("expected configured provider");
+    expect(result.provider).toBe(r.anthropic);
+    expect(result.endpoint).toBe("https://gateway.example.com/anthropic");
+  });
+
+  it.each([
+    ["http://127.0.0.1:8787", "http://127.0.0.1:8787"],
+    ["ftp://gateway.example.com/v1", "ftp://gateway.example.com/v1"],
+    ["https://alice:supersecret@gateway.example.com/v1", "https://gateway.example.com/v1"],
+    ["https://gateway.example.com/v1?token=private", "https://gateway.example.com/v1"],
+    ["https://gateway.example.com/v1#private", "https://gateway.example.com/v1"],
+  ])("rejects and redacts an unusable mobile environment gateway %s", (baseUrl, displayed) => {
+    const r = routerWithAnthropicEnv({}, {
+      ANTHROPIC_API_KEY: "sk-ant-api-env",
+      ANTHROPIC_BASE_URL: baseUrl,
+    });
+
+    const result = r.resolveUtilityForRuntime({ isMobile: true });
+
+    expect(result.state).toBe("unavailable-without-Claude");
+    if (result.state !== "unavailable-without-Claude") throw new Error("expected unavailable provider");
+    expect(result.endpoint).toBe(displayed);
+    expect("provider" in result).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/alice|supersecret|token=private/i);
+  });
+
+  it("attributes environment-mode Anthropic failures to the sanitized resolved gateway", async () => {
+    const r = routerWithAnthropicEnv({}, {
+      ANTHROPIC_API_KEY: "sk-ant-api-env",
+      ANTHROPIC_BASE_URL: "https://gateway.example.com/anthropic",
+    });
+    const selection = r.resolveUtilityForRuntime({ isMobile: true });
+    if (selection.state !== "configured-provider") throw new Error("expected configured provider");
+    vi.spyOn(r.anthropic, "complete").mockRejectedValue(new Error("failed to fetch"));
+
+    await expect(r.completeResolved(selection, { system: "sys", user: "private" })).rejects.toThrow(
+      /Anthropic at https:\/\/gateway\.example\.com\/anthropic/i,
+    );
+  });
+
+  it("does not offer a local utility fallback through an invalid environment-mode Claude gateway", () => {
+    const r = routerWithAnthropicEnv({
+      utilityBackend: "ollama",
+      ollamaHost: "http://localhost:11434",
+    }, {
+      ANTHROPIC_API_KEY: "sk-ant-api-env",
+      ANTHROPIC_BASE_URL: "https://alice:supersecret@gateway.example.com/v1?token=private",
+    });
+
+    const result = r.resolveUtilityForRuntime({ isMobile: true });
+
+    expect(result).toEqual({
+      state: "unavailable-without-Claude",
+      backend: "claude",
+      endpoint: "https://gateway.example.com/v1",
+      reason: "invalid-endpoint",
+    });
+    expect("provider" in result).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/alice|supersecret|token=private/i);
   });
 });
 

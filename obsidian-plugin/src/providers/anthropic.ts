@@ -4,7 +4,7 @@ import { parseSseChunk, extractApiError, type SseBlockState, type SseParseResult
 import { withCacheControl } from "../claude/cache";
 import { PING_MODEL } from "../claude/models";
 import { type CompletionRequest, type Provider, type ProviderStatus, ProviderError, isAbort } from "./types";
-import { type AuthInputs, type ResolvedAuth, resolveAuth, authHeaders, messagesUrl, buildSystem } from "./auth";
+import { type AuthInputs, type ResolvedAuth, resolveAuth, resolveAuthBaseUrl, authHeaders, messagesUrl, buildSystem } from "./auth";
 
 /**
  * Serialize a request for the Messages API. Exported (pure) so the wire shape —
@@ -53,6 +53,11 @@ export class AnthropicProvider implements Provider {
 
   hasCredentials(): boolean {
     return this.auth() !== null;
+  }
+
+  /** Exact base URL snapshot used by this provider's resolved auth mode. */
+  resolvedEndpoint(): string {
+    return resolveAuthBaseUrl(this.authInputs);
   }
 
   /** True when the active credential is a subscription OAuth token (metered usage). */

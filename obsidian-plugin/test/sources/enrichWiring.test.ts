@@ -22,6 +22,7 @@ interface PrivateEnrich {
   triageClippings(): Promise<void>;
   buildEnrichProposal(file: TFile, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<unknown>;
   organizeFolderFlow(folder: TFolder): Promise<void>;
+  queueEnrich(file: TFile): void;
 }
 
 function pluginHarness(completeResolved: ReturnType<typeof vi.fn>): ClaudeCompanionPlugin {
@@ -63,7 +64,12 @@ function mobilePlugin(overrides: Partial<typeof DEFAULT_SETTINGS> = {}): {
     ollamaHost: "http://localhost:11434",
     ...overrides,
   };
-  Object.assign(plugin, { app, enrichRecentlyWritten: new Set<string>() });
+  Object.assign(plugin, {
+    app,
+    enrichTimers: new Map<string, number>(),
+    enrichRecentlyWritten: new Set<string>(),
+    enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
+  });
   const router = plugin.router();
   return { app, file, plugin, router };
 }
@@ -81,11 +87,22 @@ async function settle(turns = 8): Promise<void> {
   for (let turn = 0; turn < turns; turn++) await Promise.resolve();
 }
 
+async function saveHarnessSettings(plugin: ClaudeCompanionPlugin): Promise<void> {
+  Object.assign(plugin as unknown as Record<string, unknown>, {
+    persist: async () => undefined,
+    refreshViews: () => undefined,
+    syncMcpServer: async () => undefined,
+    invalidateIndexer: () => undefined,
+  });
+  await plugin.saveSettings();
+}
+
 afterEach(() => {
   Platform.isMobile = false;
   Platform.isDesktop = true;
   clearNotices();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("source enrichment wiring", () => {
@@ -380,5 +397,158 @@ describe("source enrichment wiring", () => {
     expect(review).not.toHaveBeenCalled();
     expect(claudeComplete).not.toHaveBeenCalled();
     expect(getNoticeMessages().at(-1)).toMatch(/organize failed.*not approved/i);
+  });
+
+  it("discloses every session-global utility content category in the Claude fallback modal", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { plugin } = mobilePlugin();
+
+    const pending = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    const rejected = expect(pending).rejects.toThrow(/not approved/i);
+    await settle();
+    const copy = (getLastOpenedModal()?.contentEl as unknown as FakeElement)
+      .querySelector("p")?.textContent ?? "";
+
+    choose("Don't send");
+    await rejected;
+    expect(copy).toMatch(/source enrichment/i);
+    expect(copy).toMatch(/tagging.*organization/i);
+    expect(copy).toMatch(/summaries.*frontmatter/i);
+    expect(copy).toMatch(/memory consolidation.*session content/i);
+    expect(copy).toMatch(/plugin session/i);
+  });
+
+  it("rechecks current credentials after deferred consent and cannot use a stale credentialed router", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router: staleRouter } = mobilePlugin();
+    const before = await app.vault.cachedRead(file);
+    const staleComplete = vi.spyOn(staleRouter.anthropic, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    plugin.settings.apiKey = "";
+    plugin.settings.oauthToken = "";
+    await saveHarnessSettings(plugin);
+    const currentRouter = plugin.router();
+    const currentComplete = vi.spyOn(currentRouter.anthropic, "complete").mockResolvedValue("unsafe");
+    choose("Use Claude this session");
+    await pending;
+
+    expect(staleComplete).not.toHaveBeenCalled();
+    expect(currentComplete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/no Anthropic credential.*add a credential/i);
+  });
+
+  it("aborts deferred consent when the configured backend changes instead of calling either router", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router: staleRouter } = mobilePlugin();
+    const before = await app.vault.cachedRead(file);
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+    const staleComplete = vi.spyOn(staleRouter.anthropic, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    plugin.settings.utilityBackend = "custom";
+    plugin.settings.openaiCompatHost = "https://current.example.com/v1";
+    plugin.settings.openaiCompatModel = "current-model";
+    await saveHarnessSettings(plugin);
+    const currentRouter = plugin.router();
+    const currentComplete = vi.spyOn(currentRouter.openaiCompat, "complete").mockResolvedValue("unsafe");
+    choose("Use Claude this session");
+    await pending;
+
+    expect(staleComplete).not.toHaveBeenCalled();
+    expect(currentComplete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/settings changed.*current.*custom.*retry/i);
+
+    plugin.settings.utilityBackend = "ollama";
+    plugin.settings.ollamaHost = "http://localhost:11434";
+    await saveHarnessSettings(plugin);
+    const retry = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+    expect(opened).toHaveBeenCalledTimes(2);
+    choose("Don't send");
+    await expect(retry).rejects.toThrow(/not approved/i);
+  });
+
+  it("invalidates and closes deferred fallback consent on unload before any call or write", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin();
+    const before = await app.vault.cachedRead(file);
+    const complete = vi.spyOn(router.anthropic, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    const modal = getLastOpenedModal() as (ReturnType<typeof getLastOpenedModal> & { closed?: boolean });
+    const allow = (modal.contentEl as unknown as FakeElement)
+      .querySelectorAll("button")
+      .find((button) => button.textContent === "Use Claude this session");
+    plugin.onunload();
+    const closedOnUnload = modal.closed;
+    allow?.dispatchEvent({ type: "click" });
+    await pending;
+
+    expect(closedOnUnload).toBe(true);
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+  });
+
+  it("cancels queued automatic enrichment timers on unload", async () => {
+    vi.useFakeTimers();
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin();
+    const before = await app.vault.cachedRead(file);
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+    const complete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+
+    (plugin as unknown as PrivateEnrich).queueEnrich(file);
+    plugin.onunload();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(opened).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("clears recently-written expiry timers on unload", async () => {
+    vi.useFakeTimers();
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { file, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "https://models.example.com/v1",
+      openaiCompatModel: "remote-model",
+    });
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    await plugin.enrichInboxItem(file);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    plugin.onunload();
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -11,7 +11,6 @@ import {
   type UtilityFallbackApproval,
   type UtilityRuntimeResolution,
 } from "./endpointPolicy";
-import { ANTHROPIC_DEFAULT_BASE_URL } from "./auth";
 import { providerFailureMessage } from "./errorHints";
 
 export interface ProviderSelection {
@@ -124,17 +123,19 @@ export class ProviderRouter {
     fallbackApproval?: UtilityFallbackApproval;
   }): RuntimeUtilitySelection {
     const backend = this.settings.utilityBackend;
+    const claudeEndpoint = this.anthropic.resolvedEndpoint();
     const endpoint =
       backend === "ollama"
         ? this.settings.ollamaHost
         : backend === "custom"
           ? this.settings.openaiCompatHost
-          : this.settings.baseUrl.trim() || ANTHROPIC_DEFAULT_BASE_URL;
+          : claudeEndpoint;
     const resolution = applyUtilityRuntimePolicy({
       backend,
       ...(endpoint !== undefined ? { endpoint } : {}),
       isMobile: input.isMobile,
       claudeAvailable: this.anthropic.hasCredentials(),
+      claudeEndpoint,
       ...(input.fallbackApproval ? { fallbackApproval: input.fallbackApproval } : {}),
     });
     if (resolution.state === "approved-Claude-fallback") {
@@ -142,7 +143,7 @@ export class ProviderRouter {
         ...resolution,
         provider: this.anthropic,
         model: resolveModelId(this.settings.model, this.settings.customModel),
-        endpoint: sanitizeEndpointForDisplay(this.settings.baseUrl.trim() || ANTHROPIC_DEFAULT_BASE_URL),
+        endpoint: sanitizeEndpointForDisplay(claudeEndpoint),
       };
     }
     if (resolution.state === "configured-provider") {
@@ -155,7 +156,7 @@ export class ProviderRouter {
             ? this.settings.ollamaHost
             : selection.provider.id === "openai-compat"
               ? this.settings.openaiCompatHost
-              : this.settings.baseUrl.trim() || ANTHROPIC_DEFAULT_BASE_URL,
+              : claudeEndpoint,
         ),
       };
     }

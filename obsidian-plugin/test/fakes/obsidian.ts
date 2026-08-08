@@ -316,9 +316,10 @@ export function getLastOpenedModal(): Modal | undefined { return lastOpenedModal
 export class Modal {
   titleEl = new FakeElement("h2");
   contentEl = new FakeElement() as unknown as HTMLElement;
+  closed = false;
   constructor(public app: App) {}
   open(): void { lastOpenedModal = this; this.onOpen(); }
-  close(): void { this.onClose(); }
+  close(): void { this.closed = true; this.onClose(); }
   onOpen(): void {}
   onClose(): void {}
 }

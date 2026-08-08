@@ -163,10 +163,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private reindexQueue = new Set<string>();
   private enrichTimers = new Map<string, number>();
   private enrichRecentlyWritten = new Set<string>();
+  private enrichRecentlyWrittenExpiryTimers = new Map<string, number>();
+  private utilityLifecycleEnded = false;
   /** Mobile loopback → Claude consent, held only for this loaded plugin instance. */
   private mobileUtilityFallbackApproval: UtilityFallbackApproval | undefined;
   /** Coalesces concurrent automatic enrichments onto one consent decision. */
   private mobileUtilityFallbackConsentInFlight: Promise<UtilityFallbackApproval> | null = null;
+  /** Active fallback disclosure, closed fail-safe when the plugin unloads. */
+  private mobileUtilityFallbackModal: ChoiceModal<UtilityFallbackApproval> | null = null;
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
   private inboxRibbonEl: HTMLElement | null = null;
   private inboxBadgeTimer: number | null = null;
@@ -179,6 +183,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private researchRefreshChanges: Array<{ path: string; oldPath?: string }> = [];
 
   override async onload(): Promise<void> {
+    this.utilityLifecycleEnded = false;
     await this.loadSettings();
 
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
@@ -649,11 +654,33 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Plugin-owned runtime/privacy hook used by every router utility completion. */
   private async resolveUtilitySelectionForSession(): Promise<ProviderSelection> {
-    const router = this.router();
+    if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
     let selection = this.runtimeUtilitySelection();
     if (selection.state === "unavailable-loopback") {
+      const prompted = selection;
       this.mobileUtilityFallbackApproval = await this.mobileUtilityFallbackConsent(selection.endpoint);
-      selection = router.resolveUtilityForRuntime({
+      if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
+
+      // Settings may rebuild the router while the modal is open. Reacquire it,
+      // inspect the current unapproved state, and never apply consent obtained
+      // for a different backend/endpoint.
+      const currentRouter = this.router();
+      const current = currentRouter.resolveUtilityForRuntime({ isMobile: Platform.isMobile });
+      if (
+        current.state !== "unavailable-loopback" ||
+        current.backend !== prompted.backend ||
+        current.endpoint !== prompted.endpoint
+      ) {
+        if (this.mobileUtilityFallbackApproval === "allow") this.mobileUtilityFallbackApproval = undefined;
+        if (current.state === "unavailable-loopback" || current.state === "unavailable-without-Claude") {
+          throw new UtilityUnavailableError(this.utilityUnavailableMessage(current), current);
+        }
+        throw new Error(
+          `Utility settings changed while Claude fallback approval was open. ` +
+          `The current ${current.backend} utility backend is ${current.endpoint ?? current.provider.label}. Retry the utility action to use the current settings.`,
+        );
+      }
+      selection = currentRouter.resolveUtilityForRuntime({
         isMobile: Platform.isMobile,
         fallbackApproval: this.mobileUtilityFallbackApproval,
       });
@@ -665,6 +692,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   private mobileUtilityFallbackConsent(endpoint: string): Promise<UtilityFallbackApproval> {
+    if (this.utilityLifecycleEnded) return Promise.resolve("deny");
     if (this.mobileUtilityFallbackApproval) return Promise.resolve(this.mobileUtilityFallbackApproval);
     if (this.mobileUtilityFallbackConsentInFlight) return this.mobileUtilityFallbackConsentInFlight;
     const pending = this.askMobileUtilityFallback(endpoint).then((choice) => {
@@ -721,18 +749,30 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private askMobileUtilityFallback(endpoint: string): Promise<UtilityFallbackApproval> {
     return new Promise((resolve) => {
-      new ChoiceModal<UtilityFallbackApproval>(this.app, {
+      let settled = false;
+      let modal: ChoiceModal<UtilityFallbackApproval>;
+      const finish = (choice: UtilityFallbackApproval): void => {
+        if (settled) return;
+        settled = true;
+        if (this.mobileUtilityFallbackModal === modal) this.mobileUtilityFallbackModal = null;
+        resolve(choice);
+      };
+      modal = new ChoiceModal<UtilityFallbackApproval>(this.app, {
         title: "Use Claude for mobile enrichment?",
         message:
           `The utility model at ${endpoint} is local to your desktop and cannot be reached from this mobile device. ` +
-          "If you continue, Claude (Anthropic API) will receive this note's content for enrichment. Allow this fallback for this Obsidian session?",
+          "If you continue, Claude (Anthropic API) may receive content for source enrichment, tagging and organization, " +
+          "summaries and frontmatter, and memory consolidation including session content. " +
+          "Allow this fallback for the current plugin session?",
         buttons: [
           { label: "Use Claude this session", value: "allow", cta: true },
           { label: "Don't send", value: "deny" },
         ],
         fallback: "deny",
-        onChoice: resolve,
-      }).open();
+        onChoice: finish,
+      });
+      this.mobileUtilityFallbackModal = modal;
+      modal.open();
     });
   }
 
@@ -743,6 +783,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     if (selection.reason === "invalid-endpoint") {
       return `The configured ${selection.backend} utility endpoint “${endpoint}” is invalid. Configure a valid LAN or remote endpoint in Companion settings.`;
+    }
+    if (selection.reason === "mobile-local-endpoint") {
+      return `The configured ${selection.backend} utility endpoint ${endpoint} is local to this device and unavailable for mobile utility calls. Configure a LAN or remote endpoint.`;
     }
     if (selection.reason === "claude-unavailable") {
       if (selection.backend === "claude") {
@@ -787,6 +830,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   private queueEnrich(file: TFile): void {
+    if (this.utilityLifecycleEnded) return;
     const path = file.path;
     const prev = this.enrichTimers.get(path);
     if (prev) window.clearTimeout(prev);
@@ -794,6 +838,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       path,
       window.setTimeout(() => {
         this.enrichTimers.delete(path);
+        if (this.utilityLifecycleEnded) return;
         void this.enrichFile(file);
       }, 1500),
     );
@@ -849,8 +894,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           : { kind: "datafile" as const, path: file.path, basename: file.basename, ext: file.extension, content: raw };
       selection = await this.router().utilitySelection();
       const res = await enrichCapture(this.enrichDeps(selection), capture);
-      this.enrichRecentlyWritten.add(res.file.path);
-      window.setTimeout(() => this.enrichRecentlyWritten.delete(res.file.path), 5000);
+      this.markEnrichRecentlyWritten(res.file.path);
       if (notify) new Notice(`Typed source note (${res.type}): ${res.file.basename}`);
       return { status: "enriched" };
     } catch (e) {
@@ -864,6 +908,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (notify) new Notice(`Couldn't enrich ${file.basename} — ${detail}`);
       return { status: "failed", error: e instanceof Error ? e : new Error(String(e)) };
     }
+  }
+
+  private markEnrichRecentlyWritten(path: string): void {
+    this.enrichRecentlyWritten.add(path);
+    const previous = this.enrichRecentlyWrittenExpiryTimers.get(path);
+    if (previous !== undefined) window.clearTimeout(previous);
+    const timer = window.setTimeout(() => {
+      this.enrichRecentlyWrittenExpiryTimers.delete(path);
+      this.enrichRecentlyWritten.delete(path);
+    }, 5000);
+    this.enrichRecentlyWrittenExpiryTimers.set(path, timer);
   }
 
   /**
@@ -1138,8 +1193,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
       const triagePath = normalizePath(`${folder}/Triage.md`);
       const board = renderTriageNote(groups, new Map(notes.map((n) => [n.path, n])), new Date().toISOString());
-      this.enrichRecentlyWritten.add(triagePath);
-      window.setTimeout(() => this.enrichRecentlyWritten.delete(triagePath), 5000);
+      this.markEnrichRecentlyWritten(triagePath);
       const existing = this.app.vault.getAbstractFileByPath(triagePath);
       if (existing instanceof TFile) await this.app.vault.modify(existing, board);
       else await this.app.vault.create(triagePath, board);
@@ -1197,6 +1251,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this.utilityLifecycleEnded = true;
+    this.mobileUtilityFallbackApproval = "deny";
+    this.mobileUtilityFallbackModal?.close();
+    this.mobileUtilityFallbackModal = null;
+    for (const timer of this.enrichTimers?.values() ?? []) window.clearTimeout(timer);
+    this.enrichTimers?.clear();
+    for (const timer of this.enrichRecentlyWrittenExpiryTimers?.values() ?? []) window.clearTimeout(timer);
+    this.enrichRecentlyWrittenExpiryTimers?.clear();
+    this.enrichRecentlyWritten?.clear();
     this._intelligenceCoordinator?.cancel();
     this._intelligenceCoordinator = null;
     this._discoveryCoordinator?.cancel();
