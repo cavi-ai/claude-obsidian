@@ -169,6 +169,23 @@ export class InboxView extends ItemView {
     this.operationFeedback = { state, message };
   }
 
+  /** Rendering must not strand an Inbox operation if the view is closing or repainting fails. */
+  private async renderSafely(): Promise<void> {
+    try {
+      await this.render();
+    } catch {
+      // A transient render failure can leave stale disabled controls in place.
+      // Retry once after operation state has changed, but never turn a click
+      // handler into an unhandled rejection while this view is closing.
+      try {
+        await this.render();
+      } catch {
+        // A disposed view needs no further repaint; the operation's finally
+        // path has still released its in-memory state for a future view.
+      }
+    }
+  }
+
   private async renderWireUp(root: HTMLElement, generation: number): Promise<void> {
     const inbox = this.plugin.settings.sourceInboxFolder.replace(/\/+$/, "");
     if (!inbox) return;
@@ -240,8 +257,8 @@ export class InboxView extends ItemView {
     this.enriching.add(item.path);
     this.enrichmentFeedback.set(item.path, { state: "running", message: "Enriching…" });
     if (!fromBatch) this.setOperationFeedback("running", `Enriching ${item.basename}…`);
-    await this.render();
     try {
+      await this.renderSafely();
       const outcome = await this.plugin.enrichInboxItem(f, { inline: true });
       if (outcome.status === "enriched") {
         this.enrichmentFeedback.delete(item.path);
@@ -259,7 +276,7 @@ export class InboxView extends ItemView {
       return false;
     } finally {
       this.enriching.delete(item.path);
-      await this.render();
+      await this.renderSafely();
     }
   }
 
@@ -267,12 +284,12 @@ export class InboxView extends ItemView {
     if (this.batchOperation !== null) return;
     this.batchOperation = "enrich";
     this.setOperationFeedback("running", `Enriching ${items.length} note${items.length === 1 ? "" : "s"}…`);
-    await this.render();
     try {
+      await this.renderSafely();
       let enriched = 0;
       for (const [index, item] of items.entries()) {
         this.setOperationFeedback("running", `Enriching ${index + 1} of ${items.length}: ${item.basename}…`);
-        await this.render();
+        await this.renderSafely();
         if (await this.enrichOne(item, true)) enriched++;
       }
       const failed = items.length - enriched;
@@ -284,7 +301,7 @@ export class InboxView extends ItemView {
       );
     } finally {
       this.batchOperation = null;
-      await this.render();
+      await this.renderSafely();
     }
   }
 
@@ -294,13 +311,13 @@ export class InboxView extends ItemView {
     this.linkSummary = null;
     this.linkResult = null;
     this.setOperationFeedback("running", "Reviewing Inbox link suggestions…");
-    await this.render();
     try {
+      await this.renderSafely();
       const result = await this.plugin.reviewInboxLinkSuggestions(this.enrichedInboxFiles());
       if (result) {
         this.linkSummary = this.describeLinkResult(result);
         this.linkResult = result;
-        this.setOperationFeedback("success", this.linkSummary);
+        this.setOperationFeedback(result.conflicts.length > 0 || result.failures.length > 0 ? "error" : "success", this.linkSummary);
       } else {
         this.setOperationFeedback("success", "No Inbox link changes were applied.");
       }
@@ -310,7 +327,7 @@ export class InboxView extends ItemView {
       this.setOperationFeedback("error", this.linkSummary);
     } finally {
       this.batchOperation = null;
-      await this.render();
+      await this.renderSafely();
     }
   }
 

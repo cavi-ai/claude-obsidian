@@ -10,6 +10,8 @@ import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
 import { InboxView } from "../src/view/InboxView";
 
+type EnrichRunOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxItem"]>>;
+
 interface EnrichmentLifecyclePlugin {
   queueEnrich(file: TFile): void;
   markEnrichRecentlyWritten(path: string): void;
@@ -22,7 +24,10 @@ const settle = async (turns = 12): Promise<void> => {
   for (let turn = 0; turn < turns; turn++) await Promise.resolve();
 };
 
-function inboxPlugin(app: App, enrichInboxItem: (file: TFile) => Promise<void>): ClaudeCompanionPlugin {
+function inboxPlugin(
+  app: App,
+  enrichInboxItem: (file: TFile, options?: { inline?: boolean }) => Promise<EnrichRunOutcome>,
+): ClaudeCompanionPlugin {
   const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   Object.assign(plugin, {
     app,
@@ -70,7 +75,7 @@ describe("enrichment lifecycle", () => {
   it("catches a regression that reports an Inbox enrichment failure only through a Notice", async () => {
     const app = new App();
     app.vault.seed("Clippings/failed.md", "Private clip");
-    const plugin = inboxPlugin(app, async () => { throw new Error("remote model unavailable"); });
+    const plugin = inboxPlugin(app, async () => ({ status: "failed", error: new Error("remote model unavailable") }));
     const view = new InboxView(new WorkspaceLeaf(app), plugin);
 
     await view.render();
@@ -89,7 +94,8 @@ describe("enrichment lifecycle", () => {
     app.vault.seed("Clippings/next.md", "Another clip");
     let calls = 0;
     const plugin = inboxPlugin(app, async () => {
-      if (++calls === 1) throw new Error("remote model unavailable");
+      if (++calls === 1) return { status: "failed", error: new Error("remote model unavailable") };
+      return { status: "enriched" };
     });
     const view = new InboxView(new WorkspaceLeaf(app), plugin);
 
@@ -102,5 +108,83 @@ describe("enrichment lifecycle", () => {
     expect(retry?.disabled).toBe(false);
     expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrichment-status")?.textContent)
       .toContain("remote model unavailable");
+  });
+
+  it("catches a regression that leaves a single-note control locked when its first render rejects", async () => {
+    const app = new App();
+    app.vault.seed("Clippings/single.md", "Private clip");
+    const plugin = inboxPlugin(app, async () => ({ status: "enriched" }));
+    const view = new InboxView(new WorkspaceLeaf(app), plugin);
+    await view.render();
+    vi.spyOn(view, "render").mockRejectedValueOnce(new Error("paint failed"));
+
+    (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich")?.dispatchEvent({ type: "click" });
+    await settle();
+
+    const retry = (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich");
+    expect(retry?.disabled).toBe(false);
+    retry?.dispatchEvent({ type: "click" });
+    await settle();
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-operation-status")?.classList.has("cc-inbox-operation-success")).toBe(true);
+  });
+
+  it("catches a regression that leaves an enrich-all control locked when its first render rejects", async () => {
+    const app = new App();
+    app.vault.seed("Clippings/batch.md", "Private clip");
+    const plugin = inboxPlugin(app, async () => ({ status: "enriched" }));
+    const view = new InboxView(new WorkspaceLeaf(app), plugin);
+    await view.render();
+    vi.spyOn(view, "render").mockRejectedValueOnce(new Error("paint failed"));
+
+    (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich-all")?.dispatchEvent({ type: "click" });
+    await settle();
+
+    const retry = (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich-all");
+    expect(retry?.disabled).toBe(false);
+    retry?.dispatchEvent({ type: "click" });
+    await settle();
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-operation-status")?.classList.has("cc-inbox-operation-success")).toBe(true);
+  });
+
+  it("catches a regression that leaves a link-review control locked when its first render rejects", async () => {
+    const app = new App();
+    app.vault.seed("Clippings/linked.md", "Project Atlas", { frontmatter: { source_enriched: true } });
+    app.vault.seed("Notes/Project Atlas.md", "");
+    const plugin = inboxPlugin(app, async () => ({ status: "enriched" }));
+    Object.assign(plugin, {
+      linkCandidates: () => [{ path: "Notes/Project Atlas.md", basename: "Project Atlas", aliases: [] }],
+      reviewInboxLinkSuggestions: async () => ({ appliedFiles: 0, appliedHunks: 0, conflicts: [], failures: [] }),
+    });
+    const view = new InboxView(new WorkspaceLeaf(app), plugin);
+    await view.render();
+    await settle();
+    vi.spyOn(view, "render").mockRejectedValueOnce(new Error("paint failed"));
+
+    (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-review-all")?.dispatchEvent({ type: "click" });
+    await settle();
+
+    const retry = (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-review-all");
+    expect(retry?.disabled).toBe(false);
+    retry?.dispatchEvent({ type: "click" });
+    await settle();
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-operation-status")?.classList.has("cc-inbox-operation-success")).toBe(true);
+  });
+
+  it("catches a regression that leaves a completed control disabled when its final render rejects", async () => {
+    const app = new App();
+    app.vault.seed("Clippings/final-render.md", "Private clip");
+    const plugin = inboxPlugin(app, async () => ({ status: "enriched" }));
+    const view = new InboxView(new WorkspaceLeaf(app), plugin);
+    await view.render();
+    const render = view.render.bind(view);
+    vi.spyOn(view, "render")
+      .mockImplementationOnce(render)
+      .mockRejectedValueOnce(new Error("final paint failed"));
+
+    (view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich")?.dispatchEvent({ type: "click" });
+    await settle();
+
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-enrich")?.disabled).toBe(false);
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-operation-status")?.classList.has("cc-inbox-operation-success")).toBe(true);
   });
 });

@@ -199,6 +199,7 @@ describe("Inbox batch link review", () => {
     expect(detailText).toContain("Clippings/alpha.md");
     expect(detailText).toContain("Clippings/beta.md");
     expect(detailText).toContain("disk full");
+    expect((view.contentEl as unknown as FakeElement).querySelector(".cc-inbox-operation-status")?.classList.has("cc-inbox-operation-error")).toBe(true);
   });
 
   it("catches a regression that describes an initial read failure as a save failure", async () => {

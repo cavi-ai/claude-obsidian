@@ -234,9 +234,10 @@ export class App {
 const noticeHistory: Notice[] = [];
 export function clearNotices(): void { noticeHistory.length = 0; }
 export function getNoticeMessages(): string[] { return noticeHistory.map((notice) => notice.message); }
+export function getNotices(): readonly Notice[] { return noticeHistory; }
 export class Notice {
   hidden = false;
-  constructor(public message: string) { noticeHistory.push(this); }
+  constructor(public message: string, public timeout?: number) { noticeHistory.push(this); }
   hide(): void { this.hidden = true; }
   setMessage(message: string): void { this.message = message; }
 }

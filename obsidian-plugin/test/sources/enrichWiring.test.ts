@@ -8,7 +8,7 @@ vi.mock("obsidian", async (importOriginal) => ({
 import ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import type { EnrichDeps } from "../../src/sources/enrich";
-import { App, clearNotices, FakeElement, getLastOpenedModal, getNoticeMessages, Platform, TFile, TFolder, WorkspaceLeaf } from "obsidian";
+import { App, clearNotices, FakeElement, getLastOpenedModal, getNoticeMessages, getNotices, Platform, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import { ChoiceModal } from "../../src/view/ChoiceModal";
 import { ProviderRouter, type ProviderSelection } from "../../src/providers/router";
 import { AnthropicProvider } from "../../src/providers/anthropic";
@@ -154,6 +154,30 @@ describe("source enrichment wiring", () => {
 
     await (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
     expect(opened).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Inbox enrichment Notices inline while manual enrichment emits a finite Notice", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "https://models.example.com/v1",
+      openaiCompatModel: "remote-model",
+    });
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    await plugin.enrichInboxItem(file, { inline: true });
+    expect(getNotices()).toEqual([]);
+
+    const manual = app.vault.seed("Clippings/manual.md", "Manual clip");
+    await plugin.enrichInboxItem(manual);
+    const notice = getNotices().at(-1);
+    expect(notice?.message).toContain("Typed source note");
+    expect(notice?.timeout).toBe(5000);
   });
 
   it("denial is session-cached and prevents a model call or note write", async () => {
