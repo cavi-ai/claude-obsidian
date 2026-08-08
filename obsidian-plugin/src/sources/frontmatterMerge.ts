@@ -2,6 +2,8 @@ import { App, TFile, parseYaml, stringifyYaml } from "obsidian";
 import { normalizeTags, type FrontmatterData } from "../indexing/frontmatter";
 import { assertBodyPreserved } from "./enrichmentQuality";
 
+export type MergedFrontmatterValidator = (frontmatter: Readonly<Record<string, unknown>>) => void;
+
 /** Merge source-owned keys atomically against the vault's current content. */
 function unionTags(existing: unknown, added: unknown): string[] {
   const toList = (v: unknown): string[] =>
@@ -41,7 +43,11 @@ function leadingFrontmatter(content: string): { frontmatter: Record<string, unkn
 }
 
 /** Pure, frontmatter-only merge. Live values win; system enrichment markers deliberately refresh. */
-export function mergeSourceMarkdown(content: string, fm: FrontmatterData): string {
+export function mergeSourceMarkdown(
+  content: string,
+  fm: FrontmatterData,
+  validateMerged?: MergedFrontmatterValidator,
+): string {
   const { frontmatter, body, eol } = leadingFrontmatter(content);
   for (const [key, value] of Object.entries(fm)) {
     if (value === undefined) continue;
@@ -52,12 +58,19 @@ export function mergeSourceMarkdown(content: string, fm: FrontmatterData): strin
     if (SYSTEM_KEYS.has(key) || missing(frontmatter[key])) frontmatter[key] = value;
   }
 
+  validateMerged?.(frontmatter);
+
   const yaml = stringifyYaml(frontmatter).replace(/\r?\n$/, "").replace(/\r?\n/g, eol);
   const output = `---${eol}${yaml}${yaml ? eol : ""}---${eol}${body}`;
   assertBodyPreserved(content, output);
   return output;
 }
 
-export async function applySourceFrontmatter(app: App, file: TFile, fm: FrontmatterData): Promise<void> {
-  await app.vault.process(file, (current) => mergeSourceMarkdown(current, fm));
+export async function applySourceFrontmatter(
+  app: App,
+  file: TFile,
+  fm: FrontmatterData,
+  validateMerged?: MergedFrontmatterValidator,
+): Promise<void> {
+  await app.vault.process(file, (current) => mergeSourceMarkdown(current, fm, validateMerged));
 }

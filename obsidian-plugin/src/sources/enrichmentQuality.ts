@@ -13,6 +13,11 @@ const GENERIC_FILENAME_TITLES = new Set([
   "article", "capture", "clipping", "dataset", "document", "file", "note", "source", "title", "untitled", "video",
 ]);
 
+export interface EnrichmentValidationContext {
+  /** Extension-free source name used only to identify filename-derived generic titles. */
+  captureBasename?: string | undefined;
+}
+
 export class EnrichmentQualityError extends Error {
   constructor(readonly errors: string[]) {
     super(`enrichment quality failed: ${errors.join("; ")}`);
@@ -24,12 +29,35 @@ function hasSecretBearingContent(value: string): boolean {
   return value.includes(REDACTION_MARKER) || sanitize(value) !== value;
 }
 
-function isPlaceholderTitle(value: string): boolean {
-  const raw = value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
-  const normalized = raw.replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, "").trim();
+function normalizedTitlePart(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, "")
+    .trim();
+}
+
+function filenameStem(value: string): string | undefined {
+  const normalized = normalizedTitlePart(value);
+  const filename = /^(.+)\.([a-z0-9]{1,8})$/i.exec(normalized);
+  return filename?.[1] === undefined ? undefined : normalizedTitlePart(filename[1]);
+}
+
+function normalizedCaptureBasename(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = normalizedTitlePart(value);
+  return filenameStem(normalized) ?? normalized;
+}
+
+function isPlaceholderTitle(value: string, captureBasename?: string): boolean {
+  const normalized = normalizedTitlePart(value);
   if (normalized.length === 0 || PLACEHOLDER_TITLES.has(normalized)) return true;
-  const filename = /^(.+)\.[a-z0-9]{1,8}$/i.exec(raw);
-  return filename !== null && GENERIC_FILENAME_TITLES.has(filename[1] ?? "");
+  const stem = filenameStem(normalized);
+  if (stem === undefined) return false;
+  if (PLACEHOLDER_TITLES.has(stem)) return true;
+  return GENERIC_FILENAME_TITLES.has(stem) && stem === normalizedCaptureBasename(captureBasename);
 }
 
 function fieldTypeError(type: FieldType, value: unknown): string | undefined {
@@ -43,7 +71,11 @@ function missingRequired(value: unknown): boolean {
   return value === undefined || value === null || (typeof value === "string" && value.trim().length === 0) || (Array.isArray(value) && value.length === 0);
 }
 
-export function validateEnrichment(record: SourceRecord, schema: SourceTypeSchema): void {
+export function validateEnrichment(
+  record: SourceRecord,
+  schema: SourceTypeSchema,
+  context: EnrichmentValidationContext = {},
+): void {
   const errors: string[] = [];
   const fields = record?.fields as Record<string, unknown> | undefined;
   if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
@@ -85,7 +117,7 @@ export function validateEnrichment(record: SourceRecord, schema: SourceTypeSchem
   }
 
   const title = fields.title;
-  if (typeof title !== "string" || isPlaceholderTitle(title)) {
+  if (typeof title !== "string" || isPlaceholderTitle(title, context.captureBasename)) {
     errors.push("title: must be a meaningful, non-placeholder title");
   }
 

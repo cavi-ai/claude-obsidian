@@ -25,9 +25,13 @@ function article(fields: Record<string, unknown> = {}): SourceRecord {
   } as SourceRecord;
 }
 
-function qualityErrors(record: SourceRecord, schema: SourceTypeSchema = getSchema(record.type)): string[] {
+function qualityErrors(
+  record: SourceRecord,
+  schema: SourceTypeSchema = getSchema(record.type),
+  captureBasename?: string,
+): string[] {
   try {
-    validateEnrichment(record, schema);
+    validateEnrichment(record, schema, { captureBasename });
     return [];
   } catch (error) {
     expect(error).toBeInstanceOf(EnrichmentQualityError);
@@ -49,11 +53,22 @@ describe("validateEnrichment", () => {
   });
 
   it.each(["Article", "Source"])("accepts the legitimate descriptive title %j", (title) => {
-    expect(() => validateEnrichment(article({ title }), getSchema("article"))).not.toThrow();
+    expect(() => validateEnrichment(article({ title }), getSchema("article"), { captureBasename: title.toLowerCase() })).not.toThrow();
   });
 
-  it.each(["document.md", "article.pdf", "capture.txt"])("rejects generic filename-only title %j", (title) => {
-    expect(qualityErrors(article({ title }))).toContain("title: must be a meaningful, non-placeholder title");
+  it.each([
+    ["document.md", "document"],
+    ["article.pdf", "article"],
+    ["capture.txt", "capture"],
+    ["No title.md", "No title"],
+    ["Unknown title.pdf", "Unknown title"],
+    ["Untitled document.md", "Untitled document"],
+    ["#article.pdf", "article"],
+    ["article.pdf!", "article"],
+  ])("rejects filename-derived placeholder title %j", (title, captureBasename) => {
+    expect(qualityErrors(article({ title }), getSchema("article"), captureBasename)).toContain(
+      "title: must be a meaningful, non-placeholder title",
+    );
   });
 
   it("rejects a blank summary", () => {

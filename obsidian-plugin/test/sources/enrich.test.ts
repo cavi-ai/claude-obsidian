@@ -201,6 +201,73 @@ describe("enrichCapture — dropped CSV", () => {
 });
 
 describe("enrichCapture — extraction failure", () => {
+  it.each([
+    {
+      name: "placeholder title",
+      liveFrontmatter: ["title: Untitled", "site: Example", "summary: User summary"],
+      message: "title: must be a meaningful, non-placeholder title",
+    },
+    {
+      name: "overlong summary",
+      liveFrontmatter: ["title: User title", "site: Example", `summary: ${"s".repeat(201)}`],
+      message: "summary: must be at most 200 characters",
+    },
+    {
+      name: "wrong schema field type",
+      liveFrontmatter: ["title: User title", "site: 42", "summary: User summary"],
+      message: "fields.site: expected string",
+    },
+    {
+      name: "secret-bearing URL",
+      liveFrontmatter: [
+        "title: User title",
+        "site: Example",
+        "summary: User summary",
+        "url: https://example.com/?token=ghp_abcdefghijklmnopqrstuvwxyz0123",
+      ],
+      message: "provenance.url: contains secret-bearing content",
+    },
+    {
+      name: "secret-bearing source URL alias",
+      liveFrontmatter: [
+        "title: User title",
+        "site: Example",
+        "summary: User summary",
+        "source: https://example.com/?token=ghp_abcdefghijklmnopqrstuvwxyz0123",
+      ],
+      message: "provenance.url: contains secret-bearing content",
+    },
+  ])("rejects a concurrent live $name without writing any enrichment", async ({ liveFrontmatter, message }) => {
+    const app = new App();
+    const captured = ["---", "title: Initial title", "site: Example", "---", "", "Body."].join("\n");
+    const file = app.vault.seed("Clippings/live-invalid.md", captured);
+    let extractionStarted!: () => void;
+    const started = new Promise<void>((resolve) => { extractionStarted = resolve; });
+    let finishExtraction!: (reply: string) => void;
+    const completion = new Promise<string>((resolve) => { finishExtraction = resolve; });
+    const complete = async () => {
+      extractionStarted();
+      return completion;
+    };
+
+    const pending = enrichCapture(deps(app, complete), {
+      kind: "markdown",
+      path: "Clippings/live-invalid.md",
+      basename: "live-invalid",
+      content: captured,
+    });
+    await started;
+    const live = ["---", ...liveFrontmatter, "---", "", "Body."].join("\n");
+    await app.vault.modify(file as TFile, live);
+    const rejected = expect(pending).rejects.toThrow(message);
+    finishExtraction(JSON.stringify({ summary: "Model summary" }));
+
+    await rejected;
+    const after = await app.vault.cachedRead(file as TFile);
+    expect(after).toBe(live);
+    expect(after).not.toContain("source_enriched");
+  });
+
   it("propagates the error and leaves the markdown note untouched", async () => {
     const app = new App();
     const file = app.vault.seed("Clippings/x.md", "---\nsource: https://x.com/p\n---\n\nUntouched body.");

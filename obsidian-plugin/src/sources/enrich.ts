@@ -39,6 +39,29 @@ function sanitizeFields(fields: Record<string, FieldValue>): Record<string, Fiel
   return out;
 }
 
+/** Rehydrate only source-owned values from the final atomic frontmatter merge. */
+function mergedSourceRecord(
+  frontmatter: Readonly<Record<string, unknown>>,
+  schema: SourceTypeSchema,
+  provenanceUrl: unknown = frontmatter.url,
+): SourceRecord {
+  const fields: Record<string, unknown> = {};
+  for (const field of schema.fields) {
+    if (Object.prototype.hasOwnProperty.call(frontmatter, field.key)) fields[field.key] = frontmatter[field.key];
+  }
+  return {
+    type: frontmatter.type,
+    fields,
+    provenance: {
+      url: provenanceUrl,
+      assetPath: frontmatter.asset,
+      capturedAt: frontmatter.captured_at,
+      schemaVersion: frontmatter.schema_version,
+      enrichedBy: frontmatter.enriched_by,
+    },
+  } as unknown as SourceRecord;
+}
+
 /**
  * Model-sourced schema values the capture already carries in frontmatter
  * (e.g. stamped by a Companion-generated Web Clipper template). Only
@@ -113,12 +136,25 @@ export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Prom
       assetPath: capture.kind === "datafile" ? capture.path : undefined,
     },
   };
-  validateEnrichment(record, schema);
+  validateEnrichment(record, schema, { captureBasename: capture.basename });
 
   if (capture.kind === "markdown") {
     const file = deps.app.vault.getAbstractFileByPath(capture.path);
     if (!(file instanceof TFile)) throw new Error(`note not found: ${capture.path}`);
-    await applySourceFrontmatter(deps.app, file, sourceFrontmatter(record, deps.baseTags));
+    await applySourceFrontmatter(
+      deps.app,
+      file,
+      sourceFrontmatter(record, deps.baseTags),
+      (frontmatter) => {
+        const context = { captureBasename: capture.basename };
+        validateEnrichment(mergedSourceRecord(frontmatter, schema), schema, context);
+        // Web Clipper notes may retain their URL under the supported legacy
+        // `source` alias even when canonical `url` is also present.
+        if (frontmatter.source !== undefined && frontmatter.source !== frontmatter.url) {
+          validateEnrichment(mergedSourceRecord(frontmatter, schema, frontmatter.source), schema, context);
+        }
+      },
+    );
     return { file, type, record };
   }
   const dir = capture.path.includes("/") ? capture.path.slice(0, capture.path.lastIndexOf("/")) : "";
