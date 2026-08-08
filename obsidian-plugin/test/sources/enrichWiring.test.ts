@@ -11,6 +11,7 @@ import type { EnrichDeps } from "../../src/sources/enrich";
 import { App, clearNotices, FakeElement, getLastOpenedModal, getNoticeMessages, Platform, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import { ChoiceModal } from "../../src/view/ChoiceModal";
 import { ProviderRouter, type ProviderSelection } from "../../src/providers/router";
+import { AnthropicProvider } from "../../src/providers/anthropic";
 import { InboxView } from "../../src/view/InboxView";
 import { summarizeAndTag } from "../../src/indexing/autoTagger";
 import { OrganizeReviewModal } from "../../src/view/OrganizeReviewModal";
@@ -101,6 +102,7 @@ afterEach(() => {
   Platform.isMobile = false;
   Platform.isDesktop = true;
   clearNotices();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -399,7 +401,7 @@ describe("source enrichment wiring", () => {
     expect(getNoticeMessages().at(-1)).toMatch(/organize failed.*not approved/i);
   });
 
-  it("discloses every session-global utility content category in the Claude fallback modal", async () => {
+  it("discloses every session-global utility content category and the default Anthropic destination", async () => {
     Platform.isMobile = true;
     Platform.isDesktop = false;
     const { plugin } = mobilePlugin();
@@ -417,6 +419,28 @@ describe("source enrichment wiring", () => {
     expect(copy).toMatch(/summaries.*frontmatter/i);
     expect(copy).toMatch(/memory consolidation.*session content/i);
     expect(copy).toMatch(/plugin session/i);
+    expect(copy).toMatch(/Anthropic API at https:\/\/api\.anthropic\.com/i);
+  });
+
+  it("identifies the sanitized environment destination as an Anthropic-compatible gateway", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-gateway-copy");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway.example.com/anthropic/");
+    const { plugin } = mobilePlugin({ authMode: "environment", apiKey: "", baseUrl: "" });
+
+    const pending = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    const rejected = expect(pending).rejects.toThrow(/not approved/i);
+    await settle();
+    const copy = (getLastOpenedModal()?.contentEl as unknown as FakeElement)
+      .querySelector("p")?.textContent ?? "";
+
+    choose("Don't send");
+    await rejected;
+    expect(copy).toContain("Anthropic-compatible gateway at https://gateway.example.com/anthropic");
+    expect(copy).not.toMatch(/Claude \(Anthropic API\)/i);
+    expect(copy).not.toMatch(/sk-ant-api-gateway-copy|@/i);
   });
 
   it("rechecks current credentials after deferred consent and cannot use a stale credentialed router", async () => {
@@ -484,6 +508,115 @@ describe("source enrichment wiring", () => {
     await expect(retry).rejects.toThrow(/not approved/i);
   });
 
+  it("does not apply an Allow when the resolved fallback gateway changes while the modal is open", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-gateway-a");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway-a.example.com/v1");
+    const { app, file, plugin } = mobilePlugin({ authMode: "environment", apiKey: "", baseUrl: "" });
+    const before = await app.vault.cachedRead(file);
+    const complete = vi.spyOn(AnthropicProvider.prototype, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-gateway-b");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway-b.example.com/v1");
+    choose("Use Claude this session");
+    await pending;
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/gateway-b\.example\.com\/v1.*changed.*retry|changed.*gateway-b\.example\.com\/v1.*retry/i);
+  });
+
+  it("invalidates cached Allow and asks again after the fallback gateway and credential change", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-gateway-a");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway-a.example.com/v1");
+    const { app, file, plugin } = mobilePlugin({ authMode: "environment", apiKey: "", baseUrl: "" });
+    const before = await app.vault.cachedRead(file);
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const first = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+    choose("Use Claude this session");
+    await first;
+
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-gateway-b");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway-b.example.com/v1");
+    const complete = vi.spyOn(AnthropicProvider.prototype, "complete").mockResolvedValue("unsafe");
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    expect(opened).toHaveBeenCalledTimes(2);
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    const copy = (getLastOpenedModal()?.contentEl as unknown as FakeElement)
+      .querySelector("p")?.textContent ?? "";
+    expect(copy).toContain("https://gateway-b.example.com/v1");
+    choose("Don't send");
+    await pending;
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+  });
+
+  it("scopes cached Deny to the fallback auth context instead of the whole session", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { plugin } = mobilePlugin();
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const first = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+    choose("Don't send");
+    await expect(first).rejects.toThrow(/not approved/i);
+
+    plugin.settings.authMode = "oauthToken";
+    plugin.settings.apiKey = "";
+    plugin.settings.oauthToken = "sk-ant-oat-test";
+    await saveHarnessSettings(plugin);
+    const retry = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+
+    expect(opened).toHaveBeenCalledTimes(2);
+    choose("Don't send");
+    await expect(retry).rejects.toThrow(/not approved/i);
+  });
+
+  it("invalidates cached Deny when the environment gateway changes without a settings save", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api-gateway-a");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway-a.example.com/v1");
+    const { plugin } = mobilePlugin({ authMode: "environment", apiKey: "", baseUrl: "" });
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const first = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+    choose("Don't send");
+    await expect(first).rejects.toThrow(/not approved/i);
+
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway-b.example.com/v1");
+    const retry = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    await settle();
+
+    expect(opened).toHaveBeenCalledTimes(2);
+    const copy = (getLastOpenedModal()?.contentEl as unknown as FakeElement)
+      .querySelector("p")?.textContent ?? "";
+    expect(copy).toContain("https://gateway-b.example.com/v1");
+    choose("Don't send");
+    await expect(retry).rejects.toThrow(/not approved/i);
+  });
+
   it("invalidates and closes deferred fallback consent on unload before any call or write", async () => {
     Platform.isMobile = true;
     Platform.isDesktop = false;
@@ -509,6 +642,7 @@ describe("source enrichment wiring", () => {
     expect(closedOnUnload).toBe(true);
     expect(complete).not.toHaveBeenCalled();
     expect(await app.vault.cachedRead(file)).toBe(before);
+    expect((plugin as unknown as { mobileUtilityFallbackApproval?: unknown }).mobileUtilityFallbackApproval).toBeUndefined();
   });
 
   it("cancels queued automatic enrichment timers on unload", async () => {
@@ -549,6 +683,43 @@ describe("source enrichment wiring", () => {
     expect(vi.getTimerCount()).toBeGreaterThan(0);
     plugin.onunload();
 
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("discards a provider result resolved after unload without a write or marker timer", async () => {
+    vi.useFakeTimers();
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "https://models.example.com/v1",
+      openaiCompatModel: "remote-model",
+    });
+    const before = await app.vault.cachedRead(file);
+    let finish!: (reply: string) => void;
+    const completion = new Promise<string>((resolve) => { finish = resolve; });
+    const complete = vi.spyOn(router.openaiCompat, "complete").mockReturnValue(completion);
+    const write = vi.spyOn(app.vault, "process");
+
+    const pending = plugin.enrichInboxItem(file);
+    await settle();
+    expect(complete).toHaveBeenCalledTimes(1);
+    plugin.onunload();
+    const lifecycle = plugin as unknown as { utilityLifecycleEnded: boolean; utilityLifecycleGeneration: number };
+    lifecycle.utilityLifecycleEnded = false;
+    lifecycle.utilityLifecycleGeneration += 1;
+    finish(JSON.stringify({ title: "Private note", site: "Vault", summary: "Private content." }));
+    await pending;
+
+    const state = plugin as unknown as {
+      enrichRecentlyWritten: Set<string>;
+      enrichRecentlyWrittenExpiryTimers: Map<string, number>;
+    };
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
+    expect(state.enrichRecentlyWritten.size).toBe(0);
+    expect(state.enrichRecentlyWrittenExpiryTimers.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

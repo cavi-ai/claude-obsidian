@@ -3,7 +3,7 @@ import type { Provider, ProviderId, TaskRole, CompletionRequest } from "./types"
 import { AnthropicProvider } from "./anthropic";
 import { OllamaProvider } from "./ollama";
 import { OpenAICompatProvider } from "./openaiCompat";
-import { readAnthropicEnv } from "./env";
+import { readAnthropicEnv, type AnthropicEnv } from "./env";
 import { resolveModelId } from "../claude/models";
 import {
   resolveUtilityForRuntime as applyUtilityRuntimePolicy,
@@ -25,6 +25,15 @@ export type UtilitySelectionResolver = () => Promise<ProviderSelection>;
 export type RuntimeUtilitySelection =
   | (Extract<UtilityRuntimeResolution, { state: "configured-provider" | "approved-Claude-fallback" }> & ProviderSelection)
   | Exclude<UtilityRuntimeResolution, { state: "configured-provider" | "approved-Claude-fallback" }>;
+
+export interface UtilityFallbackConsentContext {
+  /** Opaque, non-secret identity for exactly the configured source and fallback destination. */
+  fingerprint: string;
+  configuredBackend: "ollama" | "custom";
+  configuredEndpoint: string;
+  fallbackProvider: "anthropic";
+  fallbackEndpoint: string;
+}
 
 type BufferedCompletionInput = {
   system: string;
@@ -58,20 +67,33 @@ export class ProviderRouter {
   readonly anthropic: AnthropicProvider;
   readonly ollama: OllamaProvider;
   readonly openaiCompat: OpenAICompatProvider;
+  private readonly anthropicEnv: AnthropicEnv;
 
   constructor(
     private settings: PluginSettings,
     private utilitySelectionResolver?: UtilitySelectionResolver,
   ) {
+    this.anthropicEnv = readAnthropicEnv();
     this.anthropic = new AnthropicProvider({
       mode: settings.authMode,
       apiKey: settings.apiKey,
       oauthToken: settings.oauthToken,
       baseUrl: settings.baseUrl,
-      env: readAnthropicEnv(),
+      env: this.anthropicEnv,
     });
     this.ollama = new OllamaProvider(settings.ollamaHost, settings.ollamaModel);
     this.openaiCompat = new OpenAICompatProvider(settings.openaiCompatHost, settings.openaiCompatModel, settings.openaiCompatKey);
+  }
+
+  /** Whether an environment-auth provider still represents the live process environment. */
+  hasCurrentAnthropicEnvironment(): boolean {
+    if (this.settings.authMode !== "environment") return true;
+    const current = readAnthropicEnv();
+    return (
+      current.ANTHROPIC_API_KEY === this.anthropicEnv.ANTHROPIC_API_KEY &&
+      current.ANTHROPIC_AUTH_TOKEN === this.anthropicEnv.ANTHROPIC_AUTH_TOKEN &&
+      current.ANTHROPIC_BASE_URL === this.anthropicEnv.ANTHROPIC_BASE_URL
+    );
   }
 
   get(id: ProviderId): Provider {
@@ -161,6 +183,36 @@ export class ProviderRouter {
       };
     }
     return resolution;
+  }
+
+  /**
+   * Consent identity for a mobile-local utility endpoint. It includes both the
+   * configured source endpoint and the actual resolved Anthropic destination,
+   * so a cached decision cannot silently follow a settings/environment change.
+   */
+  utilityFallbackConsentContext(isMobile: boolean): UtilityFallbackConsentContext | null {
+    const resolution = this.resolveUtilityForRuntime({ isMobile });
+    if (resolution.state !== "unavailable-loopback") return null;
+    const configuredEndpointRaw = resolution.backend === "ollama"
+      ? this.settings.ollamaHost
+      : this.settings.openaiCompatHost;
+    const fallback = this.anthropic.consentIdentity();
+    return {
+      fingerprint: JSON.stringify({
+        configuredBackend: resolution.backend,
+        configuredEndpoint: configuredEndpointRaw.trim(),
+        fallbackProvider: "anthropic",
+        fallbackEndpoint: fallback.endpoint,
+        fallbackAuthMode: fallback.authMode,
+        fallbackCredentialAvailable: fallback.credentialAvailable,
+        fallbackCredentialScheme: fallback.credentialScheme ?? null,
+        fallbackIsOAuth: fallback.isOAuth,
+      }),
+      configuredBackend: resolution.backend,
+      configuredEndpoint: resolution.endpoint,
+      fallbackProvider: "anthropic",
+      fallbackEndpoint: sanitizeEndpointForDisplay(fallback.endpoint),
+    };
   }
 
   /** Resolve utility network access through the plugin-owned runtime/privacy gate. */

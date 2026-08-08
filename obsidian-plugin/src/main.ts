@@ -26,8 +26,9 @@ import { WORKFLOWS, type Workflow } from "./workflows/catalog";
 import { listSessionsForVault, type SessionMeta } from "./memory/sessions";
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
-import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection } from "./providers/router";
+import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
 import { sanitizeEndpointForDisplay, UtilityUnavailableError, type UtilityFallbackApproval } from "./providers/endpointPolicy";
+import { ANTHROPIC_DEFAULT_BASE_URL } from "./providers/auth";
 import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
@@ -165,10 +166,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private enrichRecentlyWritten = new Set<string>();
   private enrichRecentlyWrittenExpiryTimers = new Map<string, number>();
   private utilityLifecycleEnded = false;
-  /** Mobile loopback → Claude consent, held only for this loaded plugin instance. */
-  private mobileUtilityFallbackApproval: UtilityFallbackApproval | undefined;
+  private utilityLifecycleGeneration = 0;
+  /** Mobile loopback → Claude consent, scoped to one exact source/destination context. */
+  private mobileUtilityFallbackApproval: { fingerprint: string; decision: UtilityFallbackApproval } | undefined;
   /** Coalesces concurrent automatic enrichments onto one consent decision. */
-  private mobileUtilityFallbackConsentInFlight: Promise<UtilityFallbackApproval> | null = null;
+  private mobileUtilityFallbackConsentInFlight: { fingerprint: string; promise: Promise<UtilityFallbackApproval> } | null = null;
   /** Active fallback disclosure, closed fail-safe when the plugin unloads. */
   private mobileUtilityFallbackModal: ChoiceModal<UtilityFallbackApproval> | null = null;
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
@@ -183,7 +185,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private researchRefreshChanges: Array<{ path: string; oldPath?: string }> = [];
 
   override async onload(): Promise<void> {
+    this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
     this.utilityLifecycleEnded = false;
+    this.mobileUtilityFallbackApproval = undefined;
+    this.mobileUtilityFallbackConsentInFlight = null;
+    this.mobileUtilityFallbackModal = null;
     await this.loadSettings();
 
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
@@ -626,12 +632,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
 
-  private enrichDeps(selection: ProviderSelection): EnrichDeps {
+  private enrichDeps(
+    selection: ProviderSelection,
+    lifecycleGeneration = this.utilityLifecycleGeneration ?? 0,
+  ): EnrichDeps {
     const router = this.router();
     return {
       app: this.app,
-      complete: async (system, user, opts) =>
-        (
+      complete: async (system, user, opts) => {
+        this.assertUtilityLifecycleActive(lifecycleGeneration);
+        return (
           await router.completeResolved(selection, {
             system,
             user,
@@ -639,11 +649,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
             ...(opts?.responseSchema ? { responseFormat: "json" as const, responseSchema: opts.responseSchema } : {}),
             ...(opts?.disableThinking ? { thinking: { type: "disabled" as const } } : {}),
           })
-        ).text,
+        ).text;
+      },
       overrides: this.settings.sourceSchemaOverrides,
       baseTags: this.settings.sourceBaseTags,
       enrichedBy: selection.provider.id === "anthropic" ? "claude" : "local",
       now: () => new Date().toISOString(),
+      assertActive: () => this.assertUtilityLifecycleActive(lifecycleGeneration),
     };
   }
 
@@ -657,22 +669,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
     let selection = this.runtimeUtilitySelection();
     if (selection.state === "unavailable-loopback") {
-      const prompted = selection;
-      this.mobileUtilityFallbackApproval = await this.mobileUtilityFallbackConsent(selection.endpoint);
+      const promptedContext = this.router().utilityFallbackConsentContext(Platform.isMobile);
+      if (!promptedContext) throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
+      const approval = await this.mobileUtilityFallbackConsent(promptedContext);
       if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
 
       // Settings may rebuild the router while the modal is open. Reacquire it,
-      // inspect the current unapproved state, and never apply consent obtained
-      // for a different backend/endpoint.
+      // inspect the full current source + destination identity, and never apply
+      // consent obtained for a different gateway or auth context.
       const currentRouter = this.router();
       const current = currentRouter.resolveUtilityForRuntime({ isMobile: Platform.isMobile });
-      if (
-        current.state !== "unavailable-loopback" ||
-        current.backend !== prompted.backend ||
-        current.endpoint !== prompted.endpoint
-      ) {
-        if (this.mobileUtilityFallbackApproval === "allow") this.mobileUtilityFallbackApproval = undefined;
+      const currentContext = currentRouter.utilityFallbackConsentContext(Platform.isMobile);
+      if (!currentContext || currentContext.fingerprint !== promptedContext.fingerprint) {
+        if (this.mobileUtilityFallbackApproval?.fingerprint === promptedContext.fingerprint) {
+          this.mobileUtilityFallbackApproval = undefined;
+        }
         if (current.state === "unavailable-loopback" || current.state === "unavailable-without-Claude") {
+          if (current.state === "unavailable-loopback" && currentContext) {
+            throw new Error(
+              `The utility destination changed while fallback approval was open. ` +
+              `The current Anthropic fallback endpoint is ${currentContext.fallbackEndpoint}. Retry the utility action to review the current destination.`,
+            );
+          }
           throw new UtilityUnavailableError(this.utilityUnavailableMessage(current), current);
         }
         throw new Error(
@@ -682,7 +700,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
       selection = currentRouter.resolveUtilityForRuntime({
         isMobile: Platform.isMobile,
-        fallbackApproval: this.mobileUtilityFallbackApproval,
+        fallbackApproval: approval,
       });
     }
     if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") {
@@ -691,26 +709,50 @@ export default class ClaudeCompanionPlugin extends Plugin {
     throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
   }
 
-  private mobileUtilityFallbackConsent(endpoint: string): Promise<UtilityFallbackApproval> {
+  private mobileUtilityFallbackConsent(context: UtilityFallbackConsentContext): Promise<UtilityFallbackApproval> {
     if (this.utilityLifecycleEnded) return Promise.resolve("deny");
-    if (this.mobileUtilityFallbackApproval) return Promise.resolve(this.mobileUtilityFallbackApproval);
-    if (this.mobileUtilityFallbackConsentInFlight) return this.mobileUtilityFallbackConsentInFlight;
-    const pending = this.askMobileUtilityFallback(endpoint).then((choice) => {
-      // Denial is monotonic for the session: no late/racing allow may replace it.
-      if (this.mobileUtilityFallbackApproval !== "deny") this.mobileUtilityFallbackApproval = choice;
-      return this.mobileUtilityFallbackApproval;
+    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
+    if (this.mobileUtilityFallbackApproval?.fingerprint !== context.fingerprint) {
+      this.mobileUtilityFallbackApproval = undefined;
+    }
+    if (this.mobileUtilityFallbackApproval) return Promise.resolve(this.mobileUtilityFallbackApproval.decision);
+    if (this.mobileUtilityFallbackConsentInFlight?.fingerprint === context.fingerprint) {
+      return this.mobileUtilityFallbackConsentInFlight.promise;
+    }
+    if (this.mobileUtilityFallbackConsentInFlight) {
+      // A different destination appeared while the old disclosure was open.
+      // Close the stale modal fail-safe before showing the current one.
+      this.mobileUtilityFallbackModal?.close();
+      this.mobileUtilityFallbackModal = null;
+    }
+    const pending = this.askMobileUtilityFallback(context).then((choice) => {
+      if (!this.isUtilityLifecycleActive(lifecycleGeneration)) return "deny";
+      const decision = choice;
+      const cached = this.mobileUtilityFallbackApproval;
+      // Denial is monotonic for concurrent callers in this exact context: no
+      // late/racing Allow can replace it.
+      if (cached?.fingerprint !== context.fingerprint || cached.decision !== "deny") {
+        this.mobileUtilityFallbackApproval = { fingerprint: context.fingerprint, decision };
+        return decision;
+      }
+      return cached.decision;
     });
     const shared = pending.finally(() => {
-      if (this.mobileUtilityFallbackConsentInFlight === shared) this.mobileUtilityFallbackConsentInFlight = null;
+      if (this.mobileUtilityFallbackConsentInFlight?.promise === shared) this.mobileUtilityFallbackConsentInFlight = null;
     });
-    this.mobileUtilityFallbackConsentInFlight = shared;
+    this.mobileUtilityFallbackConsentInFlight = { fingerprint: context.fingerprint, promise: shared };
     return shared;
   }
 
   private runtimeUtilitySelection(): RuntimeUtilitySelection {
-    return this.router().resolveUtilityForRuntime({
+    const router = this.router();
+    const context = router.utilityFallbackConsentContext(Platform.isMobile);
+    if (this.mobileUtilityFallbackApproval && this.mobileUtilityFallbackApproval.fingerprint !== context?.fingerprint) {
+      this.mobileUtilityFallbackApproval = undefined;
+    }
+    return router.resolveUtilityForRuntime({
       isMobile: Platform.isMobile,
-      ...(this.mobileUtilityFallbackApproval ? { fallbackApproval: this.mobileUtilityFallbackApproval } : {}),
+      ...(this.mobileUtilityFallbackApproval ? { fallbackApproval: this.mobileUtilityFallbackApproval.decision } : {}),
     });
   }
 
@@ -747,7 +789,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.providerErrorHint(message, provider);
   }
 
-  private askMobileUtilityFallback(endpoint: string): Promise<UtilityFallbackApproval> {
+  private askMobileUtilityFallback(context: UtilityFallbackConsentContext): Promise<UtilityFallbackApproval> {
     return new Promise((resolve) => {
       let settled = false;
       let modal: ChoiceModal<UtilityFallbackApproval>;
@@ -760,8 +802,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       modal = new ChoiceModal<UtilityFallbackApproval>(this.app, {
         title: "Use Claude for mobile enrichment?",
         message:
-          `The utility model at ${endpoint} is local to your desktop and cannot be reached from this mobile device. ` +
-          "If you continue, Claude (Anthropic API) may receive content for source enrichment, tagging and organization, " +
+          `The utility model at ${context.configuredEndpoint} is local to your desktop and cannot be reached from this mobile device. ` +
+          `If you continue, ${this.mobileFallbackDestinationLabel(context.fallbackEndpoint)} may receive content for source enrichment, tagging and organization, ` +
           "summaries and frontmatter, and memory consolidation including session content. " +
           "Allow this fallback for the current plugin session?",
         buttons: [
@@ -774,6 +816,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.mobileUtilityFallbackModal = modal;
       modal.open();
     });
+  }
+
+  private mobileFallbackDestinationLabel(endpoint: string): string {
+    return endpoint === ANTHROPIC_DEFAULT_BASE_URL
+      ? `Claude (Anthropic API at ${endpoint})`
+      : `an Anthropic-compatible gateway at ${endpoint}`;
   }
 
   private utilityUnavailableMessage(selection: Exclude<RuntimeUtilitySelection, { state: "configured-provider" | "approved-Claude-fallback" }>): string {
@@ -886,6 +934,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private async runEnrich(file: TFile, notify = true): Promise<EnrichRunOutcome> {
     let selection: ProviderSelection | undefined;
+    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
     try {
       const raw = await this.app.vault.cachedRead(file);
       const capture =
@@ -893,11 +942,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
           ? { kind: "markdown" as const, path: file.path, basename: file.basename, content: raw, url: parseClipUrl(raw) }
           : { kind: "datafile" as const, path: file.path, basename: file.basename, ext: file.extension, content: raw };
       selection = await this.router().utilitySelection();
-      const res = await enrichCapture(this.enrichDeps(selection), capture);
-      this.markEnrichRecentlyWritten(res.file.path);
+      const res = await enrichCapture(this.enrichDeps(selection, lifecycleGeneration), capture);
+      this.assertUtilityLifecycleActive(lifecycleGeneration);
+      this.markEnrichRecentlyWritten(res.file.path, lifecycleGeneration);
       if (notify) new Notice(`Typed source note (${res.type}): ${res.file.basename}`);
       return { status: "enriched" };
     } catch (e) {
+      if (!this.isUtilityLifecycleActive(lifecycleGeneration)) {
+        return { status: "failed", error: e instanceof Error ? e : new Error(String(e)) };
+      }
       if (!(e instanceof UtilityUnavailableError)) console.warn("[companion] source enrichment failed", e);
       const message = e instanceof Error ? e.message : String(e);
       const detail = e instanceof UtilityUnavailableError
@@ -910,7 +963,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  private markEnrichRecentlyWritten(path: string): void {
+  private isUtilityLifecycleActive(generation: number): boolean {
+    return !this.utilityLifecycleEnded && (this.utilityLifecycleGeneration ?? 0) === generation;
+  }
+
+  private assertUtilityLifecycleActive(generation: number): void {
+    if (!this.isUtilityLifecycleActive(generation)) {
+      throw new Error("Companion unloaded while utility work was in flight; the result was discarded without writing.");
+    }
+  }
+
+  private markEnrichRecentlyWritten(path: string, lifecycleGeneration = this.utilityLifecycleGeneration ?? 0): void {
+    if (!this.isUtilityLifecycleActive(lifecycleGeneration)) return;
     this.enrichRecentlyWritten.add(path);
     const previous = this.enrichRecentlyWrittenExpiryTimers.get(path);
     if (previous !== undefined) window.clearTimeout(previous);
@@ -1252,9 +1316,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   override onunload(): void {
     this.utilityLifecycleEnded = true;
-    this.mobileUtilityFallbackApproval = "deny";
+    this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
+    this.mobileUtilityFallbackApproval = undefined;
     this.mobileUtilityFallbackModal?.close();
     this.mobileUtilityFallbackModal = null;
+    this.mobileUtilityFallbackConsentInFlight = null;
     for (const timer of this.enrichTimers?.values() ?? []) window.clearTimeout(timer);
     this.enrichTimers?.clear();
     for (const timer of this.enrichRecentlyWrittenExpiryTimers?.values() ?? []) window.clearTimeout(timer);
@@ -1527,6 +1593,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   // ---------- providers ----------
 
   router(): ProviderRouter {
+    if (this._router && !this._router.hasCurrentAnthropicEnvironment()) this._router = null;
     if (!this._router) this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession());
     return this._router;
   }

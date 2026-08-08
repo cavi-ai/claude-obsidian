@@ -17,6 +17,8 @@ export interface EnrichDeps {
   baseTags: string[];
   enrichedBy: "claude" | "local";
   now: () => string;
+  /** Last-moment lifecycle gate: a completed model result may outlive the plugin. */
+  assertActive?: () => void;
 }
 
 export interface EnrichResult {
@@ -142,11 +144,13 @@ export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Prom
   if (capture.kind === "markdown") {
     const file = deps.app.vault.getAbstractFileByPath(capture.path);
     if (!(file instanceof TFile)) throw new Error(`note not found: ${capture.path}`);
+    deps.assertActive?.();
     await applySourceFrontmatter(
       deps.app,
       file,
       sourceFrontmatter(record, deps.baseTags),
       (frontmatter) => {
+        deps.assertActive?.();
         const context = { captureBasename: capture.basename };
         const provenance = validateMergedSourceProvenance(frontmatter);
         validateEnrichment(
@@ -174,6 +178,7 @@ export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Prom
   const path = normalizePath(dir ? `${dir}/${base}.md` : `${base}.md`);
   const existing = deps.app.vault.getAbstractFileByPath(path);
   let file: TFile;
+  deps.assertActive?.();
   if (existing instanceof TFile) {
     await deps.app.vault.modify(existing, noteContent);
     file = existing;
