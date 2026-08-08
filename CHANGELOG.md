@@ -4,7 +4,7 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.23.0] — 2026-08-08
 
 ### Added
 - **Batch-review Inbox links.** *Review all links* now opens one Git-style
@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inbox lifecycle cleanup.** Closing or refreshing the Inbox during an
   operation no longer leaves disabled controls, detached scans, unhandled
   rejections, or late writes after the plugin unloads.
+- **Provider errors keep their cause.** Wrapped failures carry the underlying
+  error, so the hint you see names the real problem instead of a generic one.
 
 ## [0.22.5] — 2026-08-07
 
