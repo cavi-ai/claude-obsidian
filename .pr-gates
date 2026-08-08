@@ -1,0 +1,8 @@
+# CI-equivalent lanes (.github/workflows/obsidian-plugin-ci.yml).
+# Run from obsidian-plugin/ so corepack reads the pnpm pin in its package.json.
+cd obsidian-plugin && pnpm install --frozen-lockfile
+cd obsidian-plugin && pnpm run verify:version
+cd obsidian-plugin && pnpm run typecheck
+cd obsidian-plugin && pnpm run lint
+cd obsidian-plugin && pnpm test
+cd obsidian-plugin && pnpm run build
