@@ -132,6 +132,19 @@ describe("errorHint", () => {
     expect(errorHint("Ollama error 0 at http://localhost:11434", "ollama")).toMatch(/ollama serve/i);
     expect(errorHint("fetch failed", "ollama")).toMatch(/local model/i);
   });
+  it("names the configured Ollama endpoint in a network hint", () => {
+    expect(errorHint("fetch failed", "ollama", "http://192.168.1.24:11434")).toContain("Ollama at http://192.168.1.24:11434");
+  });
+  it("attributes authentication failures to the configured OpenAI-compatible endpoint", () => {
+    const hint = errorHint("Endpoint error 401", "openai-compat", "https://models.example.com/v1");
+    expect(hint).toContain("OpenAI-compatible endpoint at https://models.example.com/v1");
+    expect(hint).not.toMatch(/Anthropic API key/i);
+  });
+  it("names the configured OpenAI-compatible endpoint in a network hint", () => {
+    expect(errorHint("failed to fetch", "openai-compat", "http://192.168.1.24:1234")).toContain(
+      "OpenAI-compatible endpoint at http://192.168.1.24:1234",
+    );
+  });
   it("treats network failures on the anthropic provider as offline, not ollama", () => {
     expect(errorHint("fetch failed")).toMatch(/offline/i);
     expect(errorHint("fetch failed", "anthropic")).toMatch(/offline/i);

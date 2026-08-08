@@ -92,6 +92,7 @@ export class InboxView extends ItemView {
     } else {
       const bar = root.createDiv({ cls: "cc-inbox-bar" });
       bar.createSpan({ cls: "cc-inbox-count", text: `${items.length} to type` });
+      bar.createSpan({ cls: "cc-inbox-backend", text: `Utility: ${this.plugin.sourceEnrichmentBackendLabel()}` });
       const all = bar.createEl("button", { cls: "cc-inbox-enrich-all", text: "Enrich all" });
       all.disabled = this.batchOperation !== null;
       all.addEventListener("click", () => void this.enrichAll(items));

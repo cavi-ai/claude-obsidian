@@ -5,6 +5,30 @@ import { OllamaProvider } from "./ollama";
 import { OpenAICompatProvider } from "./openaiCompat";
 import { readAnthropicEnv } from "./env";
 import { resolveModelId } from "../claude/models";
+import {
+  resolveUtilityForRuntime as applyUtilityRuntimePolicy,
+  type UtilityFallbackApproval,
+  type UtilityRuntimeResolution,
+} from "./endpointPolicy";
+
+export interface ProviderSelection {
+  provider: Provider;
+  model: string;
+}
+
+export type RuntimeUtilitySelection =
+  | (Extract<UtilityRuntimeResolution, { state: "configured-provider" | "approved-Claude-fallback" }> & ProviderSelection)
+  | Exclude<UtilityRuntimeResolution, { state: "configured-provider" | "approved-Claude-fallback" }>;
+
+type BufferedCompletionInput = {
+  system: string;
+  user: string;
+  maxTokens?: number;
+  temperature?: number;
+  responseFormat?: "json";
+  responseSchema?: Record<string, unknown>;
+  thinking?: CompletionRequest["thinking"];
+};
 
 /**
  * Settings migration for `utilityBackend`: a persisted `localUtilityEnabled`
@@ -21,8 +45,8 @@ export function migrateUtilityBackend(
 /**
  * Builds providers from settings and routes a task to the right one:
  * - "chat"    → the user's primary provider (Claude by default)
- * - "utility" → the configured utility backend (summaries, tagging, ingestion),
- *               otherwise falls back to the chat provider.
+ * - "utility" → the configured utility backend (summaries, tagging, ingestion).
+ * Runtime-specific fallback is explicit through resolveUtilityForRuntime().
  */
 export class ProviderRouter {
   readonly anthropic: AnthropicProvider;
@@ -55,10 +79,10 @@ export class ProviderRouter {
   /** Resolve which provider + model id to use for a given task role. */
   resolve(role: TaskRole): { provider: Provider; model: string } {
     if (role === "utility") {
-      if (this.settings.utilityBackend === "ollama" && this.ollama.hasCredentials()) {
+      if (this.settings.utilityBackend === "ollama") {
         return { provider: this.ollama, model: this.ollamaUtilityModel() };
       }
-      if (this.settings.utilityBackend === "custom" && this.openaiCompat.hasCredentials()) {
+      if (this.settings.utilityBackend === "custom") {
         return { provider: this.openaiCompat, model: this.settings.openaiCompatModel };
       }
     }
@@ -82,6 +106,33 @@ export class ProviderRouter {
   /** The provider that powers the main chat panel. */
   chatProvider(): { provider: Provider; model: string } {
     return this.resolve("chat");
+  }
+
+  /** Resolve the configured utility backend against mobile endpoint reachability and session consent. */
+  resolveUtilityForRuntime(input: {
+    isMobile: boolean;
+    fallbackApproval?: UtilityFallbackApproval;
+  }): RuntimeUtilitySelection {
+    const backend = this.settings.utilityBackend;
+    const endpoint = backend === "ollama" ? this.settings.ollamaHost : backend === "custom" ? this.settings.openaiCompatHost : undefined;
+    const resolution = applyUtilityRuntimePolicy({
+      backend,
+      ...(endpoint !== undefined ? { endpoint } : {}),
+      isMobile: input.isMobile,
+      claudeAvailable: this.anthropic.hasCredentials(),
+      ...(input.fallbackApproval ? { fallbackApproval: input.fallbackApproval } : {}),
+    });
+    if (resolution.state === "approved-Claude-fallback") {
+      return {
+        ...resolution,
+        provider: this.anthropic,
+        model: resolveModelId(this.settings.model, this.settings.customModel),
+      };
+    }
+    if (resolution.state === "configured-provider") {
+      return { ...resolution, ...this.resolve("utility") };
+    }
+    return resolution;
   }
 
   /**
@@ -121,9 +172,17 @@ export class ProviderRouter {
    */
   async complete(
     role: TaskRole,
-    req: { system: string; user: string; maxTokens?: number; temperature?: number; responseFormat?: "json"; responseSchema?: Record<string, unknown>; thinking?: CompletionRequest["thinking"] },
+    req: BufferedCompletionInput,
   ): Promise<{ text: string; provider: Provider }> {
-    const { provider, model } = this.resolve(role);
+    return this.completeResolved(this.resolve(role), req);
+  }
+
+  /** Complete with a selection already resolved by the caller's runtime/privacy policy. */
+  async completeResolved(
+    selection: ProviderSelection,
+    req: BufferedCompletionInput,
+  ): Promise<{ text: string; provider: Provider }> {
+    const { provider, model } = selection;
     const text = await provider.complete({
       system: req.system,
       model,

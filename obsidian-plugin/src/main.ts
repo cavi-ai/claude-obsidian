@@ -26,7 +26,8 @@ import { WORKFLOWS, type Workflow } from "./workflows/catalog";
 import { listSessionsForVault, type SessionMeta } from "./memory/sessions";
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
-import { ProviderRouter } from "./providers/router";
+import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection } from "./providers/router";
+import type { UtilityFallbackApproval } from "./providers/endpointPolicy";
 import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
@@ -43,7 +44,7 @@ import type { McpHttpServer } from "./mcp/server";
 import { VaultTools, type VaultToolsOptions } from "./mcp/vaultTools";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
-import type { AnthropicToolDef } from "./providers/types";
+import type { AnthropicToolDef, ProviderId } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
@@ -157,6 +158,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private reindexQueue = new Set<string>();
   private enrichTimers = new Map<string, number>();
   private enrichRecentlyWritten = new Set<string>();
+  /** Mobile loopback → Claude consent, held only for this loaded plugin instance. */
+  private mobileUtilityFallbackApproval: UtilityFallbackApproval | undefined;
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
   private inboxRibbonEl: HTMLElement | null = null;
   private inboxBadgeTimer: number | null = null;
@@ -611,14 +614,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
 
-  private enrichDeps(): EnrichDeps {
+  private enrichDeps(selection: ProviderSelection): EnrichDeps {
     const router = this.router();
-    const { provider } = router.resolve("utility");
     return {
       app: this.app,
       complete: async (system, user, opts) =>
         (
-          await router.complete("utility", {
+          await router.completeResolved(selection, {
             system,
             user,
             ...(opts?.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
@@ -628,9 +630,97 @@ export default class ClaudeCompanionPlugin extends Plugin {
         ).text,
       overrides: this.settings.sourceSchemaOverrides,
       baseTags: this.settings.sourceBaseTags,
-      enrichedBy: provider.id === "anthropic" ? "claude" : "local",
+      enrichedBy: selection.provider.id === "anthropic" ? "claude" : "local",
       now: () => new Date().toISOString(),
     };
+  }
+
+  /** Resolve enrichment once so completion and provenance cannot disagree. */
+  private async resolvedEnrichDeps(): Promise<EnrichDeps> {
+    const router = this.router();
+    let selection = this.runtimeUtilitySelection();
+    if (selection.state === "unavailable-loopback") {
+      this.mobileUtilityFallbackApproval = await this.askMobileUtilityFallback(selection.endpoint);
+      selection = router.resolveUtilityForRuntime({
+        isMobile: Platform.isMobile,
+        fallbackApproval: this.mobileUtilityFallbackApproval,
+      });
+    }
+    if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") {
+      return this.enrichDeps(selection);
+    }
+    throw new Error(this.utilityUnavailableMessage(selection));
+  }
+
+  private runtimeUtilitySelection(): RuntimeUtilitySelection {
+    return this.router().resolveUtilityForRuntime({
+      isMobile: Platform.isMobile,
+      ...(this.mobileUtilityFallbackApproval ? { fallbackApproval: this.mobileUtilityFallbackApproval } : {}),
+    });
+  }
+
+  /** Runtime-selected utility backend shown alongside Inbox batch controls. */
+  sourceEnrichmentBackendLabel(): string {
+    const selection = this.runtimeUtilitySelection();
+    if (selection.state === "unavailable-loopback") return "Unavailable on mobile · Claude approval required";
+    if (selection.state === "unavailable-without-Claude") {
+      return selection.reason === "invalid-endpoint" ? "Unavailable · invalid utility endpoint" : "Unavailable on mobile";
+    }
+    if (selection.provider.id === "anthropic") return `Claude (Anthropic API) · ${selection.model}`;
+    if (selection.provider.id === "ollama") return `Ollama · ${selection.model}`;
+    return `OpenAI-compatible endpoint · ${selection.model}`;
+  }
+
+  private providerEndpoint(provider: ProviderId): string | undefined {
+    if (provider === "ollama") return this.settings.ollamaHost;
+    if (provider === "openai-compat") return this.settings.openaiCompatHost;
+    return this.settings.baseUrl.trim() || undefined;
+  }
+
+  private providerErrorHint(message: string, provider: ProviderId): string | null {
+    return errorHint(message, provider, this.providerEndpoint(provider));
+  }
+
+  private sourceEnrichmentErrorHint(message: string): string | null {
+    const selection = this.runtimeUtilitySelection();
+    const provider: ProviderId =
+      selection.state === "configured-provider" || selection.state === "approved-Claude-fallback"
+        ? selection.provider.id
+        : selection.backend === "ollama"
+          ? "ollama"
+          : "openai-compat";
+    return this.providerErrorHint(message, provider);
+  }
+
+  private askMobileUtilityFallback(endpoint: string): Promise<UtilityFallbackApproval> {
+    return new Promise((resolve) => {
+      new ChoiceModal<UtilityFallbackApproval>(this.app, {
+        title: "Use Claude for mobile enrichment?",
+        message:
+          `The utility model at ${endpoint} is local to your desktop and cannot be reached from this mobile device. ` +
+          "If you continue, Claude (Anthropic API) will receive this note's content for enrichment. Allow this fallback for this Obsidian session?",
+        buttons: [
+          { label: "Use Claude this session", value: "allow", cta: true },
+          { label: "Don't send", value: "deny" },
+        ],
+        fallback: "deny",
+        onChoice: resolve,
+      }).open();
+    });
+  }
+
+  private utilityUnavailableMessage(selection: Exclude<RuntimeUtilitySelection, { state: "configured-provider" | "approved-Claude-fallback" }>): string {
+    const endpoint = selection.endpoint || "(empty endpoint)";
+    if (selection.state === "unavailable-loopback") {
+      return `The configured ${selection.backend} utility endpoint ${endpoint} is unavailable on mobile until Claude fallback is approved.`;
+    }
+    if (selection.reason === "invalid-endpoint") {
+      return `The configured ${selection.backend} utility endpoint “${endpoint}” is invalid. Configure a valid LAN or remote endpoint in Companion settings.`;
+    }
+    if (selection.reason === "claude-unavailable") {
+      return `The configured ${selection.backend} utility endpoint ${endpoint} is unavailable on mobile, and no Anthropic credential is configured for Claude fallback. Add a credential or configure a LAN or remote endpoint in Companion settings.`;
+    }
+    return `The configured ${selection.backend} utility endpoint ${endpoint} is unavailable on mobile, and sending note content to Claude was not approved for this session. Configure a LAN or remote endpoint, or restart Obsidian to choose again.`;
   }
 
   /**
@@ -722,14 +812,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
         file.extension === "md"
           ? { kind: "markdown" as const, path: file.path, basename: file.basename, content: raw, url: parseClipUrl(raw) }
           : { kind: "datafile" as const, path: file.path, basename: file.basename, ext: file.extension, content: raw };
-      const res = await enrichCapture(this.enrichDeps(), capture);
+      const res = await enrichCapture(await this.resolvedEnrichDeps(), capture);
       this.enrichRecentlyWritten.add(res.file.path);
       window.setTimeout(() => this.enrichRecentlyWritten.delete(res.file.path), 5000);
       new Notice(`Typed source note (${res.type}): ${res.file.basename}`);
     } catch (e) {
       console.warn("[companion] source enrichment failed", e);
-      const { provider } = this.router().resolve("utility");
-      const hint = errorHint(e instanceof Error ? e.message : String(e), provider.id === "anthropic" ? "anthropic" : "ollama");
+      const hint = this.sourceEnrichmentErrorHint(e instanceof Error ? e.message : String(e));
       new Notice(`Couldn't enrich ${file.basename}${hint ? ` — ${hint}` : " — see console."}`);
     }
   }
@@ -906,7 +995,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice("Rewrite applied.");
     } catch (e) {
       const { provider } = this.router().resolve("chat");
-      const hint = errorHint(e instanceof Error ? e.message : String(e), provider.id === "anthropic" ? "anthropic" : "ollama");
+      const hint = this.providerErrorHint(e instanceof Error ? e.message : String(e), provider.id);
       new Notice(`Rewrite failed${hint ? ` — ${hint}` : ` — ${e instanceof Error ? e.message : String(e)}`}`);
     } finally {
       progress.hide();
@@ -950,7 +1039,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (/^source_enriched:\s*true\s*$/m.test(content)) continue;
         try {
           const capture = { kind: "markdown" as const, path: file.path, basename: file.basename, content, url: parseClipUrl(content) };
-          const res = await enrichCapture(this.enrichDeps(), capture);
+          const res = await enrichCapture(await this.resolvedEnrichDeps(), capture);
           this.enrichRecentlyWritten.add(res.file.path);
           window.setTimeout(() => this.enrichRecentlyWritten.delete(res.file.path), 5000);
         } catch (e) {
@@ -1008,7 +1097,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (boardFile instanceof TFile) await this.app.workspace.getLeaf(false).openFile(boardFile);
     } catch (e) {
       const { provider } = this.router().resolve("chat");
-      const hint = errorHint(e instanceof Error ? e.message : String(e), provider.id === "anthropic" ? "anthropic" : "ollama");
+      const hint = this.providerErrorHint(e instanceof Error ? e.message : String(e), provider.id);
       new Notice(`Triage failed${hint ? ` — ${hint}` : ` — ${e instanceof Error ? e.message : String(e)}`}`);
     } finally {
       progress.hide();
