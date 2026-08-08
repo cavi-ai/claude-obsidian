@@ -46,6 +46,21 @@ export class TFolder {
   constructor(public path: string) {}
 }
 
+type EventCallback = (...args: unknown[]) => void;
+
+class FakeEventSource {
+  private listeners = new Map<string, EventCallback[]>();
+
+  on(name: string, callback: EventCallback): EventCallback {
+    this.listeners.set(name, [...(this.listeners.get(name) ?? []), callback]);
+    return callback;
+  }
+
+  trigger(name: string, ...args: unknown[]): void {
+    for (const callback of this.listeners.get(name) ?? []) callback(...args);
+  }
+}
+
 interface FileCache {
   tags?: Array<{ tag: string }>;
   frontmatter?: Record<string, unknown>;
@@ -61,7 +76,7 @@ export function getAllTags(cache: FileCache | null): string[] | null {
   return out;
 }
 
-class FakeVault {
+class FakeVault extends FakeEventSource {
   private files = new Map<string, TFile>();
   private folders = new Set<string>();
   /** path -> tag strings (without #), used to build the metadata cache */
@@ -140,9 +155,9 @@ class FakeVault {
   }
 }
 
-class FakeMetadataCache {
+class FakeMetadataCache extends FakeEventSource {
   resolvedLinks: Record<string, Record<string, number>> = {};
-  constructor(private vault: FakeVault) {}
+  constructor(private vault: FakeVault) { super(); }
   getFileCache(file: TFile): FileCache | null {
     const tags = this.vault.tags.get(file.path);
     const frontmatter = this.vault.frontmatters.get(file.path);
@@ -211,6 +226,10 @@ export class App {
 export class Notice {
   constructor(public message: string) {}
 }
+export class FileSystemAdapter {
+  constructor(private readonly basePath = "") {}
+  getBasePath(): string { return this.basePath; }
+}
 export function setIcon(parent: FakeElement, icon: string): void { parent.setAttr("data-icon", icon); }
 export class FakeElement {
   tagName: string;
@@ -272,6 +291,7 @@ export class ItemView {
   app: App;
   contentEl = new FakeElement() as unknown as HTMLElement;
   constructor(public leaf: WorkspaceLeaf) { this.app = leaf.app; }
+  registerEvent(_event: unknown): void {}
   getViewType(): string { return ""; }
   getDisplayText(): string { return ""; }
   getIcon(): string { return ""; }

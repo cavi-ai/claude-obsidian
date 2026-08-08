@@ -1463,8 +1463,45 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-inbox-wireup {
   margin-top: 18px;
 }
+.cc-inbox-wireup-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
 .cc-inbox-wireup .cc-eyebrow {
   margin-bottom: 8px;
+}
+.cc-inbox-wireup-header .cc-eyebrow {
+  margin-bottom: 0;
+}
+.cc-inbox-wireup-count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.cc-inbox-review-all {
+  min-height: 32px;
+  margin-inline-start: auto;
+}
+.cc-inbox-link-summary {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.cc-inbox-link-result-details {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-inline-start: 2px solid var(--text-warning);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.cc-inbox-link-result-label {
+  font-weight: 600;
+}
+.cc-inbox-link-result-list {
+  margin: 2px 0 0;
+  padding-inline-start: 16px;
 }
 .cc-inbox-mentions {
   flex: 0 0 auto;

@@ -104,7 +104,8 @@ import { captureWebSource } from "./research/webCapture";
 import type { WebCapture } from "./context/webCapture";
 import { summarizeAndTag } from "./indexing/autoTagger";
 import { resolveCompanionWorkspace, type CompanionWorkspaceCard } from "./view/companionWorkspace";
-import { applyBatchLinkPlans, planBatchLinks, type BatchLinkApplyResult, type BatchLinkEntry, type BatchLinkSelection } from "./links/batch";
+import type { BatchLinkApplyResult } from "./links/batch";
+import { reviewInboxBatchLinks } from "./links/inboxBatchReview";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
@@ -1617,32 +1618,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Review and apply link proposals for the supplied enriched Inbox notes. */
   async reviewInboxLinkSuggestions(files: TFile[]): Promise<BatchLinkApplyResult | null> {
-    const entries: BatchLinkEntry[] = await Promise.all(
-      files
-        .filter((file) => file.extension === "md")
-        .map(async (file) => ({ path: file.path, basename: file.basename, content: await this.app.vault.cachedRead(file) })),
-    );
-    const plans = planBatchLinks(entries, this.linkCandidates());
-    if (plans.length === 0) {
-      return { appliedFiles: 0, appliedHunks: 0, conflicts: [], failures: [] };
-    }
-
-    const selected = await new Promise<BatchLinkSelection | null>((resolve) => {
-      new BatchDiffModal(this.app, plans, resolve).open();
-    });
-    if (!selected) return null;
-
-    return applyBatchLinkPlans(plans, selected, {
-      read: async (path) => {
+    return reviewInboxBatchLinks(files, this.linkCandidates(), {
+      read: (file) => this.app.vault.cachedRead(file),
+      getFile: (path) => {
         const file = this.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile)) throw new Error(`Note no longer exists: ${path}`);
-        return this.app.vault.cachedRead(file);
+        return file instanceof TFile ? file : null;
       },
-      write: async (path, content) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile)) throw new Error(`Note no longer exists: ${path}`);
-        await this.app.vault.modify(file, content);
-      },
+      write: (file, content) => this.app.vault.modify(file, content),
+      select: (plans) => new Promise((resolve) => {
+        new BatchDiffModal(this.app, plans, resolve).open();
+      }),
     });
   }
 

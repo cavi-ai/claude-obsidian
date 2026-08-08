@@ -21,6 +21,7 @@ export class InboxView extends ItemView {
   private batchOperation: "enrich" | "link" | null = null;
   /** Last completed batch result, kept visible after its links leave the list. */
   private linkSummary: string | null = null;
+  private linkResult: BatchLinkApplyResult | null = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: ClaudeCompanionPlugin) {
     super(leaf);
@@ -166,6 +167,7 @@ export class InboxView extends ItemView {
       reviewAll.addEventListener("click", () => void this.reviewAllLinks());
     }
     if (this.linkSummary) section.createEl("p", { cls: "cc-inbox-link-summary", text: this.linkSummary });
+    this.renderLinkResultDetails(section);
     if (items.length === 0) return;
 
     const list = section.createDiv({ cls: "cc-inbox-list" });
@@ -222,10 +224,14 @@ export class InboxView extends ItemView {
     if (this.batchOperation !== null) return;
     this.batchOperation = "link";
     this.linkSummary = null;
+    this.linkResult = null;
     await this.render();
     try {
       const result = await this.plugin.reviewInboxLinkSuggestions(this.enrichedInboxFiles());
-      if (result) this.linkSummary = this.describeLinkResult(result);
+      if (result) {
+        this.linkSummary = this.describeLinkResult(result);
+        this.linkResult = result;
+      }
     } catch (error) {
       this.linkSummary = `Couldn't review links — ${error instanceof Error ? error.message : String(error)}`;
     } finally {
@@ -245,5 +251,20 @@ export class InboxView extends ItemView {
       ? ` ${result.failures.length} note${result.failures.length === 1 ? " failed" : "s failed"} to save.`
       : "";
     return summary + conflicts + failures;
+  }
+
+  private renderLinkResultDetails(section: HTMLElement): void {
+    if (!this.linkResult || (this.linkResult.conflicts.length === 0 && this.linkResult.failures.length === 0)) return;
+    const details = section.createDiv({ cls: "cc-inbox-link-result-details" });
+    if (this.linkResult.conflicts.length > 0) {
+      details.createEl("div", { cls: "cc-inbox-link-result-label", text: "Changed during review" });
+      const list = details.createEl("ul", { cls: "cc-inbox-link-result-list" });
+      for (const path of this.linkResult.conflicts) list.createEl("li", { text: path });
+    }
+    if (this.linkResult.failures.length > 0) {
+      details.createEl("div", { cls: "cc-inbox-link-result-label", text: "Could not complete" });
+      const list = details.createEl("ul", { cls: "cc-inbox-link-result-list" });
+      for (const failure of this.linkResult.failures) list.createEl("li", { text: `${failure.path}: ${failure.message}` });
+    }
   }
 }
