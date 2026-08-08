@@ -892,7 +892,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     );
   }
 
-  private async enrichFile(file: TFile): Promise<EnrichRunOutcome> {
+  private async enrichFile(file: TFile, notify = true): Promise<EnrichRunOutcome> {
     const content = file.extension === "md" ? await this.app.vault.cachedRead(file) : "";
     if (!shouldEnrich({ path: file.path, ext: file.extension, content, inboxFolder: this.settings.sourceInboxFolder, recentlyWritten: this.enrichRecentlyWritten })) {
       return { status: "skipped", reason: `${file.basename} is not eligible for source enrichment.` };
@@ -900,7 +900,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (this.settings.sourceCaptureConsent !== "allow" && !(await this.askSourceCaptureConsent())) {
       return { status: "skipped", reason: "automatic source enrichment was not approved." };
     }
-    return this.runEnrich(file);
+    return this.runEnrich(file, notify);
   }
 
   /**
@@ -945,7 +945,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const res = await enrichCapture(this.enrichDeps(selection, lifecycleGeneration), capture);
       this.assertUtilityLifecycleActive(lifecycleGeneration);
       this.markEnrichRecentlyWritten(res.file.path, lifecycleGeneration);
-      if (notify) new Notice(`Typed source note (${res.type}): ${res.file.basename}`);
+      if (notify) new Notice(`Typed source note (${res.type}): ${res.file.basename}`, 5000);
       return { status: "enriched" };
     } catch (e) {
       if (!this.isUtilityLifecycleActive(lifecycleGeneration)) {
@@ -958,7 +958,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         : selection
           ? errorHint(message, selection.provider.id, selection.endpoint) ?? message
           : message;
-      if (notify) new Notice(`Couldn't enrich ${file.basename} — ${detail}`);
+      if (notify) new Notice(`Couldn't enrich ${file.basename} — ${detail}`, 7000);
       return { status: "failed", error: e instanceof Error ? e : new Error(String(e)) };
     }
   }
@@ -2747,11 +2747,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Inbox-view entry point: guard + consent + enrich, then refresh open inbox views. */
-  async enrichInboxItem(file: TFile): Promise<void> {
-    await this.enrichFile(file);
+  async enrichInboxItem(file: TFile, options?: { inline?: boolean }): Promise<EnrichRunOutcome> {
+    const outcome = await this.enrichFile(file, !options?.inline);
     for (const leaf of this.app.workspace.getLeavesOfType(INBOX_VIEW_TYPE)) {
       if (leaf.view instanceof InboxView) await leaf.view.render();
     }
+    return outcome;
   }
 
   /** Unenriched inbox files right now (drives the ribbon badge). */

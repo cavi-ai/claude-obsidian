@@ -8,6 +8,13 @@ import { createInboxRefreshController, type InboxRefreshController } from "./inb
 export const INBOX_VIEW_TYPE = "claude-inbox-view";
 const INBOX_REFRESH_DEBOUNCE_MS = 100;
 
+type InboxFeedbackState = "idle" | "running" | "success" | "error";
+
+interface InboxFeedback {
+  state: InboxFeedbackState;
+  message: string;
+}
+
 /**
  * Source-inbox triage: everything the clipper dropped that isn't typed yet,
  * with one-tap enrich — plus a "wire up" section for enriched notes that
@@ -22,6 +29,10 @@ export class InboxView extends ItemView {
   /** Last completed batch result, kept visible after its links leave the list. */
   private linkSummary: string | null = null;
   private linkResult: BatchLinkApplyResult | null = null;
+  /** Per-file feedback persists for failures so users can retry the exact item. */
+  private enrichmentFeedback = new Map<string, InboxFeedback>();
+  /** One concise inline summary for the current or most recent Inbox operation. */
+  private operationFeedback: InboxFeedback = { state: "idle", message: "Ready to enrich Inbox notes." };
 
   constructor(leaf: WorkspaceLeaf, private plugin: ClaudeCompanionPlugin) {
     super(leaf);
@@ -83,6 +94,8 @@ export class InboxView extends ItemView {
       return;
     }
 
+    this.renderOperationFeedback(root);
+
     const items = this.pending();
     if (items.length === 0) {
       root.createEl("p", {
@@ -113,8 +126,9 @@ export class InboxView extends ItemView {
           attr: { "aria-label": `Enrich ${item.basename}` },
         });
         setIcon(btn, this.enriching.has(item.path) ? "loader" : "wand-sparkles");
-        if (this.enriching.has(item.path)) btn.disabled = true;
+        btn.disabled = this.enriching.has(item.path) || this.batchOperation !== null;
         btn.addEventListener("click", () => void this.enrichOne(item));
+        this.renderFileFeedback(row, item.path);
       }
     }
 
@@ -134,6 +148,25 @@ export class InboxView extends ItemView {
       files.push(f);
     }
     return files;
+  }
+
+  private renderOperationFeedback(root: HTMLElement): void {
+    root.createEl("p", {
+      cls: `cc-inbox-operation-status cc-inbox-operation-${this.operationFeedback.state}`,
+      text: this.operationFeedback.message,
+    });
+  }
+
+  private renderFileFeedback(row: HTMLElement, path: string): void {
+    const feedback = this.enrichmentFeedback.get(path) ?? { state: "idle" as const, message: "Ready" };
+    row.createEl("span", {
+      cls: `cc-inbox-enrichment-status cc-inbox-enrichment-${feedback.state}`,
+      text: feedback.message,
+    });
+  }
+
+  private setOperationFeedback(state: InboxFeedbackState, message: string): void {
+    this.operationFeedback = { state, message };
   }
 
   private async renderWireUp(root: HTMLElement, generation: number): Promise<void> {
@@ -200,14 +233,30 @@ export class InboxView extends ItemView {
     }
   }
 
-  private async enrichOne(item: InboxItem, fromBatch = false): Promise<void> {
-    if ((!fromBatch && this.batchOperation !== null) || this.enriching.has(item.path)) return;
+  private async enrichOne(item: InboxItem, fromBatch = false): Promise<boolean> {
+    if ((!fromBatch && this.batchOperation !== null) || this.enriching.has(item.path)) return false;
     const f = this.app.vault.getAbstractFileByPath(item.path);
-    if (!(f instanceof TFile)) return;
+    if (!(f instanceof TFile)) return false;
     this.enriching.add(item.path);
+    this.enrichmentFeedback.set(item.path, { state: "running", message: "Enriching…" });
+    if (!fromBatch) this.setOperationFeedback("running", `Enriching ${item.basename}…`);
     await this.render();
     try {
-      await this.plugin.enrichInboxItem(f);
+      const outcome = await this.plugin.enrichInboxItem(f, { inline: true });
+      if (outcome.status === "enriched") {
+        this.enrichmentFeedback.delete(item.path);
+        if (!fromBatch) this.setOperationFeedback("success", `Typed source note: ${item.basename}.`);
+        return true;
+      }
+      const detail = outcome.status === "failed" ? outcome.error.message : outcome.reason;
+      this.enrichmentFeedback.set(item.path, { state: "error", message: `Couldn't enrich — ${detail}` });
+      if (!fromBatch) this.setOperationFeedback("error", `Couldn't enrich ${item.basename} — ${detail}`);
+      return false;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.enrichmentFeedback.set(item.path, { state: "error", message: `Couldn't enrich — ${detail}` });
+      if (!fromBatch) this.setOperationFeedback("error", `Couldn't enrich ${item.basename} — ${detail}`);
+      return false;
     } finally {
       this.enriching.delete(item.path);
       await this.render();
@@ -217,9 +266,22 @@ export class InboxView extends ItemView {
   private async enrichAll(items: InboxItem[]): Promise<void> {
     if (this.batchOperation !== null) return;
     this.batchOperation = "enrich";
+    this.setOperationFeedback("running", `Enriching ${items.length} note${items.length === 1 ? "" : "s"}…`);
     await this.render();
     try {
-      for (const item of items) await this.enrichOne(item, true);
+      let enriched = 0;
+      for (const [index, item] of items.entries()) {
+        this.setOperationFeedback("running", `Enriching ${index + 1} of ${items.length}: ${item.basename}…`);
+        await this.render();
+        if (await this.enrichOne(item, true)) enriched++;
+      }
+      const failed = items.length - enriched;
+      this.setOperationFeedback(
+        failed === 0 ? "success" : "error",
+        failed === 0
+          ? `Typed ${enriched} source note${enriched === 1 ? "" : "s"}.`
+          : `Typed ${enriched} of ${items.length} source notes; ${failed} failed.`,
+      );
     } finally {
       this.batchOperation = null;
       await this.render();
@@ -231,15 +293,21 @@ export class InboxView extends ItemView {
     this.batchOperation = "link";
     this.linkSummary = null;
     this.linkResult = null;
+    this.setOperationFeedback("running", "Reviewing Inbox link suggestions…");
     await this.render();
     try {
       const result = await this.plugin.reviewInboxLinkSuggestions(this.enrichedInboxFiles());
       if (result) {
         this.linkSummary = this.describeLinkResult(result);
         this.linkResult = result;
+        this.setOperationFeedback("success", this.linkSummary);
+      } else {
+        this.setOperationFeedback("success", "No Inbox link changes were applied.");
       }
     } catch (error) {
-      this.linkSummary = `Couldn't review links — ${error instanceof Error ? error.message : String(error)}`;
+      const detail = error instanceof Error ? error.message : String(error);
+      this.linkSummary = `Couldn't review links — ${detail}`;
+      this.setOperationFeedback("error", this.linkSummary);
     } finally {
       this.batchOperation = null;
       await this.render();
