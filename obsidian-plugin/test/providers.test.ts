@@ -150,6 +150,16 @@ describe("errorHint", () => {
     expect(errorHint("fetch failed", "anthropic")).toMatch(/offline/i);
     expect(errorHint("fetch failed", "anthropic")).not.toMatch(/ollama/i);
   });
+  it("names a sanitized Anthropic gateway endpoint in network hints", () => {
+    const hint = errorHint("fetch failed", "anthropic", "https://alice:supersecret@gateway.example.com/v1?token=private");
+    expect(hint).toContain("Anthropic at https://gateway.example.com/v1");
+    expect(hint).not.toMatch(/alice|supersecret|token=private/i);
+  });
+  it("redacts userinfo from every provider endpoint hint", () => {
+    const hint = errorHint("HTTP 401 authentication failed", "openai-compat", "https://alice:supersecret@models.example.com/v1");
+    expect(hint).toContain("https://models.example.com/v1");
+    expect(hint).not.toMatch(/alice|supersecret/i);
+  });
   it("recognizes 529 overloaded before the generic model check", () => {
     expect(errorHint("Anthropic API 529: overloaded_error")).toMatch(/overloaded/i);
     expect(errorHint("Anthropic API 529: overloaded_error")).not.toMatch(/model id/i);

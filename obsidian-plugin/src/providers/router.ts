@@ -7,14 +7,21 @@ import { readAnthropicEnv } from "./env";
 import { resolveModelId } from "../claude/models";
 import {
   resolveUtilityForRuntime as applyUtilityRuntimePolicy,
+  sanitizeEndpointForDisplay,
   type UtilityFallbackApproval,
   type UtilityRuntimeResolution,
 } from "./endpointPolicy";
+import { ANTHROPIC_DEFAULT_BASE_URL } from "./auth";
+import { providerFailureMessage } from "./errorHints";
 
 export interface ProviderSelection {
   provider: Provider;
   model: string;
+  /** Sanitized endpoint snapshot for accurate, secret-safe error attribution. */
+  endpoint?: string;
 }
+
+export type UtilitySelectionResolver = () => Promise<ProviderSelection>;
 
 export type RuntimeUtilitySelection =
   | (Extract<UtilityRuntimeResolution, { state: "configured-provider" | "approved-Claude-fallback" }> & ProviderSelection)
@@ -53,7 +60,10 @@ export class ProviderRouter {
   readonly ollama: OllamaProvider;
   readonly openaiCompat: OpenAICompatProvider;
 
-  constructor(private settings: PluginSettings) {
+  constructor(
+    private settings: PluginSettings,
+    private utilitySelectionResolver?: UtilitySelectionResolver,
+  ) {
     this.anthropic = new AnthropicProvider({
       mode: settings.authMode,
       apiKey: settings.apiKey,
@@ -114,7 +124,12 @@ export class ProviderRouter {
     fallbackApproval?: UtilityFallbackApproval;
   }): RuntimeUtilitySelection {
     const backend = this.settings.utilityBackend;
-    const endpoint = backend === "ollama" ? this.settings.ollamaHost : backend === "custom" ? this.settings.openaiCompatHost : undefined;
+    const endpoint =
+      backend === "ollama"
+        ? this.settings.ollamaHost
+        : backend === "custom"
+          ? this.settings.openaiCompatHost
+          : this.settings.baseUrl.trim() || ANTHROPIC_DEFAULT_BASE_URL;
     const resolution = applyUtilityRuntimePolicy({
       backend,
       ...(endpoint !== undefined ? { endpoint } : {}),
@@ -127,12 +142,32 @@ export class ProviderRouter {
         ...resolution,
         provider: this.anthropic,
         model: resolveModelId(this.settings.model, this.settings.customModel),
+        endpoint: sanitizeEndpointForDisplay(this.settings.baseUrl.trim() || ANTHROPIC_DEFAULT_BASE_URL),
       };
     }
     if (resolution.state === "configured-provider") {
-      return { ...resolution, ...this.resolve("utility") };
+      const selection = this.resolve("utility");
+      return {
+        ...resolution,
+        ...selection,
+        endpoint: sanitizeEndpointForDisplay(
+          selection.provider.id === "ollama"
+            ? this.settings.ollamaHost
+            : selection.provider.id === "openai-compat"
+              ? this.settings.openaiCompatHost
+              : this.settings.baseUrl.trim() || ANTHROPIC_DEFAULT_BASE_URL,
+        ),
+      };
     }
     return resolution;
+  }
+
+  /** Resolve utility network access through the plugin-owned runtime/privacy gate. */
+  async utilitySelection(): Promise<ProviderSelection> {
+    if (!this.utilitySelectionResolver) {
+      throw new Error("Utility completion requires a runtime resolver; use completeResolved with an explicitly approved selection.");
+    }
+    return this.utilitySelectionResolver();
   }
 
   /**
@@ -174,7 +209,8 @@ export class ProviderRouter {
     role: TaskRole,
     req: BufferedCompletionInput,
   ): Promise<{ text: string; provider: Provider }> {
-    return this.completeResolved(this.resolve(role), req);
+    const selection = role === "utility" ? await this.utilitySelection() : this.resolve(role);
+    return this.completeResolved(selection, req);
   }
 
   /** Complete with a selection already resolved by the caller's runtime/privacy policy. */
@@ -183,17 +219,22 @@ export class ProviderRouter {
     req: BufferedCompletionInput,
   ): Promise<{ text: string; provider: Provider }> {
     const { provider, model } = selection;
-    const text = await provider.complete({
-      system: req.system,
-      model,
-      maxTokens: req.maxTokens ?? 1024,
-      temperature: req.temperature ?? 0,
-      messages: [{ role: "user", content: req.user }],
-      ...(req.responseFormat ? { responseFormat: req.responseFormat } : {}),
-      ...(req.responseSchema ? { responseSchema: req.responseSchema } : {}),
-      ...(req.thinking ? { thinking: req.thinking } : {}),
-    });
-    return { text, provider };
+    try {
+      const text = await provider.complete({
+        system: req.system,
+        model,
+        maxTokens: req.maxTokens ?? 1024,
+        temperature: req.temperature ?? 0,
+        messages: [{ role: "user", content: req.user }],
+        ...(req.responseFormat ? { responseFormat: req.responseFormat } : {}),
+        ...(req.responseSchema ? { responseSchema: req.responseSchema } : {}),
+        ...(req.thinking ? { thinking: req.thinking } : {}),
+      });
+      return { text, provider };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(providerFailureMessage(message, provider.id, selection.endpoint));
+    }
   }
 
   /** The configured chat backend mode. */

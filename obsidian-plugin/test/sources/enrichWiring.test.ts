@@ -8,15 +8,20 @@ vi.mock("obsidian", async (importOriginal) => ({
 import ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import type { EnrichDeps } from "../../src/sources/enrich";
-import { App, FakeElement, getLastOpenedModal, Platform, TFile, WorkspaceLeaf } from "obsidian";
+import { App, clearNotices, FakeElement, getLastOpenedModal, getNoticeMessages, Platform, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import { ChoiceModal } from "../../src/view/ChoiceModal";
 import { ProviderRouter, type ProviderSelection } from "../../src/providers/router";
 import { InboxView } from "../../src/view/InboxView";
+import { summarizeAndTag } from "../../src/indexing/autoTagger";
+import { OrganizeReviewModal } from "../../src/view/OrganizeReviewModal";
 
 interface PrivateEnrich {
   enrichDeps(selection: ProviderSelection): EnrichDeps;
   resolvedEnrichDeps(): Promise<EnrichDeps>;
   sourceEnrichmentErrorHint(message: string): string | null;
+  triageClippings(): Promise<void>;
+  buildEnrichProposal(file: TFile, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<unknown>;
+  organizeFolderFlow(folder: TFolder): Promise<void>;
 }
 
 function pluginHarness(completeResolved: ReturnType<typeof vi.fn>): ClaudeCompanionPlugin {
@@ -59,8 +64,7 @@ function mobilePlugin(overrides: Partial<typeof DEFAULT_SETTINGS> = {}): {
     ...overrides,
   };
   Object.assign(plugin, { app, enrichRecentlyWritten: new Set<string>() });
-  const router = new ProviderRouter(plugin.settings);
-  Object.defineProperty(plugin, "router", { value: () => router });
+  const router = plugin.router();
   return { app, file, plugin, router };
 }
 
@@ -80,6 +84,7 @@ async function settle(turns = 8): Promise<void> {
 afterEach(() => {
   Platform.isMobile = false;
   Platform.isDesktop = true;
+  clearNotices();
   vi.restoreAllMocks();
 });
 
@@ -147,6 +152,8 @@ describe("source enrichment wiring", () => {
 
     expect(complete).not.toHaveBeenCalled();
     expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/not approved.*LAN or remote endpoint/i);
+    expect(getNoticeMessages().at(-1)).not.toMatch(/see console/i);
     await expect((plugin as unknown as PrivateEnrich).resolvedEnrichDeps()).rejects.toThrow(/not approved.*LAN or remote endpoint/i);
     expect(opened).toHaveBeenCalledTimes(1);
     expect(plugin.settings.utilityBackend).toBe("ollama");
@@ -194,5 +201,184 @@ describe("source enrichment wiring", () => {
     expect((plugin as unknown as PrivateEnrich).sourceEnrichmentErrorHint("failed to fetch")).toContain(
       "OpenAI-compatible endpoint at https://models.example.com",
     );
+  });
+
+  it("gates auto-tag utility completion through the same mobile consent boundary", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, plugin, router } = mobilePlugin();
+    const ollamaComplete = vi.spyOn(router.ollama, "complete").mockResolvedValue("unsafe");
+    const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const pending = summarizeAndTag(app, router, "Private note content.", []);
+    await settle();
+
+    expect(opened).toHaveBeenCalledTimes(1);
+    choose("Don't send");
+    await expect(pending).rejects.toThrow(/not approved.*LAN or remote endpoint/i);
+    expect(ollamaComplete).not.toHaveBeenCalled();
+    expect(claudeComplete).not.toHaveBeenCalled();
+  });
+
+  it("serializes concurrent mobile fallback consent and keeps denial authoritative", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { plugin, router } = mobilePlugin();
+    const ollamaComplete = vi.spyOn(router.ollama, "complete").mockResolvedValue("unsafe");
+    const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+    const opened = vi.spyOn(ChoiceModal.prototype, "open");
+
+    const first = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    const second = (plugin as unknown as PrivateEnrich).resolvedEnrichDeps();
+    const settled = Promise.allSettled([first, second]);
+    await settle();
+
+    expect(opened).toHaveBeenCalledTimes(1);
+    const buttons = (getLastOpenedModal()?.contentEl as unknown as FakeElement).querySelectorAll("button");
+    const deny = buttons.find((button) => button.textContent === "Don't send");
+    const allow = buttons.find((button) => button.textContent === "Use Claude this session");
+    deny?.dispatchEvent({ type: "click" });
+    allow?.dispatchEvent({ type: "click" });
+
+    expect((await settled).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    await expect((plugin as unknown as PrivateEnrich).resolvedEnrichDeps()).rejects.toThrow(/not approved/i);
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(ollamaComplete).not.toHaveBeenCalled();
+    expect(claudeComplete).not.toHaveBeenCalled();
+  });
+
+  it("shows an actionable Notice and performs no I/O for configured Claude without credentials", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin({ utilityBackend: "claude", apiKey: "", oauthToken: "" });
+    const before = await app.vault.cachedRead(file);
+    const complete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+
+    await plugin.enrichInboxItem(file);
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/no Anthropic credential.*add a credential/i);
+    expect(getNoticeMessages().at(-1)).not.toMatch(/see console/i);
+  });
+
+  it("attributes a provider failure to the pinned endpoint even if settings change in flight", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const original = "https://models.example.com/v1";
+    const { plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: original,
+      openaiCompatModel: "remote-model",
+    });
+    let fail!: (reason: Error) => void;
+    const response = new Promise<string>((_resolve, reject) => { fail = reject; });
+    vi.spyOn(router.openaiCompat, "complete").mockReturnValue(response);
+
+    const pending = plugin.enrichInboxItem((plugin.app.vault.getAbstractFileByPath("Clippings/private.md") as TFile));
+    await settle();
+    plugin.settings.openaiCompatHost = "https://changed.example.com/v1";
+    fail(new Error("failed to fetch"));
+    await pending;
+
+    expect(getNoticeMessages().at(-1)).toContain(`OpenAI-compatible endpoint at ${original}`);
+    expect(getNoticeMessages().at(-1)).not.toContain("changed.example.com");
+  });
+
+  it("redacts invalid endpoint credentials from the actionable Notice", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { file, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "http://alice:supersecret@models.example.com/v1",
+      openaiCompatModel: "remote-model",
+    });
+    const complete = vi.spyOn(router.openaiCompat, "complete").mockResolvedValue("unsafe");
+
+    await plugin.enrichInboxItem(file);
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(getNoticeMessages().at(-1)).toContain("http://models.example.com/v1");
+    expect(getNoticeMessages().at(-1)).toMatch(/invalid/i);
+    expect(getNoticeMessages().join("\n")).not.toMatch(/alice|supersecret/i);
+  });
+
+  it("aborts clipping organization when enrichment fallback is denied instead of proposing default moves", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin();
+    const before = await app.vault.cachedRead(file);
+    const review = vi.spyOn(OrganizeReviewModal.prototype, "open");
+    const ollamaComplete = vi.spyOn(router.ollama, "complete").mockResolvedValue("unsafe");
+    const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+
+    const pending = plugin.organizeClippings();
+    await settle();
+    choose("Don't send");
+    await pending;
+
+    expect(review).not.toHaveBeenCalled();
+    expect(ollamaComplete).not.toHaveBeenCalled();
+    expect(claudeComplete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+    expect(getNoticeMessages().at(-1)).toMatch(/organizing stopped.*not approved/i);
+  });
+
+  it("aborts triage on denied enrichment before excerpts reach the chat provider or a board is written", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, plugin, router } = mobilePlugin();
+    const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue(
+      JSON.stringify({ groups: [{ theme: "Private", paths: ["Clippings/private.md"], rationale: "private" }] }),
+    );
+
+    const pending = (plugin as unknown as PrivateEnrich).triageClippings();
+    await settle();
+    choose("Don't send");
+    await pending;
+
+    expect(claudeComplete).not.toHaveBeenCalled();
+    expect(app.vault.getAbstractFileByPath("Clippings/Triage.md")).toBeNull();
+    expect(getNoticeMessages().at(-1)).toMatch(/triage failed.*not approved/i);
+  });
+
+  it("propagates denied utility tagging so note enrichment cannot continue into chat lint or review", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin();
+    const before = await app.vault.cachedRead(file);
+    const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+
+    const pending = (plugin as unknown as PrivateEnrich).buildEnrichProposal(file, {
+      rename: true,
+      frontmatter: true,
+      links: true,
+      lint: true,
+    });
+    await settle();
+    choose("Don't send");
+
+    await expect(pending).rejects.toThrow(/not approved/i);
+    expect(claudeComplete).not.toHaveBeenCalled();
+    expect(await app.vault.cachedRead(file)).toBe(before);
+  });
+
+  it("aborts folder organization on denied utility inference instead of proposing misc moves", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { file, plugin, router } = mobilePlugin();
+    const folder = Object.assign(new TFolder("Clippings"), { children: [file], name: "Clippings" });
+    const review = vi.spyOn(OrganizeReviewModal.prototype, "open");
+    const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
+
+    const pending = (plugin as unknown as PrivateEnrich).organizeFolderFlow(folder);
+    await settle();
+    choose("Don't send");
+    await pending;
+
+    expect(review).not.toHaveBeenCalled();
+    expect(claudeComplete).not.toHaveBeenCalled();
+    expect(getNoticeMessages().at(-1)).toMatch(/organize failed.*not approved/i);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyEndpoint, resolveUtilityForRuntime } from "../../src/providers/endpointPolicy";
+import { classifyEndpoint, resolveUtilityForRuntime, sanitizeEndpointForDisplay } from "../../src/providers/endpointPolicy";
 
 describe("classifyEndpoint", () => {
   it.each([
@@ -8,11 +8,42 @@ describe("classifyEndpoint", () => {
     ["http://[::1]:11434", "loopback"],
     ["http://0.0.0.0:11434", "wildcard-local"],
     ["http://[::]:11434", "wildcard-local"],
+    ["http://[::ffff:127.0.0.1]:11434", "loopback"],
+    ["http://[::ffff:7f00:1]:11434", "loopback"],
+    ["http://[::127.0.0.1]:11434", "loopback"],
+    ["http://[::7f00:1]:11434", "loopback"],
+    ["http://[::ffff:0.0.0.0]:11434", "wildcard-local"],
+    ["http://[::ffff:0:0]:11434", "wildcard-local"],
     ["http://192.168.1.24:11434", "lan"],
     ["https://models.example.com", "remote"],
+    ["https://models.example.com/v1", "remote"],
+    ["ftp://models.example.com/v1", "invalid"],
+    ["http://user:password@models.example.com/v1", "invalid"],
+    ["http://@models.example.com/v1", "invalid"],
+    ["https://models.example.com/v1?token=secret", "invalid"],
+    ["https://models.example.com/v1?", "invalid"],
+    ["https://models.example.com/v1#private", "invalid"],
+    ["https://models.example.com/v1#", "invalid"],
+    ["https://bad_host.example.com/v1", "invalid"],
+    ["https://-models.example.com/v1", "invalid"],
+    ["https://models..example.com/v1", "invalid"],
+    ["http://exa mple.com", "invalid"],
     ["not a url", "invalid"],
   ] as const)("classifies %s as %s", (url, expected) => {
     expect(classifyEndpoint(url)).toBe(expected);
+  });
+});
+
+describe("sanitizeEndpointForDisplay", () => {
+  it("removes userinfo, query, and fragment from a parseable legacy endpoint", () => {
+    expect(sanitizeEndpointForDisplay("http://alice:supersecret@models.example.com:1234/v1?token=private#fragment"))
+      .toBe("http://models.example.com:1234/v1");
+  });
+
+  it("does not expose userinfo from a malformed legacy endpoint", () => {
+    const display = sanitizeEndpointForDisplay("http://alice:supersecret@");
+    expect(display).not.toContain("alice");
+    expect(display).not.toContain("supersecret");
   });
 });
 
@@ -107,5 +138,35 @@ describe("resolveUtilityForRuntime", () => {
       endpoint: "not a url",
       reason: "invalid-endpoint",
     });
+  });
+
+  it("returns no callable selection when configured Claude has no credentials", () => {
+    expect(resolveUtilityForRuntime({
+      backend: "claude",
+      endpoint: "https://gateway.example.com/v1",
+      isMobile: true,
+      claudeAvailable: false,
+    })).toEqual({
+      state: "unavailable-without-Claude",
+      backend: "claude",
+      endpoint: "https://gateway.example.com/v1",
+      reason: "claude-unavailable",
+    });
+  });
+
+  it("redacts userinfo when returning an invalid endpoint", () => {
+    const result = resolveUtilityForRuntime({
+      backend: "custom",
+      endpoint: "http://alice:supersecret@models.example.com/v1",
+      isMobile: true,
+      claudeAvailable: true,
+    });
+    expect(result).toEqual({
+      state: "unavailable-without-Claude",
+      backend: "custom",
+      endpoint: "http://models.example.com/v1",
+      reason: "invalid-endpoint",
+    });
+    expect(JSON.stringify(result)).not.toContain("supersecret");
   });
 });

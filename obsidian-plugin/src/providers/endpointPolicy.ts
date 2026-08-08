@@ -22,27 +22,101 @@ export type UtilityRuntimeResolution =
     }
   | {
       state: "unavailable-without-Claude";
-      backend: Exclude<UtilityBackend, "claude">;
+      backend: UtilityBackend;
       endpoint: string;
       reason: "claude-unavailable" | "fallback-denied" | "invalid-endpoint";
     };
 
-function normalizedHostname(url: string): string | null {
+export type UnavailableUtilityResolution = Exclude<
+  UtilityRuntimeResolution,
+  { state: "configured-provider" | "approved-Claude-fallback" }
+>;
+
+export class UtilityUnavailableError extends Error {
+  constructor(
+    message: string,
+    readonly resolution: UnavailableUtilityResolution,
+  ) {
+    super(message);
+    this.name = "UtilityUnavailableError";
+  }
+}
+
+function validEndpoint(url: string): URL | null {
   try {
-    const hostname = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-    return hostname || null;
+    const raw = url.trim();
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    const authorityStart = raw.indexOf("://") + 3;
+    const authorityEndMatch = raw.slice(authorityStart).search(/[/?#]/);
+    const authorityEnd = authorityEndMatch < 0 ? raw.length : authorityStart + authorityEndMatch;
+    const authority = raw.slice(authorityStart, authorityEnd);
+    // URL normalizes empty userinfo/query/fragment markers away, so inspect the
+    // literal input too: all of them are forbidden even when their value is empty.
+    if (!parsed.hostname || authority.includes("@") || raw.includes("?") || raw.includes("#")) return null;
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    if (!hostname.includes(":")) {
+      const labels = hostname.split(".");
+      if (labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label))) return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
 }
 
+export function sanitizeEndpointForDisplay(endpoint: string): string {
+  const raw = endpoint.trim();
+  try {
+    const parsed = new URL(raw);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.protocol}//${parsed.host}${path}`;
+  } catch {
+    return raw
+      .replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, "$1")
+      .split(/[?#]/, 1)[0] ?? "";
+  }
+}
+
+function embeddedIpv4Class(hostname: string): "loopback" | "wildcard-local" | null {
+  if (!hostname.includes(":")) return null;
+  const split = hostname.split("::");
+  if (split.length > 2) return null;
+  const left = split[0] ? split[0].split(":") : [];
+  const right = split.length === 2 && split[1] ? split[1].split(":") : [];
+  const missing = 8 - left.length - right.length;
+  if (missing < 0 || (split.length === 1 && missing !== 0)) return null;
+  const parts = [...left, ...Array.from({ length: missing }, () => "0"), ...right];
+  if (parts.length !== 8 || parts.some((part) => !/^[0-9a-f]{1,4}$/i.test(part))) return null;
+  const values = parts.map((part) => Number.parseInt(part, 16));
+  const compatible = values.slice(0, 6).every((part) => part === 0);
+  const mapped = values.slice(0, 5).every((part) => part === 0) && values[5] === 0xffff;
+  if (!compatible && !mapped) return null;
+  const high = values[6] ?? 0;
+  const low = values[7] ?? 0;
+  const first = high >> 8;
+  const second = high & 0xff;
+  const third = low >> 8;
+  const fourth = low & 0xff;
+  if (first === 127) return "loopback";
+  if (first === 0 && second === 0 && third === 0 && fourth === 0) return "wildcard-local";
+  return null;
+}
+
 export function classifyEndpoint(url: string): EndpointClassification {
-  const hostname = normalizedHostname(url);
-  if (!hostname) return "invalid";
+  const parsed = validEndpoint(url);
+  if (!parsed) return "invalid";
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "::1" || /^127(?:\.|$)/.test(hostname)) {
     return "loopback";
   }
   if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::0") return "wildcard-local";
+  const embedded = embeddedIpv4Class(hostname);
+  if (embedded) return embedded;
 
   const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
   if (ipv4) {
@@ -62,14 +136,17 @@ export function classifyEndpoint(url: string): EndpointClassification {
 }
 
 export function resolveUtilityForRuntime(policy: UtilityRuntimePolicy): UtilityRuntimeResolution {
-  if (!policy.isMobile || policy.backend === "claude") {
-    return { state: "configured-provider", backend: policy.backend };
+  const rawEndpoint = policy.endpoint ?? (policy.backend === "claude" ? "https://api.anthropic.com" : "");
+  const endpoint = sanitizeEndpointForDisplay(rawEndpoint);
+  if (policy.backend === "claude" && !policy.claudeAvailable) {
+    return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "claude-unavailable" };
   }
-
-  const endpoint = policy.endpoint ?? "";
-  const classification = classifyEndpoint(endpoint);
+  const classification = classifyEndpoint(rawEndpoint);
   if (classification === "invalid") {
     return { state: "unavailable-without-Claude", backend: policy.backend, endpoint, reason: "invalid-endpoint" };
+  }
+  if (!policy.isMobile || policy.backend === "claude") {
+    return { state: "configured-provider", backend: policy.backend };
   }
   if (classification === "lan" || classification === "remote") {
     return { state: "configured-provider", backend: policy.backend };

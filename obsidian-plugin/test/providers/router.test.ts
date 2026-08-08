@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ProviderRouter, migrateUtilityBackend } from "../../src/providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
+import type { Provider } from "../../src/providers/types";
 
 function settings(overrides: Partial<PluginSettings>): PluginSettings {
   return { ...DEFAULT_SETTINGS, apiKey: "sk-ant-api-test", ...overrides };
@@ -112,6 +113,68 @@ describe("ProviderRouter.completeResolved", () => {
 
     expect(result.provider).toBe(selected.provider);
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ model: "qwen3:1.7b" }));
+  });
+
+  it("attributes provider failures to the pinned sanitized endpoint", async () => {
+    const r = new ProviderRouter(settings({ utilityBackend: "custom" }));
+    const selected = {
+      provider: r.openaiCompat,
+      model: "remote-model",
+      endpoint: "https://alice:supersecret@models.example.com/v1",
+    };
+    vi.spyOn(r.openaiCompat, "complete").mockRejectedValue(
+      new Error("gateway exploded at https://alice:supersecret@models.example.com/v1"),
+    );
+
+    await expect(r.completeResolved(selected, { system: "sys", user: "private note" }))
+      .rejects.toThrow(/OpenAI-compatible endpoint at https:\/\/models\.example\.com\/v1.*gateway exploded/i);
+    await expect(r.completeResolved(selected, { system: "sys", user: "private note" }))
+      .rejects.not.toThrow(/alice|supersecret/i);
+  });
+
+  it("identifies a pinned Anthropic gateway on network failure", async () => {
+    const r = new ProviderRouter(settings({ utilityBackend: "claude" }));
+    vi.spyOn(r.anthropic, "complete").mockRejectedValue(new Error("failed to fetch"));
+
+    await expect(r.completeResolved({
+      provider: r.anthropic,
+      model: "claude-test",
+      endpoint: "https://gateway.example.com/v1",
+    }, { system: "sys", user: "private note" })).rejects.toThrow(
+      /Anthropic at https:\/\/gateway\.example\.com\/v1/i,
+    );
+  });
+});
+
+describe("ProviderRouter.complete utility privacy boundary", () => {
+  it("rejects utility completion before provider I/O when no runtime resolver is installed", async () => {
+    const r = new ProviderRouter(settings({ utilityBackend: "claude" }));
+    const complete = vi.spyOn(r.anthropic, "complete").mockResolvedValue("unsafe");
+
+    await expect(r.complete("utility", { system: "sys", user: "private note" }))
+      .rejects.toThrow(/runtime resolver/i);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("uses the runtime resolver's pinned provider and model for utility completion", async () => {
+    let requestModel = "";
+    const provider: Provider = {
+      id: "ollama",
+      label: "Approved utility",
+      hasCredentials: () => true,
+      stream: async () => undefined,
+      complete: async (request) => { requestModel = request.model; return "safe"; },
+      test: async () => ({ ok: true, detail: "ready" }),
+    };
+    const r = new ProviderRouter(
+      settings({ utilityBackend: "claude" }),
+      async () => ({ provider, model: "approved-model", endpoint: "http://192.168.1.24:11434" }),
+    );
+
+    const result = await r.complete("utility", { system: "sys", user: "private note" });
+
+    expect(result).toEqual({ text: "safe", provider });
+    expect(requestModel).toBe("approved-model");
   });
 });
 

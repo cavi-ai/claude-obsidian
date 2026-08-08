@@ -231,8 +231,14 @@ export class App {
 }
 
 // Value stubs for modules that import these names (not exercised in tests).
+const noticeHistory: Notice[] = [];
+export function clearNotices(): void { noticeHistory.length = 0; }
+export function getNoticeMessages(): string[] { return noticeHistory.map((notice) => notice.message); }
 export class Notice {
-  constructor(public message: string) {}
+  hidden = false;
+  constructor(public message: string) { noticeHistory.push(this); }
+  hide(): void { this.hidden = true; }
+  setMessage(message: string): void { this.message = message; }
 }
 export class FileSystemAdapter {
   constructor(private readonly basePath = "") {}
