@@ -2,8 +2,11 @@ import { ItemView, WorkspaceLeaf, TFile, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import { inboxItems, type InboxFileEntry, type InboxItem } from "../sources/inbox";
 import { wireUpItems, type WireUpEntry } from "../links/wireUp";
+import type { BatchLinkApplyResult } from "../links/batch";
+import { createInboxRefreshController, type InboxRefreshController } from "./inboxRefresh";
 
 export const INBOX_VIEW_TYPE = "claude-inbox-view";
+const INBOX_REFRESH_DEBOUNCE_MS = 100;
 
 /**
  * Source-inbox triage: everything the clipper dropped that isn't typed yet,
@@ -13,11 +16,22 @@ export const INBOX_VIEW_TYPE = "claude-inbox-view";
  */
 export class InboxView extends ItemView {
   private enriching = new Set<string>();
-  /** Bumped on every render so stale async wire-up scans can't paint. */
-  private renderSeq = 0;
+  private readonly refresh: InboxRefreshController;
+  /** A bulk enrichment or link review is active; do not start another batch. */
+  private batchOperation: "enrich" | "link" | null = null;
+  /** Last completed batch result, kept visible after its links leave the list. */
+  private linkSummary: string | null = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: ClaudeCompanionPlugin) {
     super(leaf);
+    this.refresh = createInboxRefreshController(
+      () => void this.render(),
+      {
+        setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        clearTimeout: (timer) => window.clearTimeout(timer),
+      },
+      INBOX_REFRESH_DEBOUNCE_MS,
+    );
   }
 
   override getViewType(): string {
@@ -31,11 +45,15 @@ export class InboxView extends ItemView {
   }
 
   override async onOpen(): Promise<void> {
-    this.registerEvent(this.app.vault.on("create", () => void this.render()));
-    this.registerEvent(this.app.vault.on("delete", () => void this.render()));
-    this.registerEvent(this.app.vault.on("rename", () => void this.render()));
-    this.registerEvent(this.app.metadataCache.on("changed", () => void this.render()));
+    this.registerEvent(this.app.vault.on("create", () => this.refresh.request()));
+    this.registerEvent(this.app.vault.on("delete", () => this.refresh.request()));
+    this.registerEvent(this.app.vault.on("rename", () => this.refresh.request()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.refresh.request()));
     await this.render();
+  }
+
+  override async onClose(): Promise<void> {
+    this.refresh.dispose();
   }
 
   private pending(): InboxItem[] {
@@ -49,7 +67,8 @@ export class InboxView extends ItemView {
   }
 
   async render(): Promise<void> {
-    const seq = ++this.renderSeq;
+    const generation = this.refresh.nextGeneration();
+    if (!this.refresh.isCurrent(generation)) return;
     const root = this.contentEl;
     root.empty();
     root.addClass("cc-inbox-view");
@@ -73,6 +92,7 @@ export class InboxView extends ItemView {
       const bar = root.createDiv({ cls: "cc-inbox-bar" });
       bar.createSpan({ cls: "cc-inbox-count", text: `${items.length} to type` });
       const all = bar.createEl("button", { cls: "cc-inbox-enrich-all", text: "Enrich all" });
+      all.disabled = this.batchOperation !== null;
       all.addEventListener("click", () => void this.enrichAll(items));
 
       const list = root.createDiv({ cls: "cc-inbox-list" });
@@ -98,17 +118,29 @@ export class InboxView extends ItemView {
 
     // Wire-up section: enriched notes that mention other notes without linking
     // them. Async (mention scan reads bodies) — guarded against stale renders.
-    void this.renderWireUp(root, seq);
+    void this.renderWireUp(root, generation);
   }
 
-  private async renderWireUp(root: HTMLElement, seq: number): Promise<void> {
+  private enrichedInboxFiles(): TFile[] {
     const inbox = this.plugin.settings.sourceInboxFolder.replace(/\/+$/, "");
-    if (!inbox) return;
-    const entries: WireUpEntry[] = [];
+    if (!inbox) return [];
+    const files: TFile[] = [];
     for (const f of this.app.vault.getMarkdownFiles()) {
       if (f.path === inbox || !f.path.startsWith(`${inbox}/`)) continue;
       const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
       if (fm?.source_enriched !== true) continue;
+      files.push(f);
+    }
+    return files;
+  }
+
+  private async renderWireUp(root: HTMLElement, generation: number): Promise<void> {
+    const inbox = this.plugin.settings.sourceInboxFolder.replace(/\/+$/, "");
+    if (!inbox) return;
+    const files = this.enrichedInboxFiles();
+    const entries: WireUpEntry[] = [];
+    for (const f of files) {
+      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
       entries.push({
         path: f.path,
         basename: f.basename,
@@ -117,12 +149,25 @@ export class InboxView extends ItemView {
         content: await this.app.vault.cachedRead(f),
       });
     }
-    if (entries.length === 0) return;
     const items = wireUpItems(entries, this.plugin.linkCandidates(), inbox);
-    if (items.length === 0 || seq !== this.renderSeq) return;
+    if ((items.length === 0 && !this.linkSummary) || !this.refresh.isCurrent(generation)) return;
 
     const section = root.createDiv({ cls: "cc-inbox-wireup" });
-    section.createEl("div", { cls: "cc-eyebrow", text: "WIRE INTO THE GRAPH" });
+    const header = section.createDiv({ cls: "cc-inbox-wireup-header" });
+    header.createEl("div", { cls: "cc-eyebrow", text: "WIRE INTO THE GRAPH" });
+    if (items.length > 0) {
+      const mentions = items.reduce((total, item) => total + item.mentionCount, 0);
+      header.createSpan({
+        cls: "cc-inbox-wireup-count",
+        text: `${items.length} note${items.length === 1 ? "" : "s"} · ${mentions} mention${mentions === 1 ? "" : "s"}`,
+      });
+      const reviewAll = header.createEl("button", { cls: "cc-inbox-review-all", text: "Review all links" });
+      reviewAll.disabled = this.batchOperation !== null;
+      reviewAll.addEventListener("click", () => void this.reviewAllLinks());
+    }
+    if (this.linkSummary) section.createEl("p", { cls: "cc-inbox-link-summary", text: this.linkSummary });
+    if (items.length === 0) return;
+
     const list = section.createDiv({ cls: "cc-inbox-list" });
     for (const item of items) {
       const row = list.createDiv({ cls: "cc-inbox-row" });
@@ -139,6 +184,7 @@ export class InboxView extends ItemView {
         attr: { "aria-label": `Review link suggestions for ${item.basename}` },
       });
       setIcon(btn, "link");
+      btn.disabled = this.batchOperation !== null;
       btn.addEventListener("click", () => {
         const f = this.app.vault.getAbstractFileByPath(item.path);
         if (f instanceof TFile) void this.plugin.reviewLinkSuggestions(f).then(() => this.render());
@@ -146,7 +192,8 @@ export class InboxView extends ItemView {
     }
   }
 
-  private async enrichOne(item: InboxItem): Promise<void> {
+  private async enrichOne(item: InboxItem, fromBatch = false): Promise<void> {
+    if ((!fromBatch && this.batchOperation !== null) || this.enriching.has(item.path)) return;
     const f = this.app.vault.getAbstractFileByPath(item.path);
     if (!(f instanceof TFile)) return;
     this.enriching.add(item.path);
@@ -160,6 +207,43 @@ export class InboxView extends ItemView {
   }
 
   private async enrichAll(items: InboxItem[]): Promise<void> {
-    for (const item of items) await this.enrichOne(item);
+    if (this.batchOperation !== null) return;
+    this.batchOperation = "enrich";
+    await this.render();
+    try {
+      for (const item of items) await this.enrichOne(item, true);
+    } finally {
+      this.batchOperation = null;
+      await this.render();
+    }
+  }
+
+  private async reviewAllLinks(): Promise<void> {
+    if (this.batchOperation !== null) return;
+    this.batchOperation = "link";
+    this.linkSummary = null;
+    await this.render();
+    try {
+      const result = await this.plugin.reviewInboxLinkSuggestions(this.enrichedInboxFiles());
+      if (result) this.linkSummary = this.describeLinkResult(result);
+    } catch (error) {
+      this.linkSummary = `Couldn't review links — ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      this.batchOperation = null;
+      await this.render();
+    }
+  }
+
+  private describeLinkResult(result: BatchLinkApplyResult): string {
+    const summary = result.appliedHunks > 0
+      ? `Linked ${result.appliedHunks} mention${result.appliedHunks === 1 ? "" : "s"} in ${result.appliedFiles} note${result.appliedFiles === 1 ? "" : "s"}.`
+      : "No link changes were applied.";
+    const conflicts = result.conflicts.length > 0
+      ? ` ${result.conflicts.length} note${result.conflicts.length === 1 ? " changed" : "s changed"} during review.`
+      : "";
+    const failures = result.failures.length > 0
+      ? ` ${result.failures.length} note${result.failures.length === 1 ? " failed" : "s failed"} to save.`
+      : "";
+    return summary + conflicts + failures;
   }
 }
