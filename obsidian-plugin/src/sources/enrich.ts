@@ -8,6 +8,8 @@ import { sanitize } from "../memory/sanitize";
 import { sourceFrontmatter, buildSidecarNote } from "./sourceNote";
 import { applySourceFrontmatter } from "./frontmatterMerge";
 import { sanitizeFileName } from "../artifacts/parse";
+import { assertBodyPreserved, markdownBody, validateEnrichment } from "./enrichmentQuality";
+import { buildFrontmatter } from "../indexing/frontmatter";
 
 export interface EnrichDeps {
   app: App;
@@ -112,11 +114,25 @@ export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Prom
       assetPath: capture.kind === "datafile" ? capture.path : undefined,
     },
   };
+  validateEnrichment(record);
 
   if (capture.kind === "markdown") {
     const file = deps.app.vault.getAbstractFileByPath(capture.path);
     if (!(file instanceof TFile)) throw new Error(`note not found: ${capture.path}`);
-    await applySourceFrontmatter(deps.app, file, sourceFrontmatter(record, deps.baseTags));
+    const original = await deps.app.vault.cachedRead(file);
+    const fm = sourceFrontmatter(record, deps.baseTags);
+    const originalBody = markdownBody(original);
+    const preview = `${buildFrontmatter(fm)}\n${originalBody}`;
+    assertBodyPreserved(original, preview);
+    try {
+      if (originalBody === original) await deps.app.vault.modify(file, preview);
+      else await applySourceFrontmatter(deps.app, file, fm);
+      const enriched = await deps.app.vault.cachedRead(file);
+      assertBodyPreserved(original, enriched);
+    } catch (error) {
+      await deps.app.vault.modify(file, original);
+      throw error;
+    }
     return { file, type, record };
   }
   const dir = capture.path.includes("/") ? capture.path.slice(0, capture.path.lastIndexOf("/")) : "";

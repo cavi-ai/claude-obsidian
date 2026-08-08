@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { App, TFile } from "obsidian";
 import { enrichCapture } from "../../src/sources/enrich";
 import type { EnrichDeps } from "../../src/sources/enrich";
+import { EnrichmentQualityError, markdownBody } from "../../src/sources/enrichmentQuality";
+import { parse as parseYaml } from "yaml";
 
 const LEAK = "sk-ant-api03-DEADBEEFDEADBEEFDEADBEEF";
 
@@ -10,18 +12,57 @@ function deps(app: App, complete: EnrichDeps["complete"]): EnrichDeps {
 }
 
 describe("enrichCapture — markdown clip", () => {
-  it("types the note in place, sanitizes fields, preserves the body", async () => {
+  it("changes frontmatter while preserving every body byte", async () => {
     const app = new App();
-    const file = app.vault.seed("Clippings/a.md", "---\nsource: https://stratechery.com/p\n---\n\nArticle body.");
-    const complete = async () => JSON.stringify({ title: "T", site: "Stratechery", summary: `Sum ${LEAK}` });
+    const file = app.vault.seed("Clippings/a.md", "---\nsource: https://stratechery.com/p\n---\n\n# Article body\n\nLine with two spaces.  \n---\nFinal line.\n");
+    const complete = async () => JSON.stringify({ title: "A useful title", site: "Stratechery", summary: "A concise summary." });
     const res = await enrichCapture(deps(app, complete), { kind: "markdown", path: "Clippings/a.md", basename: "a", content: (file as TFile)._content });
     expect(res.type).toBe("article");
     const out = await app.vault.cachedRead(res.file);
     expect(out).toContain('type: "article"');
     expect(out).toContain("source_enriched: true");
-    expect(out).not.toContain(LEAK);
-    expect(out).toContain("‹REDACTED›");
-    expect(out).toContain("Article body.");
+    expect(markdownBody(out)).toBe("\n# Article body\n\nLine with two spaces.  \n---\nFinal line.\n");
+  });
+
+  it("adds frontmatter to a plain Markdown capture without adding or removing a body byte", async () => {
+    const app = new App();
+    const before = "# Plain capture\n\nBody with trailing spaces.  \n";
+    const file = app.vault.seed("Clippings/plain.md", before);
+    const complete = async () => JSON.stringify({ title: "A plain capture", site: "Example", summary: "A concise summary." });
+
+    const res = await enrichCapture(deps(app, complete), {
+      kind: "markdown",
+      path: "Clippings/plain.md",
+      basename: "plain",
+      content: (file as TFile)._content,
+    });
+
+    const out = await app.vault.cachedRead(res.file);
+    expect(out).toContain("source_enriched: true");
+    expect(markdownBody(out)).toBe(before);
+  });
+
+  it("unions existing, base, and normalized topic tags without duplicates", async () => {
+    const app = new App();
+    const file = app.vault.seed("Clippings/tags.md", "---\ntags:\n  - web-clip\n  - source\nsource: https://example.com/post\n---\n\nBody.\n");
+    const complete = async () => JSON.stringify({
+      title: "Tag union behavior",
+      site: "Example",
+      summary: "A concise summary.",
+      topics: ["Research Notes", "source", "research-notes"],
+    });
+    const withOverlappingBase = { ...deps(app, complete), baseTags: ["source", "inbox", "web-clip"] };
+
+    const res = await enrichCapture(withOverlappingBase, {
+      kind: "markdown",
+      path: "Clippings/tags.md",
+      basename: "tags",
+      content: (file as TFile)._content,
+    });
+
+    const out = await app.vault.cachedRead(res.file);
+    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(out)?.[1];
+    expect(parseYaml(frontmatter ?? "").tags).toEqual(["web-clip", "source", "inbox", "research-notes"]);
   });
 
   it("keeps clipper-stamped values and only asks the model for the rest", async () => {
@@ -83,6 +124,40 @@ describe("enrichCapture — extraction failure", () => {
     const out = await app.vault.cachedRead(file as TFile);
     expect(out).not.toContain("source_enriched");
     expect(out).toContain("Untouched body.");
+  });
+
+  it("rejects secret-bearing enrichment before mutation and leaves the complete note byte-identical", async () => {
+    const app = new App();
+    const before = "---\nsource: https://x.com/p\ntags:\n  - private\n---\n\nUntouched body.  \n";
+    const file = app.vault.seed("Clippings/secret.md", before);
+    const complete = async () => JSON.stringify({ title: "A safe title", site: "Example", summary: `Summary ${LEAK}` });
+
+    await expect(
+      enrichCapture(deps(app, complete), { kind: "markdown", path: "Clippings/secret.md", basename: "secret", content: (file as TFile)._content }),
+    ).rejects.toBeInstanceOf(EnrichmentQualityError);
+
+    expect(await app.vault.cachedRead(file as TFile)).toBe(before);
+  });
+
+  it("rolls back the exact original content when the Obsidian merge changes a body byte", async () => {
+    const app = new App();
+    const before = "---\nsource: https://x.com/p\n---\n\nOriginal body.  \n";
+    const file = app.vault.seed("Clippings/rollback.md", before);
+    const manager = app.fileManager as unknown as {
+      processFrontMatter(target: TFile, mutate: (frontmatter: Record<string, unknown>) => void): Promise<void>;
+    };
+    const processFrontMatter = manager.processFrontMatter.bind(manager);
+    manager.processFrontMatter = async (target, mutate) => {
+      await processFrontMatter(target, mutate);
+      target._content = target._content.replace("Original body.", "Changed body.");
+    };
+    const complete = async () => JSON.stringify({ title: "Rollback safety", site: "Example", summary: "A concise summary." });
+
+    await expect(
+      enrichCapture(deps(app, complete), { kind: "markdown", path: "Clippings/rollback.md", basename: "rollback", content: (file as TFile)._content }),
+    ).rejects.toThrow("markdown body changed during enrichment");
+
+    expect(await app.vault.cachedRead(file as TFile)).toBe(before);
   });
 });
 
