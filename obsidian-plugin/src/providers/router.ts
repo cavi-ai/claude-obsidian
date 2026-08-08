@@ -284,7 +284,7 @@ export class ProviderRouter {
       return { text, provider };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(providerFailureMessage(message, provider.id, selection.endpoint));
+      throw new Error(providerFailureMessage(message, provider.id, selection.endpoint), { cause: error });
     }
   }
 

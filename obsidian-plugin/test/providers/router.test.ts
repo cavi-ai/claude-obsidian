@@ -232,6 +232,18 @@ describe("ProviderRouter.completeResolved", () => {
       /Anthropic at https:\/\/gateway\.example\.com\/v1/i,
     );
   });
+
+  it("preserves the original provider failure as the attributed error cause", async () => {
+    const r = new ProviderRouter(settings({ utilityBackend: "claude" }));
+    const original = new Error("failed to fetch");
+    vi.spyOn(r.anthropic, "complete").mockRejectedValue(original);
+
+    await expect(r.completeResolved({
+      provider: r.anthropic,
+      model: "claude-test",
+      endpoint: "https://gateway.example.com/v1",
+    }, { system: "sys", user: "private note" })).rejects.toMatchObject({ cause: original });
+  });
 });
 
 describe("ProviderRouter.complete utility privacy boundary", () => {
