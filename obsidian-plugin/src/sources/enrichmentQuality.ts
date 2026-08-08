@@ -29,6 +29,48 @@ function hasSecretBearingContent(value: string): boolean {
   return value.includes(REDACTION_MARKER) || sanitize(value) !== value;
 }
 
+function containsSecretBearingContent(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (typeof value === "string") return hasSecretBearingContent(value);
+  if (value === null || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  return Object.entries(value).some(([key, nested]) => (
+    hasSecretBearingContent(key) || containsSecretBearingContent(nested, seen)
+  ));
+}
+
+export interface MergedSourceProvenance {
+  url?: string | undefined;
+  source?: string | undefined;
+  assetPath?: string | undefined;
+}
+
+/** Validate and type preserved live provenance before constructing a SourceRecord. */
+export function validateMergedSourceProvenance(
+  frontmatter: Readonly<Record<string, unknown>>,
+): MergedSourceProvenance {
+  const errors: string[] = [];
+  const provenance: MergedSourceProvenance = {};
+  const candidates = [
+    ["url", "url"],
+    ["source", "source"],
+    ["asset", "assetPath"],
+  ] as const;
+  for (const [frontmatterKey, provenanceKey] of candidates) {
+    const value = frontmatter[frontmatterKey];
+    if (value === undefined || value === null) continue;
+    if (containsSecretBearingContent(value)) {
+      errors.push(`provenance.${provenanceKey}: contains secret-bearing content`);
+    }
+    if (typeof value !== "string") {
+      errors.push(`provenance.${provenanceKey}: expected string`);
+    } else {
+      provenance[provenanceKey] = value;
+    }
+  }
+  if (errors.length > 0) throw new EnrichmentQualityError(errors);
+  return provenance;
+}
+
 function normalizedTitlePart(value: string): string {
   return value
     .normalize("NFKC")

@@ -8,7 +8,7 @@ import { sanitize } from "../memory/sanitize";
 import { sourceFrontmatter, buildSidecarNote } from "./sourceNote";
 import { applySourceFrontmatter } from "./frontmatterMerge";
 import { sanitizeFileName } from "../artifacts/parse";
-import { validateEnrichment } from "./enrichmentQuality";
+import { validateEnrichment, validateMergedSourceProvenance } from "./enrichmentQuality";
 
 export interface EnrichDeps {
   app: App;
@@ -43,7 +43,8 @@ function sanitizeFields(fields: Record<string, FieldValue>): Record<string, Fiel
 function mergedSourceRecord(
   frontmatter: Readonly<Record<string, unknown>>,
   schema: SourceTypeSchema,
-  provenanceUrl: unknown = frontmatter.url,
+  provenanceUrl: string | undefined,
+  assetPath: string | undefined,
 ): SourceRecord {
   const fields: Record<string, unknown> = {};
   for (const field of schema.fields) {
@@ -54,7 +55,7 @@ function mergedSourceRecord(
     fields,
     provenance: {
       url: provenanceUrl,
-      assetPath: frontmatter.asset,
+      assetPath,
       capturedAt: frontmatter.captured_at,
       schemaVersion: frontmatter.schema_version,
       enrichedBy: frontmatter.enriched_by,
@@ -147,11 +148,20 @@ export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Prom
       sourceFrontmatter(record, deps.baseTags),
       (frontmatter) => {
         const context = { captureBasename: capture.basename };
-        validateEnrichment(mergedSourceRecord(frontmatter, schema), schema, context);
+        const provenance = validateMergedSourceProvenance(frontmatter);
+        validateEnrichment(
+          mergedSourceRecord(frontmatter, schema, provenance.url, provenance.assetPath),
+          schema,
+          context,
+        );
         // Web Clipper notes may retain their URL under the supported legacy
         // `source` alias even when canonical `url` is also present.
-        if (frontmatter.source !== undefined && frontmatter.source !== frontmatter.url) {
-          validateEnrichment(mergedSourceRecord(frontmatter, schema, frontmatter.source), schema, context);
+        if (provenance.source !== undefined && provenance.source !== provenance.url) {
+          validateEnrichment(
+            mergedSourceRecord(frontmatter, schema, provenance.source, provenance.assetPath),
+            schema,
+            context,
+          );
         }
       },
     );

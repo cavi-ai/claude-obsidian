@@ -235,11 +235,75 @@ describe("enrichCapture — extraction failure", () => {
         "summary: User summary",
         "source: https://example.com/?token=ghp_abcdefghijklmnopqrstuvwxyz0123",
       ],
+      message: "provenance.source: contains secret-bearing content",
+    },
+    {
+      name: "numeric URL",
+      liveFrontmatter: ["title: User title", "site: Example", "summary: User summary", "url: 42"],
+      message: "provenance.url: expected string",
+    },
+    {
+      name: "array URL",
+      liveFrontmatter: ["title: User title", "site: Example", "summary: User summary", "url:", "  - https://example.com/"],
+      message: "provenance.url: expected string",
+    },
+    {
+      name: "object URL with a nested secret",
+      liveFrontmatter: [
+        "title: User title",
+        "site: Example",
+        "summary: User summary",
+        "url:",
+        "  auth:",
+        `    token: ${LEAK}`,
+      ],
       message: "provenance.url: contains secret-bearing content",
     },
-  ])("rejects a concurrent live $name without writing any enrichment", async ({ liveFrontmatter, message }) => {
+    {
+      name: "array source URL alias with a nested secret",
+      liveFrontmatter: [
+        "title: User title",
+        "site: Example",
+        "summary: User summary",
+        "source:",
+        "  - href: https://example.com/",
+        `  - token: ${LEAK}`,
+      ],
+      message: "provenance.source: contains secret-bearing content",
+    },
+    {
+      name: "object source URL alias",
+      liveFrontmatter: [
+        "title: User title",
+        "site: Example",
+        "summary: User summary",
+        "source:",
+        "  href: https://example.com/",
+      ],
+      message: "provenance.source: expected string",
+    },
+    {
+      name: "array asset provenance",
+      capturedFrontmatter: ["type: video", "title: Initial title", "channel: Example"],
+      liveFrontmatter: [
+        "type: video",
+        "title: User title",
+        "channel: Example",
+        "summary: User summary",
+        "asset:",
+        "  - Clippings/video.mp4",
+      ],
+      message: "provenance.assetPath: expected string",
+    },
+  ])("rejects a concurrent live $name without writing any enrichment", async ({ capturedFrontmatter, liveFrontmatter, message }) => {
     const app = new App();
-    const captured = ["---", "title: Initial title", "site: Example", "---", "", "Body."].join("\n");
+    const captured = [
+      "---",
+      ...(capturedFrontmatter ?? ["title: Initial title", "site: Example"]),
+      "---",
+      "",
+      "Body.",
+    ].join("\n");
     const file = app.vault.seed("Clippings/live-invalid.md", captured);
     let extractionStarted!: () => void;
     const started = new Promise<void>((resolve) => { extractionStarted = resolve; });
