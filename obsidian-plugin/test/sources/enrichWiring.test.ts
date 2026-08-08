@@ -12,7 +12,7 @@ import { App, clearNotices, FakeElement, getLastOpenedModal, getNoticeMessages, 
 import { ChoiceModal } from "../../src/view/ChoiceModal";
 import { ProviderRouter, type ProviderSelection } from "../../src/providers/router";
 import { AnthropicProvider } from "../../src/providers/anthropic";
-import { InboxView } from "../../src/view/InboxView";
+import { InboxView, INBOX_VIEW_TYPE } from "../../src/view/InboxView";
 import { summarizeAndTag } from "../../src/indexing/autoTagger";
 import { OrganizeReviewModal } from "../../src/view/OrganizeReviewModal";
 
@@ -178,6 +178,38 @@ describe("source enrichment wiring", () => {
     const notice = getNotices().at(-1);
     expect(notice?.message).toContain("Typed source note");
     expect(notice?.timeout).toBe(5000);
+  });
+
+  it("keeps a successful public Inbox enrichment successful when one registered Inbox view cannot refresh", async () => {
+    Platform.isMobile = true;
+    Platform.isDesktop = false;
+    const { app, file, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "https://models.example.com/v1",
+      openaiCompatModel: "remote-model",
+    });
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+    }));
+    const broken = new InboxView(new WorkspaceLeaf(app), plugin);
+    const healthy = new InboxView(new WorkspaceLeaf(app), plugin);
+    const refreshFailure = new Error("closed Inbox leaf");
+    vi.spyOn(broken, "render").mockRejectedValue(refreshFailure);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    app.workspace = {
+      getLeaf: () => ({ openFile: async () => undefined }),
+      getLeavesOfType: (type: string) => type === INBOX_VIEW_TYPE
+        ? [{ view: broken }, { view: healthy }]
+        : [],
+    } as never;
+
+    await expect(plugin.enrichInboxItem(file, { inline: true })).resolves.toEqual({ status: "enriched" });
+
+    expect(await app.vault.cachedRead(file)).toMatch(/source_enriched:\s*true/);
+    expect((healthy.contentEl as unknown as FakeElement).querySelector(".cc-inbox-operation-status")?.textContent).toContain("Ready to enrich");
+    expect(warning).toHaveBeenCalledWith("[companion] Inbox refresh failed", refreshFailure);
   });
 
   it("denial is session-cached and prevents a model call or note write", async () => {

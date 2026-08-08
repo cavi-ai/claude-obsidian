@@ -2750,7 +2750,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async enrichInboxItem(file: TFile, options?: { inline?: boolean }): Promise<EnrichRunOutcome> {
     const outcome = await this.enrichFile(file, !options?.inline);
     for (const leaf of this.app.workspace.getLeavesOfType(INBOX_VIEW_TYPE)) {
-      if (leaf.view instanceof InboxView) await leaf.view.render();
+      if (leaf.view instanceof InboxView) {
+        try {
+          await leaf.view.render();
+        } catch (error) {
+          console.warn("[companion] Inbox refresh failed", error);
+        }
+      }
     }
     return outcome;
   }
