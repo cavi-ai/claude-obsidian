@@ -5,4 +5,6 @@ cd obsidian-plugin && pnpm run verify:version
 cd obsidian-plugin && pnpm run typecheck
 cd obsidian-plugin && pnpm run lint
 cd obsidian-plugin && pnpm test
+cd obsidian-plugin && pnpm run audit
 cd obsidian-plugin && pnpm run build
+cd obsidian-plugin && pnpm run verify:build-output

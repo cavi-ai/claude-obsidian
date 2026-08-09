@@ -77,5 +77,5 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Verify build output exists
-        run: test -f main.js
+      - name: Verify committed build output is reproducible
+        run: pnpm run verify:build-output
