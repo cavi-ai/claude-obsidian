@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "verify:build-output": "git diff --exit-code -- main.js manifest.json",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "verify:version": "node tools/verifyVersion.mjs",
     "lint": "eslint src",
