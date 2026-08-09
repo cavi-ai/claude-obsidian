@@ -4,6 +4,34 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] — 2026-08-09
+
+### Added
+- **Quick controls on every Companion surface.** Each view — chat, Source
+  Inbox, Related notes, Memory, Research Desk, Workbench — opens a focused
+  options menu for that page, with the settings entry last. The menu reads a
+  fresh settings snapshot each time and writes toggles through the same save
+  path as the settings tab, so the two can't drift.
+- **Activity indicator.** Long-running work reports itself: determinate jobs
+  show a real percentage, indeterminate downloads stay indeterminate rather
+  than inventing progress, and a touch-safe drawer lists per-file detail. Work
+  needing attention sorts above newer running work and carries its recovery and
+  dismiss actions inline; a failed recovery stays actionable instead of being
+  swallowed.
+- **Web Clipper setup and verification.** A setup modal walks through installing
+  the generated templates, and verification compares clipped notes against the
+  expected type, schema version, and destination, so a stale or misconfigured
+  clipper is visible instead of silently producing untyped clips.
+- **Semantic index recovery.** Embedding failures are classified — missing
+  built-in model, unreachable Ollama or custom endpoint, missing model, mobile
+  loopback endpoint, index storage failure — and each carries the action that
+  fixes it.
+
+### Changed
+- **The committed bundle is verified reproducible.** CI and the local gate lanes
+  rebuild and fail if `main.js` or `manifest.json` differ from the committed
+  copies.
+
 ## [0.23.0] — 2026-08-08
 
 ### Added
