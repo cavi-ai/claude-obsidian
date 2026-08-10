@@ -100,6 +100,9 @@ jobs:
           for dir in src test e2e assets tools; do
             rsync -a --delete "obsidian-plugin/$dir/" "release-repo/$dir/"
           done
+          # guides/ becomes the docs member of the release artifact; cavi-home's
+          # release ingest requires it and serves it as the product's docs.
+          rsync -a --delete guides/ release-repo/guides/
           cp obsidian-plugin/package.json       release-repo/package.json
           cp obsidian-plugin/pnpm-lock.yaml     release-repo/pnpm-lock.yaml
           cp obsidian-plugin/tsconfig.json      release-repo/tsconfig.json

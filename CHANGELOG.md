@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] — 2026-08-09
+
+### Fixed
+- **Released docs reach the site again.** The release artifact now carries the
+  guides beside the release facts, and its identity fields match what the docs
+  site expects, so a release updates the published documentation instead of
+  being rejected on ingest.
+
 ## [0.24.0] — 2026-08-09
 
 ### Added
