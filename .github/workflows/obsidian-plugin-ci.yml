@@ -74,6 +74,9 @@ jobs:
         if: matrix.node-version == '22.x'
         run: pnpm run audit
 
+      - name: Verify the docs artifact contract
+        run: pnpm run docs:verify
+
       - name: Build
         run: pnpm run build
 

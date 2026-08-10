@@ -4,6 +4,17 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] — 2026-08-09
+
+### Fixed
+- **OAuth chat sessions keep working.** Chat requests preserve the OAuth
+  credential instead of dropping it mid-session.
+- **Anthropic model compatibility.** Model ids, capability detection, and token
+  accounting follow the current Anthropic model surface.
+- **Published docs reach the site.** The release artifact now carries the docs
+  manifest and navigation the site expects, so a release refreshes the
+  published documentation.
+
 ## [0.24.1] — 2026-08-09
 
 ### Fixed
