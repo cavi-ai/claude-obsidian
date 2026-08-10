@@ -52,11 +52,27 @@ describe("buildRequestBody", () => {
     expect(body.messages[2].content[0]).toMatchObject({ type: "tool_result", tool_use_id: "t1", cache_control: { type: "ephemeral" } });
   });
 
-  it("keeps model-aware fields (temperature/thinking) working", () => {
+  it("keeps supported model-aware fields (temperature/thinking) working", () => {
     const body = JSON.parse(buildRequestBody({ ...baseReq, temperature: 0.2, thinking: { type: "adaptive" }, thinkingDisplay: "summarized" }, true, apiKeyAuth));
     expect(body.temperature).toBe(0.2);
     expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
   });
+
+  it.each([
+    "claude-sonnet-5",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-mythos-preview",
+  ])(
+    "omits temperature for %s before sending the Anthropic request",
+    (model) => {
+      const body = JSON.parse(buildRequestBody({ ...baseReq, model, temperature: 0.2 }, false, apiKeyAuth));
+      expect(body).not.toHaveProperty("temperature");
+    },
+  );
 });
 
 // ---- streaming behavior (window.fetch mocked) ----

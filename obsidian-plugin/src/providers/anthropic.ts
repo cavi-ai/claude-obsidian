@@ -3,6 +3,7 @@ import type { StreamHandlers } from "../types";
 import { parseSseChunk, extractApiError, type SseBlockState, type SseParseResult } from "../claude/sse";
 import { withCacheControl } from "../claude/cache";
 import { PING_MODEL } from "../claude/models";
+import { capabilitiesFor } from "../claude/capabilities";
 import { type CompletionRequest, type Provider, type ProviderStatus, ProviderError, isAbort } from "./types";
 import { type AuthInputs, type AuthMode, type ResolvedAuth, resolveAuth, resolveAuthBaseUrl, authHeaders, messagesUrl, buildSystem } from "./auth";
 
@@ -38,7 +39,12 @@ export function buildRequestBody(req: CompletionRequest, stream: boolean, auth: 
   if (cached.tools) payload.tools = cached.tools;
   // Model-aware fields (set by chatControls.shapeRequest); omit when absent so
   // we never send a parameter the active model would 400 on.
-  if (req.temperature !== undefined) payload.temperature = req.temperature;
+  // Enforce model constraints at the wire boundary too. Utility/research calls
+  // do not pass through chatControls and may still request deterministic
+  // sampling; current Anthropic models reject that field with HTTP 400.
+  if (req.temperature !== undefined && capabilitiesFor(req.model).temperature) {
+    payload.temperature = req.temperature;
+  }
   if (req.thinking) {
     payload.thinking =
       req.thinkingDisplay && req.thinking.type === "adaptive"
