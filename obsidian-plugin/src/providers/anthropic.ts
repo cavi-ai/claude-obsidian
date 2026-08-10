@@ -109,19 +109,6 @@ export class AnthropicProvider implements Provider {
     }
     let emitted = false;
     try {
-      const init: RequestInit = {
-        method: "POST",
-        headers: this.headers(auth),
-        body: this.body(req, true, auth),
-      };
-      if (req.signal) init.signal = req.signal;
-      const res = await window.fetch(messagesUrl(auth), init);
-      if (!res.ok || !res.body) {
-        const text = await res.text().catch(() => "");
-        throw new ProviderError(extractApiError(text, res.status), res.status);
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
       let buffer = "";
       let full = "";
       let stopReason: string | undefined;
@@ -138,14 +125,52 @@ export class AnthropicProvider implements Provider {
         if (r.usage) handlers.onUsage?.(r.usage);
         if (r.stopReason) stopReason = r.stopReason;
       };
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+
+      const consume = (chunk: string): void => {
+        buffer += chunk;
         const r = parseSseChunk(buffer, blockState);
         buffer = r.remainder;
         blockState = r.state;
         apply(r);
+      };
+
+      if (auth.isOAuth) {
+        // Obsidian's native request path is the same path used by test(). In
+        // particular, it preserves Authorization: Bearer on mobile/webviews,
+        // where browser fetch can reject or strip subscription OAuth auth. The
+        // response is buffered by requestUrl, then fed through the same SSE
+        // parser so agent tool calls and stop reasons retain their semantics.
+        const res = await requestUrl({
+          url: messagesUrl(auth),
+          method: "POST",
+          headers: this.headers(auth),
+          body: this.body(req, true, auth),
+          throw: false,
+        });
+        if (res.status < 200 || res.status >= 300) {
+          throw new ProviderError(extractApiError(res.text, res.status), res.status);
+        }
+        if (req.signal?.aborted) return;
+        consume(res.text);
+      } else {
+        const init: RequestInit = {
+          method: "POST",
+          headers: this.headers(auth),
+          body: this.body(req, true, auth),
+        };
+        if (req.signal) init.signal = req.signal;
+        const res = await window.fetch(messagesUrl(auth), init);
+        if (!res.ok || !res.body) {
+          const text = await res.text().catch(() => "");
+          throw new ProviderError(extractApiError(text, res.status), res.status);
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          consume(decoder.decode(value, { stream: true }));
+        }
       }
       // Flush a final complete event that arrived in the last chunk without a
       // trailing newline (otherwise its stop_reason/usage would be dropped).
@@ -196,7 +221,19 @@ export class AnthropicProvider implements Provider {
         url: messagesUrl(auth),
         method: "POST",
         headers: this.headers(auth),
-        body: JSON.stringify({ model: PING_MODEL, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
+        // Exercise the same serializer as chat. This is significant for OAuth:
+        // its required Claude Code identity must be present in both the test
+        // request and the real conversation request.
+        body: this.body(
+          {
+            system: "",
+            model: PING_MODEL,
+            maxTokens: 1,
+            messages: [{ role: "user", content: "ping" }],
+          },
+          false,
+          auth,
+        ),
         throw: false,
       });
       const how = auth.isOAuth ? "OAuth token" : "API key";
