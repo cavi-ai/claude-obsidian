@@ -4,6 +4,13 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.3] — 2026-08-09
+
+### Fixed
+- **Published docs render on the site.** The docs artifact now uses the same
+  page layout as the other CAVI products, and heading anchors in the shipped
+  pages resolve, so the site build no longer rejects the release.
+
 ## [0.24.2] — 2026-08-09
 
 ### Fixed
