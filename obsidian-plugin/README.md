@@ -227,7 +227,7 @@ same vault, same confirm-before-write guardrails, wherever you are.
   own smaller model if you like. Any **OpenAI-compatible endpoint** (LM Studio,
   mlx-lm, vLLM) can serve chat, utility work, or embeddings instead.
 - **Agent bridge** — optionally expose the vault as a local MCP server so Claude
-  Code and Claude Desktop operate on the same notes ([details below](#agent-bridge-mcp-server)).
+  Code and Claude Desktop operate on the same notes ([details below](#desktop-agents-cli-first-mcp-when-needed)).
 - **Cloud sessions (mobile-friendly)** — dispatch a Claude Code **cloud
   session** that works your vault's Git repo and writes replies back as notes
   pulled over HTTPS — the agent path that works from a phone, where the local
