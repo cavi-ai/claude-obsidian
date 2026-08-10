@@ -157,7 +157,7 @@ official CLI in Obsidian 1.12.7 or newer, then run:
 
 ```text
 /plugin marketplace add cavi-ai/plugins
-/plugin install obsidian-agent@plugins
+/plugin install obsidian-agent@cavi
 ```
 
 The universal plugin works without Companion and without MCP. Install Companion
