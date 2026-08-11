@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.6] — 2026-08-11
+
+### Added
+- **Compact composer context manager.** Chat now keeps automatic context and
+  added notes, folders, projects, PDFs, images, and webpages inside one
+  accessible control that opens as a desktop popover or mobile sheet. Pending
+  and failed webpage captures remain visible with retry and removal actions.
+
+### Fixed
+- **Desktop integrations open in Obsidian.** Node built-ins now load through
+  Electron's runtime boundary instead of Chromium's module loader.
+- **Chat confirmations clear promptly.** Ephemeral action feedback now dismisses
+  after 1.8 seconds instead of obstructing the workspace.
+
 ## [0.24.5] — 2026-08-11
 
 ### Added
