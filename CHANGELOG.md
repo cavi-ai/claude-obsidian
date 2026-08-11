@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] — 2026-08-11
+
+### Added
+- **Managed builds from plan notes.** Build now creates durable spec and tracker
+  notes, then opens a native Build Runner with Start, Pause, Resume, Cancel,
+  progress, task state, and bounded output. Desktop runs Claude Code directly
+  in the vault; mobile dispatches configured cloud routines one task at a time.
+
+### Changed
+- **Build controls stay inside Companion.** The previous clipboard command and
+  static HTML tracker are gone. Responsive native controls update in place,
+  preserve interrupted runs across restarts, and keep cloud task-boundary
+  behavior explicit.
+
 ## [0.24.6] — 2026-08-11
 
 ### Added
