@@ -29,9 +29,10 @@ async function seedVault(vault: string, providerPort: number): Promise<void> {
   // E2E_SEED_DATA points at a real data.json so the suite can run against a
   // lived-in config, not just the pristine one a fresh install writes.
   const seeded = process.env.E2E_SEED_DATA ? JSON.parse(await readFile(process.env.E2E_SEED_DATA, "utf8")) as { settings?: Record<string, unknown> } : null;
-  const settings = { apiKey: "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false };
+  const neutralOnboarding = { ontologySeedPrompted: true, semanticModelPrompted: true, sourceCaptureConsent: "deny" };
+  const settings = { apiKey: "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false, ...neutralOnboarding };
   await writeFile(join(plugin, "data.json"), JSON.stringify(seeded
-    ? { ...seeded, settings: { ...seeded.settings, apiKey: "e2e-key", baseUrl: `http://127.0.0.1:${providerPort}`, discoveryEnabled: false } }
+    ? { ...seeded, settings: { ...seeded.settings, apiKey: "e2e-key", baseUrl: `http://127.0.0.1:${providerPort}`, discoveryEnabled: false, ...neutralOnboarding } }
     : { settings, researchDeskPreferences: {} }));
 
   const alpha = join(vault, "Research", "Alpha");
@@ -81,7 +82,9 @@ export async function launchObsidianHarness(): Promise<ObsidianHarness> {
   if (!page) throw new Error(`Obsidian page not found. ${processOutput.slice(-1000)}`);
   await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
   const trustButton = page.getByRole("button", { name: "Trust author and enable plugins" });
-  if (await trustButton.isVisible().catch(() => false)) await trustButton.click();
+  if (await trustButton.waitFor({ state: "visible", timeout: 5_000 }).then(() => true).catch(() => false)) {
+    await trustButton.click();
+  }
   await page.waitForFunction(() => {
     const app = (window as unknown as { app?: { commands?: { commands?: Record<string, unknown> } } }).app;
     return Boolean(app?.commands?.commands?.["claude-companion:open-research-desk"]);
