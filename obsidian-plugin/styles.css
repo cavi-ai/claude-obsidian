@@ -1287,6 +1287,13 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-context-source-detail { color: var(--text-faint); font-size: var(--font-ui-smaller); }
 .cc-context-source-status { color: var(--text-muted); font-size: var(--font-ui-smaller); }
 .cc-context-source-error { color: var(--text-error); font-size: var(--font-ui-smaller); }
+.cc-context-source-error {
+  display: -webkit-box;
+  white-space: normal;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .cc-context-source-icon { color: var(--text-muted); }
 .cc-context-source-actions { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 .cc-context-source-action { min-width: 36px; font-size: var(--font-ui-smaller); }

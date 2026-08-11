@@ -46,6 +46,12 @@ async function seedVault(vault: string, providerPort: number): Promise<void> {
 
   const beta = join(vault, "Research", "Beta"); await mkdir(beta, { recursive: true });
   await writeFile(join(beta, "Project.md"), note('title: "Empty project"\ntype: "research-project"\nproject: "[[Research/Beta/Project.md]]"\nquestion: "What should we investigate?"\nstage: frame\nstatus: active', "# Empty project"));
+
+  const longReference = join(vault, "Reference material with a deliberately long folder name");
+  await mkdir(longReference, { recursive: true });
+  await writeFile(join(longReference, "A very long note title that must truncate without widening the composer.md"), "# Long fixture\n");
+  await writeFile(join(longReference, "Study.pdf"), Buffer.from("%PDF-1.4\n%e2e\n"));
+  await writeFile(join(longReference, "Figure.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 }
 
 async function waitForCdp(port: number): Promise<void> {

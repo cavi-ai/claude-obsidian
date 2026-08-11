@@ -46,9 +46,9 @@ describe("buildContextManagerModel", () => {
     expect(model.sources.at(-1)).toMatchObject({
       id: "page:https://failed.test/article",
       label: "failed.test/article",
-      detail: "failed.test/article",
       error: "Capture timed out",
     });
+    expect(model.sources.at(-1)?.detail).toBeUndefined();
     expect(input).toEqual(before);
   });
 
@@ -65,5 +65,22 @@ describe("buildContextManagerModel", () => {
       ],
     });
     expect(media.sources.map(({ id }) => id)).toEqual(["media:image:inline:0", "media:image:inline:1"]);
+  });
+
+  it("does not repeat an untitled webpage URL but retains the domain under a titled page", () => {
+    const model = buildContextManagerModel({
+      toggles: off,
+      activeNotePath: null,
+      paths: [],
+      media: [],
+      pages: [
+        { url: "https://example.test/plain", markdown: "body" },
+        { url: "https://example.test/titled", title: "Readable article", markdown: "body" },
+      ],
+    });
+
+    expect(model.sources[0]).toMatchObject({ label: "example.test/plain" });
+    expect(model.sources[0]?.detail).toBeUndefined();
+    expect(model.sources[1]).toMatchObject({ label: "Readable article", detail: "example.test/titled" });
   });
 });

@@ -75,14 +75,17 @@ export function buildContextManagerModel(input: ContextManagerInput): ContextMan
     ...(item.path ? { detail: item.path } : {}),
     status: "ready",
   }));
-  const pageSources: AddedContextItem[] = input.pages.map((item) => ({
-    id: `page:${item.url}`,
-    kind: "webpage",
-    label: item.title ?? pageLabel(item.url),
-    detail: pageLabel(item.url),
-    status: item.pending ? "pending" : item.error ? "error" : "ready",
-    ...(item.error ? { error: item.error } : {}),
-  }));
+  const pageSources: AddedContextItem[] = input.pages.map((item) => {
+    const fallbackLabel = pageLabel(item.url);
+    return {
+      id: `page:${item.url}`,
+      kind: "webpage",
+      label: item.title ?? fallbackLabel,
+      ...(item.title ? { detail: fallbackLabel } : {}),
+      status: item.pending ? "pending" : item.error ? "error" : "ready",
+      ...(item.error ? { error: item.error } : {}),
+    };
+  });
   const sources = [...pathSources, ...mediaSources, ...pageSources];
   const activeLabels = [
     ...automatic.filter((item) => item.enabled).map((item) => item.label),

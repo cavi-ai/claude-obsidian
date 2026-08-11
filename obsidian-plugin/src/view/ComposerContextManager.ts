@@ -160,7 +160,8 @@ export class ComposerContextManager {
     if (source.status === "pending") {
       copy.createSpan({ cls: "cc-context-source-status", text: "Pending capture", attr: { role: "status" } });
     } else if (source.status === "error") {
-      copy.createSpan({ cls: "cc-context-source-error", text: source.error ?? "Capture failed", attr: { role: "alert" } });
+      const error = source.error ?? "Capture failed";
+      copy.createSpan({ cls: "cc-context-source-error", text: error, attr: { role: "alert", title: error } });
     }
     const actions = row.createDiv({ cls: "cc-context-source-actions" });
     if (source.status === "error") {
