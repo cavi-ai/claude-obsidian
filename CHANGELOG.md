@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.5] — 2026-08-11
+
+### Added
+- **CLI-first desktop integrations.** Companion can inspect and set up Claude
+  Code through the official Obsidian CLI and `obsidian-agent`, then open a
+  terminal at the active vault without requiring MCP. Claude Desktop keeps an
+  explicit, confirmed loopback MCP setup with backup and atomic config updates.
+
+### Fixed
+- **Anthropic agent chat accepts research tools again.** Outbound Anthropic
+  tool schemas remove top-level JSON Schema unions that the Messages API
+  rejects while preserving nested constraints and the original internal tool
+  definitions.
+
 ## [0.24.4] — 2026-08-10
 
 ### Fixed
