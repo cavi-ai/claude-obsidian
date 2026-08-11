@@ -1778,14 +1778,13 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .is-mobile .cc-actions { gap: 8px; margin-top: 6px; }
 .is-mobile .cc-action { width: 40px; height: 40px; background: var(--background-secondary); opacity: 0.65; }
 .is-mobile .cc-action:active { opacity: 1; }
-/* flex:0 0 auto — without it the icon collapses to 0 width inside the flex
-   button on mobile, leaving an empty box (same fix as .cc-add-context svg). */
+/* flex:0 0 auto prevents action icons collapsing inside mobile flex buttons. */
 .is-mobile .cc-action svg { width: 18px; height: 18px; flex: 0 0 auto; }
 
 /* Long code lines scroll within their block instead of pushing the layout wide. */
 .is-mobile .cc-body pre { max-width: 100%; overflow-x: auto; }
 
-/* Composer: the messenger bar — [+] · auto-growing field · [↑] in one
+/* Composer: the messenger bar — auto-growing field · [↑] in one
    24px-radius surface. Empty it's one line (~52px); the field grows to ~6
    rows (autosizeInput caps it) and then scrolls internally, so the composer
    never owns the screen. 16px input font avoids iOS zoom-on-focus.
@@ -1828,7 +1827,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 .is-mobile .cc-composer-input-row .cc-input:focus { border: none; box-shadow: none; }
 .is-mobile .cc-composer-input-row .cc-input::-webkit-scrollbar { display: none; }
-/* Circular send matches .cc-add-context; lives in the input row (ChatView). */
+/* Circular send lives in the compact mobile input row. */
 .is-mobile .cc-send.cc-send-icon {
   flex: 0 0 auto;
   width: 40px;
@@ -1897,21 +1896,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding: 6px 14px;
   font-size: 13px;
 }
-
-/* The "+" context button sits at the bottom-left of the bar. */
-.is-mobile .cc-add-context {
-  flex: 0 0 auto;
-  width: 40px; height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  display: inline-flex; align-items: center; justify-content: center;
-  cursor: pointer;
-}
-.is-mobile .cc-add-context:active { background: var(--background-modifier-hover); }
-/* SVG flex children collapse to width:0 without an explicit size — pin it. */
-.is-mobile .cc-add-context svg { width: 19px; height: 19px; flex: 0 0 auto; }
 
 .is-mobile .cc-context-trigger,
 .is-mobile .cc-context-row,
