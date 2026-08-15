@@ -11,7 +11,11 @@ export interface ObsidianHarness {
   close(): Promise<void>;
 }
 
-export interface ObsidianHarnessOptions { fakeClaudeCode?: boolean }
+export interface ObsidianHarnessOptions {
+  fakeClaudeCode?: boolean;
+  /** Seed a genuinely fresh install: no credential, stock onboarding defaults. */
+  firstRun?: boolean;
+}
 
 function note(frontmatter: string, body: string): string { return `---\n${frontmatter}\n---\n\n${body}\n`; }
 
@@ -22,7 +26,7 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function seedVault(vault: string, providerPort: number): Promise<void> {
+async function seedVault(vault: string, providerPort: number, firstRun: boolean): Promise<void> {
   const obsidian = join(vault, ".obsidian"); const plugin = join(obsidian, "plugins", "claude-companion");
   await mkdir(plugin, { recursive: true });
   for (const file of ["main.js", "manifest.json", "styles.css"]) await copyFile(join(process.cwd(), file), join(plugin, file));
@@ -33,9 +37,14 @@ async function seedVault(vault: string, providerPort: number): Promise<void> {
   const seeded = process.env.E2E_SEED_DATA ? JSON.parse(await readFile(process.env.E2E_SEED_DATA, "utf8")) as { settings?: Record<string, unknown> } : null;
   const neutralOnboarding = { ontologySeedPrompted: true, semanticModelPrompted: true, sourceCaptureConsent: "deny" };
   const settings = { apiKey: "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false, ...neutralOnboarding };
-  await writeFile(join(plugin, "data.json"), JSON.stringify(seeded
-    ? { ...seeded, settings: { ...seeded.settings, apiKey: "e2e-key", baseUrl: `http://127.0.0.1:${providerPort}`, discoveryEnabled: false, ...neutralOnboarding } }
-    : { settings, researchDeskPreferences: {} }));
+  // firstRun keeps the stock onboarding defaults and no credential, so the
+  // connect path the other specs skip past is actually exercised.
+  const firstRunSettings = { authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false };
+  await writeFile(join(plugin, "data.json"), JSON.stringify(firstRun
+    ? { settings: firstRunSettings, researchDeskPreferences: {} }
+    : seeded
+      ? { ...seeded, settings: { ...seeded.settings, apiKey: "e2e-key", baseUrl: `http://127.0.0.1:${providerPort}`, discoveryEnabled: false, ...neutralOnboarding } }
+      : { settings, researchDeskPreferences: {} }));
 
   const alpha = join(vault, "Research", "Alpha");
   for (const folder of ["Sources", "Evidence", "Claims", "Questions", "Documents"]) await mkdir(join(alpha, folder), { recursive: true });
@@ -70,7 +79,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   const provider = createServer((request, response) => { requests += 1; request.resume(); response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] }) }] })); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
-  await seedVault(vault, address.port);
+  await seedVault(vault, address.port, options.firstRun === true);
   let executablePath = process.env.PATH ?? "";
   if (options.fakeClaudeCode) {
     const bin = join(root, "bin");
@@ -111,7 +120,8 @@ esac
   // First-run prompts are intentionally sequential. A later prompt may mount
   // after the previous modal closes, so one missing 250 ms poll is not proof
   // that setup has settled. Wait for a sustained quiet period instead.
-  const setupDeadline = Date.now() + 8_000;
+  // firstRun specs assert on those prompts, so nothing is dismissed for them.
+  const setupDeadline = Date.now() + (options.firstRun ? 0 : 8_000);
   let quietSince = Date.now();
   while (Date.now() < setupDeadline && Date.now() - quietSince < 1_500) {
     const deferSetup = page.getByRole("button", { name: "Not now" }).last();

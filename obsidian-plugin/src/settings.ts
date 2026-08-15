@@ -236,6 +236,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             this.renderStatus(claudeStatus, { ok: true, detail: "Testing…" });
             const status = await this.plugin.router().anthropic.test();
             this.renderStatus(claudeStatus, status);
+            // Prompts held back while there was no credential can run now.
+            if (status.ok) await this.plugin.runFirstRunPrompts();
           }),
       );
 
@@ -1046,7 +1048,9 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.ontologyEnabled).onChange(async (v) => {
           this.plugin.settings.ontologyEnabled = v;
           await this.plugin.saveSettings();
-          if (v) void this.plugin.loadOntologyOnStart();
+          // Turning it on here is an explicit ask, so the seed offer follows
+          // regardless of credential — the gate is a startup ordering rule.
+          if (v) void this.plugin.loadOntologyOnStart().then(() => this.plugin.offerOntologySeed());
         }),
       );
 
