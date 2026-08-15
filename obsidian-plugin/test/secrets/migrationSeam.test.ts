@@ -79,6 +79,46 @@ describe("loadSettings migration seam", () => {
     expect(onDisk()).toContain("SENTINEL-KEY");
   });
 
+  /**
+   * The migration persist() writes the whole payload, buildRuns included. If it
+   * ran before restoreBuildRuns() had populated them, it would serialize the
+   * empty initial value over the user's real runs — once, on the first load
+   * after upgrade, silently. This pins the ordering.
+   */
+  it("does not wipe build runs when it migrates on first load", async () => {
+    const run = {
+      id: "run-1",
+      title: "Ship the thing",
+      specPath: "Claude/spec.md",
+      trackerPath: "Claude/tracker.md",
+      transport: "desktop",
+      status: "completed",
+      tasks: [{ title: "step one", status: "completed" }],
+      activeTaskIndex: null,
+      log: "",
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const { plugin, onDisk } = harness({ apiKey: "SENTINEL-KEY" });
+    // Seed build runs alongside the plaintext credential, as a real upgrade would.
+    Object.assign(plugin as unknown as Record<string, unknown>, {
+      loadData: async () => structuredClone({
+        settings: { apiKey: "SENTINEL-KEY" },
+        conversations: [],
+        activeConversationId: null,
+        buildRuns: [run],
+        activeBuildRunId: "run-1",
+      }),
+    });
+
+    await plugin.loadSettings();
+
+    expect(onDisk()).not.toContain("SENTINEL-KEY");
+    const written = JSON.parse(onDisk()) as { buildRuns?: unknown[]; activeBuildRunId?: string | null };
+    expect(written.buildRuns).toHaveLength(1);
+    expect(written.activeBuildRunId).toBe("run-1");
+  });
+
   it("migrates every populated credential, not just the API key", async () => {
     const { plugin, onDisk } = harness({ apiKey: "K1", mcpToken: "K2", cloudReplyToken: "K3" });
     await plugin.loadSettings();
