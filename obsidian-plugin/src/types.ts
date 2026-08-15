@@ -214,6 +214,9 @@ export interface PluginSettings {
   /** GitHub token with Contents:read, to fetch replies over HTTPS. */
   cloudReplyToken: string;
 
+  /** Set when plaintext credentials were moved out of data.json into secret storage. */
+  secretsMigratedAt?: number;
+
   // ----- episodic memory (capture Claude Code sessions into the vault) -----
   /** Master switch for the session-memory feature (commands + view). */
   memoryEnabled: boolean;

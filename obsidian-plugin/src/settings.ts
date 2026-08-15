@@ -15,6 +15,13 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Transient (not persisted): reveal the real MCP token in the snippets. */
   private revealMcpToken = false;
 
+  /** Where credentials actually land, so the copy can't claim safety it doesn't have. */
+  private storageBlurb(): string {
+    return this.plugin.secrets().available()
+      ? "Stored in your device's secret storage, not in this vault."
+      : "Stored locally in this vault's plugin data.";
+  }
+
   constructor(
     app: App,
     private plugin: ClaudeCompanionPlugin,
@@ -29,6 +36,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   private renderSettings(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("cc-settings-root");
 
     // Top-level blocks re-render in place (their own div), never the whole
     // tab — a full re-render collapses every accordion and resets scroll.
@@ -96,6 +104,22 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   private renderTopSection(containerEl: HTMLElement, rerenderTop: () => void): void {
     const s = this.plugin.settings;
 
+    // Below 1.11.5 there is no OS-encrypted secret store, so credentials stay in
+    // this vault's data.json and ride vault sync. Say so rather than implying safety.
+    if (!this.plugin.secrets().available()) {
+      const warn = containerEl.createDiv({ cls: "cc-connect-callout" });
+      warn.createDiv({ cls: "cc-connect-title", text: "Credentials are stored in this vault" });
+      const p = warn.createEl("p");
+      p.appendText(
+        "This version of Obsidian has no encrypted secret storage, so keys and tokens are written to this vault’s "
+          + "data.json — if the vault syncs to iCloud, Dropbox, or git, they sync with it. "
+          + "Update Obsidian to 1.11.5 or later and Companion will move them into your device’s keychain automatically.",
+      );
+      if (Platform.isDesktop) {
+        p.appendText(" On Linux, that also needs kwallet or gnome-libsecret installed.");
+      }
+    }
+
     // The one mandatory step, called out while it's missing. Everything else
     // in this tab is optional.
     if (!this.plugin.router().anthropic.hasCredentials()) {
@@ -104,7 +128,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       const p = callout.createEl("p");
       p.appendText("Add an Anthropic API key below to start chatting. Create one at ");
       p.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
-      p.appendText(" — it’s stored locally in this vault’s plugin data.");
+      p.appendText(` — ${this.storageBlurb().replace(/^S/, "s")}`);
     }
 
     new Setting(containerEl).setName("Connection").setHeading();
@@ -130,7 +154,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           const frag = activeDocument.createDocumentFragment();
           frag.appendText("Bring your own key from ");
           frag.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
-          frag.appendText(". Stored locally in this vault’s plugin data.");
+          frag.appendText(`. ${this.storageBlurb()}`);
           return frag;
         })())
         .addText((text) => {
@@ -153,7 +177,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       );
       new Setting(containerEl)
         .setName("OAuth token")
-        .setDesc("Stored locally in this vault's plugin data. Sent as a bearer token.")
+        .setDesc(`${this.storageBlurb()} Sent as a bearer token.`)
         .addText((text) => {
           text.inputEl.type = "password";
           text.inputEl.setCssStyles({ width: "320px" });
@@ -1101,7 +1125,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       if (this.plugin.settings.webSearchEngine === "brave") {
         new Setting(containerEl)
           .setName("Brave Search API key")
-          .setDesc("Subscription token from brave.com/search/api. Stored locally in this vault's plugin data.")
+          .setDesc(`Subscription token from brave.com/search/api. ${this.storageBlurb()}`)
           .addText((text) => {
             text.inputEl.type = "password";
             text.setValue(this.plugin.settings.braveSearchApiKey).onChange(async (v) => {
@@ -1295,7 +1319,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Routine token")
-      .setDesc("Per-routine bearer token (sk-ant-oat…). It only fires this one routine — no account access. Stored locally in this vault's plugin data.")
+      .setDesc(`Per-routine bearer token (sk-ant-oat…). It only fires this one routine — no account access. ${this.storageBlurb()}`)
       .addText((text) => {
         text.inputEl.type = "password";
         text.inputEl.setCssStyles({ width: "320px" });
@@ -1325,7 +1349,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     warn.setCssStyles({ color: "var(--text-warning)" });
     warn.setText(
       "⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. " +
-        "The token sits in this vault's data.json — if the vault itself syncs, the token syncs too. Use a private repo.",
+        `${this.storageBlurb()} Use a private repo.`,
     );
   }
 
@@ -1388,7 +1412,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("GitHub token")
-      .setDesc("Fine-grained token with Contents:read on the repo. Stored locally in this vault's plugin data.")
+      .setDesc(`Fine-grained token with Contents:read on the repo. ${this.storageBlurb()}`)
       .addText((text) => {
         text.inputEl.type = "password";
         text.inputEl.setCssStyles({ width: "min(320px, 100%)" });
