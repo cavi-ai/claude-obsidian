@@ -4,6 +4,62 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] — 2026-08-11
+
+### Added
+- **Managed builds from plan notes.** Build now creates durable spec and tracker
+  notes, then opens a native Build Runner with Start, Pause, Resume, Cancel,
+  progress, task state, and bounded output. Desktop runs Claude Code directly
+  in the vault; mobile dispatches configured cloud routines one task at a time.
+
+### Changed
+- **Build controls stay inside Companion.** The previous clipboard command and
+  static HTML tracker are gone. Responsive native controls update in place,
+  preserve interrupted runs across restarts, and keep cloud task-boundary
+  behavior explicit.
+
+## [0.24.6] — 2026-08-11
+
+### Added
+- **Compact composer context manager.** Chat now keeps automatic context and
+  added notes, folders, projects, PDFs, images, and webpages inside one
+  accessible control that opens as a desktop popover or mobile sheet. Pending
+  and failed webpage captures remain visible with retry and removal actions.
+
+### Fixed
+- **Desktop integrations open in Obsidian.** Node built-ins now load through
+  Electron's runtime boundary instead of Chromium's module loader.
+- **Chat confirmations clear promptly.** Ephemeral action feedback now dismisses
+  after 1.8 seconds instead of obstructing the workspace.
+
+## [0.24.5] — 2026-08-11
+
+### Added
+- **CLI-first desktop integrations.** Companion can inspect and set up Claude
+  Code through the official Obsidian CLI and `obsidian-agent`, then open a
+  terminal at the active vault without requiring MCP. Claude Desktop keeps an
+  explicit, confirmed loopback MCP setup with backup and atomic config updates.
+
+### Fixed
+- **Anthropic agent chat accepts research tools again.** Outbound Anthropic
+  tool schemas remove top-level JSON Schema unions that the Messages API
+  rejects while preserving nested constraints and the original internal tool
+  definitions.
+
+## [0.24.4] — 2026-08-10
+
+### Fixed
+- **Published docs keep their routes.** The docs artifact reuses the page names
+  the site already serves for this product, so existing documentation links
+  stay valid across releases.
+
+## [0.24.3] — 2026-08-09
+
+### Fixed
+- **Published docs render on the site.** The docs artifact now uses the same
+  page layout as the other CAVI products, and heading anchors in the shipped
+  pages resolve, so the site build no longer rejects the release.
+
 ## [0.24.2] — 2026-08-09
 
 ### Fixed
