@@ -1,7 +1,6 @@
 import {
   DesktopIntegrationError,
   MARKETPLACE_NAME,
-  MARKETPLACE_REPO,
   OBSIDIAN_AGENT_PLUGIN_ID,
   claudeDesktopConfigPath,
   claudeCodeSetupPlan,
@@ -223,14 +222,15 @@ export class DesktopRuntime {
       const plugins = await this.options.exec.run(this.claudeExecutable, ["plugin", "list", "--json"], COMMAND_OPTIONS);
       const marketplaceIds = parseMarketplaceList(marketplaces.stdout);
       const pluginStates = parsePluginList(plugins.stdout);
-      // Only the published catalog counts. A same-named local directory
-      // marketplace would otherwise skip `marketplace add`, and the install
-      // that follows resolves against a marketplace that has no obsidian-agent.
+      // Match the marketplace NAME only: `plugin install <id>@<name>` resolves by
+      // name, so a matching repo under a stale name (or a local directory
+      // marketplace) would skip `marketplace add` and leave the install with no
+      // marketplace to resolve against — the failure this replaced.
       const obsidianAgent = pluginStates.find(({ id }) => id === OBSIDIAN_AGENT_PLUGIN_ID);
       return {
         claude,
         obsidian,
-        marketplaceInstalled: marketplaceIds.some((id) => id === MARKETPLACE_NAME || id === MARKETPLACE_REPO),
+        marketplaceInstalled: marketplaceIds.some((id) => id === MARKETPLACE_NAME),
         pluginInstalled: !!obsidianAgent,
         pluginEnabled: obsidianAgent?.enabled ?? false,
       };

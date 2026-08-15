@@ -163,6 +163,18 @@ describe("DesktopRuntime", () => {
     });
   });
 
+  it("re-adds the catalog when it is registered under a pre-rename name", async () => {
+    // Anyone who added cavi-ai/plugins before the rename has it as `plugins`.
+    // `plugin install <id>@cavi-ai` resolves by name, so the repo matching is
+    // not enough — the marketplace still has to be added under its new name.
+    const responses = readyResponses();
+    responses.set(key("claude", "plugin", "marketplace", "list", "--json"), ok('[{"name":"plugins","repo":"cavi-ai/plugins"}]'));
+    responses.set(key("claude", "plugin", "list", "--json"), ok("[]"));
+    const runtime = new DesktopRuntime({ exec: new FakeExec(responses), fs: new MemoryFs(), platform: "darwin", homeDir: "/Users/test" });
+
+    await expect(runtime.inspectClaudeCode()).resolves.toMatchObject({ marketplaceInstalled: false });
+  });
+
   it("keeps Companion usable when Claude Code is absent and skips plugin probes", async () => {
     const responses = readyResponses();
     responses.set(key("claude", "--version"), new Error("ENOENT"));
