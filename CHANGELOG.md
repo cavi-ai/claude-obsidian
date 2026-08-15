@@ -4,6 +4,35 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] — 2026-08-15
+
+### Changed
+- **Credentials move to encrypted secret storage.** On Obsidian 1.11.5 and later
+  the API key, OAuth token, custom-endpoint key, Zotero and Brave Search keys,
+  MCP bridge token, and both cloud tokens are stored in the device's encrypted
+  secret storage instead of the vault's `data.json`, so they no longer ride vault
+  sync. Existing plaintext credentials migrate on load, with a one-time notice to
+  rotate anything a synced vault already carried. Earlier Obsidian versions keep
+  the previous behaviour behind an explicit callout in settings.
+- **First run asks for a credential first.** The ontology seed and embedding
+  download offers are held back until Companion can chat, so a fresh install is
+  not asked to consent to optional work before it has a key.
+
+### Fixed
+- **Completed activity clears itself.** Succeeded entries retire after a short
+  interval instead of accumulating, and the drawer anchors to the Companion
+  header rather than the viewport.
+- **Wrapped controls keep their labels.** Controls that wrap onto multiple lines
+  size to their content instead of clipping.
+- **Empty Memory and Related panes explain themselves.** Both render a stated
+  empty state instead of a blank pane.
+- **MCP bridge tokens are always cryptographically random.** Token generation
+  fails loudly where Web Crypto is unavailable instead of falling back to
+  `Math.random`.
+- **`obsidian-agent` installs from the published marketplace.** Desktop
+  integrations and the docs use `obsidian-agent@cavi-ai`, and detection matches
+  the published marketplace name so setup no longer skips `marketplace add`.
+
 ## [0.25.0] — 2026-08-11
 
 ### Added
