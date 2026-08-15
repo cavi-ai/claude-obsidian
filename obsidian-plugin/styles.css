@@ -2762,6 +2762,9 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-setup-sub { color: var(--text-muted); font-size: 13px; }
 .cc-setup-link { font-size: 13px; }
 .cc-setup-row { display: flex; gap: 8px; margin-top: 4px; }
+.cc-setup-status { font-size: 12px; color: var(--text-muted); }
+.cc-setup-status:empty { display: none; }
+.cc-setup-status.is-err { color: var(--text-error); }
 .cc-setup-input {
   flex: 1;
   min-width: 0;
