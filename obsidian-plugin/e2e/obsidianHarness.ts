@@ -79,8 +79,8 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     await writeFile(claude, `#!/bin/sh
 case "$*" in
   *--version*) printf '2.1.226 (Claude Code)\\n' ;;
-  *"plugin marketplace list --json"*) printf '[{"name":"plugins","repo":"cavi-ai/plugins"}]\\n' ;;
-  *"plugin list --json"*) printf '[{"id":"obsidian-agent@cavi","enabled":true}]\\n' ;;
+  *"plugin marketplace list --json"*) printf '[{"name":"cavi-ai","repo":"cavi-ai/plugins"}]\\n' ;;
+  *"plugin list --json"*) printf '[{"id":"obsidian-agent@cavi-ai","enabled":true}]\\n' ;;
   *) sleep 0.4; printf '{"type":"result","result":"Fixture task completed"}\\n' ;;
 esac
 `);
