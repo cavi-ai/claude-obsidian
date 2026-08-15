@@ -18,7 +18,7 @@ export function normalizePath(p: string): string {
     .replace(/^\/+|\/+$/g, "");
 }
 
-export const Platform = { isMobile: false, isDesktop: true };
+export const Platform = { isMobile: false, isDesktop: true, isLinux: false, isMacOS: true, isWin: false };
 
 export const requestUrl = async (): Promise<never> => {
   throw new Error("requestUrl is not available in tests — inject a fake HTTP adapter instead.");

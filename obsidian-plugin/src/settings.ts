@@ -115,8 +115,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           + "data.json — if the vault syncs to iCloud, Dropbox, or git, they sync with it. "
           + "Update Obsidian to 1.11.5 or later and Companion will move them into your device’s keychain automatically.",
       );
-      if (Platform.isDesktop) {
-        p.appendText(" On Linux, that also needs kwallet or gnome-libsecret installed.");
+      if (Platform.isLinux) {
+        p.appendText(" On Linux that also needs kwallet or gnome-libsecret installed.");
       }
     }
 

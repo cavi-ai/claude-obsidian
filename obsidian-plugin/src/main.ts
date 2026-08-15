@@ -1739,7 +1739,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const { moved, settings } = migrateSecrets(loaded, store);
     this.settings = hydrate(settings, store);
     if (moved.length > 0) {
-      this.settings.secretsMigratedAt = Date.now();
       await this.persist();
       new Notice(migrationNotice(moved), 15000);
     }
