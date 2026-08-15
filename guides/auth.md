@@ -114,10 +114,10 @@ sync. On Linux that storage needs kwallet or gnome-libsecret installed.
 
 On **earlier versions** there is no encrypted store, so credentials stay in this
 vault's plugin data (`data.json`) and sync wherever the vault syncs. Companion
-says so in a callout at the top of the Connection section rather than implying
-safety it doesn't have.
+says so in a callout at the top of the settings tab rather than implying safety
+it doesn't have.
 
-Upgrading past 1.11.5 moves any credential already sitting in `data.json` into
+Updating to 1.11.5 or later moves any credential already sitting in `data.json` into
 secret storage and blanks it there. That move does not un-leak a copy that
 already synced or was committed — **rotate anything that was in a synced vault**.
 Companion says the same thing once, after the migration runs.
