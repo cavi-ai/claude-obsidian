@@ -75,7 +75,7 @@ import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
-import { createSecretStore, hydrate, stripSecrets, syncSecrets, type SecretStore } from "./secrets/store";
+import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
 import { needsCredentialSetup } from "./providers/setupState";
 import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
@@ -185,6 +185,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private persistChain: Promise<void> = Promise.resolve();
   /** Credentials live here, not in data.json. Lazy so tests can construct the plugin. */
   private _secrets: SecretStore | null = null;
+  /** Set by the last persist: credentials the store refused, still in data.json. */
+  private unverifiedSecrets: SecretField[] = [];
   private _router: ProviderRouter | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
@@ -1854,6 +1856,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._secrets;
   }
 
+  /** Credentials the secret store would not accept on the last write. */
+  secretsWriteFailures(): readonly SecretField[] {
+    return this.unverifiedSecrets;
+  }
+
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) as PersistedData | Partial<PluginSettings> | null;
     const loaded = resolveSettings(raw);
@@ -1881,8 +1888,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Write settings + conversation history back to data.json, minus credentials. */
   private async persist(): Promise<void> {
     const store = this.secrets();
+    // Credentials the store proved it holds are dropped here; any the backend
+    // silently refused stay in the file so they are not lost from both places.
+    const stripped = stripVerifiedSecrets(this.settings, store);
+    this.unverifiedSecrets = stripped.unverified;
     const data = JSON.parse(JSON.stringify({
-      settings: store.available() ? stripSecrets(this.settings) : this.settings,
+      settings: stripped.settings,
       conversations: this.convState.conversations,
       activeConversationId: this.convState.activeId,
       researchDeskPreferences: this.researchDeskPreferences,
