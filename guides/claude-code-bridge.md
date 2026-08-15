@@ -22,7 +22,7 @@ plugin with the equivalent of:
 
 ```bash
 claude plugin marketplace add cavi-ai/plugins
-claude plugin install obsidian-agent@cavi --scope user
+claude plugin install obsidian-agent@cavi-ai --scope user
 ```
 
 The commands use fixed argument arrays rather than a shell. Companion does not
@@ -99,7 +99,7 @@ without Companion:
 
 ```text
 /plugin marketplace add cavi-ai/plugins
-/plugin install obsidian-agent@cavi
+/plugin install obsidian-agent@cavi-ai
 ```
 
 Enable the official CLI in Obsidian 1.12.7 or newer and verify that `obsidian`
