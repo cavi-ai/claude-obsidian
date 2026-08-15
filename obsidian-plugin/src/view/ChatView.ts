@@ -1088,7 +1088,9 @@ export class ChatView extends ItemView {
     card.createDiv({ cls: "cc-setup-title", text: "Connect to Claude" });
     card.createDiv({
       cls: "cc-setup-sub",
-      text: "Add your Anthropic API key to start chatting. It’s stored locally in this vault — nothing else leaves your machine.",
+      text: this.plugin.secrets().available()
+        ? "Add your Anthropic API key to start chatting. It’s kept in your device’s secret storage, not in this vault — nothing else leaves your machine."
+        : "Add your Anthropic API key to start chatting. It’s stored in this vault’s plugin data — nothing else leaves your machine.",
     });
     const link = card.createEl("a", {
       cls: "cc-setup-link",

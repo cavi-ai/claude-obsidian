@@ -75,6 +75,8 @@ import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
+import { createSecretStore, hydrate, stripSecrets, syncSecrets, type SecretStore } from "./secrets/store";
+import { migrateSecrets, migrationNotice } from "./secrets/migrate";
 import { clearCachedModel, hasCachedModel } from "./semantic/transformers/cache";
 import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
 import { createEmbedWorker } from "./semantic/transformers/workerSource";
@@ -179,6 +181,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private buildTrackerWriteChains = new Map<string, Promise<void>>();
   /** data.json contains several domains; serialize snapshots so an older write cannot land last. */
   private persistChain: Promise<void> = Promise.resolve();
+  /** Credentials live here, not in data.json. Lazy so tests can construct the plugin. */
+  private _secrets: SecretStore | null = null;
   private _router: ProviderRouter | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
@@ -1843,9 +1847,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await this.runQuickOption({ id: actionId, page: "related", activityId });
   }
 
+  /** Obsidian's OS-encrypted secret store, or an unavailable one below 1.11.5. */
+  secrets(): SecretStore {
+    this._secrets ??= createSecretStore(this.app);
+    return this._secrets;
+  }
+
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) as PersistedData | Partial<PluginSettings> | null;
-    this.settings = resolveSettings(raw);
+    const loaded = resolveSettings(raw);
     this.convState = isNamespacedData(raw)
       ? fromPersisted({ conversations: (raw).conversations, activeId: (raw).activeConversationId })
       : emptyState();
@@ -1854,12 +1864,24 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.buildRuns = Object.fromEntries(runs.map((run) => [run.id, run]));
     const savedActive = isNamespacedData(raw) ? raw.activeBuildRunId : null;
     this.activeBuildRunId = typeof savedActive === "string" && this.buildRuns[savedActive] ? savedActive : runs.at(-1)?.id ?? null;
+
+    // Any plaintext credential still in data.json moves to the secret store now,
+    // then the file is rewritten without it. Must run after buildRuns is restored:
+    // the persist below serializes them, and empty state here would wipe them.
+    const store = this.secrets();
+    const { moved, settings } = migrateSecrets(loaded, store);
+    this.settings = hydrate(settings, store);
+    if (moved.length > 0) {
+      await this.persist();
+      new Notice(migrationNotice(moved), 15000);
+    }
   }
 
-  /** Write settings + conversation history back to data.json. */
+  /** Write settings + conversation history back to data.json, minus credentials. */
   private async persist(): Promise<void> {
+    const store = this.secrets();
     const data = JSON.parse(JSON.stringify({
-      settings: this.settings,
+      settings: store.available() ? stripSecrets(this.settings) : this.settings,
       conversations: this.convState.conversations,
       activeConversationId: this.convState.activeId,
       researchDeskPreferences: this.researchDeskPreferences,
@@ -1872,6 +1894,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async saveSettings(): Promise<void> {
+    // Credentials go to the secret store first; persist() then strips them.
+    syncSecrets(this.settings, this.secrets());
     await this.persist();
     // Rebuild providers if any credentials/hosts changed.
     this._router = null;

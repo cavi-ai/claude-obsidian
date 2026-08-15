@@ -32,3 +32,6 @@ demo-vault/
 
 # Plugin settings written by Obsidian at runtime — contains the API key and MCP token
 data.json
+
+# Runtime scratch written by local tooling (scheduler jobs, quota locks)
+data/

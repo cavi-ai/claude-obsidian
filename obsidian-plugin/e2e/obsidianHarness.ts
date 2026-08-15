@@ -108,6 +108,20 @@ esac
     const app = (window as unknown as { app?: { commands?: { commands?: Record<string, unknown> } } }).app;
     return Boolean(app?.commands?.commands?.["claude-companion:open-research-desk"]);
   }, undefined, { timeout: 30_000 });
+  // First-run prompts are intentionally sequential. A later prompt may mount
+  // after the previous modal closes, so one missing 250 ms poll is not proof
+  // that setup has settled. Wait for a sustained quiet period instead.
+  const setupDeadline = Date.now() + 8_000;
+  let quietSince = Date.now();
+  while (Date.now() < setupDeadline && Date.now() - quietSince < 1_500) {
+    const deferSetup = page.getByRole("button", { name: "Not now" }).last();
+    const appeared = await deferSetup.waitFor({ state: "visible", timeout: 250 })
+      .then(() => true)
+      .catch(() => false);
+    if (!appeared) continue;
+    await deferSetup.click();
+    quietSince = Date.now();
+  }
   return { page, providerRequests: () => requests, close: async () => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); await rm(root, { recursive: true, force: true }); } };
 }
 
