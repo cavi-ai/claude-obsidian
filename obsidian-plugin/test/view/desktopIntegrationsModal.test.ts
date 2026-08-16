@@ -46,6 +46,7 @@ describe("DesktopIntegrationsModal", () => {
       platform: "darwin",
       openConnectionSettings,
       openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
       confirm: vi.fn(async () => true),
     });
     modal.onOpen();
@@ -75,6 +76,7 @@ describe("DesktopIntegrationsModal", () => {
       platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
       confirm: vi.fn(async () => true),
     });
     modal.onOpen();
@@ -93,6 +95,7 @@ describe("DesktopIntegrationsModal", () => {
       platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
       confirm,
       claudeDesktopConfigPath: "/Users/me/Library/Application Support/Claude/claude_desktop_config.json",
     });
@@ -116,6 +119,7 @@ describe("DesktopIntegrationsModal", () => {
       platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings,
+      openObsidianCliSettings: vi.fn(),
       confirm: vi.fn(async () => true),
     });
     modal.onOpen();
@@ -142,6 +146,7 @@ describe("DesktopIntegrationsModal", () => {
       platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
       confirm: vi.fn(async () => true),
     });
     modal.onOpen();
@@ -158,6 +163,7 @@ describe("DesktopIntegrationsModal", () => {
       platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
       confirm: vi.fn(async () => true),
     });
     modal.onOpen();
@@ -188,6 +194,7 @@ describe("DesktopIntegrationsModal CLI status", () => {
       platform,
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
       confirm: vi.fn(async () => true),
     });
     modal.onOpen();
@@ -216,5 +223,63 @@ describe("DesktopIntegrationsModal CLI status", () => {
 
   it("hides the terminal action while the CLI cannot answer", () => {
     expect(button(withObsidian({ available: false, state: "unreachable" }), "Open terminal at vault")).toBeUndefined();
+  });
+});
+
+// Companion cannot install the CLI or place it on PATH — Obsidian's own switch
+// and its elevated Register do both — so the modal routes the user there.
+describe("DesktopIntegrationsModal CLI setup shortcut", () => {
+  const open = (obsidian: ProbeResult, mobile = false) => {
+    const openObsidianCliSettings = vi.fn();
+    const controller = new Controller({
+      status: "ready",
+      providerReady: true,
+      inspection: {
+        claude: { available: true, state: "available", version: "2.1.226" },
+        obsidian,
+        marketplaceInstalled: true,
+        pluginInstalled: true,
+        pluginEnabled: true,
+      },
+    });
+    const modal = new DesktopIntegrationsModal(new App(), {
+      controller,
+      mobile,
+      platform: "darwin",
+      openConnectionSettings: vi.fn(),
+      openBridgeSettings: vi.fn(),
+      openObsidianCliSettings,
+      confirm: vi.fn(async () => true),
+    });
+    modal.onOpen();
+    return { modal, openObsidianCliSettings };
+  };
+
+  it("offers the settings shortcut when the CLI is not installed", () => {
+    const { modal, openObsidianCliSettings } = open({ available: false, state: "missing" });
+    button(modal, "Open Obsidian CLI settings")?.dispatchEvent({ type: "click" });
+    expect(openObsidianCliSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers it for an unreachable CLI too, where the switch is the re-register", () => {
+    const { modal } = open({ available: false, state: "unreachable" });
+    expect(button(modal, "Open Obsidian CLI settings")).toBeDefined();
+  });
+
+  it("names the register step, not an install Companion cannot do", () => {
+    const { modal } = open({ available: false, state: "missing" });
+    const text = visibleText(modal);
+    expect(text).toContain("Set up CLI to work in the terminal");
+    expect(text).toContain("Register");
+  });
+
+  it("hides the shortcut once the CLI answers", () => {
+    const { modal } = open({ available: true, state: "available", version: "1.12.7" });
+    expect(button(modal, "Open Obsidian CLI settings")).toBeUndefined();
+  });
+
+  it("hides the shortcut on mobile, which has no CLI", () => {
+    const { modal } = open({ available: false, state: "missing" }, true);
+    expect(button(modal, "Open Obsidian CLI settings")).toBeUndefined();
   });
 });

@@ -125,7 +125,7 @@ import { verifyClipperNote } from "./sources/clipperVerification";
 import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
-import { claudeDesktopConfigPath, type DesktopPlatform } from "./integrations/desktop";
+import { OBSIDIAN_GENERAL_SETTINGS_TAB, claudeDesktopConfigPath, type DesktopPlatform } from "./integrations/desktop";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
@@ -1712,13 +1712,22 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   openCompanionSettings(): void {
+    this.openSettingsTab("claude-companion");
+  }
+
+  /** Obsidian's General tab, which owns the CLI switch and its Register action. */
+  openObsidianCliSettings(): void {
+    this.openSettingsTab(OBSIDIAN_GENERAL_SETTINGS_TAB);
+  }
+
+  private openSettingsTab(tabId: string): void {
     const app = this.app as App & {
       setting?: { open?: () => void; openTabById?: (id: string) => void };
       commands?: { executeCommandById?: (id: string) => boolean };
     };
     if (app.setting?.open) {
       app.setting.open();
-      app.setting.openTabById?.("claude-companion");
+      app.setting.openTabById?.(tabId);
       return;
     }
     app.commands?.executeCommandById?.("app:open-settings");
@@ -1791,6 +1800,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       platform,
       openConnectionSettings: () => this.openCompanionSettings(),
       openBridgeSettings: () => this.openCompanionSettings(),
+      openObsidianCliSettings: () => this.openObsidianCliSettings(),
       confirm: (target, message) => this.confirmDesktopIntegration(target, message),
       ...(configPath ? { claudeDesktopConfigPath: configPath } : {}),
       closed: () => this._desktopIntegrationModals?.delete(modal),
