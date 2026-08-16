@@ -4,6 +4,28 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] — 2026-08-15
+
+### Added
+- **Route to Obsidian's own CLI setup.** When the Obsidian CLI is unavailable,
+  Desktop integrations offers **Open Obsidian CLI settings** and names both of
+  Obsidian's steps: the **Command line interface** switch, then **Set up CLI to
+  work in the terminal → Register**, which places the command on `PATH`.
+
+### Fixed
+- **Credentials survive a secret store that refuses the write.** Each credential
+  is confirmed by reading it back before it is removed from `data.json`, per
+  field, so a backend that drops or rejects a write leaves the credential in the
+  file instead of losing it from both places. Settings distinguishes an Obsidian
+  without secret storage from a store that refused.
+- **An installed Obsidian CLI no longer reports as missing.** Detection tells a
+  CLI that ran and failed apart from one that is absent, carries the matching
+  remedy for each, and looks at every registration target plus the CLI shipped
+  inside Obsidian rather than depending on the app's `PATH`.
+- **Chat spends one header row, not two.** Quick options and the activity
+  indicator moved into the header row chat already had, and quick options
+  replaced the settings gear its own sheet already offers.
+
 ## [0.26.0] — 2026-08-15
 
 ### Changed
