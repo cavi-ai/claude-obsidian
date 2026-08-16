@@ -4,6 +4,19 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.2] — 2026-08-16
+
+### Fixed
+- **Clips Companion typed on arrival stay visible.** The Source Inbox lists
+  already-typed clips instead of reporting inbox zero, so automatic enrichment
+  no longer looks like nothing was captured.
+- **A clip that arrives without the template's properties is reported.** Web
+  Clipper setup marks it as needing attention and names the mismatch instead of
+  waiting indefinitely for a note that cannot come.
+- **Web Clipper setup matches how the clipper imports.** The steps import the
+  saved `.json` file and place an untriggered template first in the list, and
+  saving that file is the primary action that starts verification.
+
 ## [0.26.1] — 2026-08-15
 
 ### Added
