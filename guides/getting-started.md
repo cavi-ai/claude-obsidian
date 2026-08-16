@@ -124,7 +124,10 @@ the top of Companion settings) for two optional connections:
 - **Claude Code** — Companion checks for the `claude` and official `obsidian`
   CLIs, then can add `cavi-ai/plugins` and install `obsidian-agent@cavi-ai` at
   user scope with one confirmed action. Claude Code uses the official Obsidian
-  CLI by default; no background MCP server is needed.
+  CLI by default; no background MCP server is needed. Turn the Obsidian CLI on
+  first under *Settings → General → Command line interface* (Obsidian 1.12.7+);
+  see [claude-code-bridge.md](claude-code-bridge.md) if Companion reports it as
+  installed but not responding.
 - **Claude Desktop** — the confirmed setup enables Companion's read-only
   loopback MCP bridge and merges an `obsidian-vault` entry into Claude
   Desktop's local configuration. Restart Claude Desktop after setup and keep
