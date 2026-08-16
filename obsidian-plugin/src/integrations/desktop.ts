@@ -23,19 +23,27 @@ export interface ProbeResult {
   executable?: string;
 }
 
-/** Where Obsidian registers the CLI shim, per its own documentation. */
+/** The Obsidian settings tab that carries the CLI switch. */
+export const OBSIDIAN_GENERAL_SETTINGS_TAB = "about";
+
+/**
+ * Obsidian owns both steps: a “Command line interface” switch, then a separate
+ * “Set up CLI to work in the terminal” → Register that elevates to place the
+ * command. Companion cannot do either, so it routes the user to them.
+ */
 export function obsidianCliInstallHint(platform: DesktopPlatform): string {
-  const enable = "Enable Settings → General → “Command line interface” in Obsidian 1.12.7 or later, then follow the prompt to register it";
-  if (platform === "darwin") return `${enable}. It creates a symlink at /usr/local/bin/obsidian.`;
-  if (platform === "linux") return `${enable}. It copies the binary to ~/.local/bin/obsidian.`;
-  if (platform === "win32") return `${enable}. It adds a terminal redirector to the Obsidian installation folder.`;
+  const enable = "In Obsidian 1.12.7 or later, turn on Settings → General → “Command line interface”, "
+    + "then use “Set up CLI to work in the terminal” → Register";
+  if (platform === "darwin") return `${enable}. Registering asks for your password and links /usr/local/bin/obsidian.`;
+  if (platform === "linux") return `${enable}. Registering places the command at ~/.local/bin/obsidian.`;
+  if (platform === "win32") return `${enable}. Registering adds the Obsidian folder to your user PATH.`;
   return `${enable}.`;
 }
 
 /** The CLI answers only while Obsidian is reachable; a stale socket looks like this. */
 export const OBSIDIAN_CLI_UNREACHABLE =
-  "The Obsidian CLI is installed but could not reach Obsidian. Restart Obsidian, or toggle "
-  + "Settings → General → “Command line interface” off and on to re-register it.";
+  "The Obsidian CLI is installed but could not reach Obsidian. Restart Obsidian, or turn "
+  + "Settings → General → “Command line interface” off and on again.";
 
 export interface CommandSpec {
   executable: string;

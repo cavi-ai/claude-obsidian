@@ -17,6 +17,8 @@ export interface DesktopIntegrationsModalDependencies {
   mobile: boolean;
   openConnectionSettings(): void;
   openBridgeSettings(): void;
+  /** Opens Obsidian's own General settings, where the CLI switch lives. */
+  openObsidianCliSettings(): void;
   confirm(target: "claude-code" | "claude-desktop", message: string): Promise<boolean>;
   claudeDesktopConfigPath?: string;
   platform: DesktopPlatform;
@@ -103,6 +105,11 @@ export class DesktopIntegrationsModal extends Modal {
           cls: "cc-desktop-integration-disclosure",
           text: `The Obsidian CLI is not installed. ${obsidianCliInstallHint(this.deps.platform)}`,
         });
+      }
+      // Obsidian owns the switch and the elevated Register that places the
+      // command, so the most Companion can do is land the user on them.
+      if (!inspection.obsidian.available && !this.deps.mobile) {
+        this.action(claudeCode, "Open Obsidian CLI settings", false, () => this.deps.openObsidianCliSettings());
       }
     }
     const codeBusy = state.status === "loading" && state.operation === "claude-code";
