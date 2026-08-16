@@ -1,6 +1,7 @@
 import { App, FakeElement } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
 import type { DesktopIntegrationViewState } from "../../src/integrations/desktopCoordinator";
+import type { DesktopPlatform, ProbeResult } from "../../src/integrations/desktop";
 import {
   DesktopIntegrationsModal,
   type DesktopIntegrationsController,
@@ -42,6 +43,7 @@ describe("DesktopIntegrationsModal", () => {
     const modal = new DesktopIntegrationsModal(new App(), {
       controller,
       mobile: false,
+      platform: "darwin",
       openConnectionSettings,
       openBridgeSettings: vi.fn(),
       confirm: vi.fn(async () => true),
@@ -60,8 +62,8 @@ describe("DesktopIntegrationsModal", () => {
       status: "ready",
       providerReady: true,
       inspection: {
-        claude: { available: true, version: "2.1.226" },
-        obsidian: { available: true, version: "1.12.7" },
+        claude: { available: true, state: "available", version: "2.1.226" },
+        obsidian: { available: true, state: "available", version: "1.12.7" },
         marketplaceInstalled: true,
         pluginInstalled: true,
         pluginEnabled: true,
@@ -70,6 +72,7 @@ describe("DesktopIntegrationsModal", () => {
     const modal = new DesktopIntegrationsModal(new App(), {
       controller,
       mobile: false,
+      platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
       confirm: vi.fn(async () => true),
@@ -87,6 +90,7 @@ describe("DesktopIntegrationsModal", () => {
     const modal = new DesktopIntegrationsModal(new App(), {
       controller,
       mobile: false,
+      platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
       confirm,
@@ -109,6 +113,7 @@ describe("DesktopIntegrationsModal", () => {
     const modal = new DesktopIntegrationsModal(new App(), {
       controller,
       mobile: false,
+      platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings,
       confirm: vi.fn(async () => true),
@@ -134,6 +139,7 @@ describe("DesktopIntegrationsModal", () => {
     const modal = new DesktopIntegrationsModal(new App(), {
       controller,
       mobile: true,
+      platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
       confirm: vi.fn(async () => true),
@@ -149,6 +155,7 @@ describe("DesktopIntegrationsModal", () => {
     const modal = new DesktopIntegrationsModal(new App(), {
       controller,
       mobile: false,
+      platform: "darwin",
       openConnectionSettings: vi.fn(),
       openBridgeSettings: vi.fn(),
       confirm: vi.fn(async () => true),
@@ -157,5 +164,57 @@ describe("DesktopIntegrationsModal", () => {
     modal.onClose();
     expect(controller.listener).toBeNull();
     expect(controller.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Franco's report: the shim existed at /usr/local/bin/obsidian and the modal
+// still said "not found", which reads as "install it" for something installed.
+describe("DesktopIntegrationsModal CLI status", () => {
+  const withObsidian = (obsidian: ProbeResult, platform: DesktopPlatform = "darwin") => {
+    const controller = new Controller({
+      status: "ready",
+      providerReady: true,
+      inspection: {
+        claude: { available: true, state: "available", version: "2.1.226" },
+        obsidian,
+        marketplaceInstalled: true,
+        pluginInstalled: true,
+        pluginEnabled: true,
+      },
+    });
+    const modal = new DesktopIntegrationsModal(new App(), {
+      controller,
+      mobile: false,
+      platform,
+      openConnectionSettings: vi.fn(),
+      openBridgeSettings: vi.fn(),
+      confirm: vi.fn(async () => true),
+    });
+    modal.onOpen();
+    return modal;
+  };
+
+  it("says an unreachable CLI is installed, and how to fix it", () => {
+    const text = visibleText(withObsidian({ available: false, state: "unreachable", message: "unable to find Obsidian" }));
+    expect(text).toContain("installed, not responding");
+    expect(text).toContain("Restart Obsidian");
+    expect(text).not.toContain("Obsidian CLI: not found");
+  });
+
+  it("says a missing CLI is not installed, and names the platform's target", () => {
+    const text = visibleText(withObsidian({ available: false, state: "missing" }, "darwin"));
+    expect(text).toContain("Obsidian CLI: not found");
+    expect(text).toContain("Command line interface");
+    expect(text).toContain("/usr/local/bin/obsidian");
+  });
+
+  it("shows the version and no remediation when the CLI answers", () => {
+    const text = visibleText(withObsidian({ available: true, state: "available", version: "1.12.7" }));
+    expect(text).toContain("Obsidian CLI: 1.12.7");
+    expect(text).not.toContain("Restart Obsidian");
+  });
+
+  it("hides the terminal action while the CLI cannot answer", () => {
+    expect(button(withObsidian({ available: false, state: "unreachable" }), "Open terminal at vault")).toBeUndefined();
   });
 });

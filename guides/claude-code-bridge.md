@@ -30,8 +30,18 @@ install Claude Code or Obsidian itself. Once ready, **Open terminal at vault**
 opens the external terminal at this vault; run `claude` there and use an
 `obsidian-agent` workflow.
 
-Manual prerequisite: enable the official Obsidian CLI in Obsidian 1.12.7 or
-newer and verify that `obsidian` is on `PATH`.
+Manual prerequisite: in Obsidian 1.12.7 or newer, turn on *Settings → General →
+Command line interface* and follow the prompt to register it. Registration puts
+the command where the platform expects it — a `/usr/local/bin/obsidian` symlink
+on macOS, `~/.local/bin/obsidian` on Linux, a terminal redirector in the install
+folder on Windows. Companion checks those locations and the CLI binary shipped
+inside Obsidian itself, so its own checks do not depend on your shell `PATH`.
+
+The CLI answers only while it can reach the running Obsidian. If Companion
+reports it as **installed, not responding**, the command is there but the app is
+not reachable — restart Obsidian, or toggle *Command line interface* off and on
+to re-register it. That is a different problem from **not found**, which means no
+CLI is installed.
 
 ## 2. Connect Claude Desktop
 

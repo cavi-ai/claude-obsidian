@@ -1788,6 +1788,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const modal = new DesktopIntegrationsModal(this.app, {
       controller,
       mobile: Platform.isMobile,
+      platform,
       openConnectionSettings: () => this.openCompanionSettings(),
       openBridgeSettings: () => this.openCompanionSettings(),
       confirm: (target, message) => this.confirmDesktopIntegration(target, message),
