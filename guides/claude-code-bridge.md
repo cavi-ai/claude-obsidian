@@ -208,7 +208,7 @@ This is the security-sensitive part of the plugin, and it's deliberately narrow:
 - **Constant-time token comparison**, so a wrong token leaks nothing through timing.
 - **Loopback `Host` enforcement.** Requests whose `Host` header isn't a loopback value are rejected with 403 — defense in depth against DNS rebinding, where a page on an attacker domain resolving to `127.0.0.1` would carry that domain as `Host`.
 - **Writes off by default**, and separately gated from reads.
-- **Only `POST /mcp`** is routed; anything else 404s.
+- **Only `/mcp` is routed**; any other path 404s. An authorized `GET /mcp` answers a liveness probe, every other method returns 405, and only `POST` carries JSON-RPC.
 
 Reporting policy and boundaries: [`SECURITY.md`](../SECURITY.md).
 

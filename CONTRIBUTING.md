@@ -64,7 +64,7 @@ desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
    `package.json` in lockstep; the git tag is the exact version, no `v` prefix.
 2. Merge to `main`, then dispatch the **Release Obsidian plugin** workflow
    (`.github/workflows/release-obsidian-plugin.yml`) with that version.
-3. The workflow runs the full gate (typecheck, lint, tests, build, audit),
+3. The workflow runs the release gate (typecheck, lint, tests, build),
    verifies the version matches, mirrors `obsidian-plugin/` source and build
    config to `cavi-ai/companion-for-claude`, and pushes the version tag there.
 4. That tag triggers `release.yml` on `cavi-ai/companion-for-claude`, which
