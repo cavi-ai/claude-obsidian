@@ -55,8 +55,8 @@ contents and the model call.
 196 test files and ~1,790 tests run under Vitest, grouped by concern
 (`test/research/`, `test/semantic/`, `test/discovery/`, `test/ontology/`,
 `test/sources/`, `test/mcp/`). CI runs version lockstep, typecheck, lint, test,
-audit, the docs-artifact contract, build, and a reproducible-build-output check
-on Node 20 and 22.
+the docs-artifact contract, build, and a reproducible-build-output check on Node
+20 and 22, plus a production dependency audit on 22.
 
 ```bash
 pnpm run typecheck   # tsc --noEmit --skipLibCheck
