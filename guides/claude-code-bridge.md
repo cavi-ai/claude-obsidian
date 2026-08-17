@@ -178,7 +178,7 @@ servers** configured under *Settings → External tools — MCP client* — HTTP
 
 ## What `obsidian-agent` adds separately
 
-The universal package exposes 26 portable capabilities built on a shared
+The universal package exposes 21 portable capabilities built on a shared
 grounding discipline: cite real notes, never fabricate, preview writes, and
 verify changes. Claude Code retains thin `/obsidian-agent:` command adapters;
 other hosts load the same canonical AgentSkills-compatible workflows.
@@ -189,7 +189,7 @@ other hosts load the same canonical AgentSkills-compatible workflows.
 | **Hygiene** | `consistent-tagging`, `wikilink-weaver`, `moc-builder`, `frontmatter-normalizer`, `note-splitter`, `dedup-merge` |
 | **Writing** | `outline-to-draft`, `daily-rollup`, `meeting-cleanup`, `summarize-and-link` |
 | **Build** | `plan-to-spec`, `tracker-driver`, `build-retrospective`, `task-harvester`, plus the `build-from-spec` command |
-| **Advisor personas (`manifest-*`)** | `vault`, `pm`, `infra`, `feature`, `content`, `risk`, `research`: survey the vault and produce grounded, prioritized Markdown or Mermaid output. All seven share the `manifest-core` spine. |
+| **Advisor personas** | `manifest` with a lens — `pm`, `feature`, `content`, `infra`, `research`, `risk` — plus the separate `manifest-vault` audit: survey the vault and produce grounded, prioritized Markdown or Mermaid output. All share the `manifest-core` spine. |
 | **Foundations** | `vault-grounding` and the official Obsidian CLI helper |
 
 Five workflows that require Claude sessions, cloud dispatch, Companion APIs, or
