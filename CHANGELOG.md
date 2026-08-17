@@ -4,6 +4,19 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] — 2026-08-17
+
+### Added
+- **Pick a local endpoint model from a list.** Every chat model picker lists the
+  models an OpenAI-compatible endpoint serves, and picking one writes it to
+  settings, so the picker, the chat header, and the router agree. The endpoint
+  model and endpoint embedding model settings gain **Detect** and a dropdown,
+  matching their Ollama siblings.
+
+### Fixed
+- **An endpoint with no model id set stays selectable.** An unset id previously
+  hid the endpoint from the model pickers entirely.
+
 ## [0.26.2] — 2026-08-16
 
 ### Fixed
