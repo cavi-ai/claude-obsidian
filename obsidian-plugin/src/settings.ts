@@ -171,13 +171,13 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     if (s.authMode === "apiKey") {
       new Setting(containerEl)
         .setName("Anthropic API key")
-        .setDesc((() => {
-          const frag = activeDocument.createDocumentFragment();
-          frag.appendText("Bring your own key from ");
-          frag.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
-          frag.appendText(`. ${this.storageBlurb()}`);
-          return frag;
-        })())
+        .setDesc(
+          createFragment((frag) => {
+            frag.appendText("Bring your own key from ");
+            frag.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
+            frag.appendText(`. ${this.storageBlurb()}`);
+          }),
+        )
         .addText((text) => {
           text.inputEl.type = "password";
           text.inputEl.setCssStyles({ width: "320px" });

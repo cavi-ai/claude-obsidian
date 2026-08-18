@@ -284,6 +284,7 @@ export class FakeElement {
   parent: FakeElement | null = null;
   setCssStyles(styles: Record<string, string>): void { Object.assign(this.style, styles); }
   setCssProperty(name: string, value: string): void { this.style[name] = value; }
+  setCssProps(props: Record<string, string>): void { Object.assign(this.style, props); }
   private listeners = new Map<string, Array<(event: any) => void>>();
   constructor(tag = "div") { this.tagName = tag.toUpperCase(); }
   empty(): void { for (const child of this.children) child.parent = null; this.children = []; this.textContent = ""; }
@@ -328,6 +329,15 @@ function matches(item: FakeElement, selector: string): boolean {
   if (selector.startsWith(".")) return item.classList.has(selector.slice(1));
   return item.tagName === selector.toUpperCase();
 }
+/** Obsidian exposes createFragment() as a global; settings descriptions use it. */
+(globalThis as unknown as { createFragment?: unknown }).createFragment ??= (
+  callback?: (frag: FakeElement) => void,
+): FakeElement => {
+  const frag = new FakeElement("fragment");
+  callback?.(frag);
+  return frag;
+};
+
 export class Plugin {}
 export class MarkdownView {}
 export class WorkspaceLeaf {
