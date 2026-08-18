@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve("tools/cavi-release.mjs");
 const DOCS_SCRIPT = path.resolve("tools/build-docs-artifact.mjs");
+const VERIFY_SCRIPT = path.resolve("tools/verify-docs-artifact.mjs");
 const COMMIT = "c".repeat(40);
 
 function sha256(value: string): string {
@@ -212,6 +213,12 @@ describe("CAVI release facts", () => {
       expect(built.stderr.trim()).toBe("");
       expect(built.status).toBe(0);
       expect(built.stdout.trim()).toBe("docs/companion-for-claude/v0.27.1");
+
+      // The verifier enforces the same policy on the artifact just built; it
+      // rejected obsidian-v0.27.1 after the builder alone had been fixed.
+      const verified = spawnSync(process.execPath, [VERIFY_SCRIPT, path.join(out, built.stdout.trim())], { cwd: root, encoding: "utf8" });
+      expect(verified.stderr.trim()).toBe("");
+      expect(verified.status).toBe(0);
 
       const rejected = spawnSync(process.execPath, [DOCS_SCRIPT, ...args("v0.27.1")], { cwd: root, encoding: "utf8" });
       expect(rejected.status).not.toBe(0);
