@@ -27,8 +27,9 @@ jobs:
       - name: Checkout monorepo
         uses: actions/checkout@v7
 
-      # A tag push for an already-published version is a backfill, not a re-cut:
-      # skip it instead of failing. An explicit dispatch still errors.
+      # `skip` covers the mirror side only. An already-published community-store
+      # release is a backfill, not a re-cut, so the run continues and finishes
+      # the CAVI artifact and its dispatch — both are idempotent.
       - name: Resolve release state
         id: state
         env:
@@ -46,10 +47,6 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "::error::Release $TRIGGER already exists on cavi-ai/companion-for-claude. Delete the release and tag to re-cut it."
-            exit 1
-          fi
           echo "::notice::Release $TRIGGER already published; nothing to mirror for this tag."
           echo "skip=true" >> "$GITHUB_OUTPUT"
           if [ "$TRIGGER" != "$VERSION" ]; then
@@ -57,13 +54,11 @@ jobs:
           fi
 
       - name: Install pnpm
-        if: steps.state.outputs.skip != 'true'
         uses: pnpm/action-setup@v6.0.10
         with:
           version: 10.32.1
 
       - name: Use Node 22
-        if: steps.state.outputs.skip != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
@@ -71,7 +66,6 @@ jobs:
           cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
 
       - name: Install, verify, build
-        if: steps.state.outputs.skip != 'true'
         working-directory: obsidian-plugin
         run: |
           pnpm install --frozen-lockfile
@@ -83,7 +77,6 @@ jobs:
 
       # manifest, package.json, versions.json, and CHANGELOG must agree with the trigger.
       - name: Verify version lockstep
-        if: steps.state.outputs.skip != 'true'
         working-directory: obsidian-plugin
         run: pnpm run verify:version "${{ steps.state.outputs.version }}"
 
@@ -162,7 +155,6 @@ jobs:
 
       # Dispatch-cut releases left the monorepo untagged; a GITHUB_TOKEN push can't re-trigger this workflow.
       - name: Tag the monorepo
-        if: steps.state.outputs.skip != 'true'
         run: |
           set -euo pipefail
           TAG="obsidian-v${{ steps.state.outputs.version }}"
@@ -177,7 +169,6 @@ jobs:
       # Obsidian community release carries only main.js, manifest.json, styles.css.
       - name: Publish the CAVI release artifact
         id: cavi
-        if: steps.state.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.state.outputs.version }}
@@ -220,7 +211,6 @@ jobs:
 
       # cavi-home ingests the artifact from this repository's release.
       - name: Dispatch verified release facts to CAVI Home
-        if: steps.state.outputs.skip != 'true'
         env:
           CONSUMER_DISPATCH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
           ENVELOPE: ${{ steps.cavi.outputs.envelope }}
