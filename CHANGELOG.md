@@ -4,6 +4,22 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] — 2026-08-18
+
+### Changed
+- **Settings are declarative and searchable.** The settings tab is built from
+  `getSettingDefinitions()`, so every setting is reachable from Obsidian's
+  settings search. `minAppVersion` is now **1.13.0**.
+
+### Fixed
+- **A second question in the same chat no longer fails with an API 400.** Only
+  `role` and `content` are sent on the messages wire; the tool-trace and display
+  fields stay in the UI.
+
+### Removed
+- Every `!important` in `styles.css`; the inline artifact height is a CSS
+  custom property.
+
 ## [0.27.0] — 2026-08-17
 
 ### Added

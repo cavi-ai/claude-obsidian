@@ -1798,48 +1798,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   color: var(--text-muted);
 }
 
-/* ----- settings accordions ----- */
-.cc-accordion {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  margin: 10px 0;
-  padding: 0 12px;
-}
-.cc-accordion-summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: 10px 0;
-  list-style-position: inside;
-}
-.cc-accordion > button.cc-accordion-summary {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  color: var(--text-normal);
-  height: auto;
-  text-align: left;
-  width: 100%;
-}
-.cc-accordion-summary:hover {
-  color: var(--text-accent);
-}
-.cc-accordion[open] > .cc-accordion-summary,
-.cc-accordion.is-open > .cc-accordion-summary {
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 6px;
-}
-.cc-accordion-body {
-  padding-bottom: 8px;
-}
-.cc-settings-group {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  margin: 18px 0 2px;
-  text-transform: uppercase;
-}
-
 /* Coordinate-based mouse menus are unreliable in touch WebViews. */
 .cc-action-sheet { display: flex; flex-direction: column; gap: 4px; }
 .cc-action-sheet-item {
