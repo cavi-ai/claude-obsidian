@@ -172,3 +172,47 @@ jobs:
           fi
           git tag "$TAG"
           git push origin "refs/tags/$TAG"
+
+      # The CAVI release artifact belongs to this development repository; the
+      # Obsidian community release carries only main.js, manifest.json, styles.css.
+      - name: Publish the CAVI release artifact
+        if: steps.state.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.state.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="obsidian-v${VERSION}"
+          COMMIT="$(git rev-parse HEAD)"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          NAME="companion-for-claude-cavi-release-${VERSION}.tar.gz"
+          STAGING="$RUNNER_TEMP/cavi-release"
+          ARTIFACT="$RUNNER_TEMP/$NAME"
+          rm -rf "$STAGING"; mkdir -p "$STAGING"
+          node obsidian-plugin/tools/cavi-release.mjs manifest \
+            --version "$VERSION" --tag "$TAG" --repository "$GITHUB_REPOSITORY" \
+            --commit "$COMMIT" --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --asset obsidian-plugin/main.js \
+            --asset obsidian-plugin/manifest.json \
+            --asset obsidian-plugin/styles.css > "$STAGING/cavi-release.json"
+          DOCS_ROOT="$(node obsidian-plugin/tools/build-docs-artifact.mjs \
+            --version "$VERSION" --tag "$TAG" --commit "$COMMIT" \
+            --guides guides --readme obsidian-plugin/README.md \
+            --out "$STAGING" --source-date-epoch "$SOURCE_DATE_EPOCH")"
+          node obsidian-plugin/tools/verify-docs-artifact.mjs "$STAGING/$DOCS_ROOT"
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 \
+            --numeric-owner -czf "$ARTIFACT" -C "$STAGING" cavi-release.json docs
+          SHA256="$(sha256sum "$ARTIFACT" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$SHA256" "$NAME" > "$ARTIFACT.sha256"
+          node obsidian-plugin/tools/cavi-release.mjs envelope \
+            --version "$VERSION" --tag "$TAG" --repository "$GITHUB_REPOSITORY" \
+            --commit "$COMMIT" \
+            --artifact-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${NAME}" \
+            --artifact-sha256 "$SHA256" > "$RUNNER_TEMP/cavi-release-envelope.json"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ARTIFACT" "$ARTIFACT.sha256" --clobber
+          else
+            gh release create "$TAG" "$ARTIFACT" "$ARTIFACT.sha256" \
+              --title "$TAG" \
+              --notes "Companion for Claude ${VERSION}. Full notes: https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md"
+          fi
