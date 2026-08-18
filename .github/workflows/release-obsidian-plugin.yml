@@ -189,12 +189,11 @@ jobs:
           STAGING="$RUNNER_TEMP/cavi-release"
           ARTIFACT="$RUNNER_TEMP/$NAME"
           rm -rf "$STAGING"; mkdir -p "$STAGING"
-          node obsidian-plugin/tools/cavi-release.mjs manifest \
+          # Asset names are recorded verbatim, so generate from the plugin dir.
+          ( cd obsidian-plugin && node tools/cavi-release.mjs manifest \
             --version "$VERSION" --tag "$TAG" --repository "$GITHUB_REPOSITORY" \
             --commit "$COMMIT" --source-date-epoch "$SOURCE_DATE_EPOCH" \
-            --asset obsidian-plugin/main.js \
-            --asset obsidian-plugin/manifest.json \
-            --asset obsidian-plugin/styles.css > "$STAGING/cavi-release.json"
+            --asset main.js --asset manifest.json --asset styles.css ) > "$STAGING/cavi-release.json"
           DOCS_ROOT="$(node obsidian-plugin/tools/build-docs-artifact.mjs \
             --version "$VERSION" --tag "$TAG" --commit "$COMMIT" \
             --guides guides --readme obsidian-plugin/README.md \
