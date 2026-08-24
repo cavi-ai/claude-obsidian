@@ -4,6 +4,19 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.2] — 2026-08-24
+
+### Fixed
+- **Burst imports stay inside the current Obsidian session.** Clipper and agent
+  arrivals enrich one at a time, isolate a failed note, and surface recovery in
+  Activity instead of allowing an unhandled failure to interrupt later clips.
+- **PDF imports stay within renderer memory limits.** Research imports read files
+  sequentially, reject oversized files before allocation, and encode supported
+  PDFs without retaining a per-character string chain.
+- **Research evidence cannot silently outlive its PDF.** Drafting, auditing, and
+  agent tools refresh bounded PDF fingerprints; changed evidence becomes stale,
+  while unreadable or oversized sources fail closed with an actionable audit.
+
 ## [0.27.1] — 2026-08-18
 
 ### Changed
