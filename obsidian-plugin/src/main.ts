@@ -27,6 +27,7 @@ import { WORKFLOWS, type Workflow } from "./workflows/catalog";
 import { listSessionsForVault, type SessionMeta } from "./memory/sessions";
 import { ingestSession, ingestConversation } from "./memory/ingest";
 import { ClaudeCompanionSettingTab } from "./settings";
+import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
 import { sanitizeEndpointForDisplay, UtilityUnavailableError, type UtilityFallbackApproval } from "./providers/endpointPolicy";
 import { ANTHROPIC_DEFAULT_BASE_URL } from "./providers/auth";
@@ -266,6 +267,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.mobileUtilityFallbackModal = null;
     await this.loadSettings();
 
+    this.registerViews();
+
+    this.registerArtifactBlocks();
+
+    // One ribbon icon for the plugin itself. Workflows and session capture live
+    // in the chat panel's header action bar, so they don't need ribbon entries.
+    this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
+    this.inboxRibbonEl = this.addRibbonIcon("inbox", "Source inbox", () => void this.activateInboxView());
+    this.inboxRibbonEl.addClass("cc-inbox-ribbon");
+
+    this.registerContextMenus();
+    for (const command of companionCommands(this.commandActions())) this.addCommand(command);
+
+    this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
+
+    // Start the MCP bridge if enabled (deferred so it doesn't block load).
+    this.app.workspace.onLayoutReady(() => {
+      this.startAfterLayout();
+    });
+
+    this.registerNoteTracking();
+  }
+
+  /** Every view Companion contributes, with the dependencies each one needs. */
+  private registerViews(): void {
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
     this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(INBOX_VIEW_TYPE, (leaf: WorkspaceLeaf) => new InboxView(leaf, this));
@@ -335,7 +361,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         };
       })(),
     ));
+  }
 
+  /** Inline interactive artifacts, rendered from claude-html fences. */
+  private registerArtifactBlocks(): void {
     // Inline interactive artifacts: ```claude-html ... ```
     this.registerMarkdownCodeBlockProcessor("claude-html", (source, el, ctx) => {
       let height = this.settings.artifactHeight;
@@ -353,307 +382,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
         openWith: (h, ti, target) => this.openArtifactWith(h, ti, target),
       });
     });
+  }
 
-    // One ribbon icon for the plugin itself. Workflows and session capture live
-    // in the chat panel's header action bar, so they don't need ribbon entries.
-    this.addRibbonIcon("sparkles", "Open Companion for Claude", () => void this.activateView());
-    this.inboxRibbonEl = this.addRibbonIcon("inbox", "Source inbox", () => void this.activateInboxView());
-    this.inboxRibbonEl.addClass("cc-inbox-ribbon");
-
-    this.addCommand({
-      id: "open-chat",
-      name: "Open chat panel",
-      callback: () => void this.activateView(),
-    });
-
-    this.addCommand({
-      id: "new-chat",
-      name: "New chat",
-      callback: async () => {
-        const view = await this.activateView();
-        view?.clearChat();
-      },
-    });
-
-    this.addCommand({
-      id: "plan-from-note",
-      name: "Generate implementation plan from current note",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-        if (checking) return !!file;
-        void this.generatePlanFromNote();
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "artifact-from-selection",
-      name: "Turn selection / note into a beautiful artifact",
-      callback: () => void this.generateArtifactFromContext(),
-    });
-
-    this.addCommand({
-      id: "rewrite-selection",
-      name: "Rewrite selection with Claude…",
-      editorCheckCallback: (checking, editor, view) => {
-        const has = editor.getSelection().trim().length > 0 && view instanceof MarkdownView && !!view.file;
-        if (checking) return has;
-        void this.runInlineRewrite(editor, view as MarkdownView);
-        return true;
-      },
-    });
-
-    // Right-click context menu entry, mirroring the command above.
-    this.registerEvent(
-      this.app.workspace.on("editor-menu", (menu, editor, view) => {
-        if (!(view instanceof MarkdownView) || editor.getSelection().trim().length === 0) return;
-        menu.addItem((item) =>
-          item
-            .setTitle("Rewrite with Claude…")
-            .setIcon("sparkles")
-            .onClick(() => void this.runInlineRewrite(editor, view)),
-        );
-      }),
-    );
-
-    this.addCommand({
-      id: "enrich-note",
-      name: "Enrich current note with Claude… (rename, tags, links, lint)",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-        if (checking) return file instanceof TFile && file.extension === "md";
-        if (file instanceof TFile) void this.enrichNoteFlow(file);
-        return true;
-      },
-    });
-
-    // File-explorer right-click: enrich a note, enrich a folder's notes, or
-    // organize a folder's notes into subfolders.
-    this.registerEvent(
-      this.app.workspace.on("file-menu", (menu, file) => {
-        if (file instanceof TFile && file.extension === "md") {
-          menu.addItem((item) =>
-            item
-              .setTitle("Enrich with Claude…")
-              .setIcon("sparkles")
-              .onClick(() => void this.enrichNoteFlow(file)),
-          );
-        } else if (file instanceof TFolder) {
-          menu.addItem((item) =>
-            item
-              .setTitle("Enrich notes with Claude…")
-              .setIcon("sparkles")
-              .onClick(() => void this.enrichFolderFlow(file)),
-          );
-          menu.addItem((item) =>
-            item
-              .setTitle("Organize notes into subfolders…")
-              .setIcon("folder-tree")
-              .onClick(() => void this.organizeFolderFlow(file)),
-          );
-        }
-      }),
-    );
-
-    this.addCommand({
-      id: "ask-vault",
-      name: "Ask Claude about my vault (search-augmented)",
-      callback: async () => {
-        this.settings.context.searchVault = true;
-        await this.saveSettings();
-        const view = await this.activateView();
-        view?.refreshModelLabel();
-        const how = this.settings.semanticEnabled ? "semantic + keyword" : "keyword";
-        new Notice(`Vault search is on (${how}) — ask your question in the chat panel.`);
-      },
-    });
-
-    this.addCommand({
-      id: "rebuild-semantic-index",
-      name: "Rebuild semantic index (local embeddings)",
-      callback: () => void this.rebuildSemanticIndex(),
-    });
-
-    this.addCommand({
-      id: "open-related-notes",
-      name: "Open related notes panel",
-      callback: () => void this.activateRelatedView(),
-    });
-
-    this.addCommand({
-      id: "open-research-desk",
-      name: "Open research desk",
-      callback: () => void this.activateResearchDesk(),
-    });
-
-    this.addCommand({
-      id: "open-research-workbench",
-      name: "Open advanced research workbench",
-      callback: () => void this.activateResearchWorkbench(),
-    });
-
-    this.addCommand({
-      id: "triage-clippings",
-      name: "Triage clippings folder into research themes",
-      callback: () => void this.triageClippings(),
-    });
-
-    this.addCommand({
-      id: "research-from-active-note",
-      name: "Start research project from active note",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? this.lastMarkdownFile;
-        if (checking) return !!file;
-        void this.startResearchFromActiveNote();
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "semantic-index-status",
-      name: "Semantic index status",
-      callback: () => void this.showSemanticIndexStatus(),
-    });
-
-    this.addCommand({
-      id: "browse-conversations",
-      name: "Resume a past conversation",
-      callback: () => void this.browseConversations(),
-    });
-
-    this.addCommand({
-      id: "delete-active-conversation",
-      name: "Delete the current conversation",
-      checkCallback: (checking) => {
-        const active = this.getActiveConversation();
-        if (checking) return !!active;
-        void this.deleteActiveConversation();
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "build-from-plan",
-      name: "Build current plan with Claude",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-        if (checking) return !!file;
-        void this.handoffToBuild();
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "mark-note-as-plan",
-      name: "Mark current note as a plan (adds type: plan + Build icon)",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-        if (checking) return file instanceof TFile;
-        if (file instanceof TFile) void this.markNoteAsPlan(file);
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "organize-clippings",
-      name: "Organize clippings (rename, tag, sort into folders)",
-      callback: () => void this.organizeClippings(),
-    });
-
-    this.addCommand({
-      id: "dispatch-cloud-session",
-      name: "Send to cloud Claude session (mobile-friendly)",
-      callback: () => void this.dispatchCloudSession(),
-    });
-
-    this.addCommand({
-      id: "pull-cloud-replies",
-      name: "Pull cloud session replies into the vault",
-      callback: () => void this.pullCloudReplies(),
-    });
-
-    this.addCommand({
-      id: "review-link-suggestions",
-      name: "Review link suggestions for current note",
-      callback: () => void this.reviewLinkSuggestions(),
-    });
-
-    this.addCommand({
-      id: "open-workflows",
-      name: "Run a vault workflow… (manifests, rollup, MOC, digest)",
-      callback: () => void this.openWorkflowPicker(),
-    });
-
-    this.addCommand({
-      id: "create-prompt-template",
-      name: "Create prompt template",
-      callback: () => void this.createPromptTemplate(),
-    });
-
-    // Capturing a session reads Claude Code's CLI transcripts off the local
-    // filesystem — desktop-only. Browsing and consolidating captured digests
-    // is pure vault API and works everywhere.
-    if (!Platform.isMobile) {
-      this.addCommand({
-        id: "capture-session-memory",
-        name: "Capture session memory…",
-        callback: () => void this.openSessionPicker(),
-      });
-    }
-
-    this.addCommand({
-      id: "open-memory-view",
-      name: "Open session memory",
-      callback: () => void this.activateMemoryView(),
-    });
-
-    this.addCommand({
-      id: "consolidate-memory",
-      name: "Consolidate session memory into knowledge note",
-      callback: () => void this.consolidateMemory(),
-    });
-
-    this.addCommand({
-      id: "enrich-note-as-source",
-      name: "Enrich note as source (typed frontmatter)",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-        if (checking) return this.settings.sourceCaptureEnabled && file instanceof TFile;
-        if (file instanceof TFile) void this.runEnrich(file);
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "open-source-inbox",
-      name: "Open source inbox (clip triage)",
-      callback: () => void this.activateInboxView(),
-    });
-
-    this.addCommand({
-      id: "export-clipper-templates",
-      name: "Export Web Clipper templates (typed clipping)",
-      checkCallback: (checking) => {
-        if (checking) return this.settings.sourceCaptureEnabled;
-        void this.exportClipperTemplates();
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "seed-ontology",
-      name: "Seed ontology (default type schemas)",
-      checkCallback: (checking) => {
-        if (checking) return this.settings.ontologyEnabled;
-        void this.seedOntology();
-        return true;
-      },
-    });
-
-    this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
-
-    // Start the MCP bridge if enabled (deferred so it doesn't block load).
-    this.app.workspace.onLayoutReady(() => {
+  /**
+   * Work deferred to layout-ready. Vault listeners register here so Obsidian's
+   * initial scan does not fire create/modify for every note and stampede them.
+   */
+  private startAfterLayout(): void {
       void this.syncMcpServer();
       this.syncPlanBuildActions();
       void this.runFirstRun();
@@ -696,8 +431,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.scheduleOntologyReload(); }));
-    });
+  }
 
+  /** Keeps the plan Build action and the last-seen note in step with the workspace. */
+  private registerNoteTracking(): void {
     // Show a "Build" action in the header of any `type: plan` note.
     this.registerEvent(this.app.workspace.on("file-open", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
@@ -709,6 +446,101 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
       this.scheduleResearchRefresh(file.path);
     }));
+  }
+
+  /** Right-click entries that mirror commands, on a selection and in the file explorer. */
+  private registerContextMenus(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || editor.getSelection().trim().length === 0) return;
+        menu.addItem((item) =>
+          item
+            .setTitle("Rewrite with Claude…")
+            .setIcon("sparkles")
+            .onClick(() => void this.runInlineRewrite(editor, view)),
+        );
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          menu.addItem((item) =>
+            item
+              .setTitle("Enrich with Claude…")
+              .setIcon("sparkles")
+              .onClick(() => void this.enrichNoteFlow(file)),
+          );
+        } else if (file instanceof TFolder) {
+          menu.addItem((item) =>
+            item
+              .setTitle("Enrich notes with Claude…")
+              .setIcon("sparkles")
+              .onClick(() => void this.enrichFolderFlow(file)),
+          );
+          menu.addItem((item) =>
+            item
+              .setTitle("Organize notes into subfolders…")
+              .setIcon("folder-tree")
+              .onClick(() => void this.organizeFolderFlow(file)),
+          );
+        }
+      }),
+    );
+  }
+
+  /** Everything `companionCommands` needs, so the definitions stay free of the plugin. */
+  private commandActions(): CommandActions {
+    return {
+      activeMarkdownFile: () => this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null,
+      lastMarkdownFile: () => this.lastMarkdownFile ?? null,
+      hasActiveConversation: () => !!this.getActiveConversation(),
+      sourceCaptureEnabled: () => this.settings.sourceCaptureEnabled,
+      ontologyEnabled: () => this.settings.ontologyEnabled,
+      desktop: !Platform.isMobile,
+
+      openChat: () => void this.activateView(),
+      newChat: () => void this.activateView().then((view) => view?.clearChat()),
+      generatePlanFromNote: () => void this.generatePlanFromNote(),
+      generateArtifactFromContext: () => void this.generateArtifactFromContext(),
+      rewriteSelection: (editor, view) => void this.runInlineRewrite(editor, view),
+      enrichNote: (file) => void this.enrichNoteFlow(file),
+      enableVaultSearch: () => void this.enableVaultSearch(),
+      rebuildSemanticIndex: () => void this.rebuildSemanticIndex(),
+      openRelatedNotes: () => void this.activateRelatedView(),
+      openResearchDesk: () => void this.activateResearchDesk(),
+      openResearchWorkbench: () => void this.activateResearchWorkbench(),
+      triageClippings: () => void this.triageClippings(),
+      startResearchFromActiveNote: () => void this.startResearchFromActiveNote(),
+      showSemanticIndexStatus: () => void this.showSemanticIndexStatus(),
+      browseConversations: () => void this.browseConversations(),
+      deleteActiveConversation: () => void this.deleteActiveConversation(),
+      handoffToBuild: () => void this.handoffToBuild(),
+      markNoteAsPlan: (file) => void this.markNoteAsPlan(file),
+      organizeClippings: () => void this.organizeClippings(),
+      dispatchCloudSession: () => void this.dispatchCloudSession(),
+      pullCloudReplies: () => void this.pullCloudReplies(),
+      reviewLinkSuggestions: () => void this.reviewLinkSuggestions(),
+      openWorkflowPicker: () => void this.openWorkflowPicker(),
+      createPromptTemplate: () => void this.createPromptTemplate(),
+      openSessionPicker: () => void this.openSessionPicker(),
+      openMemoryView: () => void this.activateMemoryView(),
+      consolidateMemory: () => void this.consolidateMemory(),
+      enrichNoteAsSource: (file) => void this.runEnrich(file),
+      openSourceInbox: () => void this.activateInboxView(),
+      exportClipperTemplates: () => void this.exportClipperTemplates(),
+      seedOntology: () => void this.seedOntology(),
+    };
+  }
+
+  /** Turn vault search on and tell the user which engine answers. */
+  private async enableVaultSearch(): Promise<void> {
+    this.settings.context.searchVault = true;
+    await this.saveSettings();
+    const view = await this.activateView();
+    view?.refreshModelLabel();
+    const how = this.settings.semanticEnabled ? "semantic + keyword" : "keyword";
+    new Notice(`Vault search is on (${how}) — ask your question in the chat panel.`);
   }
 
   private enrichDeps(
