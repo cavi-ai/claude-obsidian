@@ -70,7 +70,6 @@ import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing
 import { FrontmatterModal } from "./view/FrontmatterModal";
 import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
 import { extractPdfPages } from "./semantic/pdf";
-import { loadPdf } from "./semantic/pdfjs";
 import type { IndexData } from "./semantic/store";
 import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
@@ -2959,6 +2958,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
               const f = this.app.vault.getAbstractFileByPath(p);
               if (!(f instanceof TFile)) return null;
               try {
+                // Lazy: pdf.js and its inlined worker are the largest thing in the
+                // bundle, and a vault with no PDFs must never pay for them.
+                const { loadPdf } = await import("./semantic/pdfjs");
                 return await extractPdfPages(loadPdf, await this.app.vault.readBinary(f));
               } catch {
                 return null; // encrypted/corrupt PDFs skip, they never abort a build
