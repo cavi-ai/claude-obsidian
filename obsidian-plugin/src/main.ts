@@ -121,6 +121,7 @@ import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./
 import { classifyEmbeddingFailure, type EmbeddingRecovery } from "./semantic/recovery";
 import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
 import { verifyClipperNote } from "./sources/clipperVerification";
+import { KeyedSerialQueue } from "./sources/keyedSerialQueue";
 import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
@@ -226,6 +227,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Debounced Clipper arrivals waiting for one-at-a-time utility processing. */
   private enrichPending = new Map<string, TFile>();
   private enrichQueueRunning = false;
+  /** Shared admission lane for automatic, Inbox, and organizer enrichment. */
+  private _enrichmentCoordinator: KeyedSerialQueue<string, EnrichRunOutcome> | undefined;
   private enrichRecentlyWritten = new Set<string>();
   private enrichRecentlyWrittenExpiryTimers = new Map<string, number>();
   private clipperVerificationTimers = new Map<string, number>();
@@ -255,6 +258,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.mcpLifecycleEnded = false;
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
     this.utilityLifecycleEnded = false;
+    this._enrichmentCoordinator = new KeyedSerialQueue<string, EnrichRunOutcome>();
     this.sourceCaptureConsentModal = null;
     this.sourceCaptureConsentInFlight = null;
     this.mobileUtilityFallbackApproval = undefined;
@@ -1140,7 +1144,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  private async enrichFile(file: TFile, notify = true): Promise<EnrichRunOutcome> {
+  private enrichFile(file: TFile, notify = true): Promise<EnrichRunOutcome> {
+    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
+    const coordinator = this._enrichmentCoordinator ??= new KeyedSerialQueue<string, EnrichRunOutcome>();
+    return coordinator.run(file.path, async () => {
+      if (!this.isUtilityLifecycleActive(lifecycleGeneration)) {
+        return {
+          status: "failed",
+          error: new Error("Companion unloaded before source enrichment started; no content was sent."),
+        };
+      }
+      return this.performEnrichFile(file, notify);
+    });
+  }
+
+  private async performEnrichFile(file: TFile, notify = true): Promise<EnrichRunOutcome> {
     const content = file.extension === "md" ? await this.app.vault.cachedRead(file) : "";
     if (!shouldEnrich({ path: file.path, ext: file.extension, content, inboxFolder: this.settings.sourceInboxFolder, recentlyWritten: this.enrichRecentlyWritten })) {
       return { status: "skipped", reason: `${file.basename} is not eligible for source enrichment.` };
@@ -1626,6 +1644,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     for (const timer of this.enrichTimers?.values() ?? []) window.clearTimeout(timer);
     this.enrichTimers?.clear();
     this.enrichPending?.clear();
+    this._enrichmentCoordinator = undefined;
     for (const timer of this.enrichRecentlyWrittenExpiryTimers?.values() ?? []) window.clearTimeout(timer);
     this.enrichRecentlyWrittenExpiryTimers?.clear();
     this.enrichRecentlyWritten?.clear();
