@@ -4,6 +4,17 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.4] — 2026-08-26
+
+### Fixed
+- **Large source notes fail safely on mobile.** Notes above the mobile enrichment
+  limit are rejected before the vault bridge reads or copies their content,
+  avoiding renderer-memory exhaustion while leaving normal clips unaffected.
+- **Inbox enrichment stays idempotent while metadata catches up.** A successful
+  note leaves the pending list immediately, and repeated invalid structured
+  output stops the mobile batch instead of multiplying repair requests across
+  every remaining note.
+
 ## [0.27.3] — 2026-08-26
 
 ### Fixed
