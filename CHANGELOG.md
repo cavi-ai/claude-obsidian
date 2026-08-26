@@ -4,6 +4,18 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.3] — 2026-08-26
+
+### Fixed
+- **A clip enriches once, no matter how it arrives.** Automatic, Inbox, and
+  organizer enrichment of the same note now share one lane instead of running
+  against each other, and enrichment that begins after the plugin unloads stops
+  rather than sending content.
+
+### Performance
+- **A vault with no PDFs starts faster.** The PDF text extractor and its bundled
+  worker load the first time a PDF is read, not at plugin load.
+
 ## [0.27.2] — 2026-08-24
 
 ### Fixed
