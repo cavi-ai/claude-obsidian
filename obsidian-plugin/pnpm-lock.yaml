@@ -16,8 +16,8 @@ importers:
         specifier: ^4.2.0
         version: 4.2.0(@types/node@26.4.0)
       defuddle:
-        specifier: ^0.19.2
-        version: 0.19.2
+        specifier: ^0.19.3
+        version: 0.19.3
       pdfjs-dist:
         specifier: ^6.2.108
         version: 6.2.108
@@ -989,10 +989,9 @@ packages:
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
 
-  '@xmldom/xmldom@0.9.10':
-    resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
+  '@xmldom/xmldom@0.9.12':
+    resolution: {integrity: sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==}
     engines: {node: '>=14.6'}
-    deprecated: this version has critical issues, please update to the latest version
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -1167,8 +1166,8 @@ packages:
     resolution: {integrity: sha512-8QmQKqEASLd5nx0U1B1okLElbUuuttJ/AnYmRXbbbGDWh6uS208EjD4Xqq/I9wK7u0v6O08XhTWnt5XtEbR6Dg==}
     engines: {node: '>= 0.4'}
 
-  defuddle@0.19.2:
-    resolution: {integrity: sha512-FY+a9Byo3uS04SQnQjLaguNoEA0Y58vXTB1XvvnOkO6M0zo897ipekv2Unci42QEY70emZ6OLe7C0vPojr1JEA==}
+  defuddle@0.19.3:
+    resolution: {integrity: sha512-5ZbOQ/B+iiRRqSQWwmCx/zEuqZOA/5q7gxyE2/4O2Bxq7nUC0PgKw9EdyxqWbFF1nrrrYemSeR25jg4TmA2fsA==}
     hasBin: true
 
   detect-libc@2.1.2:
@@ -2206,8 +2205,8 @@ packages:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
 
-  temml@0.13.3:
-    resolution: {integrity: sha512-GLNEdf5qBWux3adbOxFus4jlds8nCdEIkkKq99m/4GGTfqnsjlVlK/i371Ux7yYSg/WNmOyAkNT/GJlZoJ0v+w==}
+  temml@0.13.4:
+    resolution: {integrity: sha512-k1yolMBswx34Jw9hZn5Xh2/GBlwqlW+wiN7QaUYUMhSa1ypfti6rlCfSmCxWyooxH1G32C/Z+qVvgAsBOELZBQ==}
     engines: {node: '>=18.13.0'}
 
   tinybench@2.9.0:
@@ -3178,7 +3177,7 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
 
-  '@xmldom/xmldom@0.9.10':
+  '@xmldom/xmldom@0.9.12':
     optional: true
 
   acorn-jsx@5.3.2(acorn@8.18.0):
@@ -3384,13 +3383,13 @@ snapshots:
       has-property-descriptors: 1.0.2
       object-keys: 1.1.1
 
-  defuddle@0.19.2:
+  defuddle@0.19.3:
     dependencies:
       commander: 12.1.0
     optionalDependencies:
       linkedom: 0.18.13
       mathml-to-latex: 1.8.0
-      temml: 0.13.3
+      temml: 0.13.4
       turndown: 7.2.4
     transitivePeerDependencies:
       - canvas
@@ -4238,7 +4237,7 @@ snapshots:
 
   mathml-to-latex@1.8.0:
     dependencies:
-      '@xmldom/xmldom': 0.9.10
+      '@xmldom/xmldom': 0.9.12
     optional: true
 
   minimatch@10.2.6:
@@ -4704,7 +4703,7 @@ snapshots:
 
   tapable@2.3.3: {}
 
-  temml@0.13.3:
+  temml@0.13.4:
     optional: true
 
   tinybench@2.9.0: {}
