@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { launchObsidianHarness } from "./obsidianHarness";
 
@@ -33,6 +34,10 @@ test("chat runs on the Claude Code backend with no API key and reuses the proces
     expect(argvLines[0]).not.toContain("--bare");
     expect(argvLines[0]).not.toContain("mcp__obsidian-vault__*");
     expect(harness.providerRequests()).toBe(0);
+
+    // The minted --session-id is persisted with the conversation so memory import can skip it.
+    const dataPath = join(harness.paths.vault, ".obsidian", "plugins", "claude-companion", "data.json");
+    await expect.poll(async () => /"cliSessionId":\s*"[0-9a-f-]{36}"/.test(await readFile(dataPath, "utf8").catch(() => "")), { timeout: 10_000 }).toBe(true);
   } finally {
     await harness.close();
   }

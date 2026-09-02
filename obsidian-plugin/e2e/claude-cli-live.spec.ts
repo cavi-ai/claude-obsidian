@@ -42,6 +42,16 @@ const waitIdle = async (page: Page): Promise<void> => {
 
 const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
 
+// data.json is rewritten non-atomically at turn end; read until it parses.
+const readData = async (path: string): Promise<string> => {
+  let last = "";
+  await expect.poll(async () => {
+    last = await readFile(path, "utf8").catch(() => "");
+    try { JSON.parse(last); return true; } catch { return false; }
+  }, { timeout: 15_000 }).toBe(true);
+  return last;
+};
+
 test.describe("Claude Code backend, live", () => {
   test.skip(!LIVE, "set CC_E2E_LIVE=1 to run against the signed-in claude binary");
 
@@ -100,7 +110,7 @@ test.describe("Claude Code backend, live", () => {
       await expect.poll(() => readFile(join(vault, "Build plan.md"), "utf8"), { timeout: 30_000 }).toContain("Create the tokenizer");
 
       // secrets never land in data.json
-      expect(await readFile(dataPath, "utf8")).not.toContain("sk-ant");
+      expect(await readData(dataPath)).not.toContain("sk-ant");
 
       // abort mid-stream, then the next send works
       await send(page, "Count from 1 to 500, one number per line, nothing else.");
@@ -113,8 +123,11 @@ test.describe("Claude Code backend, live", () => {
       await waitIdle(page);
 
       // the minted session id is on disk and hidden from memory import
-      const data = await readFile(dataPath, "utf8");
-      const sessionId = /"cliSessionId":"([0-9a-f-]{36})"/.exec(data)?.[1];
+      let sessionId: string | undefined;
+      await expect.poll(async () => {
+        sessionId = /"cliSessionId":\s*"([0-9a-f-]{36})"/.exec(await readData(dataPath))?.[1];
+        return sessionId;
+      }, { timeout: 15_000 }).toBeTruthy();
       expect(sessionId, "cliSessionId persisted with the conversation").toBeTruthy();
       const projects = join(homedir(), ".claude", "projects");
       const dirs = await readdir(projects);
