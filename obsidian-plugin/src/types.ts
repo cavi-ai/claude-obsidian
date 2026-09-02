@@ -255,6 +255,8 @@ export interface PluginSettings {
   ontologyFolder: string;
   /** Set once the ontology seed prompt has been shown (don't nag again). */
   ontologySeedPrompted: boolean;
+  /** One-time desktop-integrations offer already shown. */
+  desktopIntegrationsOffered: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -368,6 +370,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ontologyEnabled: true,
   ontologyFolder: "Ontology",
   ontologySeedPrompted: false,
+  desktopIntegrationsOffered: false,
 };
 
 export type DiscoveryNumericSettings = Pick<PluginSettings,
