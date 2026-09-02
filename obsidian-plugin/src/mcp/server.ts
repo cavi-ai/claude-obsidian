@@ -1,6 +1,11 @@
-import { handleRpc, validateRequest, err, RPC, type JsonRpcResponse, type ServerInfo } from "./protocol";
-import type { VaultTools } from "./vaultTools";
+import { handleRpc, validateRequest, err, RPC, type JsonRpcResponse, type ServerInfo, type McpToolDef } from "./protocol";
 import { HIDDEN_RESEARCH_TOOL_ALIASES } from "../research/tools";
+
+/** What the bridge serves: VaultTools, or a facade over it. */
+export interface ToolRegistry {
+  definitions(): McpToolDef[];
+  call(name: string, args: Record<string, unknown>): Promise<string>;
+}
 
 // The MCP server is desktop-only and reached via a guarded dynamic import (see
 // main.ts). Its `http` types are inline `import("http")` references (erased at
@@ -34,8 +39,9 @@ export class McpHttpServer {
 
   constructor(
     private config: McpServerConfig,
-    private tools: VaultTools,
+    private tools: ToolRegistry,
     private log: LogFn = () => {},
+    private hiddenTools: ReadonlySet<string> = HIDDEN_RESEARCH_TOOL_ALIASES,
   ) {}
 
   isRunning(): boolean {
@@ -214,7 +220,7 @@ export class McpHttpServer {
       return await handleRpc(req, {
         serverInfo: this.config.serverInfo,
         tools: this.tools.definitions(),
-        hiddenTools: HIDDEN_RESEARCH_TOOL_ALIASES,
+        hiddenTools: this.hiddenTools,
         call: (name, args) => this.tools.call(name, args),
       });
     } catch (e) {
