@@ -109,11 +109,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The runner image's Homebrew index is a stale snapshot; the harness needs the cask at or above manifest.minAppVersion.
       # A quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
       - name: Install Obsidian
         run: |
+          brew update --quiet
           brew install --cask obsidian
           sudo xattr -dr com.apple.quarantine /Applications/Obsidian.app || true
+          installed=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Obsidian.app/Contents/Info.plist)
+          floor=$(node -p "require('./manifest.json').minAppVersion")
+          echo "Obsidian $installed installed; plugin floor $floor"
+          node -e "const c=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]??0)-(y[i]??0);if(d)return d}return 0};process.exit(c('$installed','$floor')<0?1:0)"
 
       - name: Run the Playwright suite against Obsidian
         env:
