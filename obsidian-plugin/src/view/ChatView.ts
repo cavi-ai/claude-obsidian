@@ -5,8 +5,8 @@ import { providerTurnRunner, type AgentTurnDeps, type AgentTurnRunner } from "..
 import { executeTool, toAnthropicTools, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
-import { DiffModal } from "./DiffModal";
 import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
+import { reviewEdits } from "../editor/reviewEdits";
 import type { ApiMessage, ContentBlock, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
 import { TFile } from "obsidian";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, transcriptText, type Conversation } from "../conversations/store";
@@ -1763,7 +1763,7 @@ export class ChatView extends ItemView {
 
   /**
    * Handle a propose_note_edit call: plan against the current note, let the
-   * user review per hunk in the DiffModal, apply the accepted subset
+   * user review per hunk inline or in the DiffModal, apply the accepted subset
    * atomically, and report the true outcome back to the model. Throws are
    * mapped to is_error tool_results by the executor (model self-corrects).
    */
@@ -1779,15 +1779,18 @@ export class ChatView extends ItemView {
     const content = await this.app.vault.cachedRead(file);
     const plan = planEdits(content, edits);
 
-    const accepted = await new Promise<boolean[] | null>((resolve) => {
-      new DiffModal(this.app, { path, ...(description !== undefined ? { description } : {}), plan }, resolve).open();
-    });
+    const outcome = await reviewEdits(
+      this.app,
+      { file, plan, ...(description !== undefined ? { description } : {}) },
+      { inlineEnabled: this.plugin.settings.inlineDiffEnabled },
+    );
+    const accepted = outcome.accepted;
     if (!accepted) return "User rejected the proposed edit.";
 
-    // vault.process re-reads inside the write lock; applyPlan re-validates
-    // against that content, so a mid-review change surfaces as an error
-    // instead of corrupting the note.
-    await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
+    // Inline review already edited the live buffer; the modal path applies under the write lock.
+    if (outcome.mode === "modal") {
+      await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
+    }
     const applied = accepted.filter(Boolean).length;
     return applied === plan.hunks.length
       ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${path}.`

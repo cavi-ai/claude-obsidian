@@ -31,10 +31,8 @@ function makeTooltip(view: EditorView, deps: SelectionActionDeps): Tooltip {
     strictSide: true,
     arrow: false,
     create() {
-      const dom = view.dom.ownerDocument.createElement("div");
-      dom.className = "cc-selection-action";
-      const button = view.dom.ownerDocument.createElement("button");
-      button.textContent = "Rewrite with Claude";
+      const dom = view.dom.ownerDocument.createDiv({ cls: "cc-selection-action" });
+      const button = view.dom.ownerDocument.createEl("button", { text: "Rewrite with Claude" });
       // mousedown keeps the selection; click would collapse it before run() reads it.
       button.addEventListener("mousedown", (event) => {
         event.preventDefault();
@@ -50,14 +48,14 @@ function makeTooltip(view: EditorView, deps: SelectionActionDeps): Tooltip {
 export function selectionActionExtension(deps: SelectionActionDeps): Extension {
   const plugin = ViewPlugin.fromClass(
     class {
-      private timer: ReturnType<typeof setTimeout> | null = null;
+      private timer: number | null = null;
       constructor(private readonly view: EditorView) {}
       update(u: ViewUpdate): void {
         if (!u.selectionSet && !u.docChanged) return;
         this.clear();
         const { main } = u.state.selection;
         if (main.empty || !deps.enabled()) return;
-        this.timer = setTimeout(() => {
+        this.timer = window.setTimeout(() => {
           this.timer = null;
           if (this.view.state.selection.main.empty) return;
           this.view.dispatch({ effects: setTooltip.of(makeTooltip(this.view, deps)) });
@@ -67,7 +65,7 @@ export function selectionActionExtension(deps: SelectionActionDeps): Extension {
         this.clear();
       }
       private clear(): void {
-        if (this.timer !== null) clearTimeout(this.timer);
+        if (this.timer !== null) window.clearTimeout(this.timer);
         this.timer = null;
       }
     },

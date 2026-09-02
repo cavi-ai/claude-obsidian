@@ -43,10 +43,7 @@ class AddedText extends WidgetType {
     return other.text === this.text;
   }
   override toDOM(view: EditorView): HTMLElement {
-    const span = view.dom.ownerDocument.createElement("span");
-    span.className = "cc-inline-add";
-    span.textContent = this.text;
-    return span;
+    return view.dom.ownerDocument.createSpan({ cls: "cc-inline-add", text: this.text });
   }
   override ignoreEvent(): boolean {
     return false;
@@ -62,12 +59,9 @@ class HunkBar extends WidgetType {
   }
   override toDOM(view: EditorView): HTMLElement {
     const doc = view.dom.ownerDocument;
-    const bar = doc.createElement("span");
-    bar.className = "cc-inline-bar";
+    const bar = doc.createSpan({ cls: "cc-inline-bar" });
     const button = (label: string, cls: string, onClick: () => void): void => {
-      const b = doc.createElement("button");
-      b.className = `cc-inline-btn ${cls}`;
-      b.textContent = label;
+      const b = doc.createEl("button", { cls: `cc-inline-btn ${cls}`, text: label });
       // mousedown keeps the editor selection where it is; click would move the caret first.
       b.addEventListener("mousedown", (event) => {
         event.preventDefault();

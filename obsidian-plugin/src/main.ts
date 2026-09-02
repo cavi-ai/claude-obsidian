@@ -38,6 +38,10 @@ import { findUnlinkedMentions, linkMention, type LinkCandidate } from "./links/u
 import { selectDigests, buildConsolidationPrompt, parseConsolidation, renderMemoryNote, MEMORY_NOTE_BASENAME, type DigestSource } from "./memory/consolidate";
 import { mentionEdits } from "./links/suggest";
 import { planEdits, applyPlan, diffToEdits, type EditPlan } from "./edit/diff";
+import { inlineDiffExtension, reviewInline } from "./editor/inlineDiffExtension";
+import { selectionActionExtension } from "./editor/selectionAction";
+import { editorViewOf } from "./editor/reviewEdits";
+import { createRangeSession } from "./editor/inlineDiffState";
 import { REWRITE_SYSTEM, buildRewriteUser, buildGroundedRewriteUser, rewriteMaxTokens, parseRewrite } from "./edit/rewrite";
 import { DiffModal } from "./view/DiffModal";
 import { BatchDiffModal } from "./view/BatchDiffModal";
@@ -290,6 +294,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerViews();
 
     this.registerArtifactBlocks();
+
+    this.registerEditorExtension(inlineDiffExtension());
+    if (Platform.isDesktop) {
+      this.registerEditorExtension(
+        selectionActionExtension({
+          enabled: () => this.settings.selectionActionEnabled,
+          run: () => {
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            if (view) void this.runInlineRewrite(view.editor, view);
+          },
+        }),
+      );
+    }
 
     // One ribbon icon for the plugin itself. Workflows and session capture live
     // in the chat panel's header action bar, so they don't need ribbon entries.
@@ -1329,6 +1346,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
         temperature: 0.3,
       });
       const rewritten = parseRewrite(raw, selection);
+
+      const cm = this.settings.inlineDiffEnabled ? editorViewOf(editor) : null;
+      if (cm && editor.getValue().slice(anchorFrom, anchorTo) === selection) {
+        const session = createRangeSession(editor.getValue(), { from: anchorFrom, to: anchorTo, newText: rewritten }, { path: file.path, description: `Rewrite — ${instruction}` });
+        progress.hide();
+        const accepted = await reviewInline(cm, session);
+        if (accepted) new Notice("Rewrite applied.");
+        return;
+      }
 
       const content = editor.getValue();
       let plan: EditPlan;
