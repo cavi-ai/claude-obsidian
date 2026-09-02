@@ -1,7 +1,7 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Menu, Modal, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ContextToggles, ToolTraceEntry } from "../types";
-import { runAgentTurn, type AgentTurnDeps } from "../agent/loop";
+import { providerTurnRunner, type AgentTurnDeps, type AgentTurnRunner } from "../agent/loop";
 import { executeTool, toAnthropicTools, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
@@ -9,7 +9,7 @@ import { DiffModal } from "./DiffModal";
 import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
 import type { ApiMessage, ContentBlock, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
 import { TFile } from "obsidian";
-import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
+import { compactArtifactsInHistory, compactMessages, toApiMessages, transcriptText, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
 import { isMobileModelChoiceActive, mobileModelChoices } from "./mobileModelChoices";
@@ -496,8 +496,9 @@ export class ChatView extends ItemView {
    * after each response, and when the model changes.
    */
   private updateUsageBar(): void {
-    const { provider, model: resolvedModel } = this.plugin.router().chatProvider();
-    const local = provider.id !== "anthropic";
+    const { model: resolvedModel } = this.plugin.router().chatProvider();
+    const caps = this.plugin.router().chatCapabilities();
+    const local = caps.local;
     const model = local ? resolvedModel : this.controls?.model ?? this.plugin.settings.model;
     const reserved = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
 
@@ -520,7 +521,7 @@ export class ChatView extends ItemView {
       parts.push(`~${formatTokens(estIn)} / ${formatTokens(g.window)} ctx`);
       // OAuth subscription tokens don't bill per-token, so show token totals
       // without a dollar estimate; API-key usage shows the estimated cost.
-      const oauth = "isOAuth" in provider && (provider as { isOAuth(): boolean }).isOAuth();
+      const oauth = !caps.metered;
       if (this.session.requests > 0) {
         const totals = `session ${formatTokens(this.session.inputTokens)}↑ ${formatTokens(this.session.outputTokens)}↓`;
         parts.push(oauth ? `${totals} · subscription` : `${totals} ≈ ${formatCost(sessionCost(this.session, model))}`);
@@ -548,8 +549,10 @@ export class ChatView extends ItemView {
   }
 
   refreshModelLabel(): void {
-    const { provider, model: resolvedModel } = this.plugin.router().chatProvider();
-    const label = provider.id !== "anthropic" ? `${resolvedModel} · local` : modelLabel(this.controls?.model ?? this.plugin.settings.model);
+    const { model: resolvedModel } = this.plugin.router().chatProvider();
+    const caps = this.plugin.router().chatCapabilities();
+    const chosen = modelLabel(this.controls?.model ?? this.plugin.settings.model);
+    const label = caps.local ? `${resolvedModel} · local` : caps.cli ? `${chosen} · Claude Code` : chosen;
     this.modelLabelEl.setText(label);
     if (this.usageEl) this.updateUsageBar();
   }
@@ -982,8 +985,9 @@ export class ChatView extends ItemView {
     });
     font.addEventListener("change", () => void this.plugin.saveSettings());
 
-    if (this.plugin.router().chatProvider().provider.id !== "anthropic") {
-      parent.createSpan({ cls: "cc-ctl-note", text: "local model · Claude controls apply when routed to Claude" });
+    const controlCaps = this.plugin.router().chatCapabilities();
+    if (!controlCaps.claudeControls) {
+      parent.createSpan({ cls: "cc-ctl-note", text: controlCaps.cli ? "Claude Code owns thinking and effort for this backend" : "local model · Claude controls apply when routed to Claude" });
       return;
     }
 
@@ -1107,6 +1111,7 @@ export class ChatView extends ItemView {
     return needsCredentialSetup({
       backend: router.chatBackend,
       hasAnthropicCredential: router.anthropic.hasCredentials(),
+      hasClaudeCli: router.claudeCli.hasCredentials(),
     });
   }
 
@@ -1120,6 +1125,19 @@ export class ChatView extends ItemView {
         ? "Add your Anthropic API key to start chatting. It’s kept in your device’s secret storage, not in this vault — nothing else leaves your machine."
         : "Add your Anthropic API key to start chatting. It’s stored in this vault’s plugin data — nothing else leaves your machine.",
     });
+    if (this.plugin.router().claudeCli.hasCredentials()) {
+      const cli = card.createDiv({ cls: "cc-setup-cli" });
+      cli.createDiv({ cls: "cc-setup-cli-text", text: "Claude Code is installed and signed in on this computer. Use it instead of an API key — chat runs on your subscription." });
+      const useCli = cli.createEl("button", { cls: "mod-cta cc-setup-cli-use", text: "Use Claude Code sign-in" });
+      useCli.addEventListener("click", () => void (async () => {
+        this.plugin.settings.chatBackend = "claude-cli";
+        await this.plugin.saveSettings();
+        await this.plugin.runFirstRunPrompts();
+        this.renderEmptyState();
+        this.refreshModelLabel();
+      })());
+      card.createDiv({ cls: "cc-setup-or", text: "or" });
+    }
     const link = card.createEl("a", {
       cls: "cc-setup-link",
       text: "Get a key at console.anthropic.com",
@@ -1424,6 +1442,11 @@ export class ChatView extends ItemView {
     const router = this.plugin.router();
     const { provider } = router.chatProvider();
     const backend = router.chatBackend;
+    const caps = router.chatCapabilities();
+    if (backend === "claude-cli" && !caps.cli && !router.anthropic.hasCredentials()) {
+      new Notice(router.claudeCli.available() ? "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings." : "Claude Code runs on desktop only. Add an API key to chat here.");
+      return;
+    }
     if (!provider.hasCredentials() && backend !== "auto") {
       const where =
         provider.id === "ollama"
@@ -1446,7 +1469,7 @@ export class ChatView extends ItemView {
     this.updateWritesToggle();
     this.updatePlanToggle();
     const agentActive = this.agentCapable;
-    if (this.plugin.settings.agentModeEnabled && !toolCapable && provider.id !== "anthropic") {
+    if (this.plugin.settings.agentModeEnabled && !toolCapable && caps.local) {
       new Notice(`The selected local model doesn't support tools, so the agent is off. Pick a tool-capable model (e.g. llama3.1, qwen3) in settings → Local models.`, 8000);
     }
 
@@ -1495,8 +1518,8 @@ export class ChatView extends ItemView {
     this._turnUsage = null;
 
     // Attempt #1 on the primary backend (Claude unless backend is "local"/"custom").
-    const startedOnLocal = provider.id !== "anthropic";
-    const err1 = agentActive
+    const startedOnLocal = caps.local;
+    const err1 = agentActive || caps.cli
       ? await this.agentTurn(apiMessages, bubble, body)
       : startedOnLocal
         ? await this.streamTurn("local", apiMessages, bubble, body)
@@ -1519,7 +1542,7 @@ export class ChatView extends ItemView {
         }
       } else {
         this.finishAssistant(this._lastBuffer || null, bubble);
-        this.renderError(body, err1.message ?? "Request failed", startedOnLocal ? "ollama" : "anthropic");
+        this.renderError(body, err1.message ?? "Request failed", caps.cli ? "claude-cli" : startedOnLocal ? "ollama" : "anthropic");
         this.restoreMediaAfterFailure();
       }
     }
@@ -1684,7 +1707,13 @@ export class ChatView extends ItemView {
       ...(this.abort?.signal ? { signal: this.abort.signal } : {}),
     };
 
-    const result = await runAgentTurn(deps, request, {
+    let runner: AgentTurnRunner;
+    try {
+      runner = await this.turnRunnerFor(deps, request);
+    } catch (error) {
+      return { message: error instanceof Error ? error.message : String(error) };
+    }
+    const result = await runner.run(request, {
       onText: (delta) => renderer.onText(delta),
       onThinking: (delta) => renderer.onThinking(delta),
       onUsage: (usage) => renderer.onUsage(usage),
@@ -1713,6 +1742,23 @@ export class ChatView extends ItemView {
     }
     this.finishAssistant(result.text.trim().length > 0 ? result.text : null, bubble, result.trace);
     return null;
+  }
+
+  /** The CLI runs the turn when the backend is Claude Code; otherwise today's provider loop does. */
+  private async turnRunnerFor(deps: AgentTurnDeps, request: CompletionRequest): Promise<AgentTurnRunner> {
+    const caps = this.plugin.router().chatCapabilities();
+    if (!caps.cli) return providerTurnRunner(deps);
+    if (!this.agentCapable) request.tools = [];
+    const conversationId = this.plugin.activeConversationId();
+    this.abort?.signal.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
+    return this.plugin.cliTurnRunner({
+      conversationId,
+      planMode: this.planMode,
+      agentMode: this.agentCapable,
+      model: request.model,
+      deps: { confirmWrite: (b) => this.confirmAgentWrite(b), proposeEdit: (b) => this.proposeAgentEdit(b) },
+      transcript: transcriptText(this.messages.slice(0, -1)),
+    });
   }
 
   /**
@@ -2046,6 +2092,13 @@ export class ChatView extends ItemView {
     const backend = router.chatBackend;
     const el = this.backendPillEl;
     el.removeClass("is-ok", "is-warn");
+    if (backend === "claude-cli") {
+      const ok = router.claudeCli.hasCredentials();
+      el.setText(ok ? "● Claude Code" : router.anthropic.hasCredentials() ? "● Claude Code offline · API key" : "● Claude Code not signed in");
+      el.toggleClass("is-ok", ok);
+      el.toggleClass("is-warn", !ok);
+      return;
+    }
     if (backend === "claude") {
       el.setText("");
       el.toggleClass("is-ok", false);
@@ -2144,7 +2197,7 @@ export class ChatView extends ItemView {
     ];
     // Session toggles that live in the hidden desktop controls bar — without
     // these, phone users can't reach agent writes, Plan Mode, or memory ingest.
-    const canAct = this.plugin.settings.agentModeEnabled && this.plugin.router().chatProvider().provider.id === "anthropic";
+    const canAct = this.plugin.settings.agentModeEnabled && this.plugin.router().chatCapabilities().agentActions;
     if (canAct) {
       items.push(
         { title: "Act on vault", icon: "pencil-line", checked: this.plugin.settings.agentAllowWrites, separatorBefore: true, run: () => void this.toggleAgentWrites() },
@@ -2283,8 +2336,8 @@ export class ChatView extends ItemView {
    */
   private async implementFromReply(full: string): Promise<void> {
     if (this.streaming) return;
-    if (!this.plugin.settings.agentModeEnabled || this.plugin.router().chatProvider().provider.id !== "anthropic") {
-      new Notice("Turn on agent mode (and use Claude) to implement in-app, or use Build to hand off to Claude Code.");
+    if (!this.plugin.settings.agentModeEnabled || !this.plugin.router().chatCapabilities().agentActions) {
+      new Notice("Turn on agent mode (and use Claude or Claude Code) to implement in-app, or use Build to hand off to Claude Code.");
       return;
     }
     if (!this.plugin.settings.agentAllowWrites) {
