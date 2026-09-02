@@ -24,13 +24,17 @@ export interface ObsidianHarness {
   providerRequests(): number;
   /** Where the fake claude logs its argv and stdin lines. */
   argvLog: string;
-  close(): Promise<void>;
+  /** The temp vault and Electron profile this launch uses. */
+  paths: { vault: string; profile: string };
+  close(options?: { keep?: boolean }): Promise<void>;
 }
 
 export interface ObsidianHarnessOptions {
   fakeClaudeCode?: boolean;
   /** Seed the Claude Code backend with a fake claude that speaks stream-json. */
   claudeCli?: boolean;
+  /** Chat on the real, signed-in claude binary. Spends subscription usage. */
+  liveClaude?: boolean;
   /** Seed a genuinely fresh install: no credential, stock onboarding defaults. */
   firstRun?: boolean;
   /**
@@ -38,6 +42,8 @@ export interface ObsidianHarnessOptions {
    * point `openaiCompatHost` at it (LM Studio / mlx-lm / vLLM stand-in).
    */
   endpointModels?: string[];
+  /** Relaunch on a previous harness's vault + profile without re-seeding. */
+  reuse?: { vault: string; profile: string };
 }
 
 /** Where Obsidian keeps the cores it auto-updates into. */
@@ -169,7 +175,9 @@ async function waitForCdp(port: number): Promise<void> {
 }
 
 export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}): Promise<ObsidianHarness> {
-  const root = await mkdtemp(join(tmpdir(), "claude-companion-e2e-")); const vault = join(root, "vault"); const profile = join(root, "profile"); await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true });
+  const root = options.reuse ? dirname(options.reuse.vault) : await mkdtemp(join(tmpdir(), "claude-companion-e2e-"));
+  const vault = options.reuse?.vault ?? join(root, "vault"); const profile = options.reuse?.profile ?? join(root, "profile");
+  if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
   let requests = 0;
   const provider = createServer((request, response) => { requests += 1; request.resume(); response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] }) }] })); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
@@ -194,9 +202,11 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     if (!endpointAddress || typeof endpointAddress === "string") throw new Error("Endpoint stub did not bind");
     endpointPort = endpointAddress.port;
   }
-  await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true);
+  if (!options.reuse) await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true);
   let executablePath = process.env.PATH ?? "";
-  if (options.fakeClaudeCode || options.claudeCli) {
+  // The real binary lives in ~/.local/bin, which Obsidian's own PATH lacks.
+  if (options.liveClaude) executablePath = `${join(homedir(), ".local", "bin")}:${executablePath}`;
+  if (!options.liveClaude && (options.fakeClaudeCode || options.claudeCli)) {
     const bin = join(root, "bin");
     await mkdir(bin, { recursive: true });
     const claude = join(bin, "claude");
@@ -221,7 +231,7 @@ esac
     await chmod(claude, 0o755);
     executablePath = `${bin}:${executablePath}`;
   }
-  await writeFile(join(profile, "obsidian.json"), JSON.stringify({ vaults: { e2e: { path: vault, ts: Date.now(), open: true } } }));
+  if (!options.reuse) await writeFile(join(profile, "obsidian.json"), JSON.stringify({ vaults: { e2e: { path: vault, ts: Date.now(), open: true } } }));
   const debuggingPort = await freePort();
   const executable = process.env.OBSIDIAN_APP_PATH ?? "/Applications/Obsidian.app/Contents/MacOS/Obsidian";
   const coreAsarPath = process.env.OBSIDIAN_ASAR_PATH?.trim() || await discoverCoreAsar();
@@ -273,7 +283,7 @@ esac
     }
     await page.bringToFront();
   }
-  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), close: async () => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); await rm(root, { recursive: true, force: true }); } };
+  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), paths: { vault, profile }, close: async ({ keep = false } = {}) => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); if (!keep) await rm(root, { recursive: true, force: true }); } };
 }
 
 async function stop(handle: ChildProcess): Promise<void> { if (handle.exitCode !== null) return; handle.kill("SIGTERM"); await Promise.race([new Promise<void>((resolve) => handle.once("exit", () => resolve())), new Promise<void>((resolve) => setTimeout(resolve, 3_000))]); if (handle.exitCode === null) handle.kill("SIGKILL"); }
