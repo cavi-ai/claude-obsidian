@@ -111,8 +111,9 @@ export interface PluginSettings {
   /** Route cheap "utility" work (summarize/tag/ingest) to this backend. */
   utilityBackend: "claude" | "ollama" | "custom";
   /** Chat backend: always Claude, always local, auto (Claude with local
-   *  fallback), or custom (an OpenAI-compatible endpoint). */
-  chatBackend: "claude" | "local" | "auto" | "custom";
+   *  fallback), custom (an OpenAI-compatible endpoint), or claude-cli (the
+   *  user's Claude Code sign-in, desktop). */
+  chatBackend: "claude" | "local" | "auto" | "custom" | "claude-cli";
   /** Provider policy for explicit Research Intelligence narrative analysis. */
   intelligenceNarrator: "current" | "claude" | "local" | "disabled";
 
