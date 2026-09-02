@@ -1,0 +1,39 @@
+import { readFile } from "node:fs/promises";
+import { expect, test } from "@playwright/test";
+import { launchObsidianHarness } from "./obsidianHarness";
+
+test("chat runs on the Claude Code backend with no API key and reuses the process across sends", async () => {
+  const harness = await launchObsidianHarness({ claudeCli: true });
+  const { page } = harness;
+  try {
+    await page.evaluate(async () => {
+      const app = (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app;
+      await app.commands.executeCommandById("claude-companion:open-chat");
+    });
+    const chat = page.locator(".cc-chat-root").first();
+    await expect(chat).toBeVisible();
+    await expect(chat).toContainText("● Claude Code", { timeout: 15_000 });
+    const input = chat.locator(".cc-input").first();
+    await input.fill("ping");
+    await input.press("Enter");
+    await expect(chat.locator(".cc-msg.cc-assistant").last()).toContainText("pong from claude code", { timeout: 30_000 });
+    await input.fill("ping again");
+    await input.press("Enter");
+    await expect(chat.locator(".cc-msg.cc-assistant")).toHaveCount(2, { timeout: 30_000 });
+    await expect(chat.locator(".cc-msg.cc-assistant").last()).toContainText("pong from claude code");
+
+    const log = await readFile(harness.argvLog, "utf8");
+    const argvLines = log.split("\n").filter((l) => l.startsWith("ARGV "));
+    const stdinLines = log.split("\n").filter((l) => l.startsWith("STDIN "));
+    expect(argvLines).toHaveLength(1);
+    expect(stdinLines).toHaveLength(2);
+    expect(argvLines[0]).toContain("--strict-mcp-config");
+    expect(argvLines[0]).toContain("--setting-sources");
+    expect(argvLines[0]).toContain("--session-id");
+    expect(argvLines[0]).not.toContain("--bare");
+    expect(argvLines[0]).not.toContain("mcp__obsidian-vault__*");
+    expect(harness.providerRequests()).toBe(0);
+  } finally {
+    await harness.close();
+  }
+});

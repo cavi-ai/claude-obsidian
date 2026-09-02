@@ -256,3 +256,23 @@ describe("MCP bridge — write gating", () => {
     }
   });
 });
+
+describe("MCP bridge — hidden tools option", () => {
+  it("calls a hidden tool without listing it", async () => {
+    const hidden = new McpHttpServer(
+      { port: 0, token: TOKEN, serverInfo: { name: "obsidian-vault", version: "0.4.0" } },
+      { definitions: () => [{ name: "shown", description: "s", inputSchema: { type: "object" } }], call: async (name) => `ran:${name}` },
+      undefined,
+      new Set(["secret_tool"]),
+    );
+    await hidden.start();
+    const addr = hidden.address();
+    const url = `http://127.0.0.1:${addr!.port}/mcp`;
+    const headers = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+    const list = await (await fetch(url, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) })).json() as { result: { tools: { name: string }[] } };
+    expect(list.result.tools.map((t) => t.name)).toEqual(["shown"]);
+    const run = await (await fetch(url, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "secret_tool", arguments: {} } }) })).json() as { result: { content: { text: string }[] } };
+    expect(run.result.content[0]!.text).toBe("ran:secret_tool");
+    await hidden.stop();
+  });
+});

@@ -22,11 +22,15 @@ export interface ObsidianHarness {
    */
   windows(): Page[];
   providerRequests(): number;
+  /** Where the fake claude logs its argv and stdin lines. */
+  argvLog: string;
   close(): Promise<void>;
 }
 
 export interface ObsidianHarnessOptions {
   fakeClaudeCode?: boolean;
+  /** Seed the Claude Code backend with a fake claude that speaks stream-json. */
+  claudeCli?: boolean;
   /** Seed a genuinely fresh install: no credential, stock onboarding defaults. */
   firstRun?: boolean;
   /**
@@ -115,7 +119,7 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null): Promise<void> {
+async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false): Promise<void> {
   const obsidian = join(vault, ".obsidian"); const plugin = join(obsidian, "plugins", "claude-companion");
   await mkdir(plugin, { recursive: true });
   for (const file of ["main.js", "manifest.json", "styles.css"]) await copyFile(join(process.cwd(), file), join(plugin, file));
@@ -127,7 +131,7 @@ async function seedVault(vault: string, providerPort: number, firstRun: boolean,
   const neutralOnboarding = { ontologySeedPrompted: true, semanticModelPrompted: true, sourceCaptureConsent: "deny" };
   // An endpoint host with no model id is the reported bug's starting state.
   const endpoint = endpointPort === null ? {} : { openaiCompatHost: `http://127.0.0.1:${endpointPort}`, openaiCompatModel: "" };
-  const settings = { apiKey: "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false, ...neutralOnboarding, ...endpoint };
+  const settings = { apiKey: claudeCli ? "" : "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: claudeCli ? "claude-cli" : "claude", discoveryEnabled: false, ...neutralOnboarding, ...endpoint };
   // firstRun keeps the stock onboarding defaults and no credential, so the
   // connect path the other specs skip past is actually exercised.
   const firstRunSettings = { authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false };
@@ -190,17 +194,27 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     if (!endpointAddress || typeof endpointAddress === "string") throw new Error("Endpoint stub did not bind");
     endpointPort = endpointAddress.port;
   }
-  await seedVault(vault, address.port, options.firstRun === true, endpointPort);
+  await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true);
   let executablePath = process.env.PATH ?? "";
-  if (options.fakeClaudeCode) {
+  if (options.fakeClaudeCode || options.claudeCli) {
     const bin = join(root, "bin");
     await mkdir(bin, { recursive: true });
     const claude = join(bin, "claude");
     await writeFile(claude, `#!/bin/sh
+log="$(dirname "$0")/claude-argv.log"
 case "$*" in
-  *--version*) printf '2.1.226 (Claude Code)\\n' ;;
+  *--version*) printf '2.1.257 (Claude Code)\\n' ;;
+  *"auth status"*) printf '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}\\n' ;;
   *"plugin marketplace list --json"*) printf '[{"name":"cavi-ai","repo":"cavi-ai/plugins"}]\\n' ;;
   *"plugin list --json"*) printf '[{"id":"obsidian-agent@cavi-ai","enabled":true}]\\n' ;;
+  *"--input-format stream-json"*)
+    printf 'ARGV %s\\n' "$*" >> "$log"
+    while IFS= read -r line; do
+      printf 'STDIN %s\\n' "$line" >> "$log"
+      printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
+      printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong from claude code"}}}\\n'
+      printf '{"type":"result","subtype":"success","result":"pong from claude code","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n'
+    done ;;
   *) sleep 0.4; printf '{"type":"result","result":"Fixture task completed"}\\n' ;;
 esac
 `);
@@ -259,7 +273,7 @@ esac
     }
     await page.bringToFront();
   }
-  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, close: async () => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); await rm(root, { recursive: true, force: true }); } };
+  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), close: async () => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); await rm(root, { recursive: true, force: true }); } };
 }
 
 async function stop(handle: ChildProcess): Promise<void> { if (handle.exitCode !== null) return; handle.kill("SIGTERM"); await Promise.race([new Promise<void>((resolve) => handle.once("exit", () => resolve())), new Promise<void>((resolve) => setTimeout(resolve, 3_000))]); if (handle.exitCode === null) handle.kill("SIGKILL"); }
