@@ -82,3 +82,44 @@ jobs:
 
       - name: Verify committed build output is reproducible
         run: pnpm run verify:build-output
+
+  e2e:
+    name: e2e · real Obsidian (macOS)
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.10
+        with:
+          version: 10.32.1
+
+      - name: Use Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # --no-quarantine: a quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
+      - name: Install Obsidian
+        run: brew install --cask --no-quarantine obsidian
+
+      - name: Run the Playwright suite against Obsidian
+        env:
+          CC_E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
+        run: pnpm run test:e2e
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces
+          path: ${{ runner.temp }}/e2e
