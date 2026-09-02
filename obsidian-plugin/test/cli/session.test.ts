@@ -21,6 +21,7 @@ const req: CompletionRequest = { system: "sys", messages: [{ role: "user", conte
 const init = '{"type":"system","subtype":"init","session_id":"s1","model":"m","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\n';
 const text = (t: string) => `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"${t}"}}}\n`;
 const result = (t: string, subtype = "success") => `{"type":"result","subtype":"${subtype}","result":"${t}","session_id":"s1","is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\n`;
+const errorResult = (t: string) => `{"type":"result","subtype":"success","result":"${t}","session_id":"s1","is_error":true,"api_error_status":404,"usage":{"input_tokens":0,"output_tokens":0}}\n`;
 
 function session(transcript?: string): { s: ClaudeCliSession; children: FakeChild[] } {
   const children: FakeChild[] = [];
@@ -57,6 +58,16 @@ describe("ClaudeCliSession", () => {
     expect(r.text).toBe("pong");
     expect(text_.join("")).toBe("pong");
     expect(s.sessionId()).toBe("s1");
+  });
+
+  it("surfaces an is_error result as a turn error instead of an empty reply", async () => {
+    const { s, children } = session();
+    const text_: string[] = [];
+    const turn = s.run(req, { onText: (d) => text_.push(d) });
+    feed(children[0]!, init + errorResult("There's an issue with the selected model (e2e-model)."));
+    const r = await turn;
+    expect(r.text).toBe("");
+    expect(r.error?.message).toContain("selected model (e2e-model)");
   });
 
   it("reuses the process for the next turn and injects the transcript only once", async () => {

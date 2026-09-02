@@ -37,3 +37,24 @@ test("chat runs on the Claude Code backend with no API key and reuses the proces
     await harness.close();
   }
 });
+
+test("a failed Claude Code result shows an error, not an empty reply", async () => {
+  const harness = await launchObsidianHarness({ claudeCli: true });
+  const { page } = harness;
+  try {
+    await page.evaluate(async () => {
+      const app = (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app;
+      await app.commands.executeCommandById("claude-companion:open-chat");
+    });
+    const chat = page.locator(".cc-chat-root").first();
+    await expect(chat).toContainText("● Claude Code", { timeout: 15_000 });
+    const input = chat.locator(".cc-input").first();
+    await input.fill("please make it fail");
+    await input.press("Enter");
+    const error = chat.locator(".cc-error");
+    await expect(error).toBeVisible({ timeout: 30_000 });
+    await expect(error).toContainText("selected model");
+  } finally {
+    await harness.close();
+  }
+});

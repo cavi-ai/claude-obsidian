@@ -223,9 +223,15 @@ case "$*" in
     printf 'ARGV %s\\n' "$*" >> "$log"
     while IFS= read -r line; do
       printf 'STDIN %s\\n' "$line" >> "$log"
-      printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
-      printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong from claude code"}}}\\n'
-      printf '{"type":"result","subtype":"success","result":"pong from claude code","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n'
+      case "$line" in
+        *"make it fail"*)
+          printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
+          printf '{"type":"result","subtype":"success","result":"There is an issue with the selected model (e2e-model).","session_id":"e2e-session","num_turns":1,"is_error":true,"api_error_status":404,"usage":{"input_tokens":0,"output_tokens":0}}\\n' ;;
+        *)
+          printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
+          printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong from claude code"}}}\\n'
+          printf '{"type":"result","subtype":"success","result":"pong from claude code","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n' ;;
+      esac
     done ;;
   *) sleep 0.4; printf '{"type":"result","result":"Fixture task completed"}\\n' ;;
 esac
