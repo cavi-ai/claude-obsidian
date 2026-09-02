@@ -109,9 +109,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # --no-quarantine: a quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
+      # A quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
       - name: Install Obsidian
-        run: brew install --cask --no-quarantine obsidian
+        run: |
+          brew install --cask obsidian
+          sudo xattr -dr com.apple.quarantine /Applications/Obsidian.app || true
 
       - name: Run the Playwright suite against Obsidian
         env:
