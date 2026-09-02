@@ -197,7 +197,7 @@ describe("relativeTime", () => {
   });
 });
 
-import { withCliSession, transcriptText } from "../src/conversations/store";
+import { withCliSession, cliSessionIds, transcriptText } from "../src/conversations/store";
 
 describe("cliSessionId", () => {
   it("attaches to a conversation and survives touch and save", () => {
@@ -209,6 +209,16 @@ describe("cliSessionId", () => {
     expect(state.conversations[0]!.cliSessionId).toBe(c.cliSessionId);
     const reloaded = fromPersisted(JSON.parse(JSON.stringify(state)));
     expect(reloaded.conversations[0]!.cliSessionId).toBe(c.cliSessionId);
+  });
+
+  it("keeps earlier session ids so memory ingest can skip every process this chat ran", () => {
+    const first = withCliSession(newConversation("c2", 1), "11111111-1111-4111-8111-111111111111");
+    const second = withCliSession(first, "22222222-2222-4222-8222-222222222222");
+    expect(second.cliSessionId).toBe("22222222-2222-4222-8222-222222222222");
+    expect(second.cliSessionHistory).toEqual(["11111111-1111-4111-8111-111111111111"]);
+    expect(cliSessionIds(second)).toEqual(["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]);
+    expect(withCliSession(second, "22222222-2222-4222-8222-222222222222").cliSessionHistory).toEqual(["11111111-1111-4111-8111-111111111111"]);
+    expect(cliSessionIds(newConversation("c3", 1))).toEqual([]);
   });
 });
 

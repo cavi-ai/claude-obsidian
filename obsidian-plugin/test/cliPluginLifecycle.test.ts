@@ -69,6 +69,31 @@ describe("plugin Claude CLI lifecycle", () => {
     expect(rt.removeFile).toHaveBeenCalledTimes(3);
   });
 
+  it("spawns a fresh session and keeps history when the previous one is spent", async () => {
+    vi.spyOn(McpHttpServer.prototype, "start").mockResolvedValue(undefined);
+    vi.spyOn(McpHttpServer.prototype, "isRunning").mockReturnValue(true);
+    vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });
+    vi.spyOn(McpHttpServer.prototype, "stop").mockResolvedValue(undefined);
+    vi.spyOn(ClaudeCliSession.prototype, "run").mockResolvedValue({ text: "", trace: [] });
+    vi.spyOn(ClaudeCliSession.prototype, "close").mockResolvedValue(undefined);
+    const rt = runtime();
+    const p = plugin(rt);
+    await p.router().claudeCli.refresh();
+    const deps = { confirmWrite: async () => true, proposeEdit: async () => "" };
+    const opts = { conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" };
+    const a = await p.cliTurnRunner(opts);
+    type ConvOut = { convState: { conversations: { id: string; cliSessionId?: string; cliSessionHistory?: string[] }[] } };
+    const firstConvo = () => (p as unknown as ConvOut).convState.conversations.find((c) => c.id === "c1")!;
+    const firstId = firstConvo().cliSessionId;
+    expect(typeof firstId).toBe("string");
+    // The process is spent (interrupted or exited); run() is mocked so `child` stays null and interrupt() would no-op — spy isClosed directly instead.
+    vi.spyOn(ClaudeCliSession.prototype, "isClosed").mockReturnValue(true);
+    const b = await p.cliTurnRunner(opts);
+    expect(b).not.toBe(a);
+    expect(firstConvo().cliSessionId).not.toBe(firstId);
+    expect(firstConvo().cliSessionHistory).toEqual([firstId]);
+  });
+
   it("refuses to build a runner when the CLI is not signed in", async () => {
     const rt = runtime();
     rt.authStatus = async () => ({ loggedIn: false, method: "" });

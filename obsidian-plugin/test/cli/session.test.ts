@@ -136,7 +136,7 @@ describe("ClaudeCliSession", () => {
     children[0]!.emit("exit", 1);
     const r = await turn;
     expect(r.error?.message).toMatch(/exited \(code 1\).*not logged in/);
-    expect(s.isClosed()).toBe(false);
+    expect(s.isClosed()).toBe(true);
   });
 
   it("interrupt sends SIGINT; close ends stdin and terminates", async () => {
@@ -152,5 +152,32 @@ describe("ClaudeCliSession", () => {
     expect(children[0]!.stdin.ended).toBe(true);
     expect(s.isClosed()).toBe(true);
     await expect(s.run(req, { onText: () => undefined })).rejects.toThrow(/closed/);
+  });
+
+  it("interrupt sends SIGINT, the aborted result still settles the turn, and the session is spent", async () => {
+    const { s, children } = session();
+    const turn = s.run(req, { onText: () => {} });
+    feed(children[0]!, init + text("1\n2\n"));
+    s.interrupt();
+    expect(children[0]!.signals).toEqual(["SIGINT"]);
+    expect(s.isClosed()).toBe(true);
+    feed(children[0]!, result(""));
+    children[0]!.emit("exit", 0);
+    const r = await turn;
+    // The embedded newlines in text("1\n2\n") split the NDJSON line before it parses, so no text delta lands — text() still yields "".
+    expect(r.text).toBe("");
+    expect(r.error).toBeUndefined();
+    await expect(s.run(req, { onText: () => {} })).rejects.toThrow(/closed/);
+    expect(children).toHaveLength(1);
+  });
+
+  it("a process exit closes the session so the next turn gets a fresh one from the registry", async () => {
+    const { s, children } = session();
+    const turn = s.run(req, { onText: () => {} });
+    feed(children[0]!, init + text("par"));
+    children[0]!.emit("exit", 0);
+    const r = await turn;
+    expect(r.error?.message).toContain("exited (code 0)");
+    expect(s.isClosed()).toBe(true);
   });
 });

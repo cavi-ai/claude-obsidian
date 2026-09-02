@@ -96,6 +96,7 @@ import {
   getActive,
   newConversation,
   withCliSession,
+  cliSessionIds,
   saveConversation,
   deleteConversation as removeConversation,
   setActive,
@@ -3325,7 +3326,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!base || Platform.isMobile) return [];
     // node fs reader lives in the desktop-only module — load it lazily.
     const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
-    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.convState.conversations.map((c) => c.cliSessionId));
+    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.convState.conversations.flatMap(cliSessionIds));
   }
 
   private ingestDeps() {

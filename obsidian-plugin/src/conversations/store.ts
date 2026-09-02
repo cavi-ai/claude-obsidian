@@ -16,6 +16,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** The Claude Code --session-id this chat runs under; memory ingest skips it. */
   cliSessionId?: string;
+  /** Earlier Claude Code session ids of this chat; memory ingest skips them too. */
+  cliSessionHistory?: string[];
 }
 
 export interface ConversationState {
@@ -189,7 +191,14 @@ function isConversation(v: unknown): v is Conversation {
 }
 
 export function withCliSession(convo: Conversation, sessionId: string): Conversation {
-  return { ...convo, cliSessionId: sessionId };
+  const previous = convo.cliSessionId;
+  const history = previous !== undefined && previous !== sessionId ? [...(convo.cliSessionHistory ?? []), previous] : convo.cliSessionHistory;
+  return { ...convo, cliSessionId: sessionId, ...(history !== undefined ? { cliSessionHistory: history } : {}) };
+}
+
+/** Every Claude Code session id this chat has run under, oldest first. */
+export function cliSessionIds(convo: Conversation): string[] {
+  return [...(convo.cliSessionHistory ?? []), ...(convo.cliSessionId !== undefined ? [convo.cliSessionId] : [])];
 }
 
 const TRANSCRIPT_HEADER = "Conversation so far (for context; reply only to the newest message):";

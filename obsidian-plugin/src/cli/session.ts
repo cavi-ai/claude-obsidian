@@ -88,7 +88,11 @@ export class ClaudeCliSession implements AgentTurnRunner {
   }
 
   interrupt(): void {
-    this.child?.kill("SIGINT");
+    const child = this.child;
+    if (!child) return;
+    // SIGINT ends the Claude Code process, and its --session-id cannot be reused; the next turn gets a new session.
+    this.closed = true;
+    child.kill("SIGINT");
   }
 
   async close(): Promise<void> {
@@ -118,6 +122,7 @@ export class ClaudeCliSession implements AgentTurnRunner {
   }
 
   private onExit(message: string): void {
+    this.closed = true; // a process that died for any reason ends the session
     if (this.child) this.child = null;
     for (const w of this.exitWaiters.splice(0)) w();
     const turn = this.active;
