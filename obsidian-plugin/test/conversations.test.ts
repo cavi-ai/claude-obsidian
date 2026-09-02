@@ -196,3 +196,28 @@ describe("relativeTime", () => {
     expect(relativeTime(now + 5000, now)).toBe("just now");
   });
 });
+
+import { withCliSession, transcriptText } from "../src/conversations/store";
+
+describe("cliSessionId", () => {
+  it("attaches to a conversation and survives touch and save", () => {
+    const c = withCliSession(newConversation("c1", 1), "0f1e2d3c-4b5a-4968-8776-655443322110");
+    expect(c.cliSessionId).toBe("0f1e2d3c-4b5a-4968-8776-655443322110");
+    const touched = touch(c, [u("hi")], 2);
+    expect(touched.cliSessionId).toBe(c.cliSessionId);
+    const state = saveConversation(emptyState(), touched, 10);
+    expect(state.conversations[0]!.cliSessionId).toBe(c.cliSessionId);
+    const reloaded = fromPersisted(JSON.parse(JSON.stringify(state)));
+    expect(reloaded.conversations[0]!.cliSessionId).toBe(c.cliSessionId);
+  });
+});
+
+describe("transcriptText", () => {
+  it("renders prior turns under a header, using content never display labels", () => {
+    const text = transcriptText([u("first"), { role: "assistant", content: "answer" }, { role: "user", content: "raw", display: "pretty" }]);
+    expect(text).toBe("Conversation so far (for context; reply only to the newest message):\n\nUser: first\n\nAssistant: answer\n\nUser: raw");
+  });
+  it("is empty for no prior turns", () => {
+    expect(transcriptText([])).toBe("");
+  });
+});

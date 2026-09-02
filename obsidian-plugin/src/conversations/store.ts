@@ -14,6 +14,8 @@ export interface Conversation {
   /** Epoch ms; conversations are ordered by this, most-recent first. */
   updatedAt: number;
   messages: ChatMessage[];
+  /** The Claude Code --session-id this chat runs under; memory ingest skips it. */
+  cliSessionId?: string;
 }
 
 export interface ConversationState {
@@ -184,4 +186,17 @@ function isConversation(v: unknown): v is Conversation {
     Array.isArray(c.messages) &&
     c.messages.every((m) => m && typeof (m).role === "string" && typeof (m).content === "string")
   );
+}
+
+export function withCliSession(convo: Conversation, sessionId: string): Conversation {
+  return { ...convo, cliSessionId: sessionId };
+}
+
+const TRANSCRIPT_HEADER = "Conversation so far (for context; reply only to the newest message):";
+
+/** Prior turns flattened for a fresh Claude Code process, which holds no history yet. */
+export function transcriptText(messages: ChatMessage[]): string {
+  if (messages.length === 0) return "";
+  const lines = messages.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
+  return [TRANSCRIPT_HEADER, ...lines].join("\n\n");
 }
