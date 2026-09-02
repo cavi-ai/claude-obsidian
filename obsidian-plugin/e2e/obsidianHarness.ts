@@ -125,7 +125,7 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false): Promise<void> {
+async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false, live = false): Promise<void> {
   const obsidian = join(vault, ".obsidian"); const plugin = join(obsidian, "plugins", "claude-companion");
   await mkdir(plugin, { recursive: true });
   for (const file of ["main.js", "manifest.json", "styles.css"]) await copyFile(join(process.cwd(), file), join(plugin, file));
@@ -137,7 +137,9 @@ async function seedVault(vault: string, providerPort: number, firstRun: boolean,
   const neutralOnboarding = { ontologySeedPrompted: true, semanticModelPrompted: true, sourceCaptureConsent: "deny" };
   // An endpoint host with no model id is the reported bug's starting state.
   const endpoint = endpointPort === null ? {} : { openaiCompatHost: `http://127.0.0.1:${endpointPort}`, openaiCompatModel: "" };
-  const settings = { apiKey: claudeCli ? "" : "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: claudeCli ? "claude-cli" : "claude", discoveryEnabled: false, ...neutralOnboarding, ...endpoint };
+  // The live binary 404s on a placeholder model id; omit it so the plugin's own default applies.
+  const modelFields = live ? {} : { model: "e2e-model", customModel: "" };
+  const settings = { apiKey: claudeCli ? "" : "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, ...modelFields, chatBackend: claudeCli ? "claude-cli" : "claude", discoveryEnabled: false, ...neutralOnboarding, ...endpoint };
   // firstRun keeps the stock onboarding defaults and no credential, so the
   // connect path the other specs skip past is actually exercised.
   const firstRunSettings = { authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false };
@@ -202,7 +204,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     if (!endpointAddress || typeof endpointAddress === "string") throw new Error("Endpoint stub did not bind");
     endpointPort = endpointAddress.port;
   }
-  if (!options.reuse) await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true);
+  if (!options.reuse) await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true);
   let executablePath = process.env.PATH ?? "";
   // The real binary lives in ~/.local/bin, which Obsidian's own PATH lacks.
   if (options.liveClaude) executablePath = `${join(homedir(), ".local", "bin")}:${executablePath}`;
