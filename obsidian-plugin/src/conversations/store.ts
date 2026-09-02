@@ -190,15 +190,20 @@ function isConversation(v: unknown): v is Conversation {
   );
 }
 
+/** Persisted history may be hand-edited; anything but a string array counts as none. */
+function historyOf(convo: Conversation): string[] {
+  return Array.isArray(convo.cliSessionHistory) ? convo.cliSessionHistory.filter((id): id is string => typeof id === "string") : [];
+}
+
 export function withCliSession(convo: Conversation, sessionId: string): Conversation {
   const previous = convo.cliSessionId;
-  const history = previous !== undefined && previous !== sessionId ? [...(convo.cliSessionHistory ?? []), previous] : convo.cliSessionHistory;
-  return { ...convo, cliSessionId: sessionId, ...(history !== undefined ? { cliSessionHistory: history } : {}) };
+  const history = previous !== undefined && previous !== sessionId ? [...historyOf(convo), previous] : historyOf(convo);
+  return { ...convo, cliSessionId: sessionId, ...(history.length > 0 ? { cliSessionHistory: history } : {}) };
 }
 
 /** Every Claude Code session id this chat has run under, oldest first. */
 export function cliSessionIds(convo: Conversation): string[] {
-  return [...(convo.cliSessionHistory ?? []), ...(convo.cliSessionId !== undefined ? [convo.cliSessionId] : [])];
+  return [...historyOf(convo), ...(typeof convo.cliSessionId === "string" ? [convo.cliSessionId] : [])];
 }
 
 const TRANSCRIPT_HEADER = "Conversation so far (for context; reply only to the newest message):";

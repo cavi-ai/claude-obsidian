@@ -157,15 +157,14 @@ describe("ClaudeCliSession", () => {
   it("interrupt sends SIGINT, the aborted result still settles the turn, and the session is spent", async () => {
     const { s, children } = session();
     const turn = s.run(req, { onText: () => {} });
-    feed(children[0]!, init + text("1\n2\n"));
+    feed(children[0]!, init + text("1"));
     s.interrupt();
     expect(children[0]!.signals).toEqual(["SIGINT"]);
     expect(s.isClosed()).toBe(true);
     feed(children[0]!, result(""));
     children[0]!.emit("exit", 0);
     const r = await turn;
-    // The embedded newlines in text("1\n2\n") split the NDJSON line before it parses, so no text delta lands — text() still yields "".
-    expect(r.text).toBe("");
+    expect(r.text).toBe("1");
     expect(r.error).toBeUndefined();
     await expect(s.run(req, { onText: () => {} })).rejects.toThrow(/closed/);
     expect(children).toHaveLength(1);
