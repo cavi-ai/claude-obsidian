@@ -42,8 +42,9 @@ class AddedText extends WidgetType {
   override eq(other: AddedText): boolean {
     return other.text === this.text;
   }
-  override toDOM(view: EditorView): HTMLElement {
-    return view.dom.ownerDocument.createSpan({ cls: "cc-inline-add", text: this.text });
+  // Widget DOM is created detached with Obsidian's global helpers; CodeMirror mounts it.
+  override toDOM(): HTMLElement {
+    return createSpan({ cls: "cc-inline-add", text: this.text });
   }
   override ignoreEvent(): boolean {
     return false;
@@ -57,11 +58,11 @@ class HunkBar extends WidgetType {
   override eq(other: HunkBar): boolean {
     return other.index === this.index && other.showAll === this.showAll;
   }
+  // Widget DOM is created detached with Obsidian's global helpers; CodeMirror mounts it.
   override toDOM(view: EditorView): HTMLElement {
-    const doc = view.dom.ownerDocument;
-    const bar = doc.createSpan({ cls: "cc-inline-bar" });
+    const bar = createSpan({ cls: "cc-inline-bar" });
     const button = (label: string, cls: string, onClick: () => void): void => {
-      const b = doc.createEl("button", { cls: `cc-inline-btn ${cls}`, text: label });
+      const b = createEl("button", { cls: `cc-inline-btn ${cls}`, text: label });
       // mousedown keeps the editor selection where it is; click would move the caret first.
       b.addEventListener("mousedown", (event) => {
         event.preventDefault();

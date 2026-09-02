@@ -30,9 +30,10 @@ function makeTooltip(view: EditorView, deps: SelectionActionDeps): Tooltip {
     above: true,
     strictSide: true,
     arrow: false,
+    // Widget DOM is created detached with Obsidian's global helpers; CodeMirror mounts it.
     create() {
-      const dom = view.dom.ownerDocument.createDiv({ cls: "cc-selection-action" });
-      const button = view.dom.ownerDocument.createEl("button", { text: "Rewrite with Claude" });
+      const dom = createDiv({ cls: "cc-selection-action" });
+      const button = createEl("button", { text: "Rewrite with Claude" });
       // mousedown keeps the selection; click would collapse it before run() reads it.
       button.addEventListener("mousedown", (event) => {
         event.preventDefault();
