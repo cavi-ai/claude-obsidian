@@ -97,15 +97,15 @@ test.describe("Claude Code backend, live", () => {
       await waitIdle(page);
       await expect.poll(() => readFile(join(vault, "Live", "Hello.md"), "utf8").catch(() => ""), { timeout: 30_000 }).toContain("hello");
 
-      // diffed edit on an open note
+      // inline edit on an open note
       await page.evaluate(async () => {
         const app = (window as unknown as { app: { workspace: { openLinkText(link: string, source: string, newLeaf: boolean): Promise<void> } } }).app;
         await app.workspace.openLinkText("Build plan", "", false);
       });
       await send(page, 'Call propose_note_edit on "Build plan.md" replacing the exact text "Create the parser" with "Create the tokenizer".');
-      const diff = page.locator(".modal-container").filter({ hasText: "Proposed edit" });
-      await expect(diff).toBeVisible({ timeout: 180_000 });
-      await diff.getByRole("button", { name: "Apply selected" }).click();
+      // The note is open, so the proposal reviews inline; accepting edits the live buffer.
+      await expect(page.locator(".cc-inline-add")).toBeVisible({ timeout: 180_000 });
+      await page.locator(".cc-inline-btn.is-accept").first().click();
       await waitIdle(page);
       await expect.poll(() => readFile(join(vault, "Build plan.md"), "utf8"), { timeout: 30_000 }).toContain("Create the tokenizer");
 
