@@ -203,3 +203,10 @@ describe("base_create classification", () => {
     expect(isWriteTool("base_create")).toBe(true);
   });
 });
+
+describe("ontology_propose classification", () => {
+  it("is a write tool; ontology_get is not", () => {
+    expect(isWriteTool("ontology_propose")).toBe(true);
+    expect(isWriteTool("ontology_get")).toBe(false);
+  });
+});
