@@ -119,7 +119,7 @@ export class McpHttpServer {
   private setCors(res: ServerResponse): void {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, mcp-session-id, mcp-protocol-version");
-    res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
   }
 
@@ -259,7 +259,7 @@ export class McpHttpServer {
         call: (name, args) => this.tools.call(name, args),
       });
       if (req.method === "initialize" && response && !response.error) {
-        const session = globalThis.crypto.randomUUID();
+        const session = window.crypto.randomUUID();
         this.sessions.add(session);
         return { response, session };
       }

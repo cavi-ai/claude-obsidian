@@ -45,8 +45,8 @@ describe("toAnthropicTools", () => {
 });
 
 describe("isWriteTool", () => {
-  it("classifies the five write tools and nothing else", () => {
-    for (const t of ["note_create", "note_append", "note_update", "update_frontmatter", "note_move"]) {
+  it("classifies the six write tools and nothing else", () => {
+    for (const t of ["note_create", "note_append", "note_update", "note_patch", "update_frontmatter", "note_move"]) {
       expect(isWriteTool(t)).toBe(true);
     }
     for (const t of ["vault_search", "note_read", "list_recent", "vault_tags", "list_titles", "get_backlinks", "get_outgoing_links", "frontmatter_query"]) {

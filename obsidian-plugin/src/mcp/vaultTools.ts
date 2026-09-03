@@ -8,6 +8,7 @@ import { conform } from "../ontology/conform";
 import type { OntologyRegistry } from "../ontology/registry";
 import type { ResolvedType } from "../ontology/types";
 import { replaceSection } from "./edit";
+import { applyPatch, type PatchTarget } from "./patch";
 import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 import { ResearchRepository } from "../research/repository";
@@ -215,6 +216,30 @@ export class VaultTools {
           },
         },
         {
+          name: "note_patch",
+          description: "Insert or replace Markdown at one place in a note: a heading's section, a block referenced by ^id, a frontmatter key, or the whole document. 'replace' swaps the target; 'append'/'prepend' insert after/before it. Prefer this over note_update for targeted changes.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Vault-relative path to the note." },
+              target: {
+                type: "object",
+                description: "Where to patch.",
+                properties: {
+                  kind: { type: "string", enum: ["heading", "block", "frontmatter", "document"] },
+                  heading: { type: "string", description: "Heading text (kind=heading)." },
+                  id: { type: "string", description: "Block id, with or without the caret (kind=block)." },
+                  key: { type: "string", description: "Frontmatter key (kind=frontmatter)." },
+                },
+                required: ["kind"],
+              },
+              op: { type: "string", enum: ["replace", "append", "prepend"] },
+              content: { type: "string", description: "Markdown to insert, or the frontmatter value (a list item for append/prepend on a list key)." },
+            },
+            required: ["path", "target", "op", "content"],
+          },
+        },
+        {
           name: "update_frontmatter",
           description: "Merge YAML frontmatter into a note. 'tags' are unioned and normalized; other keys are set. Preserves the note body.",
           inputSchema: {
@@ -369,6 +394,9 @@ export class VaultTools {
       case "note_update":
         this.assertWrites();
         return this.update(str(args.path), str(args.content), optStr(args.section));
+      case "note_patch":
+        this.assertWrites();
+        return this.patch(str(args.path), args.target, str(args.op), str(args.content));
       case "update_frontmatter":
         this.assertWrites();
         return this.updateFrontmatter(str(args.path), strArray(args.tags), args.fields);
@@ -583,6 +611,36 @@ export class VaultTools {
     return `Updated ${file.path}`;
   }
 
+  private async patch(path: string, target: unknown, op: string, content: string): Promise<string> {
+    const file = this.resolveFile(path);
+    if (op !== "replace" && op !== "append" && op !== "prepend") throw new Error(`Unknown op: ${op}`);
+    const t = (target && typeof target === "object" ? target : {}) as { kind?: unknown; heading?: unknown; id?: unknown; key?: unknown };
+    if (t.kind === "frontmatter") {
+      const key = str(t.key);
+      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        if (op === "replace") {
+          fm[key] = content;
+          return;
+        }
+        const existing = fm[key];
+        if (existing !== undefined && !isUnknownArray(existing)) throw new Error(`Frontmatter key "${key}" is not a list; use op "replace".`);
+        const list = isUnknownArray(existing) ? [...existing] : [];
+        fm[key] = op === "append" ? [...list, content] : [content, ...list];
+      });
+      return `Patched frontmatter "${key}" of ${file.path} (${op})`;
+    }
+    const patchTarget: PatchTarget | null =
+      t.kind === "heading" ? { kind: "heading", heading: str(t.heading) }
+      : t.kind === "block" ? { kind: "block", id: str(t.id).replace(/^\^/, "") }
+      : t.kind === "document" ? { kind: "document" }
+      : null;
+    if (!patchTarget) throw new Error(`Unknown target kind: ${String(t.kind)}`);
+    const current = await this.app.vault.cachedRead(file);
+    await this.app.vault.modify(file, applyPatch(current, { target: patchTarget, op, content }));
+    const where = patchTarget.kind === "heading" ? `section "${patchTarget.heading}"` : patchTarget.kind === "block" ? `block ^${patchTarget.id}` : "the document";
+    return `Patched ${where} in ${file.path} (${op})`;
+  }
+
   private async updateFrontmatter(path: string, tags: string[], fields: unknown): Promise<string> {
     const file = this.resolveFile(path);
     const scalars: Record<string, string | number | boolean> = {};
@@ -683,6 +741,10 @@ export class VaultTools {
 function str(v: unknown): string {
   if (typeof v !== "string" || v.length === 0) throw new Error("Expected a non-empty string argument.");
   return v;
+}
+/** Array.isArray narrows to any[]; this keeps the narrowed elements unknown. */
+function isUnknownArray(v: unknown): v is unknown[] {
+  return Array.isArray(v);
 }
 function optStr(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
