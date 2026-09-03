@@ -371,7 +371,6 @@ export class VaultTools {
             properties: {
               name: { type: "string", description: "Type name, lowercase kebab-case." },
               parent: { type: "string", description: "Parent type (default: entity)." },
-              description: { type: "string" },
               properties: { type: "array", items: { type: "object", properties: { key: { type: "string" }, type: { type: "string", enum: ["string", "number", "boolean", "date", "duration", "string[]"] }, required: { type: "boolean" }, description: { type: "string" } }, required: ["key", "type"] } },
               relations: { type: "array", items: { type: "object", properties: { key: { type: "string" }, targets: { type: "array", items: { type: "string" } }, description: { type: "string" } }, required: ["key", "targets"] } },
             },
