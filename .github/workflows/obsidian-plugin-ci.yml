@@ -82,3 +82,53 @@ jobs:
 
       - name: Verify committed build output is reproducible
         run: pnpm run verify:build-output
+
+  e2e:
+    name: e2e · real Obsidian (macOS)
+    needs: verify
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.10
+        with:
+          version: 10.32.1
+
+      - name: Use Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The runner image's Homebrew index is a stale snapshot; the harness needs the cask at or above manifest.minAppVersion.
+      # A quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
+      - name: Install Obsidian
+        run: |
+          brew update --quiet
+          brew install --cask obsidian
+          sudo xattr -dr com.apple.quarantine /Applications/Obsidian.app || true
+          installed=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Obsidian.app/Contents/Info.plist)
+          floor=$(node -p "require('./manifest.json').minAppVersion")
+          echo "Obsidian $installed installed; plugin floor $floor"
+          node -e "const c=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]??0)-(y[i]??0);if(d)return d}return 0};process.exit(c('$installed','$floor')<0?1:0)"
+
+      - name: Run the Playwright suite against Obsidian
+        env:
+          CC_E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
+        run: pnpm run test:e2e
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces
+          path: ${{ runner.temp }}/e2e

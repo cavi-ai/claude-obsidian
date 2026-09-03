@@ -88,7 +88,11 @@ export class ClaudeCliSession implements AgentTurnRunner {
   }
 
   interrupt(): void {
-    this.child?.kill("SIGINT");
+    const child = this.child;
+    if (!child) return;
+    // SIGINT ends the Claude Code process, and its --session-id cannot be reused; the next turn gets a new session.
+    this.closed = true;
+    child.kill("SIGINT");
   }
 
   async close(): Promise<void> {
@@ -118,6 +122,7 @@ export class ClaudeCliSession implements AgentTurnRunner {
   }
 
   private onExit(message: string): void {
+    this.closed = true; // a process that died for any reason ends the session
     if (this.child) this.child = null;
     for (const w of this.exitWaiters.splice(0)) w();
     const turn = this.active;
@@ -178,7 +183,10 @@ export class ClaudeCliSession implements AgentTurnRunner {
       case "result": {
         if (ev.usage) turn.handlers.onUsage?.(ev.usage);
         const text = this.text(turn);
-        if (ev.subtype === "success") {
+        // The CLI reports API failures as subtype "success" with is_error set; the message rides in result.
+        if (ev.isError) {
+          turn.settle({ text, trace: turn.trace, error: new Error(ev.text || ev.subtype) });
+        } else if (ev.subtype === "success") {
           turn.settle({ text, trace: turn.trace });
         } else if (ev.subtype === "error_max_turns") {
           turn.handlers.onNotice?.("Stopped after the tool iteration cap — ask me to continue if the answer is incomplete.");

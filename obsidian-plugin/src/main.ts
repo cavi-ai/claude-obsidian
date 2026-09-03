@@ -96,6 +96,7 @@ import {
   getActive,
   newConversation,
   withCliSession,
+  cliSessionIds,
   saveConversation,
   deleteConversation as removeConversation,
   setActive,
@@ -2311,6 +2312,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }),
       ontologyPending: this.settings.ontologyEnabled && !this.settings.ontologySeedPrompted,
       semanticPending: this.settings.semanticEnabled && !this.settings.semanticModelPrompted,
+      integrationsPending: !Platform.isMobile && !this.settings.desktopIntegrationsOffered,
     };
   }
 
@@ -2328,7 +2330,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async runFirstRunPrompts(): Promise<void> {
     for (const prompt of pendingFirstRunPrompts(this.firstRunState())) {
       if (prompt === "ontology") await this.offerOntologySeed();
-      else await this.promptSemanticModelIfNeeded();
+      else if (prompt === "semantic") await this.promptSemanticModelIfNeeded();
+      else await this.offerDesktopIntegrations();
     }
   }
 
@@ -2363,6 +2366,30 @@ export default class ClaudeCompanionPlugin extends Plugin {
         fallback: "skip",
         onChoice: (c) => {
           if (c === "seed") void this.seedOntology();
+          resolve();
+        },
+      }).open();
+    });
+  }
+
+  /** One-time offer to wire Claude Code and Claude Desktop to this vault. Resolves when dismissed. */
+  async offerDesktopIntegrations(): Promise<void> {
+    if (Platform.isMobile || this.settings.desktopIntegrationsOffered) return;
+    this.settings.desktopIntegrationsOffered = true;
+    await this.saveSettings();
+    await new Promise<void>((resolve) => {
+      new ChoiceModal<"open" | "skip">(this.app, {
+        title: "Set up desktop integrations",
+        message:
+          "Install the obsidian-agent plugin for Claude Code and connect Claude Desktop to this vault. " +
+          "Both are available later under Settings → Desktop integrations.",
+        buttons: [
+          { label: "Open desktop integrations", value: "open", cta: true },
+          { label: "Not now", value: "skip" },
+        ],
+        fallback: "skip",
+        onChoice: (c) => {
+          if (c === "open") this.openDesktopIntegrations();
           resolve();
         },
       }).open();
@@ -3299,7 +3326,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!base || Platform.isMobile) return [];
     // node fs reader lives in the desktop-only module — load it lazily.
     const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
-    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.convState.conversations.map((c) => c.cliSessionId));
+    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.convState.conversations.flatMap(cliSessionIds));
   }
 
   private ingestDeps() {

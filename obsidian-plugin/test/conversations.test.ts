@@ -197,7 +197,7 @@ describe("relativeTime", () => {
   });
 });
 
-import { withCliSession, transcriptText } from "../src/conversations/store";
+import { withCliSession, cliSessionIds, transcriptText } from "../src/conversations/store";
 
 describe("cliSessionId", () => {
   it("attaches to a conversation and survives touch and save", () => {
@@ -209,6 +209,25 @@ describe("cliSessionId", () => {
     expect(state.conversations[0]!.cliSessionId).toBe(c.cliSessionId);
     const reloaded = fromPersisted(JSON.parse(JSON.stringify(state)));
     expect(reloaded.conversations[0]!.cliSessionId).toBe(c.cliSessionId);
+  });
+
+  it("keeps earlier session ids so memory ingest can skip every process this chat ran", () => {
+    const first = withCliSession(newConversation("c2", 1), "11111111-1111-4111-8111-111111111111");
+    const second = withCliSession(first, "22222222-2222-4222-8222-222222222222");
+    expect(second.cliSessionId).toBe("22222222-2222-4222-8222-222222222222");
+    expect(second.cliSessionHistory).toEqual(["11111111-1111-4111-8111-111111111111"]);
+    expect(cliSessionIds(second)).toEqual(["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]);
+    expect(withCliSession(second, "22222222-2222-4222-8222-222222222222").cliSessionHistory).toEqual(["11111111-1111-4111-8111-111111111111"]);
+    expect(cliSessionIds(newConversation("c3", 1))).toEqual([]);
+  });
+
+  it("ignores a malformed persisted history", () => {
+    const bad = { ...newConversation("c4", 1), cliSessionId: "33333333-3333-4333-8333-333333333333", cliSessionHistory: "oops" as unknown as string[] };
+    expect(cliSessionIds(bad)).toEqual(["33333333-3333-4333-8333-333333333333"]);
+    const next = withCliSession(bad, "44444444-4444-4444-8444-444444444444");
+    expect(next.cliSessionHistory).toEqual(["33333333-3333-4333-8333-333333333333"]);
+    const mixed = { ...newConversation("c5", 1), cliSessionHistory: ["55555555-5555-4555-8555-555555555555", 7 as unknown as string] };
+    expect(cliSessionIds(mixed)).toEqual(["55555555-5555-4555-8555-555555555555"]);
   });
 });
 
