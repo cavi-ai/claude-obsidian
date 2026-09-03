@@ -63,3 +63,31 @@ test("a failed Claude Code result shows an error, not an empty reply", async () 
     await harness.close();
   }
 });
+
+test("a skill from the palette runs as a composed turn on the Claude Code backend", async () => {
+  const harness = await launchObsidianHarness({ claudeCli: true });
+  const { page } = harness;
+  try {
+    await page.evaluate(async () => {
+      const app = (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app;
+      await app.commands.executeCommandById("claude-companion:open-chat");
+    });
+    const chat = page.locator(".cc-chat-root").first();
+    await expect(chat).toContainText("● Claude Code", { timeout: 15_000 });
+    const input = chat.locator(".cc-input").first();
+    await input.fill("/wikilink-weaver Build plan.md");
+    await input.press("Enter");
+    await expect(chat.locator(".cc-msg.cc-assistant").last()).toContainText("pong from claude code", { timeout: 30_000 });
+    await expect(chat.locator(".cc-msg.cc-user").last()).toContainText("/wikilink-weaver Build plan.md");
+
+    const log = await readFile(harness.argvLog, "utf8");
+    const stdin = log.split("\n").filter((l) => l.startsWith("STDIN "));
+    expect(stdin).toHaveLength(1);
+    expect(stdin[0]).toContain("Wikilink weaver");
+    expect(stdin[0]).toContain("# Task");
+    expect(stdin[0]).toContain("Build plan.md");
+    expect(stdin[0]).not.toContain("REQUIRED SUB-SKILL");
+  } finally {
+    await harness.close();
+  }
+});

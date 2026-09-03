@@ -121,6 +121,8 @@ export class ChatView extends ItemView {
   private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
   private lastUserText = "";
+  /** The last user-bubble display text, when it differs from lastUserText (skill turns). */
+  private lastDisplay: string | undefined = undefined;
   private slashMenu!: SlashMenu;
   /** User-defined prompt templates (notes in the templates folder). */
   private templateCommands: SlashCommand[] = [];
@@ -1295,13 +1297,17 @@ export class ChatView extends ItemView {
     if (skill) {
       this.plugin.settings.context.searchVault = true;
       await this.plugin.saveSettings();
-      this.lastUserText = text;
+      const prompt = composeSkillPrompt(skill.entry, skill.args);
+      const display = skillDisplay(skill.entry, skill.args);
+      this.lastUserText = prompt;
+      this.lastDisplay = display;
       this.inputEl.value = "";
       this.autosizeInput();
-      await this.run(composeSkillPrompt(skill.entry, skill.args), skillDisplay(skill.entry, skill.args));
+      await this.run(prompt, display);
       return;
     }
     this.lastUserText = text;
+    this.lastDisplay = undefined;
     this.inputEl.value = "";
     this.autosizeInput();
     await this.run(text);
@@ -2423,7 +2429,7 @@ export class ChatView extends ItemView {
     if (this.attachedMedia.length === 0 && this.lastUserMedia.length > 0) {
       this.attachedMedia = [...this.lastUserMedia];
     }
-    await this.run(this.lastUserText, undefined, opts?.maxTokens);
+    await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens);
   }
 
   /**
