@@ -31,7 +31,9 @@
     "test:e2e:research": "pnpm run build && playwright test --config=e2e/playwright.config.ts e2e/research-desk.spec.ts",
     "docs:build": "node tools/build-docs-artifact.mjs",
     "docs:verify": "node tools/docs-check.mjs",
-    "bundle:report": "node tools/bundle-report.mjs"
+    "bundle:report": "node tools/bundle-report.mjs",
+    "skills:build": "node tools/build-skill-registry.mjs",
+    "skills:verify": "node tools/verify-skill-registry.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

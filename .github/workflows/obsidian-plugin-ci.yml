@@ -77,6 +77,9 @@ jobs:
       - name: Verify the docs artifact contract
         run: pnpm run docs:verify
 
+      - name: Verify the generated skill registry
+        run: pnpm run skills:verify
+
       - name: Build
         run: pnpm run build
 

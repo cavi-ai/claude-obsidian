@@ -18,10 +18,12 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import { type SlashCommand, runNativeSlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, templateSlashCommand, WORKFLOW_ACTION_PREFIX } from "./slashCommands";
+import { type SlashCommand, runNativeSlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, templateSlashCommand, WORKFLOW_ACTION_PREFIX, skillSlashCommands, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { detectPageUrl, pageLabel, type AttachedPage } from "../context/urlContext";
 import { WORKFLOWS } from "../workflows/catalog";
+import { SKILLS } from "../workflows/skillRegistry.generated";
+import { composeSkillPrompt, parseSkillInvocation, skillDisplay } from "../skills/compose";
 import { hasIncompleteHtmlArtifactFence, splitStreamingArtifact } from "./streamRender";
 import { TurnRenderer, type TurnRendererHost } from "./turnRenderer";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
@@ -119,6 +121,8 @@ export class ChatView extends ItemView {
   private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
   private lastUserText = "";
+  /** The last user-bubble display text, when it differs from lastUserText (skill turns). */
+  private lastDisplay: string | undefined = undefined;
   private slashMenu!: SlashMenu;
   /** User-defined prompt templates (notes in the templates folder). */
   private templateCommands: SlashCommand[] = [];
@@ -285,7 +289,7 @@ export class ChatView extends ItemView {
     // above it in flow; CSS positions them absolutely).
     // Slash is the single command surface: the built-in commands plus every vault
     // workflow (the browsable picker stays reachable via /workflows).
-    this.slashMenu = new SlashMenu(composer, [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS)], (cmd) => void this.runSlashCommand(cmd));
+    this.slashMenu = new SlashMenu(composer, [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS)], (cmd) => void this.runSlashCommand(cmd));
     this.atMenu = new AtMenu(composer, () => this.atItems(), (item) => void this.onAtChoose(item));
 
     // User templates: load now, refresh when a note in the folder changes.
@@ -1288,7 +1292,20 @@ export class ChatView extends ItemView {
       this.showSetupCard();
       return;
     }
+    // A typed obsidian-agent skill invocation ("/wikilink-weaver <note path>") composes into a full turn with vault search on.
+    const skill = parseSkillInvocation(text, SKILLS);
+    if (skill) {
+      const prompt = composeSkillPrompt(skill.entry, skill.args);
+      const display = skillDisplay(skill.entry, skill.args);
+      this.lastUserText = prompt;
+      this.lastDisplay = display;
+      this.inputEl.value = "";
+      this.autosizeInput();
+      await this.run(prompt, display, undefined, { context: { searchVault: true } });
+      return;
+    }
     this.lastUserText = text;
+    this.lastDisplay = undefined;
     this.inputEl.value = "";
     this.autosizeInput();
     await this.run(text);
@@ -1318,7 +1335,7 @@ export class ChatView extends ItemView {
     const templates = await this.plugin.promptTemplates();
     if (generation !== this.templateReloadGeneration) return;
     this.templateCommands = templates.map(templateSlashCommand);
-    this.slashMenu.setCommands([...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...this.templateCommands]);
+    this.slashMenu.setCommands([...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS), ...this.templateCommands]);
     this.syncSlashMenu();
   }
 
@@ -1363,6 +1380,15 @@ export class ChatView extends ItemView {
       }
       // Hide the verbose template behind the command name; the model still gets cmd.prompt.
       await this.submitPrompt(cmd.prompt, `/${cmd.name}`);
+      return;
+    }
+
+    // A skill takes arguments: insert its token and let the user finish typing; Enter sends through onSend.
+    if (cmd.action?.startsWith(SKILL_ACTION_PREFIX)) {
+      this.inputEl.value = `/${cmd.action.slice(SKILL_ACTION_PREFIX.length)} `;
+      this.inputEl.focus();
+      this.autosizeInput();
+      this.updateUsageBar();
       return;
     }
 
@@ -2401,7 +2427,7 @@ export class ChatView extends ItemView {
     if (this.attachedMedia.length === 0 && this.lastUserMedia.length > 0) {
       this.attachedMedia = [...this.lastUserMedia];
     }
-    await this.run(this.lastUserText, undefined, opts?.maxTokens);
+    await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens);
   }
 
   /**

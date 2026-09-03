@@ -91,7 +91,7 @@ export class ProviderRouter {
   constructor(
     private settings: PluginSettings,
     private utilitySelectionResolver?: UtilitySelectionResolver,
-    options: { cliRuntime?: ClaudeCliRuntime | null } = {},
+    options: { cliRuntime?: ClaudeCliRuntime | null; cliProvider?: ClaudeCliProvider } = {},
   ) {
     this.anthropicEnv = readAnthropicEnv();
     this.anthropic = new AnthropicProvider({
@@ -103,7 +103,7 @@ export class ProviderRouter {
     });
     this.ollama = new OllamaProvider(settings.ollamaHost, settings.ollamaModel);
     this.openaiCompat = new OpenAICompatProvider(settings.openaiCompatHost, settings.openaiCompatModel, settings.openaiCompatKey);
-    this.claudeCli = new ClaudeCliProvider(options.cliRuntime ?? null);
+    this.claudeCli = options.cliProvider ?? new ClaudeCliProvider(options.cliRuntime ?? null);
   }
 
   /** Whether an environment-auth provider still represents the live process environment. */
