@@ -44,6 +44,8 @@ export interface ObsidianHarnessOptions {
   endpointModels?: string[];
   /** Relaunch on a previous harness's vault + profile without re-seeding. */
   reuse?: { vault: string; profile: string };
+  /** Answer a provider request by its raw body; null falls through to the default payload. */
+  providerReply?: (body: string) => string | null;
 }
 
 /** Where Obsidian keeps the cores it auto-updates into. */
@@ -181,7 +183,8 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   const vault = options.reuse?.vault ?? join(root, "vault"); const profile = options.reuse?.profile ?? join(root, "profile");
   if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
   let requests = 0;
-  const provider = createServer((request, response) => { requests += 1; request.resume(); response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] }) }] })); });
+  const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
+  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const text = options.providerReply?.(body) ?? defaultReply; response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
   // OpenAI-compatible endpoint stub: only /v1/models matters for the pickers.

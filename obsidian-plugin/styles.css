@@ -2233,6 +2233,33 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   flex-wrap: wrap;
 }
 
+/* Inline edit review */
+.cc-inline-del {
+  background: rgba(var(--color-red-rgb), 0.12);
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.cc-inline-add {
+  background: rgba(var(--color-green-rgb), 0.14);
+  color: var(--text-normal);
+}
+.cc-inline-bar {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: baseline;
+}
+.cc-inline-btn {
+  height: auto;
+  padding: 0 6px;
+  line-height: 1.5;
+  font-size: var(--font-ui-smaller);
+}
+.cc-inline-btn.is-accept { color: var(--text-success); }
+.cc-inline-btn.is-reject { color: var(--text-error); }
+.cc-selection-action { padding: 2px; }
+.cc-selection-action button { font-size: var(--font-ui-smaller); }
+
 /* ===== Batch link review ===== */
 
 .cc-batch-diff-modal {

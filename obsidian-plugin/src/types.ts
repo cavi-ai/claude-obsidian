@@ -170,6 +170,10 @@ export interface PluginSettings {
   agentModeEnabled: boolean;
   /** Also offer write tools (create/append/update/move). Each write asks for confirmation. */
   agentAllowWrites: boolean;
+  /** Review proposed edits inline in the editor when the note is open. */
+  inlineDiffEnabled: boolean;
+  /** Floating "Rewrite with Claude" action over a selection (desktop). */
+  selectionActionEnabled: boolean;
   /** Max stream→tools→stream iterations per turn. */
   agentMaxIterations: number;
   /** Offer the web_search agent tool (explicit calls only). */
@@ -328,6 +332,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   // confirmation before it touches the vault, so this is safe; the in-chat
   // "Act on vault" toggle flips it per session.
   agentAllowWrites: true,
+  inlineDiffEnabled: true,
+  selectionActionEnabled: true,
   agentMaxIterations: 10,
   webSearchEnabled: false,
   webSearchEngine: "duckduckgo",
