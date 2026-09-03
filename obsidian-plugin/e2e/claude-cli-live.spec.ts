@@ -55,7 +55,8 @@ const readData = async (path: string): Promise<string> => {
 test.describe("Claude Code backend, live", () => {
   test.skip(!LIVE, "set CC_E2E_LIVE=1 to run against the signed-in claude binary");
 
-  test("the real-run gate: stream, read, gated write, diffed edit, secrets, abort, restart, session id", async () => {
+  test("the real-run gate: stream, read, gated write, diffed edit, patch, secrets, abort, restart, session id", async () => {
+    // 9 model turns; budget generously for live latency.
     test.setTimeout(900_000);
     test.skip(!(await claudeSignedIn()), "claude auth status is not loggedIn");
     const harness = await launchObsidianHarness({ liveClaude: true });
@@ -111,6 +112,13 @@ test.describe("Claude Code backend, live", () => {
 
       // secrets never land in data.json
       expect(await readData(dataPath)).not.toContain("sk-ant");
+
+      // note_patch reaches the bridge and asks for confirmation like every write
+      await send(page, 'Call note_patch on "Build plan.md" with target {"kind":"heading","heading":"Build plan"}, op "append", content "- [ ] Write the tests".');
+      await expect(confirm).toBeVisible({ timeout: 180_000 });
+      await confirm.getByRole("button", { name: "Allow", exact: true }).click();
+      await waitIdle(page);
+      await expect.poll(() => readFile(join(vault, "Build plan.md"), "utf8"), { timeout: 30_000 }).toContain("- [ ] Write the tests");
 
       // abort mid-stream, then the next send works
       await send(page, "Count from 1 to 500, one number per line, nothing else.");

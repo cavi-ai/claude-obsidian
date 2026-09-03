@@ -49,6 +49,7 @@ import { RewriteModal } from "./view/RewriteModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools, type VaultToolsOptions } from "./mcp/vaultTools";
+import { catalogPromptProvider, vaultResourceProvider } from "./mcp/providers";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
 import type { AnthropicToolDef, ProviderId } from "./providers/types";
@@ -2077,7 +2078,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     const { McpHttpServer } = await import("./mcp/server");
     const server = new McpHttpServer(
-      { port: s.mcpPort, token: this.resolvedMcpToken(), serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
+      {
+        port: s.mcpPort,
+        token: this.resolvedMcpToken(),
+        serverInfo: { name: "obsidian-vault", version: "0.2.0" },
+        resources: vaultResourceProvider(this.app),
+        prompts: catalogPromptProvider(() => this.promptTemplates()),
+      },
       this.vaultTools,
       (level, message) => { if (level === "error") console.error("[Claude Companion MCP]", message); },
     );
@@ -2771,7 +2778,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const token = generateToken();
     const registry = interactiveTools(this.agentTools(), () => this.cliBinding?.deps ?? null, () => this.cliBinding?.readOnly ?? true, () => this.cliBinding?.tools ?? false);
     const server = new McpHttpServer(
-      { port: 0, token, serverInfo: { name: "obsidian-vault", version: "0.2.0" } },
+      {
+        port: 0,
+        token,
+        serverInfo: { name: "obsidian-vault", version: "0.2.0" },
+        resources: vaultResourceProvider(this.app),
+        prompts: catalogPromptProvider(() => this.promptTemplates()),
+      },
       registry,
       (level, message) => { if (level === "error") console.error("[Claude Companion chat bridge]", message); },
       CLI_HIDDEN_TOOLS,
