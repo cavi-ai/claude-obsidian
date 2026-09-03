@@ -2067,6 +2067,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       defaultFolder: s.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
       ontology: () => this.ontology(),
+      ontologyFolder: () => this.settings.ontologyFolder,
       zotero: () => this.zoteroLibrary(),
       ...this.webToolImpls(),
     };
@@ -2750,6 +2751,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       defaultFolder: this.settings.mcpWriteFolder,
       semantic: (q: string, k: number) => this.semanticSearch(q, k),
       ontology: () => this.ontology(),
+      ontologyFolder: () => this.settings.ontologyFolder,
       zotero: () => this.zoteroLibrary(),
       ...this.webToolImpls(),
     };

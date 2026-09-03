@@ -5,6 +5,8 @@ import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from 
 import { ensureVaultFolder } from "../vault/vaultFiles";
 import { buildFrontmatter, normalizeTags, type FrontmatterData } from "../indexing/frontmatter";
 import { conform } from "../ontology/conform";
+import { describeOntology } from "../ontology/describe";
+import { validateProposal } from "../ontology/propose";
 import type { OntologyRegistry } from "../ontology/registry";
 import type { ResolvedType } from "../ontology/types";
 import { replaceSection } from "./edit";
@@ -43,6 +45,8 @@ export interface VaultToolsOptions {
   semantic?: SemanticSearch;
   /** Ontology registry accessor; absent/null disables typed creation. */
   ontology?: (() => OntologyRegistry | null) | undefined;
+  /** Folder schema notes live in; proposals are written there. */
+  ontologyFolder?: (() => string) | undefined;
   /** Zotero library accessor; absent/undefined disables zotero_key resolution on import. */
   zotero?: (() => ZoteroLibrary | undefined) | undefined;
   /** Web tools (read-only, explicit calls only); absent disables each. */
@@ -138,6 +142,14 @@ export class VaultTools {
         },
       },
     ];
+
+    if (this.opts.ontology) {
+      defs.push({
+        name: "ontology_get",
+        description: "Read the vault ontology: every type with its lineage, properties and relations, or one type and its ancestors. Call this before creating typed notes or proposing a type.",
+        inputSchema: { type: "object", properties: { type: { type: "string", description: "Optional type name to describe." } } },
+      });
+    }
 
     const researchDefinitions = new ResearchTools(this.researchRepository()).definitions();
     defs.push(...researchDefinitions.filter(({ name }) => !RESEARCH_WRITE_TOOLS.has(name)));
@@ -350,6 +362,22 @@ export class VaultTools {
           },
         },
       );
+      if (this.opts.ontology && this.opts.ontologyFolder) {
+        defs.push({
+          name: "ontology_propose",
+          description: "Propose a new note type as a schema note in the ontology folder. Validated against the existing types; rule violations are returned and nothing is written.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Type name, lowercase kebab-case." },
+              parent: { type: "string", description: "Parent type (default: entity)." },
+              properties: { type: "array", items: { type: "object", properties: { key: { type: "string" }, type: { type: "string", enum: ["string", "number", "boolean", "date", "duration", "string[]"] }, required: { type: "boolean" }, description: { type: "string" } }, required: ["key", "type"] } },
+              relations: { type: "array", items: { type: "object", properties: { key: { type: "string" }, targets: { type: "array", items: { type: "string" } }, description: { type: "string" } }, required: ["key", "targets"] } },
+            },
+            required: ["name"],
+          },
+        });
+      }
       defs.push(...researchDefinitions.filter(({ name }) => RESEARCH_WRITE_TOOLS.has(name)));
     }
     return defs;
@@ -385,6 +413,8 @@ export class VaultTools {
         return this.outgoingLinks(str(args.path));
       case "frontmatter_query":
         return this.frontmatterQuery(str(args.field), optStr(args.value));
+      case "ontology_get":
+        return this.ontologyGet(optStr(args.type));
       case "note_create":
         this.assertWrites();
         return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags), optStr(args.type), optObj(args.properties));
@@ -409,6 +439,9 @@ export class VaultTools {
       case "base_create":
         this.assertWrites();
         return this.createBase(str(args.title), args, optStr(args.folder));
+      case "ontology_propose":
+        this.assertWrites();
+        return this.ontologyPropose(args);
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -573,6 +606,36 @@ export class VaultTools {
     return `Created note: ${file.path}${conformance}`;
   }
 
+  private ontologyGet(type: string | undefined): string {
+    const registry = this.opts.ontology?.() ?? null;
+    return JSON.stringify(describeOntology(registry?.resolved() ?? new Map(), type), null, 2);
+  }
+
+  private async ontologyPropose(args: Record<string, unknown>): Promise<string> {
+    const registry = this.opts.ontology?.();
+    const folder = this.opts.ontologyFolder?.();
+    if (!registry || !folder) throw new Error("The ontology is disabled in Companion for Claude settings.");
+    const outcome = validateProposal(new Set(registry.resolved().keys()), args);
+    if (!outcome.ok) throw new Error(`The proposal was not written:\n- ${outcome.errors.join("\n- ")}`);
+    const path = assertVaultPath(`${folder}/${outcome.fileName}`);
+    if (this.app.vault.getAbstractFileByPath(path)) throw new Error(`A schema note already exists at ${path}.`);
+    await this.ensureFolder(folder);
+    const file = await this.app.vault.create(path, outcome.content);
+    await registry.load();
+    return `Created ${file.path} — type '${outcome.def.name}' extends '${outcome.def.extendsType ?? "entity"}'.`;
+  }
+
+  /** Advisory conformance of a typed note after a write; empty when nothing applies. */
+  private conformanceLine(file: TFile): string {
+    const registry = this.opts.ontology?.() ?? null;
+    if (!registry || registry.resolved().size === 0) return "";
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+    if (!fm || typeof fm.type !== "string") return "";
+    const r = conform(fm, registry.resolve(fm.type), (target) => this.lookupTargetType(registry, target));
+    if (r.issues.length === 0) return "\nConformance: ok";
+    return `\nConformance: ${r.issues.length} issue(s): ${r.issues.map((i) => i.message).join("; ")}`;
+  }
+
   /** Resolve a relation target (basename/path as written) to that note's ResolvedType. */
   private lookupTargetType(registry: OntologyRegistry, target: string): ResolvedType | undefined {
     // Real Obsidian resolves linkpaths via metadataCache; the test fake doesn't
@@ -593,7 +656,7 @@ export class VaultTools {
     const existing = this.app.vault.getAbstractFileByPath(p);
     if (existing instanceof TFile) {
       await this.app.vault.append(existing, `\n${content}\n`);
-      return `Appended to: ${existing.path}`;
+      return `Appended to: ${existing.path}${this.conformanceLine(existing)}`;
     }
     const file = await this.app.vault.create(p, `${content}\n`);
     return `Created and wrote: ${file.path}`;
@@ -605,10 +668,10 @@ export class VaultTools {
       const current = await this.app.vault.cachedRead(file);
       const next = replaceSection(current, section, content);
       await this.app.vault.modify(file, next);
-      return `Updated section "${section}" in ${file.path}`;
+      return `Updated section "${section}" in ${file.path}${this.conformanceLine(file)}`;
     }
     await this.app.vault.modify(file, content);
-    return `Updated ${file.path}`;
+    return `Updated ${file.path}${this.conformanceLine(file)}`;
   }
 
   private async patch(path: string, target: unknown, op: string, content: string): Promise<string> {
@@ -627,7 +690,7 @@ export class VaultTools {
         const list = isUnknownArray(existing) ? [...existing] : [];
         fm[key] = op === "append" ? [...list, content] : [content, ...list];
       });
-      return `Patched frontmatter "${key}" of ${file.path} (${op})`;
+      return `Patched frontmatter "${key}" of ${file.path} (${op})${this.conformanceLine(file)}`;
     }
     const patchTarget: PatchTarget | null =
       t.kind === "heading" ? { kind: "heading", heading: str(t.heading) }
@@ -638,7 +701,7 @@ export class VaultTools {
     const current = await this.app.vault.cachedRead(file);
     await this.app.vault.modify(file, applyPatch(current, { target: patchTarget, op, content }));
     const where = patchTarget.kind === "heading" ? `section "${patchTarget.heading}"` : patchTarget.kind === "block" ? `block ^${patchTarget.id}` : "the document";
-    return `Patched ${where} in ${file.path} (${op})`;
+    return `Patched ${where} in ${file.path} (${op})${this.conformanceLine(file)}`;
   }
 
   private async updateFrontmatter(path: string, tags: string[], fields: unknown): Promise<string> {
@@ -660,7 +723,7 @@ export class VaultTools {
       }
       for (const [k, v] of Object.entries(scalars)) fm[k] = v;
     });
-    return `Updated frontmatter of ${file.path}`;
+    return `Updated frontmatter of ${file.path}${this.conformanceLine(file)}`;
   }
 
   private async frontmatterQuery(field: string, value: string | undefined): Promise<string> {
