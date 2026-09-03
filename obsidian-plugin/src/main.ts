@@ -68,6 +68,7 @@ import { ClaudeCliSession } from "./cli/session";
 import { buildClaudeArgv, mcpConfigJson } from "./cli/argv";
 import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, type InteractiveToolDeps } from "./cli/bridgeTools";
 import { createNodeCliRuntime, type ClaudeCliRuntime } from "./cli/runtime";
+import { ClaudeCliProvider } from "./providers/claudeCli";
 import { excludeSessions } from "./memory/sessions";
 import { extractTasks, specBody, type SpecInput } from "./build/spec";
 import { trackerNoteBody } from "./build/tracker";
@@ -208,6 +209,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Set by the last persist: credentials the store refused, still in data.json. */
   private unverifiedSecrets: SecretField[] = [];
   private _router: ProviderRouter | null = null;
+  /** Owns the sign-in probe across router rebuilds (settings saves null the router). */
+  private _cliProvider: ClaudeCliProvider | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
   private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
@@ -2148,7 +2151,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   router(): ProviderRouter {
     if (this._router && !this._router.hasCurrentAnthropicEnvironment()) this._router = null;
-    if (!this._router) this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), { cliRuntime: this.cliRuntime() });
+    this._cliProvider ??= new ClaudeCliProvider(this.cliRuntime());
+    if (!this._router) this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), { cliRuntime: this.cliRuntime(), cliProvider: this._cliProvider });
     return this._router;
   }
 

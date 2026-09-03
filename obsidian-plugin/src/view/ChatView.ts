@@ -1295,15 +1295,13 @@ export class ChatView extends ItemView {
     // A typed obsidian-agent skill invocation ("/wikilink-weaver <note path>") composes into a full turn with vault search on.
     const skill = parseSkillInvocation(text, SKILLS);
     if (skill) {
-      this.plugin.settings.context.searchVault = true;
-      await this.plugin.saveSettings();
       const prompt = composeSkillPrompt(skill.entry, skill.args);
       const display = skillDisplay(skill.entry, skill.args);
       this.lastUserText = prompt;
       this.lastDisplay = display;
       this.inputEl.value = "";
       this.autosizeInput();
-      await this.run(prompt, display);
+      await this.run(prompt, display, undefined, { context: { searchVault: true } });
       return;
     }
     this.lastUserText = text;

@@ -34,6 +34,7 @@ function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
     mcpLifecycleEnded: false,
     _router: null,
     persist: async () => undefined,
+    mcpSyncChain: Promise.resolve(),
     cliRuntime: () => rt,
     composeSystemPrompt: () => "sys",
     agentTools: () => ({ definitions: () => [], call: async () => "" }),
@@ -100,5 +101,17 @@ describe("plugin Claude CLI lifecycle", () => {
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
     await expect(p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "m", deps: { confirmWrite: async () => true, proposeEdit: async () => "" }, transcript: "" })).rejects.toThrow(/not signed in/);
+  });
+
+  it("keeps the sign-in probe across a settings save (router rebuild reuses the same ClaudeCliProvider)", async () => {
+    const rt = runtime();
+    const p = plugin(rt);
+    const before = p.router().claudeCli;
+    await before.refresh();
+    expect(before.hasCredentials()).toBe(true);
+    await p.saveSettings();
+    const after = p.router().claudeCli;
+    expect(after).toBe(before);
+    expect(after.hasCredentials()).toBe(true);
   });
 });
