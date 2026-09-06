@@ -159,7 +159,13 @@ export class McpHttpServer {
       return;
     }
 
-    if (!(req.url ?? "/").startsWith("/mcp")) {
+    let pathname: string;
+    try {
+      pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    } catch {
+      pathname = "/";
+    }
+    if (pathname !== "/mcp") {
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "Not found. Use POST /mcp." }));
       return;

@@ -1,6 +1,6 @@
 {
   "name": "claude-companion",
-  "version": "0.27.4",
+  "version": "0.28.0",
   "description": "Chat with Claude inside your Obsidian vault, generate beautiful interactive artifacts, and sync them back into your notes.",
   "main": "main.js",
   "type": "module",
@@ -32,6 +32,7 @@
     "docs:build": "node tools/build-docs-artifact.mjs",
     "docs:verify": "node tools/docs-check.mjs",
     "bundle:report": "node tools/bundle-report.mjs",
+    "bundle:check": "node tools/bundle-report.mjs --check",
     "skills:build": "node tools/build-skill-registry.mjs",
     "skills:verify": "node tools/verify-skill-registry.mjs"
   },
@@ -41,7 +42,8 @@
     ],
     "overrides": {
       "sharp": "^0.35.3",
-      "adm-zip": "^0.6.0"
+      "adm-zip": "^0.6.0",
+      "@xmldom/xmldom": "^0.9.12"
     }
   },
   "keywords": [

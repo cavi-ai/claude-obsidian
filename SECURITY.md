@@ -31,6 +31,8 @@ Useful reports include:
   keep write tools disabled unless the user explicitly enables them.
 - Rendered `claude-html` artifacts are model-generated HTML. They must remain
   sandboxed without `allow-same-origin` and with network/form submission blocked.
-- Browser/session OAuth from claude.ai is not supported. The plugin authenticates
-  via a user-provided API key, a long-term CLI token from `claude setup-token`
-  (`sk-ant-oat…`), or environment import — not a pasted browser session cookie.
+- The desktop Claude Code backend delegates authentication to the installed
+  `claude` command and never reads its credentials. Direct API authentication
+  uses a user-provided API key, a long-term token from `claude setup-token`
+  (`sk-ant-oat…`), or environment import. A pasted browser session cookie is
+  never an accepted plugin credential.

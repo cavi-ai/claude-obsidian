@@ -12,7 +12,7 @@ interactive artifacts inline, and drive the *same* vault from Claude Code.
  · [**Add portable agent workflows**](#getting-it)
  · [Latest release](https://github.com/cavi-ai/companion-for-claude/releases/latest)
 
-**Open source · MIT · bring your own Anthropic key · local-first**
+**Open source · MIT · use an Anthropic key or your Claude Code sign-in · local-first**
 
 <!-- hero: assets/hero-daily-rollup.gif — pending capture, see assets/CAPTURE.md -->
 
@@ -34,14 +34,23 @@ the composer tells you when the selected model lacks tool support. Optional
 the vault, both off by default and per-call confirmed.
 → [agent-mode.md](guides/agent-mode.md)
 
+### Claude Code chat backend
+
+On desktop, Companion can run chat through the installed, signed-in `claude`
+command, so Claude subscribers do not need to create or store an API key. Each
+saved conversation resumes its own CLI session, and agent writes keep the same
+per-action confirmation as every other backend. Direct API, local Ollama, and
+OpenAI-compatible backends remain available.
+
 <!-- screenshot: assets/agent-tool-chips.png — pending capture -->
 
 ### Diff-reviewed edits
 
-Note edits render as a per-hunk red/green diff; only accepted hunks are written.
-Inline rewrites use the same review path: select text → *Rewrite selection with
-Claude…*. Plan Mode restricts a turn to read-only tools and ends in a proposed
-plan.
+When the target note is open, proposed edits render directly in the editor as
+word-level changes with accept/reject controls for each hunk. Other edits fall
+back to the red/green review modal. Inline rewrites use the same review path:
+select text → *Rewrite selection with Claude…*. Plan Mode restricts a turn to
+read-only tools and ends in a proposed plan.
 → [agent-mode.md](guides/agent-mode.md#editing-notes-diffs-not-writes)
 
 <!-- screenshot: assets/diff-review.png — pending capture -->
@@ -104,7 +113,7 @@ built-in on-device embedding model on desktop and mobile — and also indexes
 ## Quick start
 
 1. **Install** — *Settings → Community plugins → Browse → "Companion for Claude" → Install → Enable*, or [open it in Obsidian](obsidian://show-plugin?id=claude-companion).
-2. **Add your key** — get one from the [Anthropic Console](https://console.anthropic.com/settings/keys), then paste it in *Settings → Companion for Claude → Connection → Anthropic API key* and click **Save & test connection**.
+2. **Connect Claude** — on desktop, choose **Use Claude Code sign-in** when the installed `claude` command is signed in. On any device, you can instead paste an [Anthropic API key](https://console.anthropic.com/settings/keys) in *Settings → Companion for Claude → Connection* and click **Save & test connection**.
 3. **Ask something** — open the Companion panel, toggle the `Context` chip for your active note, and ask a question about it.
 
 ## Guides
@@ -115,7 +124,7 @@ built-in on-device embedding model on desktop and mobile — and also indexes
 - [Research Desk & Workbench](guides/research-workbench.md) — evidence-backed writing end to end
 - [The Claude Code bridge](guides/claude-code-bridge.md) — MCP setup and full tool reference
 - [Local models & semantic search](guides/local-models.md) — Ollama fallback and on-device embeddings
-- [Authentication & cost](guides/auth.md) — three credential modes, caching, key safety
+- [Authentication & cost](guides/auth.md) — Claude Code sign-in, direct API credentials, caching, key safety
 - [Architecture](guides/architecture.md) — module map, testability, bundling, security
 - [FAQ](guides/faq.md) — cost, privacy, mobile, troubleshooting
 
@@ -133,7 +142,7 @@ built-in on-device embedding model on desktop and mobile — and also indexes
 ```mermaid
 flowchart LR
     companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
-    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>10 reads · 14 write-gated tools"])
+    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>11 reads · 16 write-gated tools"])
     agent["obsidian-agent<br/>cross-host plugin<br/>official Obsidian CLI"]
     client["Optional MCP clients"]
 
@@ -142,8 +151,9 @@ flowchart LR
     agent -->|"independent portable workflows"| cli["Official Obsidian CLI"]
 ```
 
-Ten read/audit tools are always available. Fourteen mutations require *Allow
-writes*. Optional **web_search** and **web_fetch** join the read set when
+Eleven read/audit tools are available when the default ontology is enabled.
+Sixteen mutations require *Allow writes*. Optional **web_search** and
+**web_fetch** join the read set when
 enabled. In agent mode, writes also keep their per-action confirmation.
 
 ## Getting it

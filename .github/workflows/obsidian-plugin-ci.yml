@@ -83,6 +83,9 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Enforce the production bundle budget
+        run: pnpm run bundle:check
+
       - name: Verify committed build output is reproducible
         run: pnpm run verify:build-output
 
