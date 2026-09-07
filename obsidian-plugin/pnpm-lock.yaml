@@ -20,7 +20,7 @@ importers:
         specifier: ^0.19.2
         version: 0.19.2
       pdfjs-dist:
-        specifier: ^6.2.108
+        specifier: ~6.2.108
         version: 6.2.108
     devDependencies:
       '@codemirror/state':
