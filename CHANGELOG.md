@@ -4,6 +4,44 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] — 2026-09-06
+
+### Added
+- **Use a signed-in Claude Code subscription for desktop chat.** Companion can
+  stream through the installed Claude Code CLI, keep one resumable session per
+  conversation, expose the same confirmed vault tools as agent mode, and start
+  a fresh session after an abort or exited process.
+- **Review edits directly in the editor.** Rewrite and agent edit proposals can
+  render as word-level inline changes on an open note, with independent
+  acceptance or rejection for each hunk and an editor-selection action.
+- **Use the MCP 2025-06-18 protocol surface.** The loopback bridge now supports
+  negotiated sessions, resources, prompts, session deletion, and structured
+  block-level `note_patch` operations behind the existing write gate.
+- **Inspect and extend the vault ontology from agent tools.** `ontology_get`
+  describes the resolved registry, while `ontology_propose` validates a new
+  schema note before asking for write confirmation. Typed writes report their
+  conformance result.
+- **Run portable `obsidian-agent` skills from chat.** The slash palette includes
+  the pinned universal skill registry and composes the selected skill into one
+  turn without changing the user's message.
+
+### Changed
+- **Desktop setup closes the loop.** First run can offer Desktop integrations
+  after the credential and consent steps, and the Claude Code availability
+  probe survives unrelated settings saves.
+- **Bundle growth is now a release gate.** CI reports the largest production
+  inputs and rejects `main.js` above the repository's explicit byte budget.
+
+### Fixed
+- **Claude Code tool authority stays scoped to its conversation.** Every live
+  CLI session owns an ephemeral loopback bridge and token, so another
+  conversation cannot replace its approval callback, agent mode, or Plan Mode
+  state; session teardown also closes that bridge.
+- **The MCP HTTP route is exact.** Authenticated requests to paths that merely
+  start with `/mcp` now return 404 instead of reaching the JSON-RPC handler.
+- **Production XML serialization uses the patched dependency.** The transitive
+  `@xmldom/xmldom` version is constrained to 0.9.12 or newer.
+
 ## [0.27.4] — 2026-08-26
 
 ### Fixed

@@ -216,10 +216,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
   private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
   private mcpServer: McpHttpServer | null = null;
-  private chatBridge: McpHttpServer | null = null;
-  private chatBridgeToken: string | null = null;
-  private cliSessions = new Map<string, { session: ClaudeCliSession; signature: string; promptFile: string; lastUsed: number }>();
-  private cliBinding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean } | null = null;
+  private cliSessions = new Map<string, { session: ClaudeCliSession; bridge: McpHttpServer; signature: string; promptFile: string; lastUsed: number }>();
   private cliPromptFiles = new Set<string>();
   private _cliRuntime: ClaudeCliRuntime | null | undefined;
   private _desktopIntegrationModals?: Set<DesktopIntegrationsModal>;
@@ -2775,14 +2772,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._cliRuntime;
   }
 
-  private async ensureChatBridge(): Promise<{ port: number; token: string }> {
-    if (this.chatBridge?.isRunning() && this.chatBridgeToken) {
-      const addr = this.chatBridge.address();
-      if (addr) return { port: addr.port, token: this.chatBridgeToken };
-    }
+  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
-    const registry = interactiveTools(this.agentTools(), () => this.cliBinding?.deps ?? null, () => this.cliBinding?.readOnly ?? true, () => this.cliBinding?.tools ?? false);
+    const registry = interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools);
     const server = new McpHttpServer(
       {
         port: 0,
@@ -2801,9 +2794,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       await server.stop();
       throw new Error("The chat bridge did not bind.");
     }
-    this.chatBridge = server;
-    this.chatBridgeToken = token;
-    return { port: addr.port, token };
+    return { server, port: addr.port, token };
   }
 
   async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string }): Promise<AgentTurnRunner> {
@@ -2813,8 +2804,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const runtime = this.cliRuntime();
     const cwd = this.vaultBasePath();
     if (!runtime || !cwd) throw new Error("Claude Code runs on desktop only.");
-    this.cliBinding = { deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode };
-    const bridge = await this.ensureChatBridge();
     const allowedTools = opts.agentMode ? cliAllowedTools(this.agentTools().definitions(), opts.planMode) : [];
     const signature = JSON.stringify({ model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
@@ -2830,12 +2819,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     const promptFile = await runtime.writeSystemPromptFile(this.composeSystemPrompt({ agent: true, plan: opts.planMode }));
     this.cliPromptFiles.add(promptFile);
-    const sessionId = crypto.randomUUID();
-    const argv = buildClaudeArgv({ model: opts.model, systemPromptFile: promptFile, mcpConfigJson: mcpConfigJson(bridge.port, bridge.token), allowedTools, maxTurns: this.settings.agentMaxIterations, sessionId });
-    const session = new ClaudeCliSession({ spawn: () => runtime.spawn(executable, argv, cwd), ...(opts.transcript ? { transcript: opts.transcript } : {}) });
-    this.cliSessions.set(opts.conversationId, { session, signature, promptFile, lastUsed: Date.now() });
-    await this.setConversationCliSession(opts.conversationId, sessionId);
-    return session;
+    let bridge: McpHttpServer | null = null;
+    try {
+      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode });
+      bridge = started.server;
+      const sessionId = crypto.randomUUID();
+      const argv = buildClaudeArgv({ model: opts.model, systemPromptFile: promptFile, mcpConfigJson: mcpConfigJson(started.port, started.token), allowedTools, maxTurns: this.settings.agentMaxIterations, sessionId });
+      const session = new ClaudeCliSession({ spawn: () => runtime.spawn(executable, argv, cwd), ...(opts.transcript ? { transcript: opts.transcript } : {}) });
+      this.cliSessions.set(opts.conversationId, { session, bridge, signature, promptFile, lastUsed: Date.now() });
+      await this.setConversationCliSession(opts.conversationId, sessionId);
+      return session;
+    } catch (error) {
+      this.cliSessions.delete(opts.conversationId);
+      await bridge?.stop();
+      await runtime.removeFile(promptFile);
+      this.cliPromptFiles.delete(promptFile);
+      throw error;
+    }
   }
 
   interruptCliTurn(conversationId: string): void {
@@ -2847,17 +2847,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!entry) return;
     this.cliSessions.delete(conversationId);
     await entry.session.close();
+    await entry.bridge.stop();
     await this.cliRuntime()?.removeFile(entry.promptFile);
     this.cliPromptFiles.delete(entry.promptFile);
   }
 
   async closeCliSessions(): Promise<void> {
     for (const id of [...(this.cliSessions?.keys() ?? [])]) await this.closeCliSession(id);
-    this.cliBinding = null;
-    const bridge = this.chatBridge;
-    this.chatBridge = null;
-    this.chatBridgeToken = null;
-    await bridge?.stop();
   }
 
   async setConversationCliSession(conversationId: string, sessionId: string): Promise<void> {

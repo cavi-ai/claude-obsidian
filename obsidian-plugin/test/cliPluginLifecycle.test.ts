@@ -24,9 +24,6 @@ function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
     settings: { ...structuredClone(DEFAULT_SETTINGS), chatBackend: "claude-cli", apiKey: "" },
     convState: { conversations: [{ id: "c1", title: "t", createdAt: 1, updatedAt: 1, messages: [] }, { id: "c2", title: "t", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" },
     cliSessions: new Map(),
-    chatBridge: null,
-    chatBridgeToken: null,
-    cliBinding: null,
     cliPromptFiles: new Set(),
     utilityLifecycleEnded: false,
     utilityLifecycleGeneration: 0,
@@ -43,7 +40,7 @@ function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
 }
 
 describe("plugin Claude CLI lifecycle", () => {
-  it("starts one chat bridge on port 0 with a fresh token, reuses a session per conversation, and tears everything down on unload", async () => {
+  it("starts a scoped chat bridge per session, reuses a session per conversation, and tears everything down on unload", async () => {
     const start = vi.spyOn(McpHttpServer.prototype, "start").mockResolvedValue(undefined);
     vi.spyOn(McpHttpServer.prototype, "isRunning").mockReturnValue(true);
     vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });
@@ -62,12 +59,44 @@ describe("plugin Claude CLI lifecycle", () => {
     expect(c).not.toBe(a);
     const off = await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: false, model: "claude-sonnet-5", deps, transcript: "" });
     expect(off).not.toBe(a);
+    expect(start).toHaveBeenCalledTimes(3);
     expect(run).not.toHaveBeenCalled();
     expect((p as unknown as { convState: { conversations: { id: string; cliSessionId?: string }[] } }).convState.conversations.every((x) => typeof x.cliSessionId === "string")).toBe(true);
     p.onunload();
     await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(3));
-    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(3));
     expect(rt.removeFile).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps write confirmation bound to the conversation whose CLI called it", async () => {
+    vi.spyOn(McpHttpServer.prototype, "start").mockResolvedValue(undefined);
+    vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });
+    vi.spyOn(McpHttpServer.prototype, "stop").mockResolvedValue(undefined);
+    const p = plugin(runtime());
+    await p.router().claudeCli.refresh();
+    const seen: string[] = [];
+    const deps = (id: string, allowed: boolean) => ({
+      confirmWrite: async () => { seen.push(id); return allowed; },
+      proposeEdit: async () => id,
+    });
+
+    await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps: deps("c1", false), transcript: "" });
+    await p.cliTurnRunner({ conversationId: "c2", planMode: false, agentMode: true, model: "claude-sonnet-5", deps: deps("c2", true), transcript: "" });
+
+    type Registry = { call(name: string, args: Record<string, unknown>): Promise<string> };
+    type Entry = { bridge: McpHttpServer };
+    const sessions = (p as unknown as { cliSessions: Map<string, Entry> }).cliSessions;
+    const c1 = sessions.get("c1")!;
+    const c2 = sessions.get("c2")!;
+    expect(c1.bridge).not.toBe(c2.bridge);
+    const registry = (c1.bridge as unknown as { tools: Registry }).tools;
+    const result = JSON.parse(await registry.call("permission_prompt", {
+      tool_name: "mcp__obsidian-vault__note_create",
+      input: { title: "Scoped" },
+      tool_use_id: "toolu_1",
+    })) as { behavior: string };
+    expect(result.behavior).toBe("deny");
+    expect(seen).toEqual(["c1"]);
   });
 
   it("spawns a fresh session and keeps history when the previous one is spent", async () => {

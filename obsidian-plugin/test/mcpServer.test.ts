@@ -94,6 +94,15 @@ describe("MCP bridge — transport & auth", () => {
     expect(res.status).toBe(404);
   });
 
+  it("does not treat an /mcp-prefixed path as the MCP endpoint", async () => {
+    const res = await fetch(`${base}-other`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
   it("reports a JSON parse error per JSON-RPC", async () => {
     const res = await fetch(base, {
       method: "POST",
