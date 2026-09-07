@@ -2,7 +2,7 @@ name: Obsidian plugin CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       - "obsidian-plugin/**"
       - "claude-plugin"

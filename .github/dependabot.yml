@@ -8,6 +8,10 @@ updates:
     groups:
       dev-tooling:
         dependency-type: development
+    ignore:
+      # pdfjs-dist >=6.3 requires Node >=22.13; Companion still supports Node 20.
+      - dependency-name: pdfjs-dist
+        versions: [">=6.3.0"]
 
   - package-ecosystem: github-actions
     directory: /
