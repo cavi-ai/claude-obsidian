@@ -61,6 +61,15 @@ let webgpuBroken = false;
  * dead-session inference fails await this instead of racing a second rebuild. */
 let rebuilding: Promise<void> | null = null;
 
+async function hasWebGpuAdapter(): Promise<boolean> {
+  if (typeof navigator === "undefined" || !("gpu" in navigator)) return false;
+  try {
+    return (await navigator.gpu.requestAdapter()) !== null;
+  } catch {
+    return false;
+  }
+}
+
 function makeExtractor(device: "webgpu" | "wasm", id: number, repo: string): Promise<Extractor> {
   // Hub progress events carry {status:"progress", file, progress: 0-100};
   // other statuses (initiate/download/done/ready) have no progress field.
@@ -88,7 +97,7 @@ async function doLoad(id: number, repo: string, pooling: "cls" | "mean"): Promis
   // session creation or first inference — probe the API up front, then verify
   // with a warm-up inference before committing to the backend. Weights are
   // already cached by then, so the wasm fallback re-load is offline.
-  if (!webgpuBroken && typeof navigator !== "undefined" && "gpu" in navigator) {
+  if (!webgpuBroken && await hasWebGpuAdapter()) {
     let webgpu: Extractor | null = null;
     try {
       webgpu = await makeExtractor("webgpu", id, repo);

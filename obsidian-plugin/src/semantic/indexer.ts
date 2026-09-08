@@ -24,6 +24,8 @@ export interface IndexerDeps {
   readPdfPages?(path: string): Promise<PdfPage[] | null>;
   /** Embed texts with the configured model; one vector per input, in order. */
   embed(input: string[]): Promise<number[][]>;
+  /** Optional upper bound for one inference call on memory-constrained runtimes. */
+  embedBatchSize?: number;
   /** Load the persisted index blob (or null/undefined if none). */
   load(): Promise<unknown>;
   /** Persist the index blob. */
@@ -194,7 +196,16 @@ export class SemanticIndexer {
       store.removeNote(path); // empty / frontmatter-only note carries nothing
       return;
     }
-    const vectors = await this.deps.embed(chunks.map((c) => c.text));
+    const configuredBatchSize = this.deps.embedBatchSize;
+    const batchSize = configuredBatchSize !== undefined && Number.isFinite(configuredBatchSize) && configuredBatchSize > 0
+      ? Math.floor(configuredBatchSize)
+      : chunks.length;
+    const vectors: number[][] = [];
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      const embedded = await this.deps.embed(batch.map((c) => c.text));
+      for (let j = 0; j < batch.length; j++) vectors.push(embedded[j] ?? []);
+    }
     store.upsertNote(
       path,
       hash,
