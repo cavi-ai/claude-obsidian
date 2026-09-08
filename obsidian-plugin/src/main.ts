@@ -3038,6 +3038,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         }
         return embedder.embed(input);
       },
+      ...(Platform.isMobile && this.settings.embeddingEngine === "builtin" ? { embedBatchSize: 1 } : {}),
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;

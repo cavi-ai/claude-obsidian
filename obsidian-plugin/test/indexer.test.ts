@@ -112,6 +112,16 @@ describe("SemanticIndexer", () => {
     expect(res.skipped).toBe(0);
   });
 
+  it("bounds embedding batches when configured for a low-memory runtime", async () => {
+    const ctx = makeDeps({ "large.md": "cat sentence. ".repeat(600) });
+    Object.assign(ctx.deps, { embedBatchSize: 1 });
+
+    await new SemanticIndexer(ctx.deps).build();
+
+    expect(ctx.embedCalls.length).toBeGreaterThan(1);
+    expect(ctx.embedCalls.every((batch) => batch.length === 1)).toBe(true);
+  });
+
   it("prunes notes that left the vault", async () => {
     const ctx = makeDeps({ "a.md": "cat", "b.md": "fish" });
     const ix = new SemanticIndexer(ctx.deps);
