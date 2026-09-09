@@ -1135,7 +1135,6 @@ export class ChatView extends ItemView {
     });
     if (cliSignedIn) {
       const cli = card.createDiv({ cls: "cc-setup-cli" });
-      cli.createDiv({ cls: "cc-setup-cli-text", text: "Claude Code is installed and signed in on this computer. Use it instead of an API key — chat runs on your subscription." });
       const useCli = cli.createEl("button", { cls: "mod-cta cc-setup-cli-use", text: "Use Claude Code sign-in" });
       useCli.addEventListener("click", () => void (async () => {
         this.plugin.settings.chatBackend = "claude-cli";
