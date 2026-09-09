@@ -3,10 +3,26 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultChatControls } from "../../src/claude/chatControls";
 import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
-import { ChatView } from "../../src/view/ChatView";
+import { ChatView, chipLabel } from "../../src/view/ChatView";
 import type { TurnRendererHost } from "../../src/view/turnRenderer";
 
 const fakeElement = (): HTMLElement => new FakeElement() as unknown as HTMLElement;
+
+// The shared FakeElement has no `.dataset` (real DOM elements do); ChatView's
+// finishAssistant() uses it as an idempotency flag. Shim it per-instance so a
+// full run() can be driven in a test without touching the shared fake.
+const datasets = new WeakMap<object, Record<string, string>>();
+Object.defineProperty(FakeElement.prototype, "dataset", {
+  configurable: true,
+  get(this: object) {
+    let d = datasets.get(this);
+    if (!d) {
+      d = {};
+      datasets.set(this, d);
+    }
+    return d;
+  },
+});
 
 function renderingHost(renderMarkdownInto: TurnRendererHost["renderMarkdownInto"]): TurnRendererHost {
   return {
@@ -124,5 +140,72 @@ describe("Chat render lifecycle", () => {
     await Promise.resolve();
 
     expect(messagesEl.querySelector(".cc-body")?.textContent).toBe("Still readable");
+  });
+
+  it("names the local provider that actually failed, not always Ollama, in the fallback error hint", async () => {
+    const failing = (message: string) => async (): Promise<never> => {
+      const err = new Error(message) as Error & { status?: number };
+      err.status = 503;
+      throw err;
+    };
+    const claudeProvider = { id: "anthropic", hasCredentials: () => true, stream: failing("fetch failed") };
+    const endpointProvider = { id: "openai-compat", hasCredentials: () => true, stream: failing("fetch failed") };
+    const settings = { ...structuredClone(DEFAULT_SETTINGS), chatBackend: "auto" as const, agentModeEnabled: false, context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false } };
+    const plugin = {
+      settings,
+      router: () => ({
+        chatProvider: () => ({ provider: claudeProvider, model: "claude-model" }),
+        chatBackend: "auto",
+        chatCapabilities: () => ({ agentActions: false, claudeControls: true, metered: true, local: false, cli: false }),
+        chatToolCapable: async () => false,
+        anthropic: claudeProvider,
+        claudeCli: { hasCredentials: () => false, available: () => false },
+        localFallback: async () => ({ provider: endpointProvider, model: "local-model" }),
+      }),
+      composeSystemPrompt: () => "system",
+      semanticSearch: async () => [],
+      saveActiveConversation: vi.fn(async () => null),
+    } as unknown as ClaudeCompanionPlugin;
+    const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
+    const seam = view as unknown as {
+      app: { workspace: { getActiveViewOfType?: () => null; getActiveFile?: () => null } };
+      controls: ReturnType<typeof defaultChatControls>;
+      messagesEl: HTMLElement;
+      sendBtn: HTMLButtonElement;
+      usageEl: HTMLElement;
+      gaugeFillEl: HTMLElement;
+      renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
+      run(userText: string): Promise<void>;
+    };
+    seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
+    seam.messagesEl = fakeElement();
+    seam.sendBtn = fakeElement() as unknown as HTMLButtonElement;
+    seam.usageEl = fakeElement();
+    seam.gaugeFillEl = fakeElement();
+    // The fake App's workspace doesn't implement view/file lookups; this test
+    // has every context toggle off, so gatherContext only needs them present.
+    seam.app.workspace.getActiveViewOfType = () => null;
+    seam.app.workspace.getActiveFile = () => null;
+    // Bypass Obsidian's real MarkdownRenderer (unavailable in this fake env).
+    seam.renderMarkdownInto = async () => undefined;
+
+    await seam.run("Summarize my vault in one line.");
+
+    const errorBox = (seam.messagesEl as unknown as FakeElement).querySelector(".cc-error");
+    const hint = errorBox?.querySelector(".cc-error-hint")?.textContent ?? "";
+    expect(hint).not.toMatch(/ollama/i);
+    expect(hint).toMatch(/openai-compatible endpoint/i);
+    expect(hint).toMatch(/host/i);
+  });
+});
+
+describe("chipLabel", () => {
+  it("strips the chat-bridge's own mcp__obsidian-vault__ prefix for display", () => {
+    expect(chipLabel("mcp__obsidian-vault__vault_search", '{"query":"x"}')).toBe('vault_search {"query":"x"}');
+    expect(chipLabel("mcp__obsidian-vault__note_read", "{}")).toBe("note_read");
+  });
+
+  it("leaves a user-configured external MCP server's namespaced name intact", () => {
+    expect(chipLabel("mcp__github__search_issues", "{}")).toBe("mcp__github__search_issues");
   });
 });

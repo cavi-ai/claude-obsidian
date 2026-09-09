@@ -33,6 +33,7 @@ import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
+import { stripCliToolName } from "../cli/argv";
 import { needsCredentialSetup } from "../providers/setupState";
 import { mergeDetectedModels } from "../providers/localModels";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
@@ -47,11 +48,14 @@ import { buildContextManagerModel, type AutomaticContextKey } from "./contextMan
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
-/** Compact one-line chip label: tool name + trimmed args (empty args omitted). */
-function chipLabel(name: string, args: string): string {
+/** Compact one-line chip label: tool name + trimmed args (empty args omitted).
+ *  Strips the chat-bridge's own MCP prefix so it reads as the bare tool name;
+ *  user-configured external MCP servers keep their `mcp__<server>__` names. */
+export function chipLabel(name: string, args: string): string {
+  const label = stripCliToolName(name);
   const a = args === "{}" ? "" : args;
   const trimmed = a.length > 80 ? `${a.slice(0, 80)}…` : a;
-  return trimmed ? `${name} ${trimmed}` : name;
+  return trimmed ? `${label} ${trimmed}` : label;
 }
 
 /** Truncate a tool result for the expandable chip body. */
@@ -1566,7 +1570,7 @@ export class ChatView extends ItemView {
           // Keep whatever streamed before the failure — persist it like an
           // abort, then append the error below it.
           this.finishAssistant(this._lastBuffer || null, bubble);
-          this.renderError(body, err2.message ?? "Request failed", "ollama");
+          this.renderError(body, err2.message ?? "Request failed", fb.provider.id);
           this.restoreMediaAfterFailure();
         }
       } else {
