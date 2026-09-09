@@ -137,6 +137,7 @@ import { classifyEmbeddingFailure, type EmbeddingRecovery } from "./semantic/rec
 import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
 import { verifyClipperNote } from "./sources/clipperVerification";
 import { KeyedSerialQueue } from "./sources/keyedSerialQueue";
+import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
 import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
@@ -194,6 +195,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
   override settings: PluginSettings = DEFAULT_SETTINGS;
   private _activity?: ActivityStore;
   get activity(): ActivityStore { return this._activity ??= new ActivityStore(); }
+  private _enrichDiagnostics?: EnrichDiagnostics;
+  /** Opt-in phase log for batch enrichment; lazy getter so partial test harnesses (no onload) never touch it unless enabled. */
+  get enrichDiagnostics(): EnrichDiagnostics {
+    return this._enrichDiagnostics ??= new EnrichDiagnostics(
+      {
+        append: async (path, text) => {
+          const dir = path.slice(0, path.lastIndexOf("/"));
+          if (dir && !(await this.app.vault.adapter.exists(dir))) await this.app.vault.adapter.mkdir(dir);
+          await this.app.vault.adapter.append(path, text);
+        },
+        now: () => Date.now(),
+        isMobile: Platform.isMobile,
+        path: "Claude/enrichment-diagnostics.log",
+      },
+      () => this.settings.enrichmentDiagnostics,
+    );
+  }
   private convState: ConversationState = emptyState();
   private convSeq = 0;
   private researchDeskPreferences: ResearchDeskPreferenceMap = {};
@@ -591,7 +609,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       app: this.app,
       complete: async (system, user, opts) => {
         this.assertUtilityLifecycleActive(lifecycleGeneration);
-        return (
+        const text = (
           await router.completeResolved(selection, {
             system,
             user,
@@ -600,6 +618,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
             ...(opts?.disableThinking ? { thinking: { type: "disabled" as const } } : {}),
           })
         ).text;
+        this.enrichDiagnostics.log("response-received", { chars: text.length });
+        return text;
       },
       overrides: this.settings.sourceSchemaOverrides,
       baseTags: this.settings.sourceBaseTags,
@@ -1119,12 +1139,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       : undefined;
     try {
       const raw = prefetchedContent ?? await this.app.vault.cachedRead(file);
+      this.enrichDiagnostics.log("item-start", { path: file.path, bytes: raw.length });
       const capture =
         file.extension === "md"
           ? { kind: "markdown" as const, path: file.path, basename: file.basename, content: raw, url: parseClipUrl(raw) }
           : { kind: "datafile" as const, path: file.path, basename: file.basename, ext: file.extension, content: raw };
       selection = await this.router().utilitySelection();
       const res = await enrichCapture(this.enrichDeps(selection, lifecycleGeneration), capture);
+      this.enrichDiagnostics.log("write-done", { path: res.file.path });
       this.assertUtilityLifecycleActive(lifecycleGeneration);
       this.markEnrichRecentlyWritten(res.file.path, lifecycleGeneration);
       if (activityId) {
@@ -1848,6 +1870,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
+    if (actionId === "copy-diagnostics") {
+      const logPath = "Claude/enrichment-diagnostics.log";
+      if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — turn on the toggle in Settings → Source capture and run Enrich all again.");
+      const text = await this.app.vault.adapter.read(logPath);
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable on this device.");
+      await navigator.clipboard.writeText(text.slice(-8192));
+      return;
+    }
     if (actionId === "copy-details") {
       const details = this.activity.snapshot().records.find(({ id }) => id === activityId)?.technicalDetails;
       if (!details) throw new Error("No technical details are available for this activity.");
@@ -3039,6 +3069,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return embedder.embed(input);
       },
       ...(Platform.isMobile && this.settings.embeddingEngine === "builtin" ? { embedBatchSize: 1 } : {}),
+      onPhase: (phase, fields) => this.enrichDiagnostics.log(phase, fields),
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
@@ -3048,7 +3079,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return null;
       },
       save: async (data: IndexData) => {
-        await adapter.write(path, JSON.stringify(data));
+        this.enrichDiagnostics.log("serialize-start", { notes: Object.keys(data.notes).length });
+        const json = JSON.stringify(data);
+        this.enrichDiagnostics.log("save-start", { bytes: json.length });
+        await adapter.write(path, json);
+        this.enrichDiagnostics.log("save-done", { bytes: json.length });
       },
     });
     this.indexerModel = model;
@@ -3298,6 +3333,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     const paths = Array.from(this.reindexQueue);
     this.reindexQueue.clear();
+    this.enrichDiagnostics.log("reindex-flush-start", { n: paths.length });
     for (const p of paths) {
       const f = this.app.vault.getAbstractFileByPath(p);
       if (f instanceof TFile) {

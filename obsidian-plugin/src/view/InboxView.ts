@@ -412,6 +412,7 @@ export class InboxView extends ItemView {
       title: "Enriching Inbox",
       total: items.length,
     });
+    this.plugin.enrichDiagnostics.log("batch-start", { n: items.length });
     let enriched = 0;
     let failed = 0;
     let completed = 0;
@@ -454,7 +455,14 @@ export class InboxView extends ItemView {
           : `Typed ${enriched} of ${items.length} source notes; ${failed} failed.`,
       );
       if (failed === 0) {
-        this.plugin.activity.finish(activityId, { completed, succeeded: enriched, failed });
+        this.plugin.activity.finish(activityId, {
+          completed,
+          succeeded: enriched,
+          failed,
+          ...(this.plugin.settings.enrichmentDiagnostics
+            ? { recovery: [{ id: "copy-diagnostics", label: "Copy enrichment log", kind: "copy-details" }] }
+            : {}),
+        });
       } else {
         this.plugin.activity.fail(activityId, {
           completed,
@@ -464,6 +472,9 @@ export class InboxView extends ItemView {
           recovery: [
             { id: "review-inbox-failures", label: "Review failed notes", kind: "retry" },
             { id: "utility-settings", label: "Open utility settings", kind: "settings" },
+            ...(this.plugin.settings.enrichmentDiagnostics
+              ? [{ id: "copy-diagnostics", label: "Copy enrichment log", kind: "copy-details" as const }]
+              : []),
           ],
         });
       }
@@ -474,10 +485,16 @@ export class InboxView extends ItemView {
         succeeded: enriched,
         failed: Math.max(failed, 1),
         technicalDetails: detail,
-        recovery: [{ id: "review-inbox-failures", label: "Review failed notes", kind: "retry" }],
+        recovery: [
+          { id: "review-inbox-failures", label: "Review failed notes", kind: "retry" },
+          ...(this.plugin.settings.enrichmentDiagnostics
+            ? [{ id: "copy-diagnostics", label: "Copy enrichment log", kind: "copy-details" as const }]
+            : []),
+        ],
       });
       this.setOperationFeedback("error", `Inbox enrichment stopped — ${detail}`);
     } finally {
+      this.plugin.enrichDiagnostics.log("batch-end", { completed, enriched, failed });
       this.batchOperation = null;
       await this.renderSafely();
     }

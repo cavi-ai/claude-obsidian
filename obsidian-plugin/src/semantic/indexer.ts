@@ -26,6 +26,8 @@ export interface IndexerDeps {
   embed(input: string[]): Promise<number[][]>;
   /** Optional upper bound for one inference call on memory-constrained runtimes. */
   embedBatchSize?: number;
+  /** Optional phase hook for diagnostics; never affects indexing. */
+  onPhase?(phase: "embed-start" | "embed-done", fields: { path: string; chunks: number }): void;
   /** Load the persisted index blob (or null/undefined if none). */
   load(): Promise<unknown>;
   /** Persist the index blob. */
@@ -203,7 +205,9 @@ export class SemanticIndexer {
     const vectors: number[][] = [];
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
+      this.deps.onPhase?.("embed-start", { path, chunks: batch.length });
       const embedded = await this.deps.embed(batch.map((c) => c.text));
+      this.deps.onPhase?.("embed-done", { path, chunks: batch.length });
       for (let j = 0; j < batch.length; j++) vectors.push(embedded[j] ?? []);
     }
     store.upsertNote(

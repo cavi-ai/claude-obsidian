@@ -230,4 +230,17 @@ describe("SemanticIndexer", () => {
     await ix.build();
     expect((await ix.stats()).notes).toBe(1);
   });
+
+  it("reports embed phases per batch through onPhase", async () => {
+    const ctx = makeDeps({ "a.md": "cat cat cat cat" });
+    const phases: Array<{ phase: string; chunks: number }> = [];
+    ctx.deps.embedBatchSize = 1;
+    ctx.deps.onPhase = (phase, fields) => { phases.push({ phase, chunks: fields.chunks }); };
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.updateNote("a.md", 1);
+    expect(phases.length).toBeGreaterThanOrEqual(2);
+    expect(phases[0]?.phase).toBe("embed-start");
+    expect(phases[phases.length - 1]?.phase).toBe("embed-done");
+    expect(phases.every((p) => p.chunks === 1)).toBe(true);
+  });
 });
