@@ -137,6 +137,7 @@ import { classifyEmbeddingFailure, type EmbeddingRecovery } from "./semantic/rec
 import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
 import { verifyClipperNote } from "./sources/clipperVerification";
 import { KeyedSerialQueue } from "./sources/keyedSerialQueue";
+import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
 import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
@@ -197,6 +198,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
   override settings: PluginSettings = DEFAULT_SETTINGS;
   private _activity?: ActivityStore;
   get activity(): ActivityStore { return this._activity ??= new ActivityStore(); }
+  private _enrichDiagnostics?: EnrichDiagnostics;
+  /** Opt-in phase log for batch enrichment; lazy getter so partial test harnesses (no onload) never touch it unless enabled. */
+  get enrichDiagnostics(): EnrichDiagnostics {
+    return this._enrichDiagnostics ??= new EnrichDiagnostics(
+      {
+        append: async (path, text) => {
+          const dir = path.slice(0, path.lastIndexOf("/"));
+          if (dir && !(await this.app.vault.adapter.exists(dir))) await this.app.vault.adapter.mkdir(dir);
+          await this.app.vault.adapter.append(path, text);
+        },
+        now: () => Date.now(),
+        isMobile: Platform.isMobile,
+        path: "Claude/enrichment-diagnostics.log",
+      },
+      () => this.settings.enrichmentDiagnostics,
+    );
+  }
   private convState: ConversationState = emptyState();
   private convSeq = 0;
   private researchDeskPreferences: ResearchDeskPreferenceMap = {};
@@ -252,6 +270,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Debounce timer for incremental re-index on note changes. */
   private reindexTimer: number | null = null;
   private reindexQueue = new Set<string>();
+  private reindexSuspended = 0;
   private enrichTimers = new Map<string, number>();
   /** Debounced Clipper arrivals waiting for one-at-a-time utility processing. */
   private enrichPending = new Map<string, TFile>();
@@ -594,7 +613,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       app: this.app,
       complete: async (system, user, opts) => {
         this.assertUtilityLifecycleActive(lifecycleGeneration);
-        return (
+        const text = (
           await router.completeResolved(selection, {
             system,
             user,
@@ -603,6 +622,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
             ...(opts?.disableThinking ? { thinking: { type: "disabled" as const } } : {}),
           })
         ).text;
+        this.enrichDiagnostics.log("response-received", { chars: text.length });
+        return text;
       },
       overrides: this.settings.sourceSchemaOverrides,
       baseTags: this.settings.sourceBaseTags,
@@ -982,6 +1003,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private async drainEnrichQueue(): Promise<void> {
     if (this.enrichQueueRunning || this.utilityLifecycleEnded) return;
     this.enrichQueueRunning = true;
+    const release = this.suspendReindex();
     try {
       while (!this.utilityLifecycleEnded) {
         const next = this.enrichPending.entries().next().value;
@@ -1013,6 +1035,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         }
       }
     } finally {
+      release();
       this.enrichQueueRunning = false;
       if (!this.utilityLifecycleEnded && this.enrichPending.size > 0) void this.drainEnrichQueue();
     }
@@ -1122,12 +1145,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       : undefined;
     try {
       const raw = prefetchedContent ?? await this.app.vault.cachedRead(file);
+      this.enrichDiagnostics.log("item-start", { path: file.path, bytes: raw.length });
       const capture =
         file.extension === "md"
           ? { kind: "markdown" as const, path: file.path, basename: file.basename, content: raw, url: parseClipUrl(raw) }
           : { kind: "datafile" as const, path: file.path, basename: file.basename, ext: file.extension, content: raw };
       selection = await this.router().utilitySelection();
       const res = await enrichCapture(this.enrichDeps(selection, lifecycleGeneration), capture);
+      this.enrichDiagnostics.log("write-done", { path: res.file.path });
       this.assertUtilityLifecycleActive(lifecycleGeneration);
       this.markEnrichRecentlyWritten(res.file.path, lifecycleGeneration);
       if (activityId) {
@@ -1851,6 +1876,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
+    if (actionId === "copy-diagnostics") {
+      const logPath = "Claude/enrichment-diagnostics.log";
+      if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — turn on the toggle in Settings → Source capture and run Enrich all again.");
+      const text = await this.app.vault.adapter.read(logPath);
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable on this device.");
+      await navigator.clipboard.writeText(text.slice(-8192));
+      return;
+    }
     if (actionId === "copy-details") {
       const details = this.activity.snapshot().records.find(({ id }) => id === activityId)?.technicalDetails;
       if (!details) throw new Error("No technical details are available for this activity.");
@@ -3042,6 +3075,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return embedder.embed(input);
       },
       ...(Platform.isMobile && this.settings.embeddingEngine === "builtin" ? { embedBatchSize: 1 } : {}),
+      onPhase: (phase, fields) => this.enrichDiagnostics.log(phase, fields),
       ...(Platform.isMobile
         ? { maxInputBytes: (p: string) => p.toLowerCase().endsWith(".pdf") ? MOBILE_SEMANTIC_PDF_MAX_BYTES : MOBILE_SOURCE_NOTE_MAX_BYTES }
         : {}),
@@ -3054,7 +3088,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return null;
       },
       save: async (data: IndexData) => {
-        await adapter.write(path, JSON.stringify(data));
+        this.enrichDiagnostics.log("serialize-start", { notes: Object.keys(data.notes).length });
+        const json = JSON.stringify(data);
+        this.enrichDiagnostics.log("save-start", { bytes: json.length });
+        await adapter.write(path, json);
+        this.enrichDiagnostics.log("save-done", { bytes: json.length });
       },
     });
     this.indexerModel = model;
@@ -3285,8 +3323,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.reindexTimer = window.setTimeout(() => void this.flushReindex(), 1500);
   }
 
+  /** Hold reindexing during a batch; the last release flushes once for every queued note. */
+  suspendReindex(): () => void {
+    this.reindexSuspended++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.reindexSuspended--;
+      if (this.reindexSuspended === 0 && this.reindexQueue.size > 0) void this.flushReindex();
+    };
+  }
+
   private async flushReindex(): Promise<void> {
-    this.reindexTimer = null;
+    // A suspend-triggered flush can run ahead of the debounce timer; cancel it so it
+    // doesn't fire again later against an already-drained queue.
+    if (this.reindexTimer !== null) { window.clearTimeout(this.reindexTimer); this.reindexTimer = null; }
+    if (this.reindexSuspended > 0) return;
     const ix = this.indexer();
     if (!ix) {
       this.reindexQueue.clear();
@@ -3304,27 +3357,35 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     const paths = Array.from(this.reindexQueue);
     this.reindexQueue.clear();
-    for (const p of paths) {
+    this.enrichDiagnostics.log("reindex-flush-start", { n: paths.length });
+    const entries = paths.flatMap((p) => {
       const f = this.app.vault.getAbstractFileByPath(p);
-      if (f instanceof TFile) {
-        try {
-          await ix.updateNote(p, f.stat.mtime, f.stat.size);
-        } catch (error) {
-          console.error(`[Claude Companion] semantic reindex failed for ${p}`, error);
-          const recovery = this.embeddingRecovery(error);
-          const activityId = this.activity.start({
-            id: `semantic-index:incremental:${p}`,
-            kind: "semantic-index",
-            title: "Semantic index needs attention",
-          });
-          this.activity.fail(activityId, {
-            failed: 1,
-            technicalDetails: recovery.technicalDetails,
-            recovery: recovery.actions,
-            details: [{ label: p, message: recovery.message, state: "error" }],
-          });
-        }
-      }
+      return f instanceof TFile ? [{ path: p, mtime: f.stat.mtime, size: f.stat.size }] : [];
+    });
+    if (entries.length === 0) return;
+    let failures: Array<{ path: string; error: unknown }>;
+    try {
+      failures = await ix.updateNotes(
+        entries,
+        Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {},
+      );
+    } catch (error) {
+      failures = entries.map(({ path }) => ({ path, error }));
+    }
+    for (const { path: p, error } of failures) {
+      console.error(`[Claude Companion] semantic reindex failed for ${p}`, error);
+      const recovery = this.embeddingRecovery(error);
+      const activityId = this.activity.start({
+        id: `semantic-index:incremental:${p}`,
+        kind: "semantic-index",
+        title: "Semantic index needs attention",
+      });
+      this.activity.fail(activityId, {
+        failed: 1,
+        technicalDetails: recovery.technicalDetails,
+        recovery: recovery.actions,
+        details: [{ label: p, message: recovery.message, state: "error" }],
+      });
     }
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SemanticIndexer, type IndexFile, type IndexerDeps } from "../src/semantic/indexer";
 import type { IndexData } from "../src/semantic/store";
 
@@ -329,5 +329,62 @@ describe("SemanticIndexer", () => {
     const ix = new SemanticIndexer(ctx.deps);
     await ix.build();
     expect((await ix.stats()).notes).toBe(1);
+  });
+
+  it("reports embed phases per batch through onPhase", async () => {
+    const ctx = makeDeps({ "a.md": "cat cat cat cat" });
+    const phases: Array<{ phase: string; chunks: number }> = [];
+    ctx.deps.embedBatchSize = 1;
+    ctx.deps.onPhase = (phase, fields) => { phases.push({ phase, chunks: fields.chunks }); };
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.updateNote("a.md", 1);
+    expect(phases.length).toBeGreaterThanOrEqual(2);
+    expect(phases[0]?.phase).toBe("embed-start");
+    expect(phases[phases.length - 1]?.phase).toBe("embed-done");
+    expect(phases.every((p) => p.chunks === 1)).toBe(true);
+  });
+
+  it("updateNotes embeds every note and saves once", async () => {
+    const ctx = makeDeps({ "a.md": "cat", "b.md": "dog", "c.md": "fish" });
+    let saves = 0;
+    const save = ctx.deps.save;
+    ctx.deps.save = async (d) => { saves++; await save(d); };
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.updateNotes([{ path: "a.md", mtime: 1 }, { path: "b.md", mtime: 1 }, { path: "c.md", mtime: 1 }]);
+    expect(ctx.embedCalls.length).toBe(3);
+    expect(saves).toBe(1);
+    expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("updateNotes calls yieldBetween between notes, not after the last", async () => {
+    const ctx = makeDeps({ "a.md": "cat", "b.md": "dog", "c.md": "fish" });
+    const ix = new SemanticIndexer(ctx.deps);
+    const yieldBetween = vi.fn(async () => {});
+    await ix.updateNotes(
+      [{ path: "a.md", mtime: 1 }, { path: "b.md", mtime: 1 }, { path: "c.md", mtime: 1 }],
+      { yieldBetween },
+    );
+    expect(yieldBetween).toHaveBeenCalledTimes(2);
+  });
+
+  it("updateNotes reports an oversized entry as a failure, removes it, and still indexes the rest", async () => {
+    const ctx = makeDeps({ "large.md": "cat", "b.md": "dog", "c.md": "fish" });
+    ctx.deps.maxInputBytes = () => 10;
+    let saves = 0;
+    const save = ctx.deps.save;
+    ctx.deps.save = async (d) => { saves++; await save(d); };
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.updateNote("large.md", 1, 3);
+
+    const failures = await ix.updateNotes([
+      { path: "large.md", mtime: 2, size: 11 },
+      { path: "b.md", mtime: 1 },
+      { path: "c.md", mtime: 1 },
+    ]);
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.path).toBe("large.md");
+    expect(saves).toBe(2);
+    expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["b.md", "c.md"]);
   });
 });

@@ -28,6 +28,8 @@ export interface IndexerDeps {
   embed(input: string[]): Promise<number[][]>;
   /** Optional upper bound for one inference call on memory-constrained runtimes. */
   embedBatchSize?: number;
+  /** Optional phase hook for diagnostics; never affects indexing. */
+  onPhase?(phase: "embed-start" | "embed-done", fields: { path: string; chunks: number }): void;
   /** Optional pre-read byte limit; may vary by file type. */
   maxInputBytes?(path: string): number | undefined;
   /** Load the persisted index blob (or null/undefined if none). */
@@ -152,6 +154,41 @@ export class SemanticIndexer {
     await this.deps.save(store.toJSON());
   }
 
+  /**
+   * Re-embed several notes under one mutation with a single save at the end.
+   * One entry's failure (oversized input, prepare/embed error) never aborts the rest;
+   * failures are returned instead of thrown.
+   */
+  async updateNotes(
+    entries: Array<{ path: string; mtime: number; size?: number }>,
+    opts: { yieldBetween?: () => Promise<void> } = {},
+  ): Promise<Array<{ path: string; error: unknown }>> {
+    return this.runMutation(async () => {
+      const store = await this.ensureLoaded();
+      let changed = false;
+      const failures: Array<{ path: string; error: unknown }> = [];
+      for (const [i, { path, mtime, size }] of entries.entries()) {
+        try {
+          this.assertInputSize(path, size);
+          const prepared = await this.prepare(path);
+          if (prepared && store.needsReindex(path, prepared.hash)) {
+            await this.embedInto(store, path, mtime, prepared.chunks, prepared.hash);
+            changed = true;
+          }
+        } catch (error) {
+          if (error instanceof SemanticInputTooLargeError && store.hasNote(path)) {
+            store.removeNote(path);
+            changed = true;
+          }
+          failures.push({ path, error });
+        }
+        if (opts.yieldBetween && i < entries.length - 1) await opts.yieldBetween();
+      }
+      if (changed) await this.deps.save(store.toJSON());
+      return failures;
+    });
+  }
+
   async removeNote(path: string): Promise<void> {
     return this.runMutation(async () => {
       const store = await this.ensureLoaded();
@@ -235,7 +272,9 @@ export class SemanticIndexer {
     const vectors: number[][] = [];
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
+      this.deps.onPhase?.("embed-start", { path, chunks: batch.length });
       const embedded = await this.deps.embed(batch.map((c) => c.text));
+      this.deps.onPhase?.("embed-done", { path, chunks: batch.length });
       for (let j = 0; j < batch.length; j++) vectors.push(embedded[j] ?? []);
     }
     store.upsertNote(

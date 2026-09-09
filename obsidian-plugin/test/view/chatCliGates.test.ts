@@ -70,4 +70,12 @@ describe("ChatView on the claude-cli backend", () => {
     const buttons = (host as unknown as FakeElement).querySelectorAll("button");
     expect(buttons.some((b) => b.textContent === "Use Claude Code sign-in")).toBe(true);
   });
+
+  it("leads the setup card with Claude Code when the CLI is signed in", () => {
+    const view = new ChatView(new WorkspaceLeaf(new App()), pluginStub({ chatBackend: "claude", apiKey: "" }, API, true));
+    const host = new FakeElement() as unknown as HTMLElement;
+    (view as unknown as { renderSetupCard(parent: HTMLElement): void }).renderSetupCard(host);
+    const sub = (host as unknown as FakeElement).querySelector(".cc-setup-sub");
+    expect(sub?.textContent).toMatch(/^Claude Code is signed in on this computer/);
+  });
 });

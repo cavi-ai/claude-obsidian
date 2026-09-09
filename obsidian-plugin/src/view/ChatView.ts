@@ -1122,16 +1122,19 @@ export class ChatView extends ItemView {
   /** First-run card: connect to Claude without leaving the chat panel. */
   private renderSetupCard(parent: HTMLElement): void {
     const card = parent.createDiv({ cls: "cc-setup-card" });
+    const cliSignedIn = this.plugin.router().claudeCli.hasCredentials();
+    const storage = this.plugin.secrets().available()
+      ? "It’s kept in your device’s secret storage, not in this vault — nothing else leaves your machine."
+      : "It’s stored in this vault’s plugin data — nothing else leaves your machine.";
     card.createDiv({ cls: "cc-setup-title", text: "Connect to Claude" });
     card.createDiv({
       cls: "cc-setup-sub",
-      text: this.plugin.secrets().available()
-        ? "Add your Anthropic API key to start chatting. It’s kept in your device’s secret storage, not in this vault — nothing else leaves your machine."
-        : "Add your Anthropic API key to start chatting. It’s stored in this vault’s plugin data — nothing else leaves your machine.",
+      text: cliSignedIn
+        ? `Claude Code is signed in on this computer. Use it for chat on your subscription, or add an Anthropic API key. ${storage}`
+        : `Add your Anthropic API key to start chatting. ${storage}`,
     });
-    if (this.plugin.router().claudeCli.hasCredentials()) {
+    if (cliSignedIn) {
       const cli = card.createDiv({ cls: "cc-setup-cli" });
-      cli.createDiv({ cls: "cc-setup-cli-text", text: "Claude Code is installed and signed in on this computer. Use it instead of an API key — chat runs on your subscription." });
       const useCli = cli.createEl("button", { cls: "mod-cta cc-setup-cli-use", text: "Use Claude Code sign-in" });
       useCli.addEventListener("click", () => void (async () => {
         this.plugin.settings.chatBackend = "claude-cli";

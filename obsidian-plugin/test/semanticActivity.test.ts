@@ -82,20 +82,23 @@ describe("semantic activity", () => {
   it("passes the current file size into incremental indexing", async () => {
     const app = new App();
     const file = app.vault.seed("Research/active.md", "Active note");
-    const updateNote = vi.fn().mockResolvedValue(undefined);
+    const updateNotes = vi.fn().mockResolvedValue([]);
     const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
     Object.assign(plugin as unknown as Record<string, unknown>, {
       app,
       settings: { ...structuredClone(DEFAULT_SETTINGS), semanticEnabled: true },
       reindexQueue: new Set([file.path]),
       reindexTimer: null,
-      indexer: () => ({ updateNote }),
+      indexer: () => ({ updateNotes }),
       canEmbedWithoutDownload: async () => true,
     });
 
     await (plugin as unknown as { flushReindex(): Promise<void> }).flushReindex();
 
-    expect(updateNote).toHaveBeenCalledWith(file.path, file.stat.mtime, file.stat.size);
+    expect(updateNotes).toHaveBeenCalledWith(
+      [{ path: file.path, mtime: file.stat.mtime, size: file.stat.size }],
+      {},
+    );
   });
 
   it("records incremental indexing failures for recovery", async () => {
@@ -107,7 +110,9 @@ describe("semantic activity", () => {
       settings: { ...structuredClone(DEFAULT_SETTINGS), semanticEnabled: true },
       reindexQueue: new Set([file.path]),
       reindexTimer: null,
-      indexer: () => ({ updateNote: vi.fn().mockRejectedValue(new Error("Embedding failed")) }),
+      indexer: () => ({
+        updateNotes: vi.fn().mockResolvedValue([{ path: file.path, error: new Error("Embedding failed") }]),
+      }),
       canEmbedWithoutDownload: async () => true,
     });
 

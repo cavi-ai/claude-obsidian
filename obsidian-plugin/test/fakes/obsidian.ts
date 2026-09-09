@@ -117,6 +117,10 @@ class FakeVault extends FakeEventSource {
     return Promise.resolve(file._content);
   }
 
+  read(file: TFile): Promise<string> {
+    return Promise.resolve(file._content);
+  }
+
   readBinary(file: TFile): Promise<ArrayBuffer> {
     return Promise.resolve(Uint8Array.from([...file._content].map((character) => character.charCodeAt(0) & 0xff)).buffer);
   }
