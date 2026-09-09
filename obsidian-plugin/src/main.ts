@@ -3363,10 +3363,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return f instanceof TFile ? [{ path: p, mtime: f.stat.mtime, size: f.stat.size }] : [];
     });
     if (entries.length === 0) return;
-    const failures = await ix.updateNotes(
-      entries,
-      Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {},
-    );
+    let failures: Array<{ path: string; error: unknown }>;
+    try {
+      failures = await ix.updateNotes(
+        entries,
+        Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {},
+      );
+    } catch (error) {
+      failures = entries.map(({ path }) => ({ path, error }));
+    }
     for (const { path: p, error } of failures) {
       console.error(`[Claude Companion] semantic reindex failed for ${p}`, error);
       const recovery = this.embeddingRecovery(error);

@@ -56,4 +56,22 @@ describe("reindex suspension", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(p._indexer!.updateNotes).toHaveBeenCalledTimes(1);
   });
+
+  it("when updateNotes rejects, raises recovery activity per note and resolves without throwing", async () => {
+    const { plugin, p, app } = makePlugin();
+    app.vault.create("a.md", "a");
+    app.vault.create("b.md", "b");
+    p.reindexQueue.add("a.md");
+    p.reindexQueue.add("b.md");
+    p._indexer!.updateNotes = vi.fn().mockRejectedValue(new Error("disk full"));
+
+    await p.flushReindex();
+
+    const records = plugin.activity.snapshot().records;
+    expect(records).toHaveLength(2);
+    expect(records[0]?.id).toMatch(/^semantic-index:incremental:/);
+    expect(records[1]?.id).toMatch(/^semantic-index:incremental:/);
+    expect(records[0]?.state).toBe("needs-attention");
+    expect(records[1]?.state).toBe("needs-attention");
+  });
 });
