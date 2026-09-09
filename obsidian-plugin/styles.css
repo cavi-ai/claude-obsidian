@@ -15,6 +15,42 @@
   --cc-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --cc-olive: #788c5d;
 
+  /* Semantic tokens resolve through Obsidian's variables: themes and dark/light follow automatically. */
+  --cc-surface: var(--background-primary);
+  --cc-surface-raised: var(--background-secondary);
+  --cc-surface-sunken: var(--background-primary-alt);
+  --cc-border: var(--background-modifier-border);
+  --cc-border-hover: color-mix(in srgb, var(--cc-clay) 35%, var(--background-modifier-border));
+  --cc-text: var(--text-normal);
+  --cc-text-muted: var(--text-muted);
+  --cc-text-faint: var(--text-faint);
+  --cc-accent: var(--cc-clay);
+  --cc-accent-fg: #fff;
+  --cc-accent-wash: color-mix(in srgb, var(--cc-clay) 12%, transparent);
+  --cc-accent-wash-strong: color-mix(in srgb, var(--cc-clay) 20%, transparent);
+  --cc-success: var(--cc-olive);
+  --cc-danger: var(--color-red, #e06c75);
+  --cc-space-1: 4px;
+  --cc-space-2: 8px;
+  --cc-space-3: 12px;
+  --cc-space-4: 16px;
+  --cc-space-5: 24px;
+  --cc-space-6: 32px;
+  --cc-radius-sm: 6px;
+  --cc-radius-md: 10px;
+  --cc-radius-lg: 14px;
+  --cc-radius-pill: 999px;
+  --cc-elevation-1: 0 1px 2px color-mix(in srgb, black 20%, transparent);
+  --cc-elevation-2: 0 4px 16px color-mix(in srgb, black 28%, transparent);
+  --cc-text-2xs: 10px;
+  --cc-text-xs: 11px;
+  --cc-text-sm: 12.5px;
+  --cc-text-base: 14px;
+  --cc-text-md: 16px;
+  --cc-text-lg: 19px;
+  --cc-text-xl: 22px;
+  --cc-touch-min: 44px;
+
   display: flex;
   flex-direction: column;
   height: 100%;
