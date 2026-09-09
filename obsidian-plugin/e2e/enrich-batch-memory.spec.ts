@@ -99,6 +99,22 @@ async function batchDone(harness: ObsidianHarness): Promise<boolean> {
   });
 }
 
+/** True once a `save-done` line appears after the most recent `batch-end` line,
+ *  i.e. the post-batch reindex flush (embed all clips, stringify, write) has finished. */
+async function flushSettled(harness: ObsidianHarness): Promise<boolean> {
+  let log: string;
+  try {
+    log = await readFile(join(harness.paths.vault, "Claude", "enrichment-diagnostics.log"), "utf8");
+  } catch {
+    return false;
+  }
+  const lines = log.split("\n").filter(Boolean);
+  const batchEndLine = [...lines].reverse().find((l) => l.split(" ")[2] === "batch-end");
+  const batchEndTs = batchEndLine?.split(" ")[0];
+  if (batchEndTs === undefined) return false;
+  return lines.some((l) => l.split(" ")[2] === "save-done" && (l.split(" ")[0] ?? "") > batchEndTs);
+}
+
 async function enrichedCount(harness: ObsidianHarness): Promise<number> {
   let count = 0;
   for (let i = 0; i < CLIPS; i++) {
@@ -120,7 +136,21 @@ test.describe("batch enrichment memory", () => {
         await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-source-inbox");
       });
       await harness.page.getByRole("button", { name: "Enrich all" }).click();
-      const { peak, samples } = await sampleHeap(harness, () => batchDone(harness), "memory-batch.csv");
+      const flushDeadline = Date.now() + 3 * 60_000;
+      const { peak, samples } = await sampleHeap(
+        harness,
+        async () => {
+          if (!(await batchDone(harness))) return false;
+          if (await flushSettled(harness)) return true;
+          if (Date.now() > flushDeadline) {
+            const log = await readFile(join(harness.paths.vault, "Claude", "enrichment-diagnostics.log"), "utf8").catch(() => "<log unreadable>");
+            const tail = log.split("\n").filter(Boolean).slice(-20).join("\n");
+            throw new Error(`post-batch reindex flush did not complete within 3 minutes; log tail:\n${tail}`);
+          }
+          return false;
+        },
+        "memory-batch.csv",
+      );
       const log = await readFile(join(harness.paths.vault, "Claude", "enrichment-diagnostics.log"), "utf8");
       await writeFile(join(OUT, "memory-batch.log"), log);
       expect(await enrichedCount(harness)).toBe(CLIPS);
