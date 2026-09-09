@@ -119,3 +119,37 @@ describe("header controls", () => {
     expect(pill).not.toContain("--cc-gray-");
   });
 });
+
+/** Drops the `.cc-root { ... }` token block and every rule whose selector contains `.is-mobile` or `.cc-artifact`. */
+export function stripAllowlisted(css: string): string {
+  let out = css;
+  const rootStart = out.indexOf(".cc-root {");
+  if (rootStart !== -1) {
+    const rootEnd = out.indexOf("}", rootStart);
+    out = out.slice(0, rootStart) + out.slice(rootEnd + 1);
+  }
+  out = out.replace(/(^|\n)[^{}\n]*\.is-mobile[^{}]*\{[^}]*\}/g, "");
+  out = out.replace(/(^|\n)[^{}\n]*\.cc-artifact[^{}]*\{[^}]*\}/g, "");
+  return out;
+}
+
+describe("type scale", () => {
+  it("uses no raw pixel font-size outside .cc-root, .is-mobile, and .cc-artifact rules", () => {
+    const stripped = stripAllowlisted(readStyles());
+    expect(stripped).not.toMatch(/font-size:\s*[0-9.]+px/);
+  });
+});
+
+describe("artifact palette retirement", () => {
+  it("reads no --cc-ivory/--cc-slate/--cc-oat/--cc-gray- token outside .cc-root and .cc-artifact rules", () => {
+    const css = readStyles();
+    let out = css;
+    const rootStart = out.indexOf(".cc-root {");
+    if (rootStart !== -1) {
+      const rootEnd = out.indexOf("}", rootStart);
+      out = out.slice(0, rootStart) + out.slice(rootEnd + 1);
+    }
+    out = out.replace(/(^|\n)[^{}\n]*\.cc-artifact[^{}]*\{[^}]*\}/g, "");
+    expect(out).not.toMatch(/var\(--cc-(ivory|slate|oat|gray-\d+)/);
+  });
+});
