@@ -16,7 +16,7 @@ image. Search for `<!-- screenshot:` or `<!-- hero:` to find them.
 Apply to every asset — consistency across shots matters more than any single shot.
 
 - **Display:** retina / 2× scale.
-- **Theme:** light, default Obsidian appearance. Light reads best in the store listing.
+- **Theme:** dark, default Obsidian appearance (theme "obsidian"). Companion's chrome reads better on dark, and the README renders on both GitHub themes.
 - **Vault:** the demo vault only. Never a real vault, and no personal note titles anywhere in frame.
 - **Same demo vault for every asset** so the product looks coherent across the README, the guides, and the store.
 - **Crop tight** to the relevant UI. No desktop chrome, no unrelated panes.
