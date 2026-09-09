@@ -46,6 +46,8 @@ export interface ObsidianHarnessOptions {
   reuse?: { vault: string; profile: string };
   /** Answer a provider request by its raw body; null falls through to the default payload. */
   providerReply?: (body: string) => string | null;
+  /** Answer a provider request with this HTTP status instead of a body; null → normal reply. Called once per request. */
+  providerFail?: (body: string) => number | null;
   /** Delay the provider stub's response by this many ms, to simulate a real model call. */
   providerDelayMs?: number;
   /** Extra vault files written before launch: relative path → content. */
@@ -215,7 +217,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
   let requests = 0;
   const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
-  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
+  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const status = options.providerFail?.(body) ?? null; if (status !== null) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `stubbed ${status}` } })); return; } const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
   // OpenAI-compatible endpoint stub: only /v1/models matters for the pickers.
@@ -306,6 +308,14 @@ case "$*" in
         *"make it fail"*)
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
           printf '{"type":"result","subtype":"success","result":"There is an issue with the selected model (e2e-model).","session_id":"e2e-session","num_turns":1,"is_error":true,"api_error_status":404,"usage":{"input_tokens":0,"output_tokens":0}}\\n' ;;
+        *chips*)
+          printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
+          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__obsidian-vault__vault_search","input":{"query":"Continuity"}}]}}\\n'
+          printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Research/Alpha/Project.md — Continuity research"}]}}\\n'
+          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__obsidian-vault__note_read","input":{"path":"Research/Alpha/Project.md"}}]}}\\n'
+          printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"# Continuity research"}]}}\\n'
+          printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Found the Continuity research project."}}}\\n'
+          printf '{"type":"result","subtype":"success","result":"Found the Continuity research project.","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n' ;;
         *)
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
           printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong from claude code"}}}\\n'
