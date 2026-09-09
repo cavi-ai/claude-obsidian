@@ -48,6 +48,13 @@ async function openChat(harness: ObsidianHarness): Promise<Locator> {
   return root;
 }
 
+// Widen the right sidebar past the `.cc-controls` 360px container-query
+// threshold so the Ask / Plan / Act labels render (README scenes only).
+async function widen(page: Page, px: number): Promise<void> {
+  await setRightSidebarWidth(page, px);
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
 test.describe("README captures", () => {
   for (const theme of THEMES) {
     test.describe(theme, () => {
@@ -55,6 +62,7 @@ test.describe("README captures", () => {
       test.skip(theme === "light" && !OUT_ROOT, "README assets are dark");
 
       test("composer-320.png", async () => {
+        test.skip(!OUT_ROOT, "composer-320 is a comparison-only scene, not a README asset");
         const harness = await launchObsidianHarness({ theme });
         try {
           const root = await openChat(harness);
@@ -150,6 +158,7 @@ test.describe("README captures", () => {
         });
         try {
           const root = await openChat(harness);
+          await widen(harness.page, 420);
           const input = root.locator("textarea").first();
           await input.fill("Summarize my vault in one line.");
           await input.press("Enter");
@@ -168,6 +177,7 @@ test.describe("README captures", () => {
         const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true }, theme });
         try {
           const root = await openChat(harness);
+          await widen(harness.page, 420);
           const input = root.locator("textarea").first();
           await input.fill("Show me the chips: search the vault for Continuity.");
           await input.press("Enter");
