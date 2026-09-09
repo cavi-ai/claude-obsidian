@@ -3,7 +3,7 @@
   "name": "Companion for Claude",
   "version": "0.28.0",
   "minAppVersion": "1.13.0",
-  "description": "Chat with Claude using your notes as context. Agent mode with reviewable edits, interactive HTML artifacts, evidence-backed research, local-model fallback, and an MCP bridge so Claude Code works on the same vault.",
+  "description": "Chat with Claude using your notes as context, on your Claude Code sign-in or an API key. Agent mode with inline diff review, portable skills, interactive HTML artifacts, evidence-backed research, local-model fallback, and an MCP bridge for the vault.",
   "author": "Sasan Sotoodehfar",
   "authorUrl": "https://cavi-ai.xyz",
   "isDesktopOnly": false
