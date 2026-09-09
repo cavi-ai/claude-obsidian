@@ -13,7 +13,14 @@ async function shoot(target: Locator | Page, name: string): Promise<void> {
   // A startup Notice (e.g. the secrets migration banner) can still be showing
   // when a shot is fast; strip any on-screen notices so they never land in frame.
   const targetPage = "page" in target && typeof (target as Locator).page === "function" ? (target as Locator).page() : (target as Page);
-  await targetPage.evaluate(() => document.querySelectorAll(".notice").forEach((n) => n.remove()));
+  await targetPage.evaluate(() => {
+    document.querySelectorAll(".notice").forEach((n) => n.remove());
+    // A wide row (e.g. the usage bar) can leave an ancestor mid-horizontal-scroll;
+    // pin every scrollable element back to its left edge before cropping.
+    document.querySelectorAll<HTMLElement>("*").forEach((el) => {
+      if (el.scrollWidth > el.clientWidth) el.scrollLeft = 0;
+    });
+  });
   await target.screenshot({ path, scale: "device", animations: "disabled" });
   const buf = await readFile(path);
   const width = buf.readUInt32BE(16);
@@ -39,30 +46,34 @@ test.describe("README captures", () => {
   test.skip(!ENABLED, "set CC_E2E_CAPTURE=1");
 
   test("diff-review.png", async () => {
+    // "Enrich with Claude…" (not the single-edit rewrite path): its lint step
+    // sends the whole note to the utility (here: chat-role/Anthropic-stub)
+    // model and diffToEdits() turns the returned full copy into edits, one per
+    // LCS-changed region merged only when within MERGE_GAP (3) lines of each
+    // other — a changed heading and a changed last task, six unchanged lines
+    // apart, stay two separate edits and so two separate .cc-diff-hunk boxes.
+    const originalPlan = "# Build plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it\n";
+    const enrichedPlan = "# Build Plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it to users\n";
     const harness = await launchObsidianHarness({
-      providerReply: (body) => (/rewrite/i.test(body) ? "Create the tokenizer first.\n\nThen wire the parser to it." : null),
-      settingsOverride: { inlineDiffEnabled: false },
+      providerReply: (body) => (/copyeditor/i.test(body) ? enrichedPlan : null),
+      extraFiles: { "Build plan.md": originalPlan },
     });
     try {
       const { page } = harness;
       await page.evaluate(async () => {
-        const w = window as unknown as { app: { workspace: { openLinkText(l: string, s: string): Promise<void>; activeEditor?: { editor?: { setSelection(a: { line: number; ch: number }, b: { line: number; ch: number }): void; lastLine(): number } } } } };
-        await w.app.workspace.openLinkText("Build plan", "", false);
+        const w = window as unknown as {
+          app: {
+            vault: { getAbstractFileByPath(path: string): unknown };
+            plugins: { plugins: Record<string, { enrichNoteFlow(file: unknown, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<void> }> };
+          };
+        };
+        const file = w.app.vault.getAbstractFileByPath("Build plan.md");
+        // Fire and forget: enrichNoteFlow() only resolves once the review
+        // modal it opens is closed, which this test never does.
+        void w.app.plugins.plugins["claude-companion"]!.enrichNoteFlow(file, { rename: false, frontmatter: false, links: false, lint: true });
       });
-      await page.evaluate(() => {
-        const w = window as unknown as { app: { workspace: { activeEditor?: { editor?: { setSelection(a: { line: number; ch: number }, b: { line: number; ch: number }): void; lastLine(): number } } } } };
-        const ed = w.app.workspace.activeEditor?.editor;
-        if (ed) ed.setSelection({ line: 0, ch: 0 }, { line: ed.lastLine(), ch: 0 });
-      });
-      await run(page, "claude-companion:rewrite-selection");
-      const preset = page.locator(".modal .cc-rewrite-preset").first();
-      await preset.click();
-      await page.locator(".modal").getByRole("button", { name: "Rewrite", exact: true }).click();
-      // A single-selection rewrite is always exactly one ProposedEdit -> one
-      // planEdits() span -> one hunk; propose_note_edit (agent tool_use, not
-      // fakeable through the plain provider stub) is the only path to >=2.
       const modal = page.locator(".modal", { has: page.locator(".cc-diff-hunk") });
-      await expect(modal.locator(".cc-diff-hunk")).toHaveCount(1, { timeout: 15_000 });
+      await expect(modal.locator(".cc-diff-hunk")).toHaveCount(2, { timeout: 15_000 });
       await shoot(modal, "diff-review.png");
     } finally {
       await harness.close();
@@ -112,6 +123,10 @@ test.describe("README captures", () => {
       await input.fill("Summarize my vault in one line.");
       await input.press("Enter");
       await expect(root.locator(".cc-fallback-note")).toBeVisible({ timeout: 30_000 });
+      // The endpoint stub now actually answers /chat/completions, so the local
+      // retry succeeds — no error card, just the fallback note and its reply.
+      await expect(root.locator(".cc-msg.cc-assistant").last()).toContainText("Answered locally by the endpoint stub.", { timeout: 15_000 });
+      await expect(root.locator(".cc-error")).toHaveCount(0);
       await shoot(root, "local-fallback-indicator.png");
     } finally {
       await harness.close();
@@ -128,8 +143,9 @@ test.describe("README captures", () => {
       const chips = root.locator(".cc-tool-chip");
       await expect(chips).toHaveCount(2, { timeout: 30_000 });
       await chips.first().locator("summary").click();
-      const bubble = root.locator(".cc-msg.cc-assistant").last();
-      await shoot(bubble, "agent-tool-chips.png");
+      // Crop to the whole panel (not just the bubble) so the header/composer
+      // chrome is in frame too.
+      await shoot(root, "agent-tool-chips.png");
     } finally {
       await harness.close();
     }

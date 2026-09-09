@@ -220,18 +220,48 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const status = options.providerFail?.(body) ?? null; if (status !== null) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `stubbed ${status}` } })); return; } const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
-  // OpenAI-compatible endpoint stub: only /v1/models matters for the pickers.
+  // OpenAI-compatible endpoint stub: /v1/models for the pickers, /v1/chat/completions
+  // (stream + non-stream) so a real chat turn against it can actually answer.
   let endpoint: Server | null = null;
   let endpointPort: number | null = null;
   if (options.endpointModels) {
     const ids = options.endpointModels;
+    const endpointReply = "Answered locally by the endpoint stub.";
     endpoint = createServer((request, response) => {
-      request.resume();
+      // stream() (unlike listModels()/complete(), which go through Obsidian's
+      // requestUrl) calls the real browser fetch(), so a JSON POST triggers a
+      // CORS preflight — answer it, and mark every response CORS-open.
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      if (request.method === "OPTIONS") {
+        request.resume();
+        response.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type, authorization" });
+        response.end();
+        return;
+      }
       if (request.url?.endsWith("/models")) {
+        request.resume();
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ object: "list", data: ids.map((id) => ({ id, object: "model" })) }));
         return;
       }
+      if (request.method === "POST" && request.url?.endsWith("/chat/completions")) {
+        let body = "";
+        request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
+        request.on("end", () => {
+          const streaming = /"stream"\s*:\s*true/.test(body);
+          if (streaming) {
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: endpointReply } }] })}\n\n`);
+            response.write("data: [DONE]\n\n");
+            response.end();
+          } else {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify({ choices: [{ message: { content: endpointReply } }] }));
+          }
+        });
+        return;
+      }
+      request.resume();
       response.writeHead(404, { "content-type": "application/json" });
       response.end("{}");
     });
