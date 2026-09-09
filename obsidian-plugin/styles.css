@@ -87,7 +87,7 @@ body {
   font-family: var(--cc-mono);
   font-size: var(--cc-text-2xs);
   letter-spacing: 0.1em;
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
 }
 .cc-model {
   font-family: var(--cc-serif);
@@ -227,7 +227,7 @@ body {
   font-size: var(--cc-text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
 }
 .cc-body {
   /* Independent of Obsidian's editor font (--font-text-size), which is often
@@ -333,7 +333,7 @@ body {
   font-size: var(--cc-text-sm);
   font-style: italic;
   letter-spacing: 0.02em;
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
   animation: cc-word-fade 3s ease-in-out infinite;
 }
 @keyframes cc-smiley-breathe {
@@ -369,7 +369,7 @@ body {
 .cc-context-note {
   font-family: var(--cc-mono);
   font-size: var(--cc-text-2xs);
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
   margin-top: 2px;
 }
 .cc-error {
@@ -481,7 +481,7 @@ body {
   flex: 0 0 64px;
   height: 5px;
   border-radius: 3px;
-  background: var(--cc-gray-300);
+  background: var(--cc-border);
   overflow: hidden;
 }
 .cc-gauge-fill {
@@ -499,7 +499,7 @@ body {
 .cc-usage-text {
   font-family: var(--cc-mono);
   font-size: var(--cc-text-2xs);
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -528,7 +528,7 @@ body {
   filter: brightness(0.95);
 }
 .cc-send.is-stop {
-  background: var(--cc-gray-700);
+  background: var(--cc-danger);
 }
 
 /* ---------- settings: connection status ---------- */
@@ -746,7 +746,7 @@ body {
   text-overflow: ellipsis;
 }
 .cc-conv-meta {
-  color: var(--cc-gray-500, #87867F);
+  color: var(--cc-text-muted);
   font-family: var(--cc-mono, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: var(--cc-text-xs);
 }
@@ -930,27 +930,27 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   white-space: nowrap;
 }
 .cc-ctl-label {
-  color: var(--cc-gray-500, #87867f);
+  color: var(--cc-text-muted);
   font-family: var(--cc-mono, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
 }
 .cc-ctl-val {
   min-width: 28px;
   font-family: var(--cc-mono, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
-  color: var(--cc-gray-700, #3d3d3a);
+  color: var(--cc-text);
 }
 .cc-ctl-range {
   width: 72px;
 }
 .cc-ctl-note {
   font-size: var(--cc-text-xs);
-  color: var(--cc-gray-500, #87867f);
+  color: var(--cc-text-muted);
   font-style: italic;
 }
 
 /* ---- reasoning panel ---- */
 .cc-thinking {
   margin: 4px 0 8px;
-  border-left: 2px solid var(--cc-oat, #e3dacc);
+  border-left: 2px solid var(--cc-border);
   padding-left: 10px;
 }
 .cc-thinking-summary {
@@ -958,13 +958,13 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   font-family: var(--cc-mono, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--cc-gray-500, #87867f);
+  color: var(--cc-text-muted);
   cursor: pointer;
 }
 .cc-thinking-body {
   white-space: pre-wrap;
   font-size: var(--cc-text-sm);
-  color: var(--cc-gray-700, #3d3d3a);
+  color: var(--cc-text);
   margin: 6px 0 0;
   font-family: var(--cc-sans, system-ui, sans-serif);
   background: transparent;
@@ -1021,7 +1021,7 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   font-family: var(--cc-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
   /* Own line above both chip rows (toggles + status) so they align flush-left. */
   align-self: flex-start;
   margin-bottom: 1px;
@@ -1201,8 +1201,8 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
 .cc-send:hover { box-shadow: 0 2px 10px rgba(217, 119, 87, 0.3); }
 .cc-send:active { transform: scale(0.96); }
 .cc-send.is-stop {
-  background: var(--cc-slate);
-  border-color: var(--cc-slate);
+  background: var(--cc-danger);
+  border-color: var(--cc-danger);
   color: #fff;
   animation: cc-pulse 1.4s ease-in-out infinite;
 }
@@ -1276,7 +1276,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   border-radius: 8px;
   cursor: pointer;
 }
-.cc-slash-item.is-selected { background: var(--cc-gray-150); }
+.cc-slash-item.is-selected { background: var(--cc-surface-raised); }
 /* "@" picker rows: an icon + label + path. */
 .cc-at-item { align-items: center; }
 .cc-at-icon {
@@ -1825,7 +1825,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-related-view .cc-related-score {
   font-family: var(--cc-mono);
   font-size: var(--cc-text-2xs);
-  color: var(--cc-gray-500);
+  color: var(--cc-text-muted);
   flex: 0 0 auto;
 }
 .cc-related-view .cc-neighborhood-group {
