@@ -21,7 +21,7 @@ function makePlugin(): { plugin: ClaudeCompanionPlugin; p: Reindexable; app: App
   Object.assign(plugin, { app });
   plugin.settings = { ...DEFAULT_SETTINGS, semanticEnabled: true };
   const p = plugin as unknown as Reindexable;
-  p._indexer = { updateNotes: vi.fn(async () => {}), updateNote: vi.fn(async () => {}) };
+  p._indexer = { updateNotes: vi.fn(async () => []), updateNote: vi.fn(async () => {}) };
   // Matches indexer()'s short-circuit so the flush reuses this stub instead of building a real one.
   p.indexerModel = embedderId(plugin.settings.embeddingEngine, plugin.settings.embeddingModel, plugin.settings.builtinEmbeddingModel, plugin.settings.openaiCompatEmbeddingModel);
   p.canEmbedWithoutDownload = async () => true;

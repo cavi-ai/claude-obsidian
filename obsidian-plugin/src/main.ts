@@ -155,6 +155,9 @@ const ARTIFACT_MAX_TOKENS = 32000;
  * though extraction sends only the first 8,000 characters to the model.
  */
 const MOBILE_SOURCE_NOTE_MAX_BYTES = 5 * 1024 * 1024;
+/** PDFs expand substantially during parsing; reject large mobile semantic
+ * inputs before the native vault bridge creates its first binary copy. */
+const MOBILE_SEMANTIC_PDF_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Shape of this plugin's persisted data.json (settings + chat history). */
 interface PersistedData {
@@ -3040,7 +3043,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._indexer = new SemanticIndexer({
       embeddingModel: model,
       listMarkdown: (): IndexFile[] =>
-        this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, mtime: f.stat.mtime })),
+        this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
       read: async (p: string) => {
         const f = this.app.vault.getAbstractFileByPath(p);
         return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
@@ -3048,7 +3051,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       ...(this.settings.semanticIndexPdfs
         ? {
             listPdf: (): IndexFile[] =>
-              this.app.vault.getFiles().filter((f) => f.extension === "pdf").map((f) => ({ path: f.path, mtime: f.stat.mtime })),
+              this.app.vault.getFiles().filter((f) => f.extension === "pdf").map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
             readPdfPages: async (p: string) => {
               const f = this.app.vault.getAbstractFileByPath(p);
               if (!(f instanceof TFile)) return null;
@@ -3073,6 +3076,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       ...(Platform.isMobile && this.settings.embeddingEngine === "builtin" ? { embedBatchSize: 1 } : {}),
       onPhase: (phase, fields) => this.enrichDiagnostics.log(phase, fields),
+      ...(Platform.isMobile
+        ? { maxInputBytes: (p: string) => p.toLowerCase().endsWith(".pdf") ? MOBILE_SEMANTIC_PDF_MAX_BYTES : MOBILE_SOURCE_NOTE_MAX_BYTES }
+        : {}),
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
@@ -3354,13 +3360,27 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.enrichDiagnostics.log("reindex-flush-start", { n: paths.length });
     const entries = paths.flatMap((p) => {
       const f = this.app.vault.getAbstractFileByPath(p);
-      return f instanceof TFile ? [{ path: p, mtime: f.stat.mtime }] : [];
+      return f instanceof TFile ? [{ path: p, mtime: f.stat.mtime, size: f.stat.size }] : [];
     });
     if (entries.length === 0) return;
-    try {
-      await ix.updateNotes(entries, Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {});
-    } catch {
-      /* transient embed failure — picked up on next change or rebuild */
+    const failures = await ix.updateNotes(
+      entries,
+      Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {},
+    );
+    for (const { path: p, error } of failures) {
+      console.error(`[Claude Companion] semantic reindex failed for ${p}`, error);
+      const recovery = this.embeddingRecovery(error);
+      const activityId = this.activity.start({
+        id: `semantic-index:incremental:${p}`,
+        kind: "semantic-index",
+        title: "Semantic index needs attention",
+      });
+      this.activity.fail(activityId, {
+        failed: 1,
+        technicalDetails: recovery.technicalDetails,
+        recovery: recovery.actions,
+        details: [{ label: p, message: recovery.message, state: "error" }],
+      });
     }
   }
 
