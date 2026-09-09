@@ -1,0 +1,74 @@
+name: Dependabot bundle rebuild
+
+# main.js is a committed build artifact and CI diffs it against a fresh build.
+# Dependabot only edits package.json and the lockfile, so a bump that changes
+# the bundle fails verify:build-output. This rebuilds and commits main.js on
+# Dependabot's branch, then dispatches CI (pushes made with GITHUB_TOKEN do not
+# trigger pull_request runs on their own).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "obsidian-plugin/package.json"
+      - "obsidian-plugin/pnpm-lock.yaml"
+      - "obsidian-plugin/pnpm-workspace.yaml"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: dependabot-rebuild-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: obsidian-plugin
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.10
+        with:
+          version: 10.32.1
+
+      - name: Use Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Commit the rebuilt bundle
+        id: commit
+        run: |
+          if git diff --quiet -- main.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.js
+          git commit -m "build: rebuild bundle for the dependency update"
+          git push origin "HEAD:${{ github.head_ref }}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run CI on the rebuilt head
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run obsidian-plugin-ci.yml --ref "${{ github.head_ref }}"
