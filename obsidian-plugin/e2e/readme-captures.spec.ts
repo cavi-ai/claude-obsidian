@@ -143,9 +143,35 @@ test.describe("README captures", () => {
       const chips = root.locator(".cc-tool-chip");
       await expect(chips).toHaveCount(2, { timeout: 30_000 });
       await chips.first().locator("summary").click();
-      // Crop to the whole panel (not just the bubble) so the header/composer
-      // chrome is in frame too.
-      await shoot(root, "agent-tool-chips.png");
+      // Crop to the transcript only: from top of .cc-chat-root down to bottom
+      // of last assistant bubble, excluding the composer.
+      const rootBox = await root.boundingBox();
+      const bubble = root.locator(".cc-msg.cc-assistant").last();
+      const bubbleBox = await bubble.boundingBox();
+      if (!rootBox || !bubbleBox) throw new Error("Failed to get bounding boxes");
+      const path = join(ASSETS, "agent-tool-chips.png");
+      await mkdir(ASSETS, { recursive: true });
+      // A startup Notice (e.g. the secrets migration banner) can still be showing
+      // when a shot is fast; strip any on-screen notices so they never land in frame.
+      await harness.page.evaluate(() => {
+        document.querySelectorAll(".notice").forEach((n) => n.remove());
+      });
+      await harness.page.screenshot({
+        clip: {
+          x: rootBox.x,
+          y: rootBox.y,
+          width: rootBox.width,
+          height: bubbleBox.y + bubbleBox.height - rootBox.y + 12,
+        },
+        path,
+        scale: "device",
+        animations: "disabled",
+      });
+      const buf = await readFile(path);
+      const width = buf.readUInt32BE(16);
+      const bytes = (await stat(path)).size;
+      expect(width, "agent-tool-chips.png width").toBeLessThanOrEqual(1600 * 2);
+      expect(bytes, "agent-tool-chips.png bytes").toBeLessThan(1_000_000);
     } finally {
       await harness.close();
     }

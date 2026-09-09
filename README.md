@@ -44,7 +44,7 @@ saved conversation resumes its own CLI session, and agent writes keep the same
 per-action confirmation as every other backend. Direct API, local Ollama, and
 OpenAI-compatible backends remain available.
 
-<!-- screenshot: assets/agent-tool-chips.png — pending capture -->
+![Agent mode: vault_search and note_read tool chips, one expanded to show its result](assets/agent-tool-chips.png)
 
 ### Diff-reviewed edits
 
@@ -55,7 +55,7 @@ select text → *Rewrite selection with Claude…*. Plan Mode restricts a turn t
 read-only tools and ends in a proposed plan.
 → [agent-mode.md](guides/agent-mode.md#editing-notes-diffs-not-writes)
 
-<!-- screenshot: assets/diff-review.png — pending capture -->
+![Per-hunk diff review of a proposed edit, with accept and reject controls](assets/diff-review.png)
 
 ### Interactive artifacts
 
@@ -72,7 +72,7 @@ notes. Only reviewed, locatable, non-stale evidence counts as claim support.
 Draft revisions are validated before preview and reject unsupported citations.
 → [research-workbench.md](guides/research-workbench.md)
 
-<!-- screenshot: assets/research-desk.png — pending capture -->
+![Research Desk with the current stage and the next action for a project](assets/research-desk.png)
 
 ### Optional MCP bridge
 
@@ -83,7 +83,7 @@ works too: the agent can consume **external MCP servers** (HTTP or stdio) from
 chat, each call confirmed — Companion is the two-way hub.
 → [claude-code-bridge.md](guides/claude-code-bridge.md)
 
-<!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
+![MCP server settings: enabled, port 22360, masked token, running status](assets/mcp-bridge-settings.png)
 
 ### Sources, clippings & research import
 
@@ -110,7 +110,7 @@ built-in on-device embedding model on desktop and mobile — and also indexes
 **vault PDFs**, keeping page locators in every result.
 → [local-models.md](guides/local-models.md)
 
-<!-- screenshot: assets/local-fallback-indicator.png — pending capture -->
+![Chat on the Auto backend after a Claude failure, showing the local-model fallback note](assets/local-fallback-indicator.png)
 
 ## Quick start
 
