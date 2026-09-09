@@ -867,6 +867,14 @@ body {
   border-color: var(--cc-clay, #d97757);
   color: #fff;
 }
+/* Ask / Plan / Act segmented mode control. */
+.cc-mode-control { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--cc-border); border-radius: var(--cc-radius-pill); background: var(--cc-surface-sunken); }
+.cc-mode-control.is-hidden { display: none; }
+.cc-mode-segment { display: inline-flex; align-items: center; gap: var(--cc-space-1); height: 26px; padding: 0 var(--cc-space-2); border: none; border-radius: var(--cc-radius-pill); background: transparent; color: var(--cc-text-muted); font-size: var(--cc-text-sm); cursor: pointer; box-shadow: none; }
+.cc-mode-segment:hover { color: var(--cc-text); }
+.cc-mode-segment.is-active { background: var(--cc-accent-wash-strong); color: var(--cc-accent); }
+.cc-mode-segment-icon svg { width: 14px; height: 14px; }
+@container (max-width: 360px) { .cc-mode-segment-label { display: none; } }
 
 /* settings: per-model capability badges */
 .cc-model-caps {
