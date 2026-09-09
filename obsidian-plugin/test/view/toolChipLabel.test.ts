@@ -11,7 +11,7 @@ describe("formatToolArgs", () => {
 
   it("shows a note path verbatim, capped at 80 chars", () => {
     expect(formatToolArgs("note_read", { path: "Research/Alpha/Project.md" })).toBe("Research/Alpha/Project.md");
-    for (const name of ["note_append", "note_update", "note_patch", "get_backlinks", "get_outgoing_links", "note_move"]) {
+    for (const name of ["note_append", "note_update", "note_patch", "get_backlinks", "get_outgoing_links", "note_move", "propose_note_edit"]) {
       expect(formatToolArgs(name, { path: "A/B.md" })).toBe("A/B.md");
     }
     const long = "a/".repeat(50) + "note.md";
@@ -72,6 +72,10 @@ describe("chipLabel", () => {
 
   it("omits the dash and args entirely when there is nothing to show", () => {
     expect(chipLabel("note_read", {})).toBe("note_read");
+  });
+
+  it("shows the path for propose_note_edit, ignoring the edits array", () => {
+    expect(chipLabel("propose_note_edit", { path: "Build plan.md", edits: [] })).toBe("propose_note_edit — Build plan.md");
   });
 
   it("strips the chat-bridge's own mcp__obsidian-vault__ prefix for display", () => {
