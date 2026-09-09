@@ -9,6 +9,7 @@ import { dispatchSetupSteps, repliesSetupSteps } from "./cloud/setup";
 import { BUILTIN_EMBEDDING_MODELS, builtinModelById } from "./semantic/transformers/model";
 import { ChoiceModal } from "./view/ChoiceModal";
 import { normalizeDiscoverySettings, type McpServerConfig, type PluginSettings } from "./types";
+import { needsCredentialSetup } from "./providers/setupState";
 
 /** Text controls hand back a string; anything else is an empty field. */
 function asText(v: unknown): string {
@@ -232,12 +233,23 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       {
         name: "Step 1 — connect to Claude",
         // The one mandatory step, called out while it's missing.
-        visible: () => !this.plugin.router().anthropic.hasCredentials(),
+        visible: () => {
+          const router = this.plugin.router();
+          return needsCredentialSetup({
+            backend: router.chatBackend,
+            hasAnthropicCredential: router.anthropic.hasCredentials(),
+            hasClaudeCli: router.claudeCli.hasCredentials(),
+          });
+        },
         render: (setting) => {
           const callout = setting.settingEl.createDiv({ cls: "cc-connect-callout" });
           const p = callout.createEl("p");
-          p.appendText("Add an Anthropic API key below to start chatting. Create one at ");
-          p.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
+          if (this.plugin.router().chatBackend === "claude-cli") {
+            p.appendText("Claude Code is not signed in on this computer. Run `claude auth login` in a terminal, or add an Anthropic API key below. ");
+          } else {
+            p.appendText("Add an Anthropic API key below to start chatting. Create one at ");
+            p.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
+          }
           p.appendText(` — ${this.storageBlurb().replace(/^S/, "s")}`);
         },
       },

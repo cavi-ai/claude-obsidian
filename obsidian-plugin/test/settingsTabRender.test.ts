@@ -37,8 +37,8 @@ function flatten(items: SettingDefinitionItem[]): SettingDefinitionItem[] {
   return items.flatMap((item) => (item.items ? [item, ...flatten(item.items)] : [item]));
 }
 
-function definitionsOf(): SettingDefinitionItem[] {
-  const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin());
+function definitionsOf(plugin: ReturnType<typeof stubPlugin> = stubPlugin()): SettingDefinitionItem[] {
+  const tab = new ClaudeCompanionSettingTab(new App() as never, plugin);
   return tab.getSettingDefinitions() as unknown as SettingDefinitionItem[];
 }
 
@@ -135,5 +135,27 @@ describe("Claude Code backend settings", () => {
     expect(typeof status?.render).toBe("function");
     const utility = defs.find((d) => (d.control as { key?: string } | undefined)?.key === "utilityBackend") as { desc?: string } | undefined;
     expect(utility?.desc).toContain("covers chat only");
+  });
+
+  it("hides the connect callout on the Claude Code backend when the CLI is signed in", () => {
+    const plugin = stubPlugin();
+    plugin.router = () => ({
+      chatBackend: "claude-cli",
+      anthropic: { hasCredentials: () => false },
+      claudeCli: { hasCredentials: () => true },
+    }) as never;
+    const item = flatten(definitionsOf(plugin)).find((i) => i.name === "Step 1 — connect to Claude");
+    expect(item?.visible?.()).toBe(false);
+  });
+
+  it("shows the connect callout on the Claude Code backend when the CLI is signed out", () => {
+    const plugin = stubPlugin();
+    plugin.router = () => ({
+      chatBackend: "claude-cli",
+      anthropic: { hasCredentials: () => false },
+      claudeCli: { hasCredentials: () => false },
+    }) as never;
+    const item = flatten(definitionsOf(plugin)).find((i) => i.name === "Step 1 — connect to Claude");
+    expect(item?.visible?.()).toBe(true);
   });
 });
