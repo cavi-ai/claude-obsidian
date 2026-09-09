@@ -6,10 +6,16 @@ import { launchObsidianHarness, type ObsidianHarness } from "./obsidianHarness";
 
 const ENABLED = process.env.CC_E2E_CAPTURE === "1";
 const ASSETS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets");
+const THEMES = (process.env.CC_E2E_CAPTURE_THEME ?? "both") === "both" ? (["dark", "light"] as const) : [process.env.CC_E2E_CAPTURE_THEME as "dark" | "light"];
+const OUT_ROOT = process.env.CC_E2E_CAPTURE_DIR;
 
-async function shoot(target: Locator | Page, name: string): Promise<void> {
-  await mkdir(ASSETS, { recursive: true });
-  const path = join(ASSETS, name);
+function outputPath(name: string, theme: "dark" | "light"): string {
+  return OUT_ROOT ? join(OUT_ROOT, theme, name) : join(ASSETS, name);
+}
+
+async function shoot(target: Locator | Page, name: string, theme: "dark" | "light"): Promise<void> {
+  const path = outputPath(name, theme);
+  await mkdir(dirname(path), { recursive: true });
   // A startup Notice (e.g. the secrets migration banner) can still be showing
   // when a shot is fast; strip any on-screen notices so they never land in frame.
   const targetPage = "page" in target && typeof (target as Locator).page === "function" ? (target as Locator).page() : (target as Page);
@@ -43,151 +49,156 @@ async function openChat(harness: ObsidianHarness): Promise<Locator> {
 }
 
 test.describe("README captures", () => {
-  test.skip(!ENABLED, "set CC_E2E_CAPTURE=1");
+  for (const theme of THEMES) {
+    test.describe(theme, () => {
+      test.skip(!ENABLED, "set CC_E2E_CAPTURE=1");
+      test.skip(theme === "light" && !OUT_ROOT, "README assets are dark");
 
-  test("diff-review.png", async () => {
-    // "Enrich with Claude…" (not the single-edit rewrite path): its lint step
-    // sends the whole note to the utility (here: chat-role/Anthropic-stub)
-    // model and diffToEdits() turns the returned full copy into edits, one per
-    // LCS-changed region merged only when within MERGE_GAP (3) lines of each
-    // other — a changed heading and a changed last task, six unchanged lines
-    // apart, stay two separate edits and so two separate .cc-diff-hunk boxes.
-    const originalPlan = "# Build plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it\n";
-    const enrichedPlan = "# Build Plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it to users\n";
-    const harness = await launchObsidianHarness({
-      providerReply: (body) => (/copyeditor/i.test(body) ? enrichedPlan : null),
-      extraFiles: { "Build plan.md": originalPlan },
-      theme: "dark",
-    });
-    try {
-      const { page } = harness;
-      await page.evaluate(async () => {
-        const w = window as unknown as {
-          app: {
-            vault: { getAbstractFileByPath(path: string): unknown };
-            plugins: { plugins: Record<string, { enrichNoteFlow(file: unknown, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<void> }> };
-          };
-        };
-        const file = w.app.vault.getAbstractFileByPath("Build plan.md");
-        // Fire and forget: enrichNoteFlow() only resolves once the review
-        // modal it opens is closed, which this test never does.
-        void w.app.plugins.plugins["claude-companion"]!.enrichNoteFlow(file, { rename: false, frontmatter: false, links: false, lint: true });
-      });
-      const modal = page.locator(".modal", { has: page.locator(".cc-diff-hunk") });
-      await expect(modal.locator(".cc-diff-hunk")).toHaveCount(2, { timeout: 15_000 });
-      await shoot(modal, "diff-review.png");
-    } finally {
-      await harness.close();
-    }
-  });
-
-  test("research-desk.png", async () => {
-    const harness = await launchObsidianHarness({ theme: "dark" });
-    try {
-      await run(harness.page, "claude-companion:open-research-desk");
-      await expect(harness.page.getByRole("heading", { name: "Continuity research" })).toBeVisible();
-      const desk = harness.page.locator('.workspace-leaf-content[data-type="claude-research-desk"]');
-      await shoot(desk, "research-desk.png");
-    } finally {
-      await harness.close();
-    }
-  });
-
-  test("mcp-bridge-settings.png", async () => {
-    const harness = await launchObsidianHarness({
-      settingsOverride: { mcpEnabled: true, mcpPort: 22360, mcpToken: "3f9c1b7e2a6d4c8f9e0b1a2c3d4e5f60" },
-      theme: "dark",
-    });
-    try {
-      const settingsPage = await harness.openSettings();
-      const tab = settingsPage.locator(".vertical-tab-content-container .vertical-tab-content").last();
-      const header = tab.getByText("Agent bridge — MCP server (desktop)", { exact: true });
-      await header.click();
-      await expect(tab.getByText(/✓ Running at /)).toBeVisible({ timeout: 15_000 });
-      await shoot(tab, "mcp-bridge-settings.png");
-    } finally {
-      await harness.close();
-    }
-  });
-
-  test("local-fallback-indicator.png", async () => {
-    const harness = await launchObsidianHarness({
-      endpointModels: ["local-model"],
-      // ollamaHost is non-empty by default (localhost:11434), so Ollama would
-      // otherwise be probed as the fallback candidate ahead of the stub below
-      // and, on a machine actually running Ollama, answer instead of it.
-      settingsOverride: { chatBackend: "auto", openaiCompatModel: "local-model", ollamaHost: "" },
-      providerFail: () => 503,
-      theme: "dark",
-    });
-    try {
-      const root = await openChat(harness);
-      const input = root.locator("textarea").first();
-      await input.fill("Summarize my vault in one line.");
-      await input.press("Enter");
-      await expect(root.locator(".cc-fallback-note")).toBeVisible({ timeout: 30_000 });
-      // The endpoint stub now actually answers /chat/completions, so the local
-      // retry succeeds — no error card, just the fallback note and its reply.
-      await expect(root.locator(".cc-msg.cc-assistant").last()).toContainText("Answered locally by the endpoint stub.", { timeout: 15_000 });
-      await expect(root.locator(".cc-error")).toHaveCount(0);
-      await shoot(root, "local-fallback-indicator.png");
-    } finally {
-      await harness.close();
-    }
-  });
-
-  test("agent-tool-chips.png", async () => {
-    const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true }, theme: "dark" });
-    try {
-      const root = await openChat(harness);
-      const input = root.locator("textarea").first();
-      await input.fill("Show me the chips: search the vault for Continuity.");
-      await input.press("Enter");
-      const chips = root.locator(".cc-tool-chip");
-      await expect(chips).toHaveCount(2, { timeout: 30_000 });
-      await chips.first().locator("summary").click();
-      // Crop to the transcript only: from top of .cc-chat-root down to bottom
-      // of last assistant bubble, excluding the composer.
-      // Hide the composer so nothing overflows and causes horizontal scroll offset.
-      await harness.page.addStyleTag({ content: ".cc-chat-root .cc-composer, .cc-chat-root textarea { display: none !important; }" });
-      // Reset every horizontal scroll: a wide row (e.g. the usage bar) can leave
-      // an ancestor mid-horizontal-scroll; pin every scrollable element back to
-      // its left edge before measuring bounding boxes.
-      await harness.page.evaluate(() => {
-        for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
-          if (el.scrollLeft) el.scrollLeft = 0;
+      test("diff-review.png", async () => {
+        // "Enrich with Claude…" (not the single-edit rewrite path): its lint step
+        // sends the whole note to the utility (here: chat-role/Anthropic-stub)
+        // model and diffToEdits() turns the returned full copy into edits, one per
+        // LCS-changed region merged only when within MERGE_GAP (3) lines of each
+        // other — a changed heading and a changed last task, six unchanged lines
+        // apart, stay two separate edits and so two separate .cc-diff-hunk boxes.
+        const originalPlan = "# Build plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it\n";
+        const enrichedPlan = "# Build Plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it to users\n";
+        const harness = await launchObsidianHarness({
+          providerReply: (body) => (/copyeditor/i.test(body) ? enrichedPlan : null),
+          extraFiles: { "Build plan.md": originalPlan },
+          theme,
+        });
+        try {
+          const { page } = harness;
+          await page.evaluate(async () => {
+            const w = window as unknown as {
+              app: {
+                vault: { getAbstractFileByPath(path: string): unknown };
+                plugins: { plugins: Record<string, { enrichNoteFlow(file: unknown, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<void> }> };
+              };
+            };
+            const file = w.app.vault.getAbstractFileByPath("Build plan.md");
+            // Fire and forget: enrichNoteFlow() only resolves once the review
+            // modal it opens is closed, which this test never does.
+            void w.app.plugins.plugins["claude-companion"]!.enrichNoteFlow(file, { rename: false, frontmatter: false, links: false, lint: true });
+          });
+          const modal = page.locator(".modal", { has: page.locator(".cc-diff-hunk") });
+          await expect(modal.locator(".cc-diff-hunk")).toHaveCount(2, { timeout: 15_000 });
+          await shoot(modal, "diff-review.png", theme);
+        } finally {
+          await harness.close();
         }
-        window.scrollTo(0, 0);
       });
-      const rootBox = await root.boundingBox();
-      const bubble = root.locator(".cc-msg.cc-assistant").last();
-      const bubbleBox = await bubble.boundingBox();
-      if (!rootBox || !bubbleBox) throw new Error("Failed to get bounding boxes");
-      const path = join(ASSETS, "agent-tool-chips.png");
-      await mkdir(ASSETS, { recursive: true });
-      // A startup Notice (e.g. the secrets migration banner) can still be showing
-      // when a shot is fast; strip any on-screen notices so they never land in frame.
-      await harness.page.evaluate(() => {
-        document.querySelectorAll(".notice").forEach((n) => n.remove());
+
+      test("research-desk.png", async () => {
+        const harness = await launchObsidianHarness({ theme });
+        try {
+          await run(harness.page, "claude-companion:open-research-desk");
+          await expect(harness.page.getByRole("heading", { name: "Continuity research" })).toBeVisible();
+          const desk = harness.page.locator('.workspace-leaf-content[data-type="claude-research-desk"]');
+          await shoot(desk, "research-desk.png", theme);
+        } finally {
+          await harness.close();
+        }
       });
-      await harness.page.screenshot({
-        clip: {
-          x: rootBox.x,
-          y: rootBox.y,
-          width: rootBox.width,
-          height: bubbleBox.y + bubbleBox.height - rootBox.y + 12,
-        },
-        path,
-        scale: "device",
-        animations: "disabled",
+
+      test("mcp-bridge-settings.png", async () => {
+        const harness = await launchObsidianHarness({
+          settingsOverride: { mcpEnabled: true, mcpPort: 22360, mcpToken: "3f9c1b7e2a6d4c8f9e0b1a2c3d4e5f60" },
+          theme,
+        });
+        try {
+          const settingsPage = await harness.openSettings();
+          const tab = settingsPage.locator(".vertical-tab-content-container .vertical-tab-content").last();
+          const header = tab.getByText("Agent bridge — MCP server (desktop)", { exact: true });
+          await header.click();
+          await expect(tab.getByText(/✓ Running at /)).toBeVisible({ timeout: 15_000 });
+          await shoot(tab, "mcp-bridge-settings.png", theme);
+        } finally {
+          await harness.close();
+        }
       });
-      const buf = await readFile(path);
-      const width = buf.readUInt32BE(16);
-      const bytes = (await stat(path)).size;
-      expect(width, "agent-tool-chips.png width").toBeLessThanOrEqual(1600 * 2);
-      expect(bytes, "agent-tool-chips.png bytes").toBeLessThan(1_000_000);
-    } finally {
-      await harness.close();
-    }
-  });
+
+      test("local-fallback-indicator.png", async () => {
+        const harness = await launchObsidianHarness({
+          endpointModels: ["local-model"],
+          // ollamaHost is non-empty by default (localhost:11434), so Ollama would
+          // otherwise be probed as the fallback candidate ahead of the stub below
+          // and, on a machine actually running Ollama, answer instead of it.
+          settingsOverride: { chatBackend: "auto", openaiCompatModel: "local-model", ollamaHost: "" },
+          providerFail: () => 503,
+          theme,
+        });
+        try {
+          const root = await openChat(harness);
+          const input = root.locator("textarea").first();
+          await input.fill("Summarize my vault in one line.");
+          await input.press("Enter");
+          await expect(root.locator(".cc-fallback-note")).toBeVisible({ timeout: 30_000 });
+          // The endpoint stub now actually answers /chat/completions, so the local
+          // retry succeeds — no error card, just the fallback note and its reply.
+          await expect(root.locator(".cc-msg.cc-assistant").last()).toContainText("Answered locally by the endpoint stub.", { timeout: 15_000 });
+          await expect(root.locator(".cc-error")).toHaveCount(0);
+          await shoot(root, "local-fallback-indicator.png", theme);
+        } finally {
+          await harness.close();
+        }
+      });
+
+      test("agent-tool-chips.png", async () => {
+        const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true }, theme });
+        try {
+          const root = await openChat(harness);
+          const input = root.locator("textarea").first();
+          await input.fill("Show me the chips: search the vault for Continuity.");
+          await input.press("Enter");
+          const chips = root.locator(".cc-tool-chip");
+          await expect(chips).toHaveCount(2, { timeout: 30_000 });
+          await chips.first().locator("summary").click();
+          // Crop to the transcript only: from top of .cc-chat-root down to bottom
+          // of last assistant bubble, excluding the composer.
+          // Hide the composer so nothing overflows and causes horizontal scroll offset.
+          await harness.page.addStyleTag({ content: ".cc-chat-root .cc-composer, .cc-chat-root textarea { display: none !important; }" });
+          // Reset every horizontal scroll: a wide row (e.g. the usage bar) can leave
+          // an ancestor mid-horizontal-scroll; pin every scrollable element back to
+          // its left edge before measuring bounding boxes.
+          await harness.page.evaluate(() => {
+            for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
+              if (el.scrollLeft) el.scrollLeft = 0;
+            }
+            window.scrollTo(0, 0);
+          });
+          const rootBox = await root.boundingBox();
+          const bubble = root.locator(".cc-msg.cc-assistant").last();
+          const bubbleBox = await bubble.boundingBox();
+          if (!rootBox || !bubbleBox) throw new Error("Failed to get bounding boxes");
+          const path = outputPath("agent-tool-chips.png", theme);
+          await mkdir(dirname(path), { recursive: true });
+          // A startup Notice (e.g. the secrets migration banner) can still be showing
+          // when a shot is fast; strip any on-screen notices so they never land in frame.
+          await harness.page.evaluate(() => {
+            document.querySelectorAll(".notice").forEach((n) => n.remove());
+          });
+          await harness.page.screenshot({
+            clip: {
+              x: rootBox.x,
+              y: rootBox.y,
+              width: rootBox.width,
+              height: bubbleBox.y + bubbleBox.height - rootBox.y + 12,
+            },
+            path,
+            scale: "device",
+            animations: "disabled",
+          });
+          const buf = await readFile(path);
+          const width = buf.readUInt32BE(16);
+          const bytes = (await stat(path)).size;
+          expect(width, "agent-tool-chips.png width").toBeLessThanOrEqual(1600 * 2);
+          expect(bytes, "agent-tool-chips.png bytes").toBeLessThan(1_000_000);
+        } finally {
+          await harness.close();
+        }
+      });
+    });
+  }
 });
