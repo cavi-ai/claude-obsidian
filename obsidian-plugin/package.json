@@ -41,7 +41,7 @@
       "esbuild"
     ],
     "overrides": {
-      "sharp": "^0.35.3",
+      "sharp": "^0.35.4",
       "adm-zip": "^0.6.0",
       "@xmldom/xmldom": "^0.9.12"
     }
