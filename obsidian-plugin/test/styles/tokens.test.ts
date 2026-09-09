@@ -42,3 +42,30 @@ describe("design tokens", () => {
     expect(block).toMatch(/--cc-accent:\s*var\(--cc-clay\)/);
   });
 });
+
+/** All rules whose selector starts with the given prefix, concatenated. */
+export function rulesFor(css: string, selectorPrefix: string): string {
+  const out: string[] = [];
+  const re = new RegExp(`(^|\\n)(${selectorPrefix.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}[^{]*)\\{([^}]*)\\}`, "g");
+  for (const m of css.matchAll(re)) out.push(`${m[2]}{${m[3]}}`);
+  return out.join("\n");
+}
+
+describe("research desk surfaces", () => {
+  it("carries no gradient, glow, or Obsidian purple", () => {
+    const css = readStyles();
+    const desk = rulesFor(css, ".cc-desk") + rulesFor(css, ".cc-research-desk");
+    expect(desk).not.toContain("linear-gradient(");
+    expect(desk).not.toContain("--cc-research-glow");
+    expect(desk).not.toContain("--interactive-accent");
+    expect(desk).not.toContain("--color-cyan");
+  });
+
+  it("derives the research tokens from the Companion accent", () => {
+    const css = readStyles();
+    const block = css.slice(css.indexOf(".cc-research-desk,"), css.indexOf("}", css.indexOf(".cc-research-desk,")));
+    expect(block).toMatch(/--cc-research-surface:[^;]*var\(--cc-accent\)/);
+    expect(block).toMatch(/--cc-research-radius:\s*var\(--cc-radius-lg\)/);
+    expect(block).not.toContain("--interactive-accent");
+  });
+});
