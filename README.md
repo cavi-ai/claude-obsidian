@@ -2,7 +2,9 @@
 
 **Cowork with Claude inside your [Obsidian](https://obsidian.md) vault.** Chat
 with your notes as context, let Claude work the vault with its own tools, render
-interactive artifacts inline, and drive the *same* vault from Claude Code.
+interactive artifacts inline, and drive the *same* vault from Claude Code. Run it
+on your Claude Code sign-in, an API key, or fully local with Ollama, agent
+included; semantic search embeds on device and never leaves your machine.
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
 [![Obsidian downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
@@ -12,7 +14,7 @@ interactive artifacts inline, and drive the *same* vault from Claude Code.
  · [**Add portable agent workflows**](#getting-it)
  · [Latest release](https://github.com/cavi-ai/companion-for-claude/releases/latest)
 
-**Open source · MIT · use an Anthropic key or your Claude Code sign-in · local-first**
+**Open source · MIT · Claude Code sign-in, API key, or fully local with Ollama · on-device search**
 
 <!-- hero: assets/hero-daily-rollup.gif — pending capture, see assets/CAPTURE.md -->
 
@@ -42,7 +44,7 @@ saved conversation resumes its own CLI session, and agent writes keep the same
 per-action confirmation as every other backend. Direct API, local Ollama, and
 OpenAI-compatible backends remain available.
 
-<!-- screenshot: assets/agent-tool-chips.png — pending capture -->
+![Agent mode: vault_search and note_read tool chips, one expanded to show its result](assets/agent-tool-chips.png)
 
 ### Diff-reviewed edits
 
@@ -53,7 +55,7 @@ select text → *Rewrite selection with Claude…*. Plan Mode restricts a turn t
 read-only tools and ends in a proposed plan.
 → [agent-mode.md](guides/agent-mode.md#editing-notes-diffs-not-writes)
 
-<!-- screenshot: assets/diff-review.png — pending capture -->
+![Per-hunk diff review of a proposed edit, with accept and reject controls](assets/diff-review.png)
 
 ### Interactive artifacts
 
@@ -70,7 +72,7 @@ notes. Only reviewed, locatable, non-stale evidence counts as claim support.
 Draft revisions are validated before preview and reject unsupported citations.
 → [research-workbench.md](guides/research-workbench.md)
 
-<!-- screenshot: assets/research-desk.png — pending capture -->
+![Research Desk with the current stage and the next action for a project](assets/research-desk.png)
 
 ### Optional MCP bridge
 
@@ -81,7 +83,7 @@ works too: the agent can consume **external MCP servers** (HTTP or stdio) from
 chat, each call confirmed — Companion is the two-way hub.
 → [claude-code-bridge.md](guides/claude-code-bridge.md)
 
-<!-- screenshot: assets/mcp-bridge-settings.png — pending capture -->
+![MCP server settings: enabled, port 22360, masked token, running status](assets/mcp-bridge-settings.png)
 
 ### Sources, clippings & research import
 
@@ -108,7 +110,7 @@ built-in on-device embedding model on desktop and mobile — and also indexes
 **vault PDFs**, keeping page locators in every result.
 → [local-models.md](guides/local-models.md)
 
-<!-- screenshot: assets/local-fallback-indicator.png — pending capture -->
+![Chat on the Auto backend after a Claude failure, showing the local-model fallback note](assets/local-fallback-indicator.png)
 
 ## Quick start
 
