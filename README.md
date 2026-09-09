@@ -2,7 +2,9 @@
 
 **Cowork with Claude inside your [Obsidian](https://obsidian.md) vault.** Chat
 with your notes as context, let Claude work the vault with its own tools, render
-interactive artifacts inline, and drive the *same* vault from Claude Code.
+interactive artifacts inline, and drive the *same* vault from Claude Code. Run it
+on your Claude Code sign-in, an API key, or fully local with Ollama, agent
+included; semantic search embeds on device and never leaves your machine.
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
 [![Obsidian downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
@@ -12,7 +14,7 @@ interactive artifacts inline, and drive the *same* vault from Claude Code.
  · [**Add portable agent workflows**](#getting-it)
  · [Latest release](https://github.com/cavi-ai/companion-for-claude/releases/latest)
 
-**Open source · MIT · use an Anthropic key or your Claude Code sign-in · local-first**
+**Open source · MIT · Claude Code sign-in, API key, or fully local with Ollama · on-device search**
 
 <!-- hero: assets/hero-daily-rollup.gif — pending capture, see assets/CAPTURE.md -->
 
