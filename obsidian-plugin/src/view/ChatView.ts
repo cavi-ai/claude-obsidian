@@ -34,7 +34,7 @@ import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
-import { stripCliToolName } from "../cli/argv";
+import { chipLabel } from "./toolChipLabel";
 import { needsCredentialSetup } from "../providers/setupState";
 import { mergeDetectedModels } from "../providers/localModels";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
@@ -48,16 +48,6 @@ import { ComposerContextManager } from "./ComposerContextManager";
 import { buildContextManagerModel, type AutomaticContextKey } from "./contextManagerModel";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
-/** Compact one-line chip label: tool name + trimmed args (empty args omitted).
- *  Strips the chat-bridge's own MCP prefix so it reads as the bare tool name;
- *  user-configured external MCP servers keep their `mcp__<server>__` names. */
-export function chipLabel(name: string, args: string): string {
-  const label = stripCliToolName(name);
-  const a = args === "{}" ? "" : args;
-  const trimmed = a.length > 80 ? `${a.slice(0, 80)}…` : a;
-  return trimmed ? `${label} ${trimmed}` : label;
-}
 
 /** Truncate a tool result for the expandable chip body. */
 function previewText(text: string): string {
@@ -1899,7 +1889,7 @@ export class ChatView extends ItemView {
     return {
       start: (block: ToolUseBlock): void => {
         const chip = ensure().createEl("details", { cls: "cc-tool-chip is-running" });
-        chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(block.name, JSON.stringify(block.input)) });
+        chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(block.name, block.input) });
         open.set(block.id, chip);
         this.scrollToBottom();
       },

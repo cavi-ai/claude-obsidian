@@ -4,7 +4,7 @@ import { ActivityStore } from "../../src/activity/store";
 import { defaultChatControls } from "../../src/claude/chatControls";
 import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
-import { ChatView, chipLabel } from "../../src/view/ChatView";
+import { ChatView } from "../../src/view/ChatView";
 import type { CompanionChromeDependencies } from "../../src/view/companionChrome";
 import type { TurnRendererHost } from "../../src/view/turnRenderer";
 
@@ -265,16 +265,5 @@ describe("Chat render lifecycle", () => {
     // (refreshContextStatus), so identify the MCP button by its stable class.
     expect(state?.querySelectorAll(".cc-mcp-btn").length).toBe(1);
     expect(primary?.querySelectorAll(".cc-mcp-btn").length).toBe(0);
-  });
-});
-
-describe("chipLabel", () => {
-  it("strips the chat-bridge's own mcp__obsidian-vault__ prefix for display", () => {
-    expect(chipLabel("mcp__obsidian-vault__vault_search", '{"query":"x"}')).toBe('vault_search {"query":"x"}');
-    expect(chipLabel("mcp__obsidian-vault__note_read", "{}")).toBe("note_read");
-  });
-
-  it("leaves a user-configured external MCP server's namespaced name intact", () => {
-    expect(chipLabel("mcp__github__search_issues", "{}")).toBe("mcp__github__search_issues");
   });
 });
