@@ -550,7 +550,7 @@ export class ChatView extends ItemView {
     const { model: resolvedModel } = this.plugin.router().chatProvider();
     const caps = this.plugin.router().chatCapabilities();
     const chosen = modelLabel(this.controls?.model ?? this.plugin.settings.model);
-    const label = caps.local ? `${resolvedModel} · local` : caps.cli ? `${chosen} · Claude Code` : chosen;
+    const label = caps.local ? `${modelLabel(resolvedModel)} · local` : caps.cli ? `${chosen} · Claude Code` : chosen;
     this.modelLabelEl.setText(label);
     if (this.usageEl) this.updateUsageBar();
   }
@@ -1857,6 +1857,8 @@ export class ChatView extends ItemView {
   /** Apply an Ask / Plan / Act switch: writes setting + Plan Mode, the matching notice, then persist if writes changed. */
   private async applyMode(mode: ChatMode): Promise<void> {
     // Plan leaves the writes setting untouched — only Ask/Act set it.
+    const previousWrites = this.plugin.settings.agentAllowWrites;
+    const previousPlanMode = this.planMode;
     let writesChanged = false;
     if (mode !== "plan") {
       const writesOn = mode === "act";
@@ -1872,7 +1874,16 @@ export class ChatView extends ItemView {
           ? "Plan Mode: on — I'll explore read-only and propose a plan, no writes."
           : "Act on vault: off — chat only, I won't change your vault.",
     );
-    if (writesChanged) await this.plugin.saveSettings();
+    if (writesChanged) {
+      try {
+        await this.plugin.saveSettings();
+      } catch (e) {
+        this.plugin.settings.agentAllowWrites = previousWrites;
+        this.planMode = previousPlanMode;
+        this.updateModeControl();
+        quickNotice(`Couldn't save the mode: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
 
   /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
@@ -2197,7 +2208,7 @@ export class ChatView extends ItemView {
     if (canAct) {
       items.push(
         { title: "Act on vault", icon: "pencil-line", checked: this.plugin.settings.agentAllowWrites, separatorBefore: true, run: () => void this.applyMode(this.plugin.settings.agentAllowWrites ? "ask" : "act") },
-        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => void this.applyMode(this.planMode ? "ask" : "plan") },
+        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => void this.applyMode(this.planMode ? (this.plugin.settings.agentAllowWrites ? "act" : "ask") : "plan") },
       );
     }
     if (this.plugin.settings.memoryEnabled) {
