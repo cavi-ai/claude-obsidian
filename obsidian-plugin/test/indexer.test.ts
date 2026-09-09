@@ -243,4 +243,16 @@ describe("SemanticIndexer", () => {
     expect(phases[phases.length - 1]?.phase).toBe("embed-done");
     expect(phases.every((p) => p.chunks === 1)).toBe(true);
   });
+
+  it("updateNotes embeds every note and saves once", async () => {
+    const ctx = makeDeps({ "a.md": "cat", "b.md": "dog", "c.md": "fish" });
+    let saves = 0;
+    const save = ctx.deps.save;
+    ctx.deps.save = async (d) => { saves++; await save(d); };
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.updateNotes([{ path: "a.md", mtime: 1 }, { path: "b.md", mtime: 1 }, { path: "c.md", mtime: 1 }]);
+    expect(ctx.embedCalls.length).toBe(3);
+    expect(saves).toBe(1);
+    expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["a.md", "b.md", "c.md"]);
+  });
 });

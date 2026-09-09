@@ -132,6 +132,23 @@ export class SemanticIndexer {
     await this.deps.save(store.toJSON());
   }
 
+  /** Re-embed several notes under one mutation with a single save at the end. */
+  async updateNotes(entries: Array<{ path: string; mtime: number }>, opts: { yieldBetween?: boolean } = {}): Promise<void> {
+    return this.runMutation(async () => {
+      const store = await this.ensureLoaded();
+      let changed = false;
+      for (const [i, { path, mtime }] of entries.entries()) {
+        const prepared = await this.prepare(path);
+        if (prepared && store.needsReindex(path, prepared.hash)) {
+          await this.embedInto(store, path, mtime, prepared.chunks, prepared.hash);
+          changed = true;
+        }
+        if (opts.yieldBetween && i < entries.length - 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      if (changed) await this.deps.save(store.toJSON());
+    });
+  }
+
   async removeNote(path: string): Promise<void> {
     return this.runMutation(async () => {
       const store = await this.ensureLoaded();

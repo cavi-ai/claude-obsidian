@@ -7,6 +7,7 @@ import { launchObsidianHarness, type ObsidianHarness } from "./obsidianHarness";
 const ENABLED = process.env.CC_E2E_MEMORY === "1";
 const CLIPS = 40;
 const FILLER = Number(process.env.CC_E2E_MEMORY_NOTES ?? "2000");
+const PHASE = process.env.CC_E2E_MEMORY_PHASE ? `-${process.env.CC_E2E_MEMORY_PHASE}` : "";
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".tmp", "phase3");
 
 const clipBody = (i: number, kb: number): string =>
@@ -19,17 +20,34 @@ function reply(i: number): string {
   return JSON.stringify({ title: `Clip ${i} typed`, site: "example.test", summary: `Summary of clip ${i}.` });
 }
 
-async function launch(): Promise<ObsidianHarness> {
-  const extraFiles: Record<string, string> = {};
-  for (let i = 0; i < CLIPS; i++) extraFiles[`Clippings/clip-${i}.md`] = clipBody(i, 5 + ((i * 37) % 196));
-  for (let i = 0; i < FILLER; i++) extraFiles[`Notes/filler-${i}.md`] = fillerBody(i);
+/**
+ * Two-launch fixture: launch 1 seeds only the filler notes, primes the semantic
+ * index over them, then closes (kept on disk). The 40 clips are written directly
+ * to disk afterward — unindexed, like clips synced while the phone app is closed —
+ * then launch 2 reuses the vault/profile. Obsidian's startup scan sees the new
+ * clip files, but the plugin's reindex listeners register only after layout-ready,
+ * so the clips stay unindexed until the batch itself modifies them.
+ */
+async function launchPrimed(): Promise<ObsidianHarness> {
+  const fillerFiles: Record<string, string> = {};
+  for (let i = 0; i < FILLER; i++) fillerFiles[`Notes/filler-${i}.md`] = fillerBody(i);
   let n = 0;
-  return launchObsidianHarness({
+  const base = {
     embedStub: true,
-    extraFiles,
     settingsOverride: { sourceCaptureEnabled: true, sourceEnrichOnCreate: false, sourceCaptureConsent: "allow", enrichmentDiagnostics: true, semanticEnabled: true },
-    providerReply: (body) => (/summary/i.test(body) ? reply(n++) : null),
-  });
+    providerReply: (body: string) => (/summary/i.test(body) ? reply(n++) : null),
+    providerDelayMs: 2000,
+  };
+  const seed = await launchObsidianHarness({ ...base, extraFiles: fillerFiles });
+  await primeSemanticIndex(seed);
+  const { vault, profile } = seed.paths;
+  await seed.close({ keep: true });
+  for (let i = 0; i < CLIPS; i++) {
+    const dest = join(vault, "Clippings", `clip-${i}.md`);
+    await mkdir(dirname(dest), { recursive: true });
+    await writeFile(dest, clipBody(i, 5 + ((i * 37) % 196)));
+  }
+  return launchObsidianHarness({ ...base, reuse: { vault, profile } });
 }
 
 /** Kick off a full semantic rebuild and wait until no "semantic" activity record is still running,
@@ -95,30 +113,28 @@ test.describe("batch enrichment memory", () => {
   test.setTimeout(20 * 60_000);
 
   test("Enrich all over 40 clips", async () => {
-    const harness = await launch();
+    const harness = await launchPrimed();
     try {
-      await primeSemanticIndex(harness);
       const indexBytes = await semanticIndexBytes(harness);
       await harness.page.evaluate(async () => {
         await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-source-inbox");
       });
       await harness.page.getByRole("button", { name: "Enrich all" }).click();
       const { peak, samples } = await sampleHeap(harness, () => batchDone(harness), "memory-batch.csv");
-      expect(await enrichedCount(harness)).toBe(CLIPS);
       const log = await readFile(join(harness.paths.vault, "Claude", "enrichment-diagnostics.log"), "utf8");
       await writeFile(join(OUT, "memory-batch.log"), log);
+      expect(await enrichedCount(harness)).toBe(CLIPS);
       const flushes = (log.match(/reindex-flush-start/g) ?? []).length;
       const saves = [...log.matchAll(/save-start bytes=(\d+)/g)].map((m) => Number(m[1]));
-      await writeFile(join(OUT, "memory-summary.md"), `| run | peak JS heap MB | samples | flushes | saves | max save bytes | semantic index bytes at start |\n|---|---|---|---|---|---|---|\n| batch | ${(peak / 1048576).toFixed(1)} | ${samples} | ${flushes} | ${saves.length} | ${Math.max(0, ...saves)} | ${indexBytes} |\n`, { flag: "w" });
+      await writeFile(join(OUT, "memory-summary.md"), `| run | peak JS heap MB | samples | flushes | saves | max save bytes | semantic index bytes at start |\n|---|---|---|---|---|---|---|\n| batch${PHASE} | ${(peak / 1048576).toFixed(1)} | ${samples} | ${flushes} | ${saves.length} | ${Math.max(0, ...saves)} | ${indexBytes} |\n`, { flag: "w" });
     } finally {
       await harness.close();
     }
   });
 
   test("40 single enrichments 3 s apart", async () => {
-    const harness = await launch();
+    const harness = await launchPrimed();
     try {
-      await primeSemanticIndex(harness);
       const indexBytes = await semanticIndexBytes(harness);
       await harness.page.evaluate(async () => {
         await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-source-inbox");
@@ -136,12 +152,12 @@ test.describe("batch enrichment memory", () => {
       })();
       const { peak, samples } = await sampleHeap(harness, async () => done >= CLIPS, "memory-single.csv");
       await driver;
-      expect(await enrichedCount(harness)).toBe(CLIPS);
       const log = await readFile(join(harness.paths.vault, "Claude", "enrichment-diagnostics.log"), "utf8");
       await writeFile(join(OUT, "memory-single.log"), log);
+      expect(await enrichedCount(harness)).toBe(CLIPS);
       const flushes = (log.match(/reindex-flush-start/g) ?? []).length;
       const saves = [...log.matchAll(/save-start bytes=(\d+)/g)].map((m) => Number(m[1]));
-      await writeFile(join(OUT, "memory-summary.md"), `| single | ${(peak / 1048576).toFixed(1)} | ${samples} | ${flushes} | ${saves.length} | ${Math.max(0, ...saves)} | ${indexBytes} |\n`, { flag: "a" });
+      await writeFile(join(OUT, "memory-summary.md"), `| single${PHASE} | ${(peak / 1048576).toFixed(1)} | ${samples} | ${flushes} | ${saves.length} | ${Math.max(0, ...saves)} | ${indexBytes} |\n`, { flag: "a" });
     } finally {
       await harness.close();
     }

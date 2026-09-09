@@ -405,6 +405,7 @@ export class InboxView extends ItemView {
   private async enrichAll(items: InboxItem[]): Promise<void> {
     if (this.batchOperation !== null) return;
     this.batchOperation = "enrich";
+    const releaseReindex = this.plugin.suspendReindex();
     this.setOperationFeedback("running", `Enriching ${items.length} note${items.length === 1 ? "" : "s"}…`);
     const activityId = this.plugin.activity.start({
       id: "source-enrichment:inbox-batch",
@@ -494,6 +495,7 @@ export class InboxView extends ItemView {
       });
       this.setOperationFeedback("error", `Inbox enrichment stopped — ${detail}`);
     } finally {
+      releaseReindex();
       this.plugin.enrichDiagnostics.log("batch-end", { completed, enriched, failed });
       this.batchOperation = null;
       await this.renderSafely();

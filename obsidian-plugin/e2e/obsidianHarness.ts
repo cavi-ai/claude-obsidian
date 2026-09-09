@@ -46,6 +46,8 @@ export interface ObsidianHarnessOptions {
   reuse?: { vault: string; profile: string };
   /** Answer a provider request by its raw body; null falls through to the default payload. */
   providerReply?: (body: string) => string | null;
+  /** Delay the provider stub's response by this many ms, to simulate a real model call. */
+  providerDelayMs?: number;
   /** Extra vault files written before launch: relative path → content. */
   extraFiles?: Record<string, string>;
   /** Settings merged over the seeded plugin settings (last write wins). */
@@ -181,6 +183,17 @@ async function seedVault(vault: string, providerPort: number, firstRun: boolean,
   await writeFile(join(vault, "Build plan.md"), "# Build plan\n\n- [ ] Create the parser\n- [ ] Wire the interface\n");
 }
 
+/** Repoint a reused vault's stub connection settings at this launch's (freshly rolled) ports. */
+async function patchReuseConnectionSettings(vault: string, providerPort: number, endpointPort: number | null, embedPort: number | null): Promise<void> {
+  const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
+  const raw = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
+  if (!raw.settings) return;
+  raw.settings.baseUrl = `http://127.0.0.1:${providerPort}`;
+  if (endpointPort !== null) raw.settings.openaiCompatHost = `http://127.0.0.1:${endpointPort}`;
+  if (embedPort !== null) raw.settings.ollamaHost = `http://127.0.0.1:${embedPort}`;
+  await writeFile(dataPath, JSON.stringify(raw));
+}
+
 /** A cheap, seeded-hash embedding vector — deterministic, not a real model's output. */
 function deterministicVector(text: string): number[] {
   let hash = 0;
@@ -202,7 +215,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
   let requests = 0;
   const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
-  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const text = options.providerReply?.(body) ?? defaultReply; response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }); });
+  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
   // OpenAI-compatible endpoint stub: only /v1/models matters for the pickers.
@@ -256,7 +269,14 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     if (!embedAddress || typeof embedAddress === "string") throw new Error("Embed stub did not bind");
     embedPort = embedAddress.port;
   }
-  if (!options.reuse) await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, embedPort, options.settingsOverride ?? {});
+  if (!options.reuse) {
+    await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, embedPort, options.settingsOverride ?? {});
+  } else {
+    // Stub server ports are re-rolled every launch; a reused vault's data.json still
+    // names the previous launch's (now-closed) ports, so every provider/embed call
+    // would connection-refuse. Repoint just the connection fields at this launch's servers.
+    await patchReuseConnectionSettings(vault, address.port, endpointPort, embedPort);
+  }
   if (options.extraFiles) {
     for (const [rel, content] of Object.entries(options.extraFiles)) {
       const dest = join(vault, rel);

@@ -267,6 +267,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Debounce timer for incremental re-index on note changes. */
   private reindexTimer: number | null = null;
   private reindexQueue = new Set<string>();
+  private reindexSuspended = 0;
   private enrichTimers = new Map<string, number>();
   /** Debounced Clipper arrivals waiting for one-at-a-time utility processing. */
   private enrichPending = new Map<string, TFile>();
@@ -999,6 +1000,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private async drainEnrichQueue(): Promise<void> {
     if (this.enrichQueueRunning || this.utilityLifecycleEnded) return;
     this.enrichQueueRunning = true;
+    const release = this.suspendReindex();
     try {
       while (!this.utilityLifecycleEnded) {
         const next = this.enrichPending.entries().next().value;
@@ -1030,6 +1032,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         }
       }
     } finally {
+      release();
       this.enrichQueueRunning = false;
       if (!this.utilityLifecycleEnded && this.enrichPending.size > 0) void this.drainEnrichQueue();
     }
@@ -3314,8 +3317,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.reindexTimer = window.setTimeout(() => void this.flushReindex(), 1500);
   }
 
+  /** Hold reindexing during a batch; the last release flushes once for every queued note. */
+  suspendReindex(): () => void {
+    this.reindexSuspended++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.reindexSuspended--;
+      if (this.reindexSuspended === 0 && this.reindexQueue.size > 0) void this.flushReindex();
+    };
+  }
+
   private async flushReindex(): Promise<void> {
-    this.reindexTimer = null;
+    // A suspend-triggered flush can run ahead of the debounce timer; cancel it so it
+    // doesn't fire again later against an already-drained queue.
+    if (this.reindexTimer !== null) { window.clearTimeout(this.reindexTimer); this.reindexTimer = null; }
+    if (this.reindexSuspended > 0) return;
     const ix = this.indexer();
     if (!ix) {
       this.reindexQueue.clear();
@@ -3334,15 +3352,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const paths = Array.from(this.reindexQueue);
     this.reindexQueue.clear();
     this.enrichDiagnostics.log("reindex-flush-start", { n: paths.length });
-    for (const p of paths) {
+    const entries = paths.flatMap((p) => {
       const f = this.app.vault.getAbstractFileByPath(p);
-      if (f instanceof TFile) {
-        try {
-          await ix.updateNote(p, f.stat.mtime);
-        } catch {
-          /* transient embed failure — picked up on next change or rebuild */
-        }
-      }
+      return f instanceof TFile ? [{ path: p, mtime: f.stat.mtime }] : [];
+    });
+    if (entries.length === 0) return;
+    try {
+      await ix.updateNotes(entries, { yieldBetween: Platform.isMobile });
+    } catch {
+      /* transient embed failure — picked up on next change or rebuild */
     }
   }
 
