@@ -36,16 +36,6 @@
     "skills:build": "node tools/build-skill-registry.mjs",
     "skills:verify": "node tools/verify-skill-registry.mjs"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ],
-    "overrides": {
-      "sharp": "^0.35.3",
-      "adm-zip": "^0.6.0",
-      "@xmldom/xmldom": "^0.9.12"
-    }
-  },
   "keywords": [
     "obsidian",
     "obsidian-plugin",

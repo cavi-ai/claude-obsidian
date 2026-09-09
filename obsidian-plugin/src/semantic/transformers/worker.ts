@@ -105,7 +105,13 @@ async function doLoad(id: number, repo: string, pooling: "cls" | "mean"): Promis
       candidate = webgpu;
       chosen = "webgpu";
     } catch {
-      void webgpu?.dispose?.()?.catch(() => {});
+      webgpuBroken = true;
+      try {
+        await webgpu?.dispose?.();
+      } catch {
+        // Disposal is best-effort; construction may have failed before a live
+        // session existed. Do not overlap a known live session with WASM.
+      }
     }
   }
   if (!candidate) {
@@ -173,17 +179,27 @@ async function embed(id: number, texts: string[]): Promise<void> {
     const dead = extractor;
     extractor = null;
     loading = null; // stale: referred to the dead session; a future load must rebuild
-    void dead.dispose?.()?.catch(() => {});
-    rebuilding = makeExtractor("wasm", id, repo)
-      .then((candidate) => {
+    rebuilding = (async () => {
+      try {
+        await dead.dispose?.();
+      } catch {
+        // Best-effort: a lost WebGPU device may reject cleanup even though its
+        // resources are already gone.
+      }
+      if (gen !== generation) throw new Error("disposed during load");
+      const candidate = await makeExtractor("wasm", id, repo);
+      try {
         if (gen !== generation) {
           // "dispose" arrived during the rebuild: don't resurrect the pipeline.
-          void candidate.dispose?.()?.catch(() => {});
           throw new Error("disposed during load");
         }
         extractor = candidate;
         backend = "wasm";
-      })
+      } catch (error) {
+        void candidate.dispose?.()?.catch(() => {});
+        throw error;
+      }
+    })()
       .finally(() => {
         rebuilding = null;
       });
