@@ -759,6 +759,8 @@ body {
   gap: 10px 12px;
   flex-wrap: wrap;
 }
+/* Desktop only: the segment-label container query measures this row. */
+body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
 .cc-send-group {
   display: flex;
   align-items: center;
@@ -767,20 +769,21 @@ body {
 }
 /* Model switcher + tune button grouped together on the left. */
 .cc-controls {
-  display: inline-flex;
-  flex-wrap: wrap;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--cc-space-2);
   padding: 0;
 }
-/* Desktop only: makes the `@container (max-width: 360px)` mode-segment-label
-   query (below) match against this row instead of falling through inert. */
-body:not(.is-mobile) .cc-controls { container-type: inline-size; }
 /* The model switcher is the focal "slick" control at the bottom-left, with a
    chevron so it clearly reads as a dropdown. */
 .cc-ctl-model {
   position: relative;
   display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .cc-ctl-model .cc-ctl-select {
   font-size: 12px;
@@ -789,6 +792,10 @@ body:not(.is-mobile) .cc-controls { container-type: inline-size; }
   font-weight: 500;
   -webkit-appearance: none;
   appearance: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cc-ctl-model::after {
   content: "";
