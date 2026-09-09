@@ -33,6 +33,14 @@ function host(url: string): string | undefined {
 
 /** Per-tool argument summary: the query/path/title that matters, not the raw JSON. */
 export function formatToolArgs(name: string, input: unknown): string {
+  if (typeof input === "string") {
+    const str = input;
+    try {
+      input = JSON.parse(str);
+    } catch {
+      return cap(str, TEXT_MAX);
+    }
+  }
   const bare = stripCliToolName(name);
 
   if (QUERY_TOOLS.has(bare)) {

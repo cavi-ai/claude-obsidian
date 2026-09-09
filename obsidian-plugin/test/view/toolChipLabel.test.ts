@@ -82,4 +82,16 @@ describe("chipLabel", () => {
   it("leaves a user-configured external MCP server's namespaced name intact", () => {
     expect(chipLabel("mcp__github__search_issues", {})).toBe("mcp__github__search_issues");
   });
+
+  it("parses a JSON string input and formats it the same as the object", () => {
+    expect(chipLabel("vault_search", '{"query":"Continuity"}')).toBe(chipLabel("vault_search", { query: "Continuity" }));
+  });
+
+  it("shows a truncated JSON string verbatim when it cannot be parsed", () => {
+    expect(chipLabel("note_read", '{"path":"Research/Alpha/Proj…')).toBe("note_read — {\"path\":\"Research/Alpha/Proj…");
+  });
+
+  it("returns tool name only when given an empty string input", () => {
+    expect(chipLabel("vault_search", "")).toBe("vault_search");
+  });
 });
