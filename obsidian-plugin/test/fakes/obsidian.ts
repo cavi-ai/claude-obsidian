@@ -328,6 +328,7 @@ export class FakeElement {
   }
   setText(text: string): void { this.textContent = text; }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+  getAttr(name: string): string | null { return this.attributes.get(name) ?? null; }
   querySelectorAll(selector: string): FakeElement[] { return this.walk().filter((item) => matches(item, selector)); }
   querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] ?? null; }
   private walk(): FakeElement[] { return this.children.flatMap((child) => [child, ...child.walk()]); }
@@ -357,6 +358,7 @@ export class ItemView {
   contentEl = new FakeElement() as unknown as HTMLElement;
   constructor(public leaf: WorkspaceLeaf) { this.app = leaf.app; }
   registerEvent(_event: unknown): void {}
+  registerDomEvent(_el: unknown, _type: string, _callback: (event: unknown) => void): void {}
   getViewType(): string { return ""; }
   getDisplayText(): string { return ""; }
   getIcon(): string { return ""; }

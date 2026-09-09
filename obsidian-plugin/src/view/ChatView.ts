@@ -18,6 +18,7 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
+import { ModeControl, type ChatMode } from "./ModeControl";
 import { type SlashCommand, runNativeSlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, templateSlashCommand, WORKFLOW_ACTION_PREFIX, skillSlashCommands, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { detectPageUrl, pageLabel, type AttachedPage } from "../context/urlContext";
@@ -92,7 +93,7 @@ export class ChatView extends ItemView {
   private modelLabelEl!: HTMLElement;
   private backendPillEl!: HTMLElement;
   private writeGrantPillEl!: HTMLElement;
-  private writesToggleEl: HTMLButtonElement | null = null;
+  modeControl: ModeControl | null = null;
   private usageEl!: HTMLElement;
   private gaugeFillEl!: HTMLElement;
   private streaming = false;
@@ -155,8 +156,7 @@ export class ChatView extends ItemView {
     void (async () => {
       const router = this.plugin.router();
       this.agentCapable = this.plugin.settings.agentModeEnabled && (await router.chatToolCapable());
-      this.updateWritesToggle();
-      this.updatePlanToggle();
+      this.updateModeControl();
       const el = this.reasoningEl;
       if (!el) return;
       const reasoning = await router.chatReasoningActive(this.controls.thinking);
@@ -173,7 +173,6 @@ export class ChatView extends ItemView {
       el.setAttr("title", el.getAttr("aria-label") ?? "");
     })();
   }
-  private planToggleEl: HTMLButtonElement | null = null;
   private renderVersions = new WeakMap<HTMLElement, number>();
 
   constructor(
@@ -840,43 +839,23 @@ export class ChatView extends ItemView {
     void this.appendLocalModelOptions(select);
     void this.appendCustomModelOptions(select);
 
-    // "Act on vault" — the discoverable switch for whether Claude can create /
-    // edit notes in chat (agent writes). Only meaningful for Claude (Ollama has
-    // no vault tools), so it hides itself on local sessions. Each write still
-    // asks for confirmation; this just controls whether the tools are offered.
-    const writes = this.controlsEl.createEl("button", {
-      cls: "cc-ctl cc-ctl-toggle cc-writes-toggle",
-      attr: { "aria-label": "Act on vault — let Claude create and edit notes (each change asks first)" },
+    // Ask / Plan / Act — one segmented control for whether Claude can create /
+    // edit notes in chat. Only meaningful for Claude (Ollama has no vault
+    // tools), so it hides itself on local sessions. Each write still asks for
+    // confirmation; Act just controls whether the tools are offered.
+    this.modeControl = new ModeControl(this.controlsEl, {
+      initial: this.currentMode(),
+      onChange: (m) => this.applyMode(m),
     });
-    writes.createSpan({ cls: "cc-writes-toggle-icon" });
-    setIcon(writes.querySelector(".cc-writes-toggle-icon") as HTMLElement, "pencil");
-    writes.createSpan({ text: "Act on vault" });
-    writes.addEventListener("click", () => void this.toggleAgentWrites());
-    this.writesToggleEl = writes;
-    this.updateWritesToggle();
-
-    // "Plan" — Plan Mode: the agent explores with read-only tools and ends the
-    // turn with a proposed plan instead of attempting any writes. Same visibility
-    // rules as "Act on vault" (Claude + agent mode only).
-    const plan = this.controlsEl.createEl("button", {
-      cls: "cc-ctl cc-ctl-toggle cc-writes-toggle cc-plan-toggle",
-      attr: { "aria-label": "Plan Mode — Claude explores your vault read-only and proposes a plan before changing anything" },
-    });
-    plan.createSpan({ cls: "cc-writes-toggle-icon" });
-    setIcon(plan.querySelector(".cc-writes-toggle-icon") as HTMLElement, "map");
-    plan.createSpan({ text: "Plan" });
-    plan.addEventListener("click", () => this.togglePlanMode());
-    this.planToggleEl = plan;
-    this.updatePlanToggle();
+    this.updateModeControl();
 
     // Reasoning indicator: lit when the current backend thinks before
     // answering (Claude thinking on, or a local model with thinking metadata).
     const reasoning = this.controlsEl.createEl("button", {
-      cls: "cc-ctl cc-ctl-toggle cc-reasoning-indicator",
+      cls: "cc-ctl cc-reasoning-indicator",
       attr: { "aria-label": "Reasoning status", tabindex: "-1" },
     });
-    reasoning.createSpan({ cls: "cc-writes-toggle-icon" });
-    setIcon(reasoning.querySelector(".cc-writes-toggle-icon") as HTMLElement, "brain");
+    setIcon(reasoning, "brain");
     this.reasoningEl = reasoning;
     this.refreshCapabilityIndicators();
 
@@ -1257,7 +1236,7 @@ export class ChatView extends ItemView {
     this.session = { ...EMPTY_SESSION };
     // Plan Mode is per-conversation — a fresh chat starts with it off.
     this.planMode = false;
-    this.updatePlanToggle();
+    this.updateModeControl();
     // The previous conversation is already auto-saved; detach so the next turn
     // begins a fresh session.
     void this.plugin.startNewConversation();
@@ -1499,8 +1478,7 @@ export class ChatView extends ItemView {
     // metadata reports "tools") — local-only setups get the same agent.
     const toolCapable = await router.chatToolCapable();
     this.agentCapable = this.plugin.settings.agentModeEnabled && toolCapable;
-    this.updateWritesToggle();
-    this.updatePlanToggle();
+    this.updateModeControl();
     const agentActive = this.agentCapable;
     if (this.plugin.settings.agentModeEnabled && !toolCapable && caps.local) {
       new Notice(`The selected local model doesn't support tools, so the agent is off. Pick a tool-capable model (e.g. llama3.1, qwen3) in settings → Local models.`, 8000);
@@ -1874,45 +1852,36 @@ export class ChatView extends ItemView {
     this.containerEl.style.setProperty("--cc-chat-font", `${this.plugin.settings.chatFontSize}px`);
   }
 
-  /**
-   * Reflect the "Act on vault" toggle: hidden when the session can't act (local
-   * model, or agent mode off — no vault tools either way), lit when writes are on.
-   */
-  private updateWritesToggle(): void {
-    const el = this.writesToggleEl;
-    if (!el) return;
-    const canAct = this.agentCapable;
-    el.toggleClass("is-hidden", !canAct);
-    el.toggleClass("is-active", this.plugin.settings.agentAllowWrites);
-    el.setAttr("aria-pressed", String(this.plugin.settings.agentAllowWrites));
+  /** Displayed mode: Plan wins over Act, otherwise Act iff writes are allowed. */
+  private currentMode(): ChatMode {
+    return this.planMode ? "plan" : this.plugin.settings.agentAllowWrites ? "act" : "ask";
   }
 
-  /** Flip whether Claude may create/edit notes in chat (each write still confirms). */
-  private async toggleAgentWrites(): Promise<void> {
-    const on = !this.plugin.settings.agentAllowWrites;
-    this.plugin.settings.agentAllowWrites = on;
-    await this.plugin.saveSettings();
-    this.updateWritesToggle();
-    quickNotice(on ? "Act on vault: on — I'll create and edit notes (each change asks first)." : "Act on vault: off — chat only, I won't change your vault.");
+  /** Reflect the mode control: hidden when the session can't act, state from currentMode(). */
+  private updateModeControl(): void {
+    this.modeControl?.setVisible(this.agentCapable);
+    this.modeControl?.set(this.currentMode());
   }
 
-  /**
-   * Reflect Plan Mode: same visibility rules as "Act on vault", lit while on.
-   * While lit the turn is read-only and ends in a proposed plan.
-   */
-  private updatePlanToggle(): void {
-    const el = this.planToggleEl;
-    if (!el) return;
-    el.toggleClass("is-hidden", !this.agentCapable);
-    el.toggleClass("is-active", this.planMode);
-    el.setAttr("aria-pressed", String(this.planMode));
-  }
-
-  /** Flip Plan Mode for this conversation (never persisted). */
-  private togglePlanMode(): void {
-    this.planMode = !this.planMode;
-    this.updatePlanToggle();
-    quickNotice(this.planMode ? "Plan Mode: on — I'll explore read-only and propose a plan, no writes." : "Plan Mode: off.");
+  /** Apply an Ask / Plan / Act switch: writes setting + Plan Mode, the matching notice, then persist if writes changed. */
+  private async applyMode(mode: ChatMode): Promise<void> {
+    // Plan leaves the writes setting untouched — only Ask/Act set it.
+    let writesChanged = false;
+    if (mode !== "plan") {
+      const writesOn = mode === "act";
+      writesChanged = this.plugin.settings.agentAllowWrites !== writesOn;
+      this.plugin.settings.agentAllowWrites = writesOn;
+    }
+    this.planMode = mode === "plan";
+    this.updateModeControl();
+    quickNotice(
+      mode === "act"
+        ? "Act on vault: on — I'll create and edit notes (each change asks first)."
+        : mode === "plan"
+          ? "Plan Mode: on — I'll explore read-only and propose a plan, no writes."
+          : "Act on vault: off — chat only, I won't change your vault.",
+    );
+    if (writesChanged) await this.plugin.saveSettings();
   }
 
   /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
@@ -2236,8 +2205,8 @@ export class ChatView extends ItemView {
     const canAct = this.plugin.settings.agentModeEnabled && this.plugin.router().chatCapabilities().agentActions;
     if (canAct) {
       items.push(
-        { title: "Act on vault", icon: "pencil-line", checked: this.plugin.settings.agentAllowWrites, separatorBefore: true, run: () => void this.toggleAgentWrites() },
-        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => this.togglePlanMode() },
+        { title: "Act on vault", icon: "pencil-line", checked: this.plugin.settings.agentAllowWrites, separatorBefore: true, run: () => void this.applyMode(this.plugin.settings.agentAllowWrites ? "ask" : "act") },
+        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => void this.applyMode(this.planMode ? "ask" : "plan") },
       );
     }
     if (this.plugin.settings.memoryEnabled) {

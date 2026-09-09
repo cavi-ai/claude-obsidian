@@ -843,23 +843,20 @@ body {
   border-color: var(--cc-clay, #d97757);
   color: #fff;
 }
-/* "Act on vault" writes toggle — hides itself on sessions that can't act. */
-.cc-writes-toggle.is-hidden {
-  display: none;
-}
-.cc-writes-toggle-icon {
-  display: inline-flex;
-  align-items: center;
-}
-.cc-writes-toggle-icon svg {
-  width: 13px;
-  height: 13px;
-}
 /* Reasoning indicator — icon-only, non-interactive. */
 .cc-reasoning-indicator {
+  font-size: 11px;
   padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
   cursor: default;
   opacity: 0.55;
+}
+.cc-reasoning-indicator svg {
+  width: 13px;
+  height: 13px;
 }
 .cc-reasoning-indicator.is-active {
   opacity: 1;
