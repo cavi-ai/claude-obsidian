@@ -16,6 +16,8 @@ on:
       - "claude-plugin/**"
       - "CHANGELOG.md"
       - ".github/workflows/obsidian-plugin-ci.yml"
+  # Dispatched by dependabot-rebuild.yml after it commits a rebuilt main.js.
+  workflow_dispatch:
 
 permissions:
   contents: read
