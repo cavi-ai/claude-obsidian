@@ -46,6 +46,12 @@ export interface ObsidianHarnessOptions {
   reuse?: { vault: string; profile: string };
   /** Answer a provider request by its raw body; null falls through to the default payload. */
   providerReply?: (body: string) => string | null;
+  /** Extra vault files written before launch: relative path → content. */
+  extraFiles?: Record<string, string>;
+  /** Settings merged over the seeded plugin settings (last write wins). */
+  settingsOverride?: Record<string, unknown>;
+  /** Serve an Ollama-compatible /api/embed stub and point the built-in engine at it (engine "ollama"). */
+  embedStub?: boolean;
 }
 
 /** Where Obsidian keeps the cores it auto-updates into. */
@@ -127,7 +133,7 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false, live = false): Promise<void> {
+async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false, live = false, embedPort: number | null = null, settingsOverride: Record<string, unknown> = {}): Promise<void> {
   const obsidian = join(vault, ".obsidian"); const plugin = join(obsidian, "plugins", "claude-companion");
   await mkdir(plugin, { recursive: true });
   for (const file of ["main.js", "manifest.json", "styles.css"]) await copyFile(join(process.cwd(), file), join(plugin, file));
@@ -141,7 +147,10 @@ async function seedVault(vault: string, providerPort: number, firstRun: boolean,
   const endpoint = endpointPort === null ? {} : { openaiCompatHost: `http://127.0.0.1:${endpointPort}`, openaiCompatModel: "" };
   // The live binary 404s on a placeholder model id; omit it so the plugin's own default applies.
   const modelFields = live ? {} : { model: "e2e-model", customModel: "" };
-  const settings = { apiKey: claudeCli ? "" : "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, ...modelFields, chatBackend: claudeCli ? "claude-cli" : "claude", discoveryEnabled: false, ...neutralOnboarding, ...endpoint };
+  // The embed stub answers /api/embed with a deterministic vector so the built-in
+  // engine can be pointed at "ollama" without a real Ollama install.
+  const embed = embedPort === null ? {} : { embeddingEngine: "ollama", ollamaHost: `http://127.0.0.1:${embedPort}`, embeddingModel: "stub-embed", semanticEnabled: true };
+  const settings = { apiKey: claudeCli ? "" : "e2e-key", authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, ...modelFields, chatBackend: claudeCli ? "claude-cli" : "claude", discoveryEnabled: false, ...neutralOnboarding, ...endpoint, ...embed, ...settingsOverride };
   // firstRun keeps the stock onboarding defaults and no credential, so the
   // connect path the other specs skip past is actually exercised.
   const firstRunSettings = { authMode: "apiKey", baseUrl: `http://127.0.0.1:${providerPort}`, model: "e2e-model", customModel: "", chatBackend: "claude", discoveryEnabled: false };
@@ -170,6 +179,15 @@ async function seedVault(vault: string, providerPort: number, firstRun: boolean,
   await writeFile(join(longReference, "Study.pdf"), Buffer.from("%PDF-1.4\n%e2e\n"));
   await writeFile(join(longReference, "Figure.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   await writeFile(join(vault, "Build plan.md"), "# Build plan\n\n- [ ] Create the parser\n- [ ] Wire the interface\n");
+}
+
+/** A cheap, seeded-hash embedding vector — deterministic, not a real model's output. */
+function deterministicVector(text: string): number[] {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash += text.charCodeAt(i);
+  const v: number[] = [];
+  for (let i = 0; i < 384; i++) v.push(((hash * (i + 1)) % 1000) / 1000 - 0.5);
+  return v;
 }
 
 async function waitForCdp(port: number): Promise<void> {
@@ -207,7 +225,45 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     if (!endpointAddress || typeof endpointAddress === "string") throw new Error("Endpoint stub did not bind");
     endpointPort = endpointAddress.port;
   }
-  if (!options.reuse) await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true);
+  // Ollama-compatible embed stub: /api/embed (deterministic vectors) and /api/tags
+  // (so the model picker + "reachable" check see one model, "stub-embed").
+  let embed: Server | null = null;
+  let embedPort: number | null = null;
+  if (options.embedStub) {
+    embed = createServer((request, response) => {
+      if (request.method === "GET" && request.url?.endsWith("/api/tags")) {
+        request.resume();
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ models: [{ name: "stub-embed" }] }));
+        return;
+      }
+      if (request.method === "POST" && request.url?.endsWith("/api/embed")) {
+        let body = "";
+        request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
+        request.on("end", () => {
+          const { input } = JSON.parse(body || "{}") as { input?: string[] };
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ embeddings: (input ?? []).map(deterministicVector) }));
+        });
+        return;
+      }
+      request.resume();
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    await new Promise<void>((resolve, reject) => { embed?.once("error", reject); embed?.listen(0, "127.0.0.1", () => resolve()); });
+    const embedAddress = embed.address();
+    if (!embedAddress || typeof embedAddress === "string") throw new Error("Embed stub did not bind");
+    embedPort = embedAddress.port;
+  }
+  if (!options.reuse) await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, embedPort, options.settingsOverride ?? {});
+  if (options.extraFiles) {
+    for (const [rel, content] of Object.entries(options.extraFiles)) {
+      const dest = join(vault, rel);
+      await mkdir(dirname(dest), { recursive: true });
+      await writeFile(dest, content);
+    }
+  }
   let executablePath = process.env.PATH ?? "";
   // The real binary lives in ~/.local/bin, which Obsidian's own PATH lacks.
   if (options.liveClaude) executablePath = `${join(homedir(), ".local", "bin")}:${executablePath}`;
@@ -294,7 +350,7 @@ esac
     }
     await page.bringToFront();
   }
-  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), paths: { vault, profile }, close: async ({ keep = false } = {}) => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); if (!keep) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } };
+  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), paths: { vault, profile }, close: async ({ keep = false } = {}) => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); if (embed) await closeServer(embed); if (!keep) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } };
 }
 
 async function stop(handle: ChildProcess): Promise<void> { if (handle.exitCode !== null) return; handle.kill("SIGTERM"); await Promise.race([new Promise<void>((resolve) => handle.once("exit", () => resolve())), new Promise<void>((resolve) => setTimeout(resolve, 3_000))]); if (handle.exitCode === null) handle.kill("SIGKILL"); }
