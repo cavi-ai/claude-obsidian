@@ -129,6 +129,49 @@ test.describe("README captures", () => {
         }
       });
 
+      test("research-workbench.png", async () => {
+        const harness = await launchObsidianHarness({ theme });
+        try {
+          // Open the seeded project note first so the workbench infers it as the
+          // active project (unlike the desk, it has no first-project fallback).
+          await harness.page.evaluate(async () => {
+            const app = (window as unknown as {
+              app: {
+                vault: { getAbstractFileByPath(path: string): unknown };
+                workspace: { getLeaf(newLeaf: boolean): { openFile(file: unknown): Promise<void> } };
+              };
+            }).app;
+            const project = app.vault.getAbstractFileByPath("Research/Alpha/Project.md");
+            if (!project) throw new Error("Research fixture project is missing");
+            await app.workspace.getLeaf(false).openFile(project);
+          });
+          await run(harness.page, "claude-companion:open-research-workbench");
+          const leaf = harness.page.locator('.workspace-leaf-content[data-type="claude-research-workbench"]');
+          const workbench = leaf.locator(".cc-research-workbench");
+          await expect(workbench).toBeVisible();
+          await expect(workbench.getByRole("heading", { name: "Continuity research" })).toBeVisible();
+          // Widen past the 720px tabs/select container-query threshold so the
+          // real tab buttons (not the compact <select>) are visible and clickable.
+          // setRightSidebarWidth()/widen() settle-wait on .cc-chat-root, which
+          // isn't mounted here — resize and wait on the workbench leaf instead.
+          await harness.page.evaluate((size) => {
+            const w = window as unknown as { app: { workspace: { rightSplit: { setSize?(px: number): void; containerEl: HTMLElement }; onLayoutChange(): void } } };
+            const rightSplit = w.app.workspace.rightSplit;
+            if (typeof rightSplit.setSize === "function") rightSplit.setSize(size);
+            else { rightSplit.containerEl.style.width = `${size}px`; rightSplit.containerEl.style.flexBasis = `${size}px`; }
+            w.app.workspace.onLayoutChange();
+          }, 760);
+          await expect.poll(async () => (await workbench.boundingBox())?.width ?? 0).toBeGreaterThan(720);
+          const tabs = workbench.locator('[role="tab"]');
+          if ((await tabs.count()) > 1) {
+            await tabs.nth(1).click();
+          }
+          await shoot(leaf, "research-workbench.png", theme);
+        } finally {
+          await harness.close();
+        }
+      });
+
       test("mcp-bridge-settings.png", async () => {
         const harness = await launchObsidianHarness({
           settingsOverride: { mcpEnabled: true, mcpPort: 22360, mcpToken: "3f9c1b7e2a6d4c8f9e0b1a2c3d4e5f60" },

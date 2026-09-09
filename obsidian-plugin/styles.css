@@ -1,5 +1,4 @@
-/* Claude Companion — styled with the "unreasonable effectiveness of HTML"
-   gallery palette so the panel feels native to the artifacts it produces. */
+/* Companion for Claude — tokens on body resolve through Obsidian's theme; the clay accent is the one brand color. */
 
 body {
   /* --cc-clay/--cc-olive stay here: --cc-accent/--cc-border-hover/--cc-success below reference them, and a descendant selector's var can't reach an ancestor rule. */
@@ -1207,8 +1206,8 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   animation: cc-pulse 1.4s ease-in-out infinite;
 }
 @keyframes cc-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 20, 19, 0.3); }
-  50% { box-shadow: 0 0 0 4px rgba(20, 20, 19, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cc-danger) 35%, transparent); }
+  50% { box-shadow: 0 0 0 4px transparent; }
 }
 
 /* ---- streaming cursor: soft blink ---- */
@@ -2384,12 +2383,12 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   inline-size: 18px;
   block-size: 18px;
   margin: 0;
-  accent-color: var(--interactive-accent);
+  accent-color: var(--cc-accent);
 }
 
 .cc-batch-diff-file-checkbox:indeterminate,
 .cc-batch-diff-file-checkbox[aria-checked="mixed"] {
-  accent-color: var(--interactive-accent);
+  accent-color: var(--cc-accent);
 }
 
 .cc-batch-diff-file-path {
@@ -2577,9 +2576,9 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-research-tab-group-label { display: block; margin: 0 4px 4px; color: var(--text-faint); font-size: var(--cc-text-2xs); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .cc-research-tab-buttons { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--background-modifier-border); border-radius: 9px; background: var(--background-secondary); }
 .cc-research-tabs button { min-height: 34px; flex: 0 0 auto; border-color: transparent; background: transparent; font-size: var(--font-ui-smaller); box-shadow: none; }
-.cc-research-tabs button.is-active { color: var(--text-on-accent); background: var(--interactive-accent); box-shadow: 0 4px 12px var(--cc-research-glow); }
+.cc-research-tabs button.is-active { color: var(--cc-accent-fg); background: var(--cc-accent); box-shadow: var(--cc-elevation-1); }
 .cc-research-tab-select { display: none; width: 100%; min-height: 40px; margin: 12px 0; }
-.cc-research-panel { min-height: 160px; padding: clamp(14px, 2.4vw, 20px); border: 1px solid var(--cc-research-line); border-radius: 12px; background: color-mix(in srgb, var(--background-primary-alt) 94%, var(--interactive-accent) 6%); box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent); }
+.cc-research-panel { min-height: 160px; padding: clamp(14px, 2.4vw, 20px); border: 1px solid var(--cc-research-line); border-radius: 12px; background: color-mix(in srgb, var(--background-primary-alt) 94%, var(--cc-accent) 6%); box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent); }
 .cc-research-panel-intro { margin: -2px 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--background-modifier-border); }
 .cc-research-panel-eyebrow { color: var(--cc-accent); font-size: var(--cc-text-2xs); font-weight: 700; letter-spacing: .13em; }
 .cc-research-panel-title { margin: 5px 0 3px; font-size: clamp(17px, 2.2vw, 21px); line-height: 1.2; letter-spacing: -.015em; }
@@ -2595,7 +2594,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding: 12px;
   border: 1px solid var(--cc-research-line);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--background-secondary) 88%, var(--interactive-accent) 12%);
+  background: color-mix(in srgb, var(--background-secondary) 88%, var(--cc-accent) 12%);
   box-shadow: none;
 }
 .cc-research-metric strong { font-size: var(--cc-text-lg); line-height: 1; }
@@ -2677,7 +2676,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding: var(--size-4-3);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--background-secondary) 88%, var(--interactive-accent) 12%);
+  background: color-mix(in srgb, var(--background-secondary) 88%, var(--cc-accent) 12%);
 }
 .cc-research-claim-evidence { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cc-research-claim-evidence > strong,
@@ -2701,7 +2700,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding: var(--size-4-3);
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--background-primary-alt) 88%, var(--interactive-accent) 12%);
+  background: color-mix(in srgb, var(--background-primary-alt) 88%, var(--cc-accent) 12%);
 }
 .cc-draft-section h4 { margin-block: 0 var(--size-4-1); }
 .cc-draft-section button { margin-inline-end: var(--size-4-2); }
@@ -2799,7 +2798,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding: var(--size-4-3);
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--background-primary-alt) 90%, var(--interactive-accent) 10%);
+  background: color-mix(in srgb, var(--background-primary-alt) 90%, var(--cc-accent) 10%);
 }
 
 .cc-discovery-status.is-disabled { padding: 16px; border-color: var(--cc-research-line); background: var(--cc-research-surface); }
