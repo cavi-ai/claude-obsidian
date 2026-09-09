@@ -69,3 +69,14 @@ describe("research desk surfaces", () => {
     expect(block).not.toContain("--interactive-accent");
   });
 });
+
+describe("diff review", () => {
+  it("uses the Companion accent for the hunk card, checkbox, and primary button", () => {
+    const css = readStyles();
+    const hunk = rulesFor(css, ".cc-diff-hunk");
+    expect(hunk).toMatch(/border-radius:\s*var\(--cc-radius-lg\)/);
+    expect(hunk).toMatch(/background:\s*var\(--cc-surface-raised\)/);
+    expect(css).toMatch(/\.cc-diff-modal \.mod-cta\s*\{[^}]*background:\s*var\(--cc-accent\)/);
+    expect(css).toMatch(/\.cc-diff-modal input\[type="checkbox"\]\s*\{[^}]*accent-color:\s*var\(--cc-accent\)/);
+  });
+});

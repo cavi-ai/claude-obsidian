@@ -2219,8 +2219,10 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 
 .cc-diff-hunk {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  background: var(--cc-surface-raised);
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-lg);
+  box-shadow: var(--cc-elevation-1);
   margin-bottom: 10px;
   overflow: hidden;
 }
@@ -2231,10 +2233,10 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  background: var(--background-secondary);
+  background: var(--cc-surface-sunken);
+  padding: var(--cc-space-2) var(--cc-space-3);
   cursor: pointer;
-  font-size: var(--font-ui-small);
+  font-size: var(--cc-text-sm);
 }
 
 .cc-diff-lines {
@@ -2268,6 +2270,14 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   margin-top: 12px;
   flex-wrap: wrap;
 }
+
+.cc-diff-modal .mod-cta {
+  background: var(--cc-accent);
+  color: var(--cc-accent-fg);
+  border-radius: var(--cc-radius-sm);
+}
+.cc-diff-modal .mod-cta:hover { background: color-mix(in srgb, var(--cc-accent) 88%, black); }
+.cc-diff-modal input[type="checkbox"] { accent-color: var(--cc-accent); }
 
 /* Inline edit review */
 .cc-inline-del {
