@@ -99,6 +99,8 @@ body {
   align-items: center;
   gap: 4px;
 }
+.cc-header-actions-primary { display: inline-flex; gap: var(--cc-space-1); }
+.cc-header-actions-state { display: inline-flex; gap: var(--cc-space-1); padding: 2px; border-radius: var(--cc-radius-md); background: var(--cc-surface-sunken); }
 .cc-icon-btn {
   background: transparent;
   border: none;
@@ -757,6 +759,8 @@ body {
   gap: 10px 12px;
   flex-wrap: wrap;
 }
+/* Desktop only: the segment-label container query measures this row. */
+body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
 .cc-send-group {
   display: flex;
   align-items: center;
@@ -765,10 +769,12 @@ body {
 }
 /* Model switcher + tune button grouped together on the left. */
 .cc-controls {
-  display: inline-flex;
-  flex-wrap: wrap;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--cc-space-2);
   padding: 0;
 }
 /* The model switcher is the focal "slick" control at the bottom-left, with a
@@ -776,6 +782,8 @@ body {
 .cc-ctl-model {
   position: relative;
   display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .cc-ctl-model .cc-ctl-select {
   font-size: 12px;
@@ -784,6 +792,10 @@ body {
   font-weight: 500;
   -webkit-appearance: none;
   appearance: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cc-ctl-model::after {
   content: "";
@@ -843,23 +855,20 @@ body {
   border-color: var(--cc-clay, #d97757);
   color: #fff;
 }
-/* "Act on vault" writes toggle — hides itself on sessions that can't act. */
-.cc-writes-toggle.is-hidden {
-  display: none;
-}
-.cc-writes-toggle-icon {
-  display: inline-flex;
-  align-items: center;
-}
-.cc-writes-toggle-icon svg {
-  width: 13px;
-  height: 13px;
-}
 /* Reasoning indicator — icon-only, non-interactive. */
 .cc-reasoning-indicator {
+  font-size: 11px;
   padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
   cursor: default;
   opacity: 0.55;
+}
+.cc-reasoning-indicator svg {
+  width: 13px;
+  height: 13px;
 }
 .cc-reasoning-indicator.is-active {
   opacity: 1;
@@ -867,6 +876,14 @@ body {
   border-color: var(--cc-clay, #d97757);
   color: #fff;
 }
+/* Ask / Plan / Act segmented mode control. */
+.cc-mode-control { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--cc-border); border-radius: var(--cc-radius-pill); background: var(--cc-surface-sunken); }
+.cc-mode-control.is-hidden { display: none; }
+.cc-mode-segment { display: inline-flex; align-items: center; gap: var(--cc-space-1); height: 26px; padding: 0 var(--cc-space-2); border: none; border-radius: var(--cc-radius-pill); background: transparent; color: var(--cc-text-muted); font-size: var(--cc-text-sm); cursor: pointer; box-shadow: none; }
+.cc-mode-segment:hover { color: var(--cc-text); }
+.cc-mode-segment.is-active { background: var(--cc-accent-wash-strong); color: var(--cc-accent); }
+.cc-mode-segment-icon svg { width: 14px; height: 14px; }
+@container (max-width: 360px) { .cc-mode-segment-label { display: none; } }
 
 /* settings: per-model capability badges */
 .cc-model-caps {
@@ -1421,16 +1438,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
    "active/engaged" affordance (the ingest toggle, active context, etc.). */
 .cc-mcp-btn.is-on { color: var(--cc-clay); }
 .cc-mcp-btn.is-warn { color: var(--text-warning); }
-/* Divider between one-shot actions (left) and stateful toggle/status icons
-   (right) in the header, so engage/disengage controls read apart from actions. */
-.cc-actions-sep {
-  flex: 0 0 auto;
-  align-self: center;
-  width: 1px;
-  height: 18px;
-  margin: 0 4px;
-  background: var(--background-modifier-border);
-}
 .cc-slash-name {
   font-family: var(--cc-mono);
   font-size: 12.5px;

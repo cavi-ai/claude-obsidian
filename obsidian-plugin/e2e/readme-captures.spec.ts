@@ -2,7 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { launchObsidianHarness, type ObsidianHarness } from "./obsidianHarness";
+import { launchObsidianHarness, setRightSidebarWidth, type ObsidianHarness } from "./obsidianHarness";
 
 const ENABLED = process.env.CC_E2E_CAPTURE === "1";
 const ASSETS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets");
@@ -53,6 +53,25 @@ test.describe("README captures", () => {
     test.describe(theme, () => {
       test.skip(!ENABLED, "set CC_E2E_CAPTURE=1");
       test.skip(theme === "light" && !OUT_ROOT, "README assets are dark");
+
+      test("composer-320.png", async () => {
+        const harness = await launchObsidianHarness({ theme });
+        try {
+          const root = await openChat(harness);
+          await setRightSidebarWidth(harness.page, 320);
+          // Let the `.cc-controls` container-query reflow settle after the resize.
+          await harness.page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          const controls = root.locator(".cc-controls");
+          // Capture regardless of the fit assertions below so a wrap is still evidenced.
+          await shoot(root, "composer-320.png", theme);
+          const metrics = await controls.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, height: el.getBoundingClientRect().height }));
+          console.log(`composer-320 (${theme}) metrics: scrollWidth=${metrics.scrollWidth} clientWidth=${metrics.clientWidth} height=${metrics.height}`);
+          expect(metrics.scrollWidth, `control row must not overflow horizontally at 320px: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(metrics.clientWidth);
+          expect(metrics.height, `control row must stay one line: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(40);
+        } finally {
+          await harness.close();
+        }
+      });
 
       test("diff-review.png", async () => {
         // "Enrich with Claude…" (not the single-edit rewrite path): its lint step

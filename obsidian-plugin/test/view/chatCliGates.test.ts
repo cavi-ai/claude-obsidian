@@ -4,11 +4,12 @@ import { ChatView } from "../../src/view/ChatView";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import type ClaudeCompanionPlugin from "../../src/main";
 import type { ChatCapabilities } from "../../src/providers/router";
+import { defaultChatControls } from "../../src/claude/chatControls";
 
 const CLI: ChatCapabilities = { agentActions: true, claudeControls: false, metered: false, local: false, cli: true };
 const API: ChatCapabilities = { agentActions: true, claudeControls: true, metered: true, local: false, cli: false };
 
-function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, cliSignedIn: boolean): ClaudeCompanionPlugin & { cliTurnRunner: ReturnType<typeof vi.fn> } {
+function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, cliSignedIn: boolean): ClaudeCompanionPlugin & { cliTurnRunner: ReturnType<typeof vi.fn>; saveSettings: ReturnType<typeof vi.fn> } {
   const runner = { run: vi.fn(async () => ({ text: "", trace: [] })) };
   return {
     settings: { ...structuredClone(DEFAULT_SETTINGS), ...settings },
@@ -16,6 +17,7 @@ function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, c
       chatProvider: () => ({ provider: { id: caps.cli ? "claude-cli" : "anthropic", hasCredentials: () => true }, model: DEFAULT_SETTINGS.model }),
       chatCapabilities: () => caps,
       chatToolCapable: async () => true,
+      chatReasoningActive: async () => false,
       chatBackend: settings.chatBackend ?? "claude",
       claudeCli: { hasCredentials: () => cliSignedIn, available: () => true },
       anthropic: { hasCredentials: () => !cliSignedIn },
@@ -29,7 +31,18 @@ function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, c
     composeSystemPrompt: () => "sys",
     agentTools: () => ({ definitions: () => [] }),
     externalMcpTools: async () => [],
-  } as unknown as ClaudeCompanionPlugin & { cliTurnRunner: ReturnType<typeof vi.fn> };
+  } as unknown as ClaudeCompanionPlugin & { cliTurnRunner: ReturnType<typeof vi.fn>; saveSettings: ReturnType<typeof vi.fn> };
+}
+
+/** Render the composer controls row (model switcher, mode control, tune button) via the real renderControls(). */
+function renderedControls(settings: Partial<PluginSettings>) {
+  const plugin = pluginStub(settings, API, false);
+  const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
+  const seam = view as unknown as { controls: unknown; controlsEl: HTMLElement; renderControls(): void };
+  seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
+  seam.controlsEl = new FakeElement() as unknown as HTMLElement;
+  seam.renderControls();
+  return { view, plugin, controlsEl: seam.controlsEl as unknown as FakeElement };
 }
 
 describe("ChatView on the claude-cli backend", () => {
@@ -77,5 +90,38 @@ describe("ChatView on the claude-cli backend", () => {
     (view as unknown as { renderSetupCard(parent: HTMLElement): void }).renderSetupCard(host);
     const sub = (host as unknown as FakeElement).querySelector(".cc-setup-sub");
     expect(sub?.textContent).toMatch(/^Claude Code is signed in on this computer/);
+  });
+});
+
+describe("ChatView composer mode control", () => {
+  it("renders one Ask / Plan / Act control with three radios", () => {
+    const { controlsEl } = renderedControls({ agentAllowWrites: false });
+    const control = controlsEl.querySelector(".cc-mode-control");
+    expect(control).not.toBeNull();
+    const radios = control!.querySelectorAll('[role="radio"]');
+    expect(radios.length).toBe(3);
+  });
+
+  it("Act sets agentAllowWrites and saves; Plan leaves it and flips plan state; Ask clears both", () => {
+    const { view, plugin, controlsEl } = renderedControls({ agentAllowWrites: false });
+    const radios = controlsEl.querySelector(".cc-mode-control")!.querySelectorAll('[role="radio"]');
+    const [ask, plan, act] = radios;
+    const currentMode = () => (view as unknown as { currentMode(): string }).currentMode();
+
+    act!.dispatchEvent({ type: "click" });
+    expect(plugin.settings.agentAllowWrites).toBe(true);
+    expect(plugin.saveSettings).toHaveBeenCalled();
+    expect(currentMode()).toBe("act");
+    expect(act!.getAttribute("aria-checked")).toBe("true");
+
+    plan!.dispatchEvent({ type: "click" });
+    expect(plugin.settings.agentAllowWrites).toBe(true); // untouched by Plan
+    expect(currentMode()).toBe("plan");
+    expect(plan!.getAttribute("aria-checked")).toBe("true");
+
+    ask!.dispatchEvent({ type: "click" });
+    expect(plugin.settings.agentAllowWrites).toBe(false);
+    expect(currentMode()).toBe("ask");
+    expect(ask!.getAttribute("aria-checked")).toBe("true");
   });
 });

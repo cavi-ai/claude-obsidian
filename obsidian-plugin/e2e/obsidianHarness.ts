@@ -130,6 +130,41 @@ async function openSettingsSurface(context: BrowserContext, page: Page, tabId: s
   }
 }
 
+/**
+ * Resize the right sidebar (where the chat pane docks) to `px` for narrow-pane
+ * layout tests. Prefers `rightSplit.setSize`; falls back to a direct style set
+ * for Obsidian builds that lack it. Waits for `.cc-chat-root` to settle within
+ * `px + 20`.
+ */
+export async function setRightSidebarWidth(page: Page, px: number): Promise<void> {
+  await page.evaluate((size) => {
+    const w = window as unknown as {
+      app: {
+        workspace: {
+          rightSplit: { setSize?(px: number): void; containerEl: HTMLElement };
+          onLayoutChange(): void;
+        };
+      };
+    };
+    const rightSplit = w.app.workspace.rightSplit;
+    if (typeof rightSplit.setSize === "function") {
+      rightSplit.setSize(size);
+    } else {
+      rightSplit.containerEl.style.width = `${size}px`;
+      rightSplit.containerEl.style.flexBasis = `${size}px`;
+    }
+    w.app.workspace.onLayoutChange();
+  }, px);
+  await page.waitForFunction(
+    (maxWidth) => {
+      const width = document.querySelector(".cc-chat-root")?.getBoundingClientRect().width;
+      return typeof width === "number" && width <= maxWidth;
+    },
+    px + 20,
+    { timeout: 5_000 },
+  );
+}
+
 function note(frontmatter: string, body: string): string { return `---\n${frontmatter}\n---\n\n${body}\n`; }
 
 async function freePort(): Promise<number> {
