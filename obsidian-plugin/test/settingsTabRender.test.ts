@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { App, FakeElement, openSettingTab, Platform, type SettingDefinitionItem } from "./fakes/obsidian";
+import { App, FakeElement, openSettingTab, Platform, Setting, type SettingDefinitionItem } from "./fakes/obsidian";
 import { ClaudeCompanionSettingTab } from "../src/settings";
 import { DEFAULT_SETTINGS } from "../src/types";
 import { unavailableStore } from "../src/secrets/store";
@@ -104,7 +104,7 @@ describe("settings tab render", () => {
 
     const controls = container.querySelectorAll(".setting-item-control");
     expect(controls.filter((c) => c.children.length > 0).length).toBeGreaterThan(30);
-    expect(container.querySelectorAll("button").some((b) => b.textContent === "Desktop integrations")).toBe(true);
+    expect(container.querySelectorAll("button").some((b) => b.textContent === "Set up")).toBe(true);
   });
 
   it("renders on mobile with the desktop-only pages withheld", () => {
@@ -157,5 +157,16 @@ describe("Claude Code backend settings", () => {
     }) as never;
     const item = flatten(definitionsOf(plugin)).find((i) => i.name === "Step 1 — connect to Claude");
     expect(item?.visible?.()).toBe(true);
+  });
+
+  it("renders Desktop integrations as a plain settings button", () => {
+    const plugin = stubPlugin();
+    const item = flatten(definitionsOf(plugin)).find((i) => i.name === "Desktop integrations");
+    expect(item?.render).toBeTypeOf("function");
+    const setting = new Setting(new FakeElement() as unknown as HTMLElement);
+    item!.render!(setting, undefined);
+    const button = (setting.settingEl as unknown as FakeElement).querySelectorAll("button")[0];
+    expect(button?.textContent).toBe("Set up");
+    expect(button?.classList?.has("cc-settings-desktop-integrations") ?? false).toBe(false);
   });
 });

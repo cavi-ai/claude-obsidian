@@ -3116,11 +3116,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   min-height: 44px;
   margin-top: 8px;
 }
-.cc-settings-desktop-integrations {
-  min-height: 40px;
-  margin-bottom: 12px;
-}
-
 /* ---- CLI-first desktop integrations ---- */
 .cc-desktop-integrations-modal {
   display: grid;
@@ -3151,7 +3146,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-desktop-integration-error p { margin: 0 0 8px; }
 
 @media (max-width: 520px) {
-  .cc-settings-desktop-integrations,
   .cc-desktop-integration-card > button { width: 100%; min-height: 44px; }
 }
 

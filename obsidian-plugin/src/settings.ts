@@ -258,10 +258,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         desc: "Install the CAVI marketplace plugin and merge the Claude Desktop config.",
         aliases: ["marketplace", "claude desktop", "obsidian-agent"],
         render: (setting) => {
-          setting.addButton((btn) => {
-            btn.buttonEl.addClass("cc-settings-desktop-integrations");
-            btn.setButtonText("Desktop integrations").onClick(() => this.plugin.openDesktopIntegrations());
-          });
+          setting.addButton((btn) => btn.setButtonText("Set up").onClick(() => this.plugin.openDesktopIntegrations()));
         },
       },
     ];
