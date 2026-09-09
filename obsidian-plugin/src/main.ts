@@ -3358,7 +3358,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
     if (entries.length === 0) return;
     try {
-      await ix.updateNotes(entries, { yieldBetween: Platform.isMobile });
+      await ix.updateNotes(entries, Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {});
     } catch {
       /* transient embed failure — picked up on next change or rebuild */
     }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SemanticIndexer, type IndexFile, type IndexerDeps } from "../src/semantic/indexer";
 import type { IndexData } from "../src/semantic/store";
 
@@ -254,5 +254,16 @@ describe("SemanticIndexer", () => {
     expect(ctx.embedCalls.length).toBe(3);
     expect(saves).toBe(1);
     expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("updateNotes calls yieldBetween between notes, not after the last", async () => {
+    const ctx = makeDeps({ "a.md": "cat", "b.md": "dog", "c.md": "fish" });
+    const ix = new SemanticIndexer(ctx.deps);
+    const yieldBetween = vi.fn(async () => {});
+    await ix.updateNotes(
+      [{ path: "a.md", mtime: 1 }, { path: "b.md", mtime: 1 }, { path: "c.md", mtime: 1 }],
+      { yieldBetween },
+    );
+    expect(yieldBetween).toHaveBeenCalledTimes(2);
   });
 });
