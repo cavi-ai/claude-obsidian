@@ -80,3 +80,16 @@ describe("diff review", () => {
     expect(css).toMatch(/\.cc-diff-modal input\[type="checkbox"\]\s*\{[^}]*accent-color:\s*var\(--cc-accent\)/);
   });
 });
+
+describe("header controls", () => {
+  it("icon buttons and the backend pill read the tokens", () => {
+    const css = readStyles();
+    const btn = rulesFor(css, ".cc-icon-btn");
+    expect(btn).toMatch(/border-radius:\s*var\(--cc-radius-sm\)/);
+    expect(btn).toMatch(/\.cc-icon-btn:hover\s*\{[^}]*var\(--cc-accent-wash\)/);
+    const pill = rulesFor(css, ".cc-backend-pill");
+    expect(pill).toMatch(/\.cc-backend-pill\.is-ok\s*\{[^}]*var\(--cc-success\)/);
+    expect(pill).toMatch(/\.cc-backend-pill\.is-warn\s*\{[^}]*var\(--cc-accent\)/);
+    expect(pill).not.toContain("--cc-gray-");
+  });
+});
