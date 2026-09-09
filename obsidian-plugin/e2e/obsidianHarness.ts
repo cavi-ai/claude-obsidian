@@ -4,8 +4,11 @@ import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } fro
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion, newestCoreAsar } from "./coreAsar";
+
+const execFileAsync = promisify(execFile);
 
 export { effectiveObsidianCoreVersion };
 
@@ -58,6 +61,8 @@ export interface ObsidianHarnessOptions {
   embedStub?: boolean;
   /** Obsidian appearance for the seeded profile; default follows a fresh install. */
   theme?: "light" | "dark";
+  /** Keep the Obsidian window unfocused and off-screen; default on unless CC_E2E_SHOW=1. */
+  hidden?: boolean;
 }
 
 /** Where Obsidian keeps the cores it auto-updates into. */
@@ -247,6 +252,16 @@ function deterministicVector(text: string): number[] {
   return v;
 }
 
+let hideWarned = false;
+/** Deactivate the Obsidian process without a real OS-level hide (that pauses the Chromium renderer and blanks screenshots); a failure is logged once and the run stays visible. */
+async function hideAppWindow(pid: number): Promise<void> {
+  try {
+    await execFileAsync("osascript", ["-e", `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to false`]);
+  } catch (error) {
+    if (!hideWarned) { hideWarned = true; console.warn("obsidianHarness: could not unfocus the Obsidian window, run stays visible:", error); }
+  }
+}
+
 async function waitForCdp(port: number): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) { try { const response = await fetch(`http://127.0.0.1:${port}/json/version`); if (response.ok) return; } catch { /* app still starting */ } await new Promise((resolve) => setTimeout(resolve, 250)); }
@@ -254,6 +269,7 @@ async function waitForCdp(port: number): Promise<void> {
 }
 
 export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}): Promise<ObsidianHarness> {
+  const hidden = options.hidden ?? process.env.CC_E2E_SHOW !== "1";
   const root = options.reuse ? dirname(options.reuse.vault) : await mkdtemp(join(tmpdir(), "claude-companion-e2e-"));
   const vault = options.reuse?.vault ?? join(root, "vault"); const profile = options.reuse?.profile ?? join(root, "profile");
   if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
@@ -406,7 +422,8 @@ esac
   const coreAsarPath = process.env.OBSIDIAN_ASAR_PATH?.trim() || await discoverCoreAsar();
   await assertSupportedObsidian(executable, coreAsarPath);
   if (coreAsarPath) await copyFile(coreAsarPath, join(profile, basename(coreAsarPath)));
-  const processHandle = spawn(executable, [vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${debuggingPort}`, "--disable-gpu", "--no-sandbox"], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: executablePath } });
+  const hiddenArgs = hidden ? ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--window-position=-4000,-4000"] : [];
+  const processHandle = spawn(executable, [vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${debuggingPort}`, "--disable-gpu", "--no-sandbox", ...hiddenArgs], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: executablePath } });
   let processOutput = ""; processHandle.stdout?.on("data", (chunk) => { processOutput += String(chunk); }); processHandle.stderr?.on("data", (chunk) => { processOutput += String(chunk); });
   await waitForCdp(debuggingPort);
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${debuggingPort}`);
@@ -416,6 +433,7 @@ esac
   while (!page && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 250)); page = context.pages().find((candidate) => candidate.url().startsWith("app://obsidian.md")); }
   if (!page) throw new Error(`Obsidian page not found. ${processOutput.slice(-1000)}`);
   await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
+  if (hidden && processHandle.pid) await hideAppWindow(processHandle.pid);
   const trustButton = page.getByRole("button", { name: "Trust author and enable plugins" });
   if (await trustButton.waitFor({ state: "visible", timeout: 5_000 }).then(() => true).catch(() => false)) {
     await trustButton.click();
@@ -451,6 +469,7 @@ esac
       if (title.startsWith("Settings - ")) await candidate.close();
     }
     await page.bringToFront();
+    if (hidden && processHandle.pid) await hideAppWindow(processHandle.pid);
   }
   return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), paths: { vault, profile }, close: async ({ keep = false } = {}) => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); if (embed) await closeServer(embed); if (!keep) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } };
 }
