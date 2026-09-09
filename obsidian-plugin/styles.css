@@ -1,18 +1,9 @@
 /* Claude Companion — styled with the "unreasonable effectiveness of HTML"
    gallery palette so the panel feels native to the artifacts it produces. */
 
-.cc-root {
-  --cc-ivory: #faf9f5;
-  --cc-slate: #141413;
+body {
+  /* --cc-clay/--cc-olive stay here: --cc-accent/--cc-border-hover/--cc-success below reference them, and a descendant selector's var can't reach an ancestor rule. */
   --cc-clay: #d97757;
-  --cc-oat: #e3dacc;
-  --cc-gray-150: #f0eee6;
-  --cc-gray-300: #d1cfc5;
-  --cc-gray-500: #87867f;
-  --cc-gray-700: #3d3d3a;
-  --cc-serif: ui-serif, Georgia, "Times New Roman", serif;
-  --cc-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --cc-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --cc-olive: #788c5d;
 
   /* Semantic tokens resolve through Obsidian's variables: themes and dark/light follow automatically. */
@@ -50,6 +41,19 @@
   --cc-text-lg: 19px;
   --cc-text-xl: 22px;
   --cc-touch-min: 44px;
+}
+
+.cc-root {
+  --cc-ivory: #faf9f5;
+  --cc-slate: #141413;
+  --cc-oat: #e3dacc;
+  --cc-gray-150: #f0eee6;
+  --cc-gray-300: #d1cfc5;
+  --cc-gray-500: #87867f;
+  --cc-gray-700: #3d3d3a;
+  --cc-serif: ui-serif, Georgia, "Times New Roman", serif;
+  --cc-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cc-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   display: flex;
   flex-direction: column;
@@ -2277,7 +2281,10 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   border-radius: var(--cc-radius-sm);
 }
 .cc-diff-modal .mod-cta:hover { background: color-mix(in srgb, var(--cc-accent) 88%, black); }
-.cc-diff-modal input[type="checkbox"] { accent-color: var(--cc-accent); }
+.cc-diff-modal input[type="checkbox"]:checked { background-color: var(--cc-accent); border-color: var(--cc-accent); }
+.cc-diff-modal input[type="checkbox"]:indeterminate { background-color: var(--cc-accent); border-color: var(--cc-accent); }
+.cc-research-desk .mod-cta, .cc-research-workbench .mod-cta { background: var(--cc-accent); color: var(--cc-accent-fg); border-radius: var(--cc-radius-sm); }
+.cc-research-desk .mod-cta:hover, .cc-research-workbench .mod-cta:hover { background: color-mix(in srgb, var(--cc-accent) 88%, black); }
 
 /* Inline edit review */
 .cc-inline-del {
@@ -2460,7 +2467,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-desk-identity { min-width: 0; }
 .cc-desk-eyebrow,
 .cc-desk-card-label {
-  color: var(--text-accent);
+  color: var(--cc-accent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .13em;
@@ -2517,7 +2524,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-desk-attention-row { display: flex; width: 100%; min-height: 40px; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; padding: 8px 10px; text-align: left; white-space: normal; background: color-mix(in srgb, var(--background-primary) 68%, transparent); }
 .cc-desk-attention-row.is-blocked { border-color: color-mix(in srgb, var(--color-red) 55%, var(--background-modifier-border)); }
 .cc-desk-attention-row.is-attention { border-color: color-mix(in srgb, var(--color-orange) 48%, var(--background-modifier-border)); }
-.cc-desk-attention-row span:last-child { flex: 0 0 auto; color: var(--text-accent); font-size: 11px; }
+.cc-desk-attention-row span:last-child { flex: 0 0 auto; color: var(--cc-accent); font-size: 11px; }
 
 .cc-desk-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
 .cc-desk-metric { display: flex; min-width: 0; min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: center; padding: 9px 11px; border: 1px solid var(--background-modifier-border); background: color-mix(in srgb, var(--background-secondary) 72%, transparent); }
@@ -2567,7 +2574,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-research-tab-select { display: none; width: 100%; min-height: 40px; margin: 12px 0; }
 .cc-research-panel { min-height: 160px; padding: clamp(14px, 2.4vw, 20px); border: 1px solid var(--cc-research-line); border-radius: 12px; background: color-mix(in srgb, var(--background-primary-alt) 94%, var(--interactive-accent) 6%); box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent); }
 .cc-research-panel-intro { margin: -2px 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--background-modifier-border); }
-.cc-research-panel-eyebrow { color: var(--text-accent); font-size: 9px; font-weight: 700; letter-spacing: .13em; }
+.cc-research-panel-eyebrow { color: var(--cc-accent); font-size: 9px; font-weight: 700; letter-spacing: .13em; }
 .cc-research-panel-title { margin: 5px 0 3px; font-size: clamp(17px, 2.2vw, 21px); line-height: 1.2; letter-spacing: -.015em; }
 .cc-research-panel-description { max-width: 66ch; margin: 0; color: var(--text-muted); font-size: var(--font-ui-small); line-height: 1.5; }
 .cc-research-panel > h3 { margin: 18px 0 8px; font-size: 13px; letter-spacing: -.01em; }
