@@ -99,6 +99,8 @@ body {
   align-items: center;
   gap: 4px;
 }
+.cc-header-actions-primary { display: inline-flex; gap: var(--cc-space-1); }
+.cc-header-actions-state { display: inline-flex; gap: var(--cc-space-1); padding: 2px; border-radius: var(--cc-radius-md); background: var(--cc-surface-sunken); }
 .cc-icon-btn {
   background: transparent;
   border: none;
@@ -771,6 +773,9 @@ body {
   gap: 8px;
   padding: 0;
 }
+/* Desktop only: makes the `@container (max-width: 360px)` mode-segment-label
+   query (below) match against this row instead of falling through inert. */
+body:not(.is-mobile) .cc-controls { container-type: inline-size; }
 /* The model switcher is the focal "slick" control at the bottom-left, with a
    chevron so it clearly reads as a dropdown. */
 .cc-ctl-model {
@@ -1426,16 +1431,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
    "active/engaged" affordance (the ingest toggle, active context, etc.). */
 .cc-mcp-btn.is-on { color: var(--cc-clay); }
 .cc-mcp-btn.is-warn { color: var(--text-warning); }
-/* Divider between one-shot actions (left) and stateful toggle/status icons
-   (right) in the header, so engage/disengage controls read apart from actions. */
-.cc-actions-sep {
-  flex: 0 0 auto;
-  align-self: center;
-  width: 1px;
-  height: 18px;
-  margin: 0 4px;
-  background: var(--background-modifier-border);
-}
 .cc-slash-name {
   font-family: var(--cc-mono);
   font-size: 12.5px;

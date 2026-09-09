@@ -242,29 +242,30 @@ export class ChatView extends ItemView {
       });
     } else {
       // One-shot actions (left group). These DO something on click.
-      this.iconButton(actions, "plus", "New chat", () => this.clearChat());
-      this.iconButton(actions, "history", "Resume a past conversation", () => this.openHistory());
+      const primary = actions.createDiv({ cls: "cc-header-actions-primary" });
+      this.iconButton(primary, "plus", "New chat", () => this.clearChat());
+      this.iconButton(primary, "history", "Resume a past conversation", () => this.openHistory());
       // Workflows moved into the single slash surface: "/workflows" opens the
       // browsable picker, and each workflow is also its own "/" command.
-      this.iconButton(actions, "save", "Save chat to vault", () => void this.saveChat());
+      this.iconButton(primary, "save", "Save chat to vault", () => void this.saveChat());
       if (this.plugin.settings.memoryEnabled) {
         // "import" reads as a one-shot pull-in, not a toggle — capture brings a
         // Claude Code session's transcript into the vault.
-        this.iconButton(actions, "import", "Capture a Claude Code session into memory", () => void this.plugin.openSessionPicker());
+        this.iconButton(primary, "import", "Capture a Claude Code session into memory", () => void this.plugin.openSessionPicker());
       }
-      // Divider: everything to the right is a stateful toggle/status (clay = on),
-      // so the engage/disengage controls read apart from the actions above.
-      actions.createDiv({ cls: "cc-actions-sep" });
-      this.renderIngestToggle(actions);
+      // State group: stateful toggle/status controls (clay = on), so engage/
+      // disengage reads apart from the one-shot actions above.
+      const state = actions.createDiv({ cls: "cc-header-actions-state" });
+      this.renderIngestToggle(state);
       // MCP bridge status + menu now lives in the header (the old chip/status row
       // is gone — context is attached with "@" in the composer instead).
-      this.mcpStatusEl = actions.createEl("button", { cls: "cc-icon-btn cc-mcp-btn", attr: { "aria-label": "MCP bridge controls" } });
+      this.mcpStatusEl = state.createEl("button", { cls: "cc-icon-btn cc-mcp-btn", attr: { "aria-label": "MCP bridge controls" } });
       setIcon(this.mcpStatusEl, "plug-zap");
       this.mcpStatusEl.addEventListener("click", (evt) => this.openMcpMenu(evt));
       // Quick options joins this row rather than owning a header of its own, and
       // replaces the gear: its own sheet already offers "Open all settings".
       this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
-        host: actions,
+        host: state,
         compact: true,
       });
     }
