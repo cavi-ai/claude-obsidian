@@ -145,6 +145,17 @@ test.describe("README captures", () => {
       await chips.first().locator("summary").click();
       // Crop to the transcript only: from top of .cc-chat-root down to bottom
       // of last assistant bubble, excluding the composer.
+      // Hide the composer so nothing overflows and causes horizontal scroll offset.
+      await harness.page.addStyleTag({ content: ".cc-chat-root .cc-composer, .cc-chat-root textarea { display: none !important; }" });
+      // Reset every horizontal scroll: a wide row (e.g. the usage bar) can leave
+      // an ancestor mid-horizontal-scroll; pin every scrollable element back to
+      // its left edge before measuring bounding boxes.
+      await harness.page.evaluate(() => {
+        for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
+          if (el.scrollLeft) el.scrollLeft = 0;
+        }
+        window.scrollTo(0, 0);
+      });
       const rootBox = await root.boundingBox();
       const bubble = root.locator(".cc-msg.cc-assistant").last();
       const bubbleBox = await bubble.boundingBox();
