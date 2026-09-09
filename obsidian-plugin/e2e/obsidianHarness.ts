@@ -56,6 +56,8 @@ export interface ObsidianHarnessOptions {
   settingsOverride?: Record<string, unknown>;
   /** Serve an Ollama-compatible /api/embed stub and point the built-in engine at it (engine "ollama"). */
   embedStub?: boolean;
+  /** Obsidian appearance for the seeded profile; default follows a fresh install. */
+  theme?: "light" | "dark";
 }
 
 /** Where Obsidian keeps the cores it auto-updates into. */
@@ -137,12 +139,17 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false, live = false, embedPort: number | null = null, settingsOverride: Record<string, unknown> = {}): Promise<void> {
+async function seedVault(vault: string, providerPort: number, firstRun: boolean, endpointPort: number | null, claudeCli = false, live = false, embedPort: number | null = null, settingsOverride: Record<string, unknown> = {}, theme?: "light" | "dark"): Promise<void> {
   const obsidian = join(vault, ".obsidian"); const plugin = join(obsidian, "plugins", "claude-companion");
   await mkdir(plugin, { recursive: true });
   for (const file of ["main.js", "manifest.json", "styles.css"]) await copyFile(join(process.cwd(), file), join(plugin, file));
   await writeFile(join(obsidian, "community-plugins.json"), JSON.stringify(["claude-companion"]));
   await writeFile(join(obsidian, "app.json"), JSON.stringify({ showUnsupportedFiles: true, alwaysUpdateLinks: true }));
+  if (theme) {
+    const appearancePath = join(obsidian, "appearance.json");
+    const existing = await readFile(appearancePath, "utf8").then((raw) => JSON.parse(raw) as Record<string, unknown>).catch(() => ({}) as Record<string, unknown>);
+    await writeFile(appearancePath, JSON.stringify({ ...existing, theme: theme === "dark" ? "obsidian" : "moonstone" }));
+  }
   // E2E_SEED_DATA points at a real data.json so the suite can run against a
   // lived-in config, not just the pristine one a fresh install writes.
   const seeded = process.env.E2E_SEED_DATA ? JSON.parse(await readFile(process.env.E2E_SEED_DATA, "utf8")) as { settings?: Record<string, unknown> } : null;
@@ -302,7 +309,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     embedPort = embedAddress.port;
   }
   if (!options.reuse) {
-    await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, embedPort, options.settingsOverride ?? {});
+    await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, embedPort, options.settingsOverride ?? {}, options.theme);
   } else {
     // Stub server ports are re-rolled every launch; a reused vault's data.json still
     // names the previous launch's (now-closed) ports, so every provider/embed call

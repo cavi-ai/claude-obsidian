@@ -57,6 +57,7 @@ test.describe("README captures", () => {
     const harness = await launchObsidianHarness({
       providerReply: (body) => (/copyeditor/i.test(body) ? enrichedPlan : null),
       extraFiles: { "Build plan.md": originalPlan },
+      theme: "dark",
     });
     try {
       const { page } = harness;
@@ -81,7 +82,7 @@ test.describe("README captures", () => {
   });
 
   test("research-desk.png", async () => {
-    const harness = await launchObsidianHarness();
+    const harness = await launchObsidianHarness({ theme: "dark" });
     try {
       await run(harness.page, "claude-companion:open-research-desk");
       await expect(harness.page.getByRole("heading", { name: "Continuity research" })).toBeVisible();
@@ -95,6 +96,7 @@ test.describe("README captures", () => {
   test("mcp-bridge-settings.png", async () => {
     const harness = await launchObsidianHarness({
       settingsOverride: { mcpEnabled: true, mcpPort: 22360, mcpToken: "3f9c1b7e2a6d4c8f9e0b1a2c3d4e5f60" },
+      theme: "dark",
     });
     try {
       const settingsPage = await harness.openSettings();
@@ -116,6 +118,7 @@ test.describe("README captures", () => {
       // and, on a machine actually running Ollama, answer instead of it.
       settingsOverride: { chatBackend: "auto", openaiCompatModel: "local-model", ollamaHost: "" },
       providerFail: () => 503,
+      theme: "dark",
     });
     try {
       const root = await openChat(harness);
@@ -134,7 +137,7 @@ test.describe("README captures", () => {
   });
 
   test("agent-tool-chips.png", async () => {
-    const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true } });
+    const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true }, theme: "dark" });
     try {
       const root = await openChat(harness);
       const input = root.locator("textarea").first();
