@@ -93,6 +93,18 @@ describe("ChatView on the claude-cli backend", () => {
   });
 });
 
+describe("ChatView composer control order", () => {
+  it("places the reasoning indicator between the model select and the mode control", () => {
+    const { controlsEl } = renderedControls({});
+    const modelIdx = controlsEl.children.findIndex((c) => c.classList.has("cc-ctl-model"));
+    const reasoningIdx = controlsEl.children.findIndex((c) => c.classList.has("cc-reasoning-indicator"));
+    const modeIdx = controlsEl.children.findIndex((c) => c.classList.has("cc-mode-control"));
+    expect(modelIdx).toBe(0);
+    expect(reasoningIdx).toBeGreaterThan(modelIdx);
+    expect(modeIdx).toBeGreaterThan(reasoningIdx);
+  });
+});
+
 describe("ChatView composer mode control", () => {
   it("renders one Ask / Plan / Act control with three radios", () => {
     const { controlsEl } = renderedControls({ agentAllowWrites: false });

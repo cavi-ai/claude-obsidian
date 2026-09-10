@@ -830,16 +830,6 @@ export class ChatView extends ItemView {
     void this.appendLocalModelOptions(select);
     void this.appendCustomModelOptions(select);
 
-    // Ask / Plan / Act — one segmented control for whether Claude can create /
-    // edit notes in chat. Only meaningful for Claude (Ollama has no vault
-    // tools), so it hides itself on local sessions. Each write still asks for
-    // confirmation; Act just controls whether the tools are offered.
-    this.modeControl = new ModeControl(this.controlsEl, {
-      initial: this.currentMode(),
-      onChange: (m) => this.applyMode(m),
-    });
-    this.updateModeControl();
-
     // Reasoning indicator: lit when the current backend thinks before
     // answering (Claude thinking on, or a local model with thinking metadata).
     const reasoning = this.controlsEl.createEl("button", {
@@ -849,6 +839,16 @@ export class ChatView extends ItemView {
     setIcon(reasoning, "brain");
     this.reasoningEl = reasoning;
     this.refreshCapabilityIndicators();
+
+    // Ask / Plan / Act — one segmented control for whether Claude can create /
+    // edit notes in chat. Only meaningful for Claude (Ollama has no vault
+    // tools), so it hides itself on local sessions. Each write still asks for
+    // confirmation; Act just controls whether the tools are offered.
+    this.modeControl = new ModeControl(this.controlsEl, {
+      initial: this.currentMode(),
+      onChange: (m) => this.applyMode(m),
+    });
+    this.updateModeControl();
 
     // Knobs (thinking / effort / temp / max) live in a popover behind a single
     // "tune" button, so the footer stays clean and Send is never buried.

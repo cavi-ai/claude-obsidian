@@ -782,7 +782,7 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   position: relative;
   display: inline-flex;
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 104px;
 }
 .cc-ctl-model .cc-ctl-select {
   font-size: var(--cc-text-sm);
@@ -856,24 +856,23 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
 }
 /* Reasoning indicator — icon-only, non-interactive. */
 .cc-reasoning-indicator {
-  font-size: var(--cc-text-xs);
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-  color: var(--text-normal);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cc-text-faint);
   cursor: default;
-  opacity: 0.55;
 }
 .cc-reasoning-indicator svg {
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
 }
 .cc-reasoning-indicator.is-active {
-  opacity: 1;
-  background: var(--cc-clay, #d97757);
-  border-color: var(--cc-clay, #d97757);
-  color: #fff;
+  color: var(--cc-accent);
 }
 /* Ask / Plan / Act segmented mode control. */
 .cc-mode-control { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--cc-border); border-radius: var(--cc-radius-pill); background: var(--cc-surface-sunken); }
@@ -883,6 +882,7 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
 .cc-mode-segment.is-active { background: var(--cc-accent-wash-strong); color: var(--cc-accent); }
 .cc-mode-segment-icon svg { width: 14px; height: 14px; }
 @container (max-width: 360px) { .cc-mode-segment-label { display: none; } }
+@container (max-width: 360px) { .cc-mode-segment { padding: 0 6px; } }
 
 /* settings: per-model capability badges */
 .cc-model-caps {
