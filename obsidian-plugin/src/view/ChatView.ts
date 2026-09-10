@@ -34,7 +34,7 @@ import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
-import { stripCliToolName } from "../cli/argv";
+import { chipLabel } from "./toolChipLabel";
 import { needsCredentialSetup } from "../providers/setupState";
 import { mergeDetectedModels } from "../providers/localModels";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
@@ -48,16 +48,6 @@ import { ComposerContextManager } from "./ComposerContextManager";
 import { buildContextManagerModel, type AutomaticContextKey } from "./contextManagerModel";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
-/** Compact one-line chip label: tool name + trimmed args (empty args omitted).
- *  Strips the chat-bridge's own MCP prefix so it reads as the bare tool name;
- *  user-configured external MCP servers keep their `mcp__<server>__` names. */
-export function chipLabel(name: string, args: string): string {
-  const label = stripCliToolName(name);
-  const a = args === "{}" ? "" : args;
-  const trimmed = a.length > 80 ? `${a.slice(0, 80)}…` : a;
-  return trimmed ? `${label} ${trimmed}` : label;
-}
 
 /** Truncate a tool result for the expandable chip body. */
 function previewText(text: string): string {
@@ -560,7 +550,7 @@ export class ChatView extends ItemView {
     const { model: resolvedModel } = this.plugin.router().chatProvider();
     const caps = this.plugin.router().chatCapabilities();
     const chosen = modelLabel(this.controls?.model ?? this.plugin.settings.model);
-    const label = caps.local ? `${resolvedModel} · local` : caps.cli ? `${chosen} · Claude Code` : chosen;
+    const label = caps.local ? `${modelLabel(resolvedModel)} · local` : caps.cli ? `${chosen} · Claude Code` : chosen;
     this.modelLabelEl.setText(label);
     if (this.usageEl) this.updateUsageBar();
   }
@@ -1867,6 +1857,8 @@ export class ChatView extends ItemView {
   /** Apply an Ask / Plan / Act switch: writes setting + Plan Mode, the matching notice, then persist if writes changed. */
   private async applyMode(mode: ChatMode): Promise<void> {
     // Plan leaves the writes setting untouched — only Ask/Act set it.
+    const previousWrites = this.plugin.settings.agentAllowWrites;
+    const previousPlanMode = this.planMode;
     let writesChanged = false;
     if (mode !== "plan") {
       const writesOn = mode === "act";
@@ -1882,7 +1874,16 @@ export class ChatView extends ItemView {
           ? "Plan Mode: on — I'll explore read-only and propose a plan, no writes."
           : "Act on vault: off — chat only, I won't change your vault.",
     );
-    if (writesChanged) await this.plugin.saveSettings();
+    if (writesChanged) {
+      try {
+        await this.plugin.saveSettings();
+      } catch (e) {
+        this.plugin.settings.agentAllowWrites = previousWrites;
+        this.planMode = previousPlanMode;
+        this.updateModeControl();
+        quickNotice(`Couldn't save the mode: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
 
   /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
@@ -1899,7 +1900,7 @@ export class ChatView extends ItemView {
     return {
       start: (block: ToolUseBlock): void => {
         const chip = ensure().createEl("details", { cls: "cc-tool-chip is-running" });
-        chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(block.name, JSON.stringify(block.input)) });
+        chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(block.name, block.input) });
         open.set(block.id, chip);
         this.scrollToBottom();
       },
@@ -2207,7 +2208,7 @@ export class ChatView extends ItemView {
     if (canAct) {
       items.push(
         { title: "Act on vault", icon: "pencil-line", checked: this.plugin.settings.agentAllowWrites, separatorBefore: true, run: () => void this.applyMode(this.plugin.settings.agentAllowWrites ? "ask" : "act") },
-        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => void this.applyMode(this.planMode ? "ask" : "plan") },
+        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => void this.applyMode(this.planMode ? (this.plugin.settings.agentAllowWrites ? "act" : "ask") : "plan") },
       );
     }
     if (this.plugin.settings.memoryEnabled) {

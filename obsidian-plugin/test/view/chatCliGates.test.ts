@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { App, FakeElement, getLastOpenedModal, WorkspaceLeaf } from "../fakes/obsidian";
+import { App, FakeElement, getLastOpenedModal, getNoticeMessages, WorkspaceLeaf } from "../fakes/obsidian";
 import { ChatView } from "../../src/view/ChatView";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import type ClaudeCompanionPlugin from "../../src/main";
@@ -123,5 +123,19 @@ describe("ChatView composer mode control", () => {
     expect(plugin.settings.agentAllowWrites).toBe(false);
     expect(currentMode()).toBe("ask");
     expect(ask!.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("restores the previous mode and setting when saveSettings rejects", async () => {
+    const { view, plugin, controlsEl } = renderedControls({ agentAllowWrites: false });
+    (plugin.saveSettings as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("disk full"));
+    const currentMode = () => (view as unknown as { currentMode(): string }).currentMode();
+
+    await (view as unknown as { applyMode(mode: string): Promise<void> }).applyMode("act");
+
+    expect(plugin.settings.agentAllowWrites).toBe(false);
+    expect(currentMode()).toBe("ask");
+    const radios = controlsEl.querySelector(".cc-mode-control")!.querySelectorAll('[role="radio"]');
+    expect(radios.find((b) => b.getAttribute("aria-label")?.startsWith("Ask"))?.getAttribute("aria-checked")).toBe("true");
+    expect(getNoticeMessages().some((m) => m.includes("Couldn't save the mode"))).toBe(true);
   });
 });

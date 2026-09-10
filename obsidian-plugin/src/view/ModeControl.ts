@@ -48,6 +48,7 @@ export class ModeControl {
   private choose(mode: ChatMode): void {
     if (mode === this.mode) return;
     this.set(mode);
+    this.buttons.get(mode)?.focus();
     void this.opts.onChange(mode);
   }
 }

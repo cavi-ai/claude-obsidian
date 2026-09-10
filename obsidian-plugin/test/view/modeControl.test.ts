@@ -37,4 +37,10 @@ describe("ModeControl", () => {
     (c.el as unknown as FakeElement).dispatchEvent(keydown("ArrowRight"));
     expect(onChange).toHaveBeenCalledWith("plan");
   });
+  it("arrow keys move focus to the newly selected segment", () => {
+    const c = new ModeControl(host(), { initial: "ask", onChange: () => {} });
+    (c.el as unknown as FakeElement).dispatchEvent(keydown("ArrowRight"));
+    const radios = (c.el as unknown as FakeElement).querySelectorAll("button");
+    expect(radios[1]!.getAttribute("data-focused")).toBe("true");
+  });
 });
