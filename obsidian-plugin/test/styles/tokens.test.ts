@@ -191,6 +191,40 @@ describe("hex literal retirement", () => {
   });
 });
 
+describe("light-theme accent text", () => {
+  it("declares --cc-accent-text on body and overrides it under body.theme-light", () => {
+    const css = readStyles();
+    const body = bodyBlock(css);
+    expect(body).toMatch(/--cc-accent-text:\s*var\(--cc-clay\)/);
+    const lightStart = css.indexOf("body.theme-light {");
+    const lightEnd = css.indexOf("}", lightStart);
+    const lightBlock = css.slice(lightStart, lightEnd);
+    expect(lightBlock).toMatch(/--cc-accent-text:\s*color-mix\(in srgb, var\(--cc-clay\) 72%, black\)/);
+  });
+
+  it("reads --cc-accent-text on the eyebrow rules", () => {
+    const css = readStyles();
+    const eyebrow = rulesFor(css, ".cc-eyebrow");
+    expect(eyebrow).toMatch(/color:\s*var\(--cc-accent-text\)/);
+    const deskEyebrow = rulesFor(css, ".cc-desk-eyebrow");
+    expect(deskEyebrow).toMatch(/color:\s*var\(--cc-accent-text\)/);
+  });
+});
+
+describe("stage-dot ring", () => {
+  it("rings the current stage dot on the accent wash", () => {
+    const css = readStyles();
+    const rule = rulesFor(css, ".cc-desk-stage-step.is-current .cc-desk-stage-dot");
+    expect(rule).toContain("--cc-accent-wash-strong");
+  });
+});
+
+describe("interactive-accent retirement", () => {
+  it("reads no --interactive-accent anywhere in Companion CSS", () => {
+    expect(readStyles()).not.toContain("--interactive-accent");
+  });
+});
+
 describe("artifact palette retirement", () => {
   it("reads no --cc-ivory/--cc-slate/--cc-oat/--cc-gray- token outside .cc-root and .cc-artifact rules", () => {
     const css = readStyles();
