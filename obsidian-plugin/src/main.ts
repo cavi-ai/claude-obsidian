@@ -107,7 +107,12 @@ import {
   deleteConversation as removeConversation,
   setActive,
   touch,
+  startConversationTurn,
+  settleConversationTurn,
+  clearConversationTurn,
+  type ChatTurnMode,
 } from "./conversations/store";
+import { ChatTurnLifecycle } from "./chat/turnLifecycle";
 import type { ChatMessage } from "./types";
 import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
 import { enrichCapture, type EnrichDeps } from "./sources/enrich";
@@ -217,6 +222,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
   private convState: ConversationState = emptyState();
   private convSeq = 0;
+  private _chatTurnLifecycle?: ChatTurnLifecycle;
+  private chatTurnLifecycle(): ChatTurnLifecycle { return this._chatTurnLifecycle ??= new ChatTurnLifecycle(); }
   private researchDeskPreferences: ResearchDeskPreferenceMap = {};
   private buildRuns: Record<string, BuildRun> = {};
   private activeBuildRunId: string | null = null;
@@ -1876,6 +1883,24 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
+    if (activityId.startsWith("chat-turn:")) {
+      const conversationId = activityId.slice("chat-turn:".length);
+      const conversation = this.convState.conversations.find(({ id }) => id === conversationId);
+      if (!conversation) throw new Error("That conversation no longer exists.");
+      if (actionId === "stop-chat-turn") {
+        if (!conversation.activeTurn) return;
+        await this.stopActiveChatTurn(conversationId, conversation.activeTurn.id);
+        return;
+      }
+      await this.setActiveConversation(conversationId);
+      const view = await this.activateView();
+      view?.loadConversation(this.getActiveConversation() ?? conversation);
+      if (actionId === "resume-chat-turn") {
+        const active = this.getActiveConversation();
+        if (view && active) await view.resumeInterruptedTurn(active);
+      }
+      return;
+    }
     if (actionId === "copy-diagnostics") {
       const logPath = "Claude/enrichment-diagnostics.log";
       if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — turn on the toggle in Settings → Source capture and run Enrich all again.");
@@ -1911,6 +1936,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.convState = isNamespacedData(raw)
       ? fromPersisted({ conversations: (raw).conversations, activeId: (raw).activeConversationId })
       : emptyState();
+    this.restoreChatTurnActivities();
     this.researchDeskPreferences = normalizeDeskPreferenceMap(isNamespacedData(raw) ? (raw).researchDeskPreferences : undefined);
     const runs = restoreBuildRuns(isNamespacedData(raw) ? raw.buildRuns : undefined);
     this.buildRuns = Object.fromEntries(runs.map((run) => [run.id, run]));
@@ -2005,6 +2031,115 @@ export default class ClaudeCompanionPlugin extends Plugin {
       console.error("[Claude Companion] failed to save conversation", e);
     }
     return updated.id;
+  }
+
+  async beginActiveConversationTurn(
+    messages: ChatMessage[],
+    input: { backend: string; model: string; mode: ChatTurnMode },
+  ): Promise<{ conversationId: string; turnId: string }> {
+    const previousState = this.convState;
+    const conversationId = this.activeConversationId();
+    const turnId = crypto.randomUUID();
+    const now = Date.now();
+    this.convState = startConversationTurn(this.convState, conversationId, messages, {
+      id: turnId,
+      state: "running",
+      backend: input.backend,
+      model: input.model,
+      mode: input.mode,
+      userMessageIndex: messages.length - 1,
+      createdAt: now,
+      updatedAt: now,
+    }, this.settings.maxConversations);
+    try {
+      await this.persist();
+    } catch (error) {
+      this.convState = previousState;
+      throw error;
+    }
+    const title = this.getActiveConversation()?.title ?? "Chat request";
+    const activityId = this.chatActivityId(conversationId);
+    this.activity.start({ id: activityId, kind: "chat-turn", title });
+    this.activity.update(activityId, {
+      currentItem: input.backend === "claude-cli" ? "Claude Code is working" : "Response is running",
+      recovery: [
+        { id: "open-chat", label: "Open Chat", kind: "open" },
+        { id: "stop-chat-turn", label: "Stop", kind: "stop" },
+      ],
+    });
+    return { conversationId, turnId };
+  }
+
+  registerActiveChatTurn(conversationId: string, turnId: string, stop: () => void): () => void {
+    return this.chatTurnLifecycle().register(conversationId, turnId, stop);
+  }
+
+  async stopActiveChatTurn(conversationId: string, turnId: string): Promise<void> {
+    const turn = this.convState.conversations.find(({ id }) => id === conversationId)?.activeTurn;
+    if (!turn || turn.id !== turnId || turn.state === "interrupted") return;
+    this.convState = settleConversationTurn(this.convState, conversationId, turnId, "interrupted", Date.now(), "Stopped by user");
+    this.activity.update(this.chatActivityId(conversationId), {
+      state: "paused",
+      currentItem: "Interrupted — review any partial changes before resuming",
+      recovery: [
+        { id: "open-chat", label: "Open Chat", kind: "open" },
+        { id: "resume-chat-turn", label: "Resume", kind: "resume" },
+      ],
+    });
+    try {
+      await this.persist();
+    } finally {
+      this.chatTurnLifecycle().stop(conversationId, turnId);
+    }
+  }
+
+  async completeActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[]): Promise<void> {
+    const conversation = this.convState.conversations.find(({ id }) => id === conversationId);
+    if (!conversation?.activeTurn || conversation.activeTurn.id !== turnId || conversation.activeTurn.state !== "running") return;
+    const previousState = this.convState;
+    this.convState = saveConversation(this.convState, touch(conversation, messages, Date.now()), this.settings.maxConversations);
+    this.convState = clearConversationTurn(this.convState, conversationId, turnId, Date.now());
+    try {
+      await this.persist();
+    } catch (error) {
+      this.convState = previousState;
+      throw error;
+    }
+    this.activity.finish(this.chatActivityId(conversationId), { currentItem: "Response saved" });
+  }
+
+  async interruptActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[], error = "Interrupted"): Promise<void> {
+    const conversation = this.convState.conversations.find(({ id }) => id === conversationId);
+    if (!conversation?.activeTurn || conversation.activeTurn.id !== turnId) return;
+    this.convState = saveConversation(this.convState, touch(conversation, messages, Date.now()), this.settings.maxConversations);
+    this.convState = settleConversationTurn(this.convState, conversationId, turnId, "interrupted", Date.now(), error);
+    await this.persist();
+    this.activity.update(this.chatActivityId(conversationId), {
+      state: "paused",
+      currentItem: "Interrupted — review any partial changes before resuming",
+      recovery: [
+        { id: "open-chat", label: "Open Chat", kind: "open" },
+        { id: "resume-chat-turn", label: "Resume", kind: "resume" },
+      ],
+    });
+  }
+
+  private chatActivityId(conversationId: string): string { return `chat-turn:${conversationId}`; }
+
+  private restoreChatTurnActivities(): void {
+    for (const conversation of this.convState.conversations) {
+      if (!conversation.activeTurn) continue;
+      const id = this.chatActivityId(conversation.id);
+      this.activity.start({ id, kind: "chat-turn", title: conversation.title });
+      this.activity.update(id, {
+        state: conversation.activeTurn.state === "failed" ? "needs-attention" : "paused",
+        currentItem: conversation.activeTurn.error ?? "Interrupted — review any partial changes before resuming",
+        recovery: [
+          { id: "open-chat", label: "Open Chat", kind: "open" },
+          { id: "resume-chat-turn", label: "Resume", kind: "resume" },
+        ],
+      });
+    }
   }
 
   /** The active conversation id, creating and persisting one when the chat is fresh. */
@@ -2833,7 +2968,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return { server, port: addr.port, token };
   }
 
-  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string }): Promise<AgentTurnRunner> {
+  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string }): Promise<AgentTurnRunner> {
     const cli = this.router().claudeCli;
     const executable = cli.executable();
     if (!executable) throw new Error(cli.probe() ? "Claude Code is not signed in. Run `claude auth login` in a terminal." : "Claude Code not found.");
@@ -2843,7 +2978,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const allowedTools = opts.agentMode ? cliAllowedTools(this.agentTools().definitions(), opts.planMode) : [];
     const signature = JSON.stringify({ model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
-    if (existing && existing.signature === signature && !existing.session.isClosed()) {
+    if (!opts.resumeSessionId && existing && existing.signature === signature && !existing.session.isClosed()) {
       existing.lastUsed = Date.now();
       return existing.session;
     }
@@ -2859,8 +2994,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     try {
       const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode });
       bridge = started.server;
-      const sessionId = crypto.randomUUID();
-      const argv = buildClaudeArgv({ model: opts.model, systemPromptFile: promptFile, mcpConfigJson: mcpConfigJson(started.port, started.token), allowedTools, maxTurns: this.settings.agentMaxIterations, sessionId });
+      const sessionId = opts.resumeSessionId ?? crypto.randomUUID();
+      const argv = buildClaudeArgv({
+        model: opts.model,
+        systemPromptFile: promptFile,
+        mcpConfigJson: mcpConfigJson(started.port, started.token),
+        allowedTools,
+        maxTurns: this.settings.agentMaxIterations,
+        ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : { sessionId }),
+      });
       const session = new ClaudeCliSession({ spawn: () => runtime.spawn(executable, argv, cwd), ...(opts.transcript ? { transcript: opts.transcript } : {}) });
       this.cliSessions.set(opts.conversationId, { session, bridge, signature, promptFile, lastUsed: Date.now() });
       await this.setConversationCliSession(opts.conversationId, sessionId);
@@ -2895,7 +3037,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async setConversationCliSession(conversationId: string, sessionId: string): Promise<void> {
     this.convState = {
       ...this.convState,
-      conversations: this.convState.conversations.map((c) => (c.id === conversationId ? withCliSession(c, sessionId) : c)),
+      conversations: this.convState.conversations.map((c) => {
+        if (c.id !== conversationId) return c;
+        const updated = withCliSession(c, sessionId);
+        return updated.activeTurn ? { ...updated, activeTurn: { ...updated.activeTurn, cliSessionId: sessionId, updatedAt: Date.now() } } : updated;
+      }),
     };
     await this.persist();
   }

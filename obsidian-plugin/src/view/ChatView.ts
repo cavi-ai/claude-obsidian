@@ -88,6 +88,9 @@ export class ChatView extends ItemView {
   private gaugeFillEl!: HTMLElement;
   private streaming = false;
   private abort: AbortController | null = null;
+  private currentTurn: { conversationId: string; turnId: string } | null = null;
+  private unregisterCurrentTurn: (() => void) | null = null;
+  private resumeCliSessionId: string | null = null;
   private session: SessionUsage = { ...EMPTY_SESSION };
   /** Usage for the in-flight turn; folded into the session once on completion. */
   private _turnUsage: TokenUsage | null = null;
@@ -411,7 +414,7 @@ export class ChatView extends ItemView {
 
   /** Replace the panel contents with a stored conversation and render it. */
   loadConversation(conversation: Conversation): void {
-    this.abort?.abort();
+    void this.stopCurrentTurn();
     this.streaming = false;
     this.setSending(false);
     this.session = { ...EMPTY_SESSION };
@@ -421,6 +424,7 @@ export class ChatView extends ItemView {
       this.renderEmptyState();
     } else {
       for (const m of this.messages) this.renderStoredMessage(m);
+      if (conversation.activeTurn) this.renderInterruptedTurn(conversation);
     }
     this.updateUsageBar();
     this.scrollToBottom();
@@ -450,7 +454,7 @@ export class ChatView extends ItemView {
 
   /** Clear the panel to its empty state without altering stored history. */
   resetToEmpty(): void {
-    this.abort?.abort();
+    void this.stopCurrentTurn();
     this.streaming = false;
     this.setSending(false);
     this.messages = [];
@@ -537,7 +541,7 @@ export class ChatView extends ItemView {
     this.templateReloadGeneration++;
     this.disposeChrome?.(false);
     this.disposeChrome = null;
-    this.abort?.abort();
+    await this.stopCurrentTurn();
     this.clearThinkingStatus();
     if (this.contextStatusInterval !== null) {
       window.clearInterval(this.contextStatusInterval);
@@ -1258,7 +1262,7 @@ export class ChatView extends ItemView {
 
   private async onSend(): Promise<void> {
     if (this.streaming) {
-      this.abort?.abort();
+      await this.stopCurrentTurn();
       return;
     }
     const text = this.inputEl.value.trim();
@@ -1443,7 +1447,7 @@ export class ChatView extends ItemView {
     this._lastBuffer = ""; // never let a previous turn's partial leak into this one
     void this.refreshBackendPill();
     const router = this.plugin.router();
-    const { provider } = router.chatProvider();
+    const { provider, model } = router.chatProvider();
     const backend = router.chatBackend;
     const caps = router.chatCapabilities();
     if (backend === "claude-cli" && !caps.cli && !router.anthropic.hasCredentials()) {
@@ -1462,12 +1466,42 @@ export class ChatView extends ItemView {
     }
 
     this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
+    let turn: { conversationId: string; turnId: string };
+    try {
+      turn = await this.plugin.beginActiveConversationTurn(this.messages, {
+        backend,
+        model: this.turnModelOverride ?? model,
+        mode: this.currentMode(),
+      });
+    } catch (error) {
+      this.messages.pop();
+      if (this.inputEl) {
+        this.inputEl.value = userText;
+        this.autosizeInput();
+      }
+      new Notice(`Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    this.currentTurn = turn;
+    this.abort = new AbortController();
+    const controller = this.abort;
+    this.unregisterCurrentTurn = this.plugin.registerActiveChatTurn(turn.conversationId, turn.turnId, () => {
+      controller.abort();
+      if (this.currentTurn?.turnId === turn.turnId) {
+        this.currentTurn = null;
+        this.unregisterCurrentTurn = null;
+        this.setSending(false);
+      }
+    });
+    this.setSending(true);
+    this._turnUsage = null;
     this.renderMessage("user", display ?? userText, { command: display !== undefined });
 
     // Agent mode: the model pulls vault context itself via tools. Gated on the
     // provider actually round-tripping tool_use (Claude, and local models whose
     // metadata reports "tools") — local-only setups get the same agent.
     const toolCapable = await router.chatToolCapable();
+    if (controller.signal.aborted) return;
     this.agentCapable = this.plugin.settings.agentModeEnabled && toolCapable;
     this.updateModeControl();
     const agentActive = this.agentCapable;
@@ -1490,7 +1524,11 @@ export class ChatView extends ItemView {
       this.attachedPaths,
       this.attachedPages,
     );
-    const apiMessages: ApiMessage[] = toApiMessages(compactArtifactsInHistory(this.messages));
+    if (controller.signal.aborted) return;
+    // A resumed Claude Code session already owns its history. Sending the whole
+    // conversation again can repeat the interrupted request and duplicate writes.
+    const wireMessages = this.resumeCliSessionId ? this.messages.slice(-1) : compactArtifactsInHistory(this.messages);
+    const apiMessages: ApiMessage[] = toApiMessages(wireMessages);
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
       if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
@@ -1502,6 +1540,7 @@ export class ChatView extends ItemView {
     // see them — textContent() drops non-text blocks on the Ollama path.
     if (this.attachedMedia.length > 0) {
       const blocks = await this.mediaBlocks();
+      if (controller.signal.aborted) return;
       const last = apiMessages[apiMessages.length - 1];
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
@@ -1515,9 +1554,6 @@ export class ChatView extends ItemView {
     }
 
     const { bubble, body } = this.createAssistantBubble();
-    this.setSending(true);
-    this.abort = new AbortController();
-    this._turnUsage = null;
 
     // Attempt #1 on the primary backend (Claude unless backend is "local"/"custom").
     const startedOnLocal = caps.local;
@@ -1538,12 +1574,12 @@ export class ChatView extends ItemView {
         if (err2) {
           // Keep whatever streamed before the failure — persist it like an
           // abort, then append the error below it.
-          this.finishAssistant(this._lastBuffer || null, bubble);
+          await this.finishAssistant(this._lastBuffer || null, bubble, undefined, "interrupted");
           this.renderError(body, err2.message ?? "Request failed", fb.provider.id);
           this.restoreMediaAfterFailure();
         }
       } else {
-        this.finishAssistant(this._lastBuffer || null, bubble);
+        await this.finishAssistant(this._lastBuffer || null, bubble, undefined, "interrupted");
         this.renderError(body, err1.message ?? "Request failed", caps.cli ? "claude-cli" : startedOnLocal ? "ollama" : "anthropic");
         this.restoreMediaAfterFailure();
       }
@@ -1554,9 +1590,9 @@ export class ChatView extends ItemView {
     if (this.streaming) {
       if (this._lastBuffer && hasIncompleteHtmlArtifactFence(this._lastBuffer)) {
         this.renderInterruptedArtifact(body);
-        this.finishAssistant(null, bubble);
+        await this.finishAssistant(null, bubble, undefined, "interrupted");
       } else {
-        this.finishAssistant(this._lastBuffer || null, bubble);
+        await this.finishAssistant(this._lastBuffer || null, bubble, undefined, "interrupted");
       }
     }
   }
@@ -1633,8 +1669,8 @@ export class ChatView extends ItemView {
           onDone: (full) => {
             if (settled) return;
             settled = true;
-            void renderer.finalize(full).then(() => {
-              this.finishAssistant(full, bubble);
+            void renderer.finalize(full).then(async () => {
+              await this.finishAssistant(full, bubble);
               resolve(null);
             }).catch((error: unknown) => {
               resolve({ message: error instanceof Error ? error.message : String(error) });
@@ -1742,7 +1778,12 @@ export class ChatView extends ItemView {
       const message = error instanceof Error ? error.message : String(error);
       return { message, ...(status !== undefined ? { status } : {}) };
     }
-    this.finishAssistant(result.text.trim().length > 0 ? result.text : null, bubble, result.trace);
+    await this.finishAssistant(
+      result.text.trim().length > 0 ? result.text : null,
+      bubble,
+      result.trace,
+      result.aborted ? "interrupted" : "completed",
+    );
     return null;
   }
 
@@ -1751,7 +1792,7 @@ export class ChatView extends ItemView {
     const caps = this.plugin.router().chatCapabilities();
     if (!caps.cli) return providerTurnRunner(deps);
     if (!this.agentCapable) request.tools = [];
-    const conversationId = this.plugin.activeConversationId();
+    const conversationId = this.currentTurn?.conversationId ?? this.plugin.activeConversationId();
     this.abort?.signal.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
     return this.plugin.cliTurnRunner({
       conversationId,
@@ -1759,7 +1800,8 @@ export class ChatView extends ItemView {
       agentMode: this.agentCapable,
       model: request.model,
       deps: { confirmWrite: (b) => this.confirmAgentWrite(b), proposeEdit: (b) => this.proposeAgentEdit(b) },
-      transcript: transcriptText(this.messages.slice(0, -1)),
+      transcript: this.resumeCliSessionId ? "" : transcriptText(this.messages.slice(0, -1)),
+      ...(this.resumeCliSessionId ? { resumeSessionId: this.resumeCliSessionId } : {}),
     });
   }
 
@@ -1930,20 +1972,40 @@ export class ChatView extends ItemView {
     bubble.createDiv({ cls: "cc-agent-notice", text });
   }
 
-  private finishAssistant(full: string | null, bubble: HTMLElement, trace?: ToolTraceEntry[]): void {
+  private async finishAssistant(
+    full: string | null,
+    bubble: HTMLElement,
+    trace?: ToolTraceEntry[],
+    outcome: "completed" | "interrupted" = "completed",
+  ): Promise<void> {
     // Idempotent per bubble: onDone and the abort-safety net can both reach here
     // for the same turn — only the first call commits the message + action bar.
     if (bubble.dataset.ccFinished === "1") return;
     bubble.dataset.ccFinished = "1";
     this.clearThinkingStatus(); // covers no-text / error / abort turns
-    this.setSending(false);
-    this.abort = null;
     if (full && full.trim().length > 0) {
       this.messages.push({ role: "assistant", content: full, ...(trace && trace.length > 0 ? { toolTrace: trace } : {}) });
       this.addAssistantActions(bubble, full);
     }
-    // Persist the turn so the conversation survives a restart (best-effort).
-    void this.plugin.saveActiveConversation(this.messages);
+    const turn = this.currentTurn;
+    try {
+      if (turn) {
+        if (outcome === "completed") await this.plugin.completeActiveConversationTurn(turn.conversationId, turn.turnId, this.messages);
+        else await this.plugin.interruptActiveConversationTurn(turn.conversationId, turn.turnId, this.messages);
+      } else {
+        await this.plugin.saveActiveConversation(this.messages);
+      }
+    } catch (error) {
+      new Notice(`The response is visible, but it could not be saved: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (turn && this.currentTurn?.turnId === turn.turnId) {
+        this.unregisterCurrentTurn?.();
+        this.unregisterCurrentTurn = null;
+        this.currentTurn = null;
+      }
+      this.setSending(false);
+      this.abort = null;
+    }
     // Fold this turn's usage into the session exactly once. The API emits usage
     // on both message_start and message_delta; counting each event would double
     // the request count and inflate output tokens.
@@ -1953,6 +2015,36 @@ export class ChatView extends ItemView {
     }
     this.updateUsageBar();
     this.scrollToBottom();
+  }
+
+  private async stopCurrentTurn(): Promise<void> {
+    const turn = this.currentTurn;
+    if (!turn) {
+      this.abort?.abort();
+      return;
+    }
+    await this.plugin.stopActiveChatTurn(turn.conversationId, turn.turnId);
+  }
+
+  async resumeInterruptedTurn(conversation: Conversation): Promise<void> {
+    const receipt = conversation.activeTurn;
+    if (!receipt || (receipt.state !== "interrupted" && receipt.state !== "failed")) return;
+    this.resumeCliSessionId = receipt.cliSessionId ?? conversation.cliSessionId ?? null;
+    try {
+      await this.run(
+        "Inspect the current vault state, report what the interrupted task already completed, and continue only unfinished work. Do not repeat completed writes.",
+        "Resume interrupted task",
+      );
+    } finally {
+      this.resumeCliSessionId = null;
+    }
+  }
+
+  private renderInterruptedTurn(conversation: Conversation): void {
+    const row = this.messagesEl.createDiv({ cls: "cc-agent-notice cc-interrupted-turn" });
+    row.createSpan({ text: "This task was interrupted. Review any partial changes before resuming." });
+    const resume = row.createEl("button", { text: "Resume", cls: "mod-cta" });
+    resume.addEventListener("click", () => void this.resumeInterruptedTurn(conversation));
   }
 
   // ---------- rendering ----------
