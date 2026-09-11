@@ -3370,6 +3370,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {},
       );
     } catch (error) {
+      this.enrichDiagnostics.log("reindex-flush-rejected", { n: entries.length });
       failures = entries.map(({ path }) => ({ path, error }));
     }
     for (const { path: p, error } of failures) {
@@ -3393,10 +3394,30 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   async activateView(): Promise<ChatView | null> {
     const { workspace } = this.app;
-    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(CHAT_VIEW_TYPE)[0] ?? null;
-    if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
-      if (leaf) await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
+    let leaf: WorkspaceLeaf | null;
+    if (Platform.isMobile) {
+      // Mobile's right split is a drawer, not the full-width main workspace.
+      // Reuse only a Chat leaf outside that drawer so repeated activation keeps
+      // the same conversation without accumulating duplicate main tabs.
+      const rightSplit = workspace.rightSplit;
+      leaf = workspace.getLeavesOfType(CHAT_VIEW_TYPE).find((candidate) => {
+        let parent: unknown = candidate.parent;
+        while (parent) {
+          if (parent === rightSplit) return false;
+          parent = (parent as { parent?: unknown }).parent;
+        }
+        return true;
+      }) ?? null;
+      if (!leaf) {
+        leaf = workspace.getLeaf("tab");
+        await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
+      }
+    } else {
+      leaf = workspace.getLeavesOfType(CHAT_VIEW_TYPE)[0] ?? null;
+      if (!leaf) {
+        leaf = workspace.getRightLeaf(false);
+        if (leaf) await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
+      }
     }
     if (leaf) {
       await workspace.revealLeaf(leaf);
@@ -3705,7 +3726,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const inferred = active ? inferResearchProjectPath(active.path, frontmatter) : undefined;
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)[0] ?? null;
-    if (!leaf) { leaf = workspace.getRightLeaf(false); if (leaf) await leaf.setViewState({ type: RESEARCH_DESK_VIEW_TYPE, active: true }); }
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
+      if (leaf) await leaf.setViewState({ type: RESEARCH_DESK_VIEW_TYPE, active: true });
+    }
     if (leaf?.view instanceof ResearchDeskView) {
       const selected = leaf.view.getProjectPath();
       const next = projectPathForActivation(projectPath, inferred, selected);
@@ -3721,7 +3745,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)[0] ?? null;
     if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
+      leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
       if (leaf) await leaf.setViewState({ type: RESEARCH_WORKBENCH_VIEW_TYPE, active: true });
     }
     if (leaf?.view instanceof ResearchWorkbenchView) {

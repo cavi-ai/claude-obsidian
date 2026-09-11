@@ -76,6 +76,21 @@ describe("ChatView on the claude-cli backend", () => {
     expect(buttons.some((b) => b.getAttribute("aria-label") === "Act on vault" || (b.textContent ?? "").includes("Act on vault"))).toBe(true);
   });
 
+  it("offers Research Desk in the mobile overflow and activates it", () => {
+    const plugin = pluginStub({ chatBackend: "claude-cli" }, CLI, true);
+    plugin.activateResearchDesk = vi.fn();
+    const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
+
+    (view as unknown as { openOverflowMenu(): void }).openOverflowMenu();
+    const item = (getLastOpenedModal()!.contentEl as unknown as FakeElement)
+      .querySelectorAll("button")
+      .find((button) => button.getAttribute("aria-label") === "Research Desk");
+    item?.dispatchEvent({ type: "click" });
+
+    expect(item).toBeDefined();
+    expect(plugin.activateResearchDesk).toHaveBeenCalledTimes(1);
+  });
+
   it("offers Claude Code sign-in on the setup card when the CLI is signed in and no key exists", () => {
     const view = new ChatView(new WorkspaceLeaf(new App()), pluginStub({ chatBackend: "claude", apiKey: "" }, API, true));
     const host = new FakeElement() as unknown as HTMLElement;

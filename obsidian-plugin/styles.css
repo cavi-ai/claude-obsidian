@@ -1277,8 +1277,14 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   align-items: baseline;
   gap: 8px;
   padding: 5px 8px;
+  width: 100%;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
+  font: inherit;
+  text-align: start;
 }
 .cc-slash-item.is-selected { background: var(--cc-surface-raised); }
 /* "@" picker rows: an icon + label + path. */
@@ -1884,7 +1890,12 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
    native body class `.is-mobile`; no container queries (they
    rasterize text — see the responsive note above).
    ============================================================ */
-.is-mobile .cc-root { height: 100%; }
+.is-mobile .workspace-leaf-content .view-content.cc-chat-root {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: hidden;
+  padding: 0 0 max(0px, var(--view-bottom-spacing, var(--safe-area-inset-bottom, 0px)));
+}
 
 /* Header: drop the eyebrow, slim the bar, hide the desktop icon row
    (the mobile build replaces it with a single ⋯ menu — see ChatView). */
@@ -1895,12 +1906,53 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   padding: 8px 12px;
   gap: 8px;
 }
-.is-mobile .cc-title { flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.is-mobile .cc-title { flex: 1 1 auto; flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
 .is-mobile .cc-model {
+  min-width: 0;
   font-size: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.is-mobile .cc-header-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+.is-mobile .cc-header-actions .cc-companion-chrome-activity,
+.is-mobile .cc-header-actions .cc-activity-host {
+  flex: 0 0 44px;
+  width: 44px;
+}
+.is-mobile .cc-header-actions .cc-activity-indicator {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  gap: 4px;
+  padding: 10px 8px 7px;
+}
+.is-mobile .cc-header-actions .cc-activity-indicator::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cc-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cc-accent) 14%, transparent);
+}
+.is-mobile .cc-header-actions .cc-activity-indicator.is-needs-attention::before {
+  background: var(--text-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-error) 14%, transparent);
+}
+.is-mobile .cc-header-actions .cc-activity-indicator-title,
+.is-mobile .cc-header-actions .cc-activity-indicator-state {
+  display: none;
+}
+.is-mobile .cc-header-actions .cc-activity-progress {
+  grid-column: 1;
+  width: 24px;
 }
 /* Model name reads as a tappable control on mobile. */
 .is-mobile .cc-model.cc-model-tappable { cursor: pointer; }
@@ -1935,7 +1987,13 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
    viewport (wide in emulation / a docked panel), so it never fires; .is-mobile does. */
 .is-mobile .cc-empty-examples { grid-template-columns: 1fr; }
 /* Empty state: tighter, no floating-icon drift (decorative at this size). */
-.is-mobile .cc-empty { padding: 16px 18px; gap: 6px; }
+.is-mobile .cc-empty {
+  margin: clamp(16px, 5vh, 40px) auto;
+  padding: 12px 18px;
+  gap: 5px;
+}
+.is-mobile .cc-empty-section-label { margin: 10px 0 4px; }
+.is-mobile .cc-empty-examples { margin-top: 6px; gap: 6px; }
 .is-mobile .cc-empty-icon { animation: none; }
 
 /* Per-message actions: touch-sized but recessive until tapped — persistent
@@ -2066,7 +2124,8 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .is-mobile .cc-context-row,
 .is-mobile .cc-context-close,
 .is-mobile .cc-context-source-action,
-.is-mobile .cc-context-add { min-height: 44px; }
+.is-mobile .cc-context-add,
+.is-mobile .cc-slash-item { min-height: 44px; }
 .is-mobile .cc-context-backdrop {
   display: block;
   position: fixed;

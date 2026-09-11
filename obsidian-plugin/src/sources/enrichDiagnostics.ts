@@ -1,7 +1,7 @@
 // Opt-in phase log for batch enrichment; paths, counts, and phases only — never content.
 export type EnrichPhase =
   | "batch-start" | "item-start" | "response-received" | "write-done"
-  | "reindex-flush-start" | "embed-start" | "embed-done"
+  | "reindex-flush-start" | "reindex-flush-rejected" | "embed-start" | "embed-done"
   | "serialize-start" | "save-start" | "save-done" | "batch-end";
 
 export interface EnrichDiagnosticsDeps {
