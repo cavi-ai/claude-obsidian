@@ -4,6 +4,7 @@ import { App } from "obsidian";
 import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
 import { embedderId } from "../src/semantic/embedder";
+import { EnrichDiagnostics } from "../src/sources/enrichDiagnostics";
 
 type Reindexable = {
   queueReindex(path: string): void;
@@ -59,6 +60,14 @@ describe("reindex suspension", () => {
 
   it("when updateNotes rejects, raises recovery activity per note and resolves without throwing", async () => {
     const { plugin, p, app } = makePlugin();
+    const lines: string[] = [];
+    const diagnostics = new EnrichDiagnostics({
+      append: async (_path, line) => { lines.push(line); },
+      now: () => 1_700_000_000_000,
+      isMobile: false,
+      path: "Claude/enrichment-diagnostics.log",
+    }, () => true);
+    (plugin as unknown as { _enrichDiagnostics: EnrichDiagnostics })._enrichDiagnostics = diagnostics;
     app.vault.create("a.md", "a");
     app.vault.create("b.md", "b");
     p.reindexQueue.add("a.md");
@@ -73,5 +82,10 @@ describe("reindex suspension", () => {
     expect(records[1]?.id).toMatch(/^semantic-index:incremental:/);
     expect(records[0]?.state).toBe("needs-attention");
     expect(records[1]?.state).toBe("needs-attention");
+    await Promise.resolve();
+    expect(lines).toEqual([
+      "2023-11-14T22:13:20.000Z desktop reindex-flush-start n=2\n",
+      "2023-11-14T22:13:20.000Z desktop reindex-flush-rejected n=2\n",
+    ]);
   });
 });
