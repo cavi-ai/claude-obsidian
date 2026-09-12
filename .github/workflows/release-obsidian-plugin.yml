@@ -98,6 +98,7 @@ jobs:
           rsync -a --delete guides/ release-repo/guides/
           cp obsidian-plugin/package.json       release-repo/package.json
           cp obsidian-plugin/pnpm-lock.yaml     release-repo/pnpm-lock.yaml
+          cp obsidian-plugin/pnpm-workspace.yaml release-repo/pnpm-workspace.yaml
           cp obsidian-plugin/tsconfig.json      release-repo/tsconfig.json
           cp obsidian-plugin/vitest.config.ts   release-repo/vitest.config.ts
           cp obsidian-plugin/esbuild.config.mjs release-repo/esbuild.config.mjs
