@@ -6,18 +6,15 @@ import { launchObsidianHarness, setRightSidebarWidth, type ObsidianHarness } fro
 
 const ENABLED = process.env.CC_E2E_CAPTURE === "1";
 const ASSETS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets");
+const PLUGIN_ASSETS = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
 const THEMES = (process.env.CC_E2E_CAPTURE_THEME ?? "both") === "both" ? (["dark", "light"] as const) : [process.env.CC_E2E_CAPTURE_THEME as "dark" | "light"];
 const OUT_ROOT = process.env.CC_E2E_CAPTURE_DIR;
 
-function outputPath(name: string, theme: "dark" | "light"): string {
-  return OUT_ROOT ? join(OUT_ROOT, theme, name) : join(ASSETS, name);
+function outputPath(name: string, theme: "dark" | "light", assetRoot = ASSETS): string {
+  return OUT_ROOT ? join(OUT_ROOT, theme, name) : join(assetRoot, name);
 }
 
-async function shoot(target: Locator | Page, name: string, theme: "dark" | "light"): Promise<void> {
-  const path = outputPath(name, theme);
-  await mkdir(dirname(path), { recursive: true });
-  // A startup Notice (e.g. the secrets migration banner) can still be showing
-  // when a shot is fast; strip any on-screen notices so they never land in frame.
+async function prepareCapture(target: Locator | Page): Promise<Page> {
   const targetPage = "page" in target && typeof (target as Locator).page === "function" ? (target as Locator).page() : (target as Page);
   await targetPage.evaluate(() => {
     document.querySelectorAll(".notice").forEach((n) => n.remove());
@@ -27,12 +24,48 @@ async function shoot(target: Locator | Page, name: string, theme: "dark" | "ligh
       if (el.scrollWidth > el.clientWidth) el.scrollLeft = 0;
     });
   });
-  await target.screenshot({ path, scale: "device", animations: "disabled" });
+  return targetPage;
+}
+
+async function verifyCapture(path: string, name: string): Promise<void> {
   const buf = await readFile(path);
   const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
   const bytes = (await stat(path)).size;
-  expect(width, `${name} width`).toBeLessThanOrEqual(1600 * 2);
+  expect(width, `${name} width`).toBeLessThanOrEqual(1600);
+  expect(height, `${name} height`).toBeLessThanOrEqual(1600);
   expect(bytes, `${name} bytes`).toBeLessThan(1_000_000);
+}
+
+async function shoot(target: Locator | Page, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
+  const path = outputPath(name, theme, assetRoot);
+  await mkdir(dirname(path), { recursive: true });
+  await prepareCapture(target);
+  await target.screenshot({ path, scale: "device", animations: "disabled" });
+  await verifyCapture(path, name);
+}
+
+async function shootThrough(root: Locator, end: Locator, cssHeight: number, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
+  const page = await prepareCapture(root);
+  const rootBox = await root.boundingBox();
+  const endBox = await end.boundingBox();
+  if (!rootBox || !endBox) throw new Error(`Failed to measure ${name}`);
+  expect(endBox.y + endBox.height - rootBox.y + 12, `${name} content must fit its fixed crop`).toBeLessThanOrEqual(cssHeight);
+
+  const path = outputPath(name, theme, assetRoot);
+  await mkdir(dirname(path), { recursive: true });
+  await page.screenshot({
+    path,
+    scale: "device",
+    animations: "disabled",
+    clip: {
+      x: rootBox.x,
+      y: rootBox.y,
+      width: rootBox.width,
+      height: cssHeight,
+    },
+  });
+  await verifyCapture(path, name);
 }
 
 async function run(page: Page, id: string): Promise<void> {
@@ -60,6 +93,27 @@ test.describe("README captures", () => {
     test.describe(theme, () => {
       test.skip(!ENABLED, "set CC_E2E_CAPTURE=1");
       test.skip(theme === "light" && !OUT_ROOT, "README assets are dark");
+
+      test("chat-panel.png", async () => {
+        const reply = "Your research draft is grounded in three reviewed evidence notes. Resolve the stale citation next, then continue drafting.";
+        const harness = await launchObsidianHarness({
+          providerReply: () => reply,
+          settingsOverride: { authMode: "oauthToken", oauthToken: "sk-ant-oat-e2e", chatBackend: "claude", model: "claude-sonnet-5", ollamaHost: "" },
+          theme,
+        });
+        try {
+          const root = await openChat(harness);
+          await widen(harness.page, 520);
+          const input = root.locator("textarea").first();
+          await input.fill("What should I work on next?");
+          await input.press("Enter");
+          const answer = root.locator(".cc-msg.cc-assistant").last();
+          await expect(answer).toContainText(reply, { timeout: 15_000 });
+          await shootThrough(root, answer, 331, "chat-panel.png", theme, PLUGIN_ASSETS);
+        } finally {
+          await harness.close();
+        }
+      });
 
       test("composer-320.png", async () => {
         test.skip(!OUT_ROOT, "composer-320 is a comparison-only scene, not a README asset");
@@ -123,13 +177,15 @@ test.describe("README captures", () => {
           await run(harness.page, "claude-companion:open-research-desk");
           await expect(harness.page.getByRole("heading", { name: "Continuity research" })).toBeVisible();
           const desk = harness.page.locator('.workspace-leaf-content[data-type="claude-research-desk"]');
+          await setRightSidebarWidth(harness.page, 760);
+          await expect.poll(async () => (await desk.boundingBox())?.width ?? 0).toBeCloseTo(760, 0);
           await shoot(desk, "research-desk.png", theme);
         } finally {
           await harness.close();
         }
       });
 
-      test("research-workbench.png", async () => {
+      test("research-workbench-intelligence.png", async () => {
         const harness = await launchObsidianHarness({ theme });
         try {
           // Open the seeded project note first so the workbench infers it as the
@@ -152,21 +208,12 @@ test.describe("README captures", () => {
           await expect(workbench.getByRole("heading", { name: "Continuity research" })).toBeVisible();
           // Widen past the 720px tabs/select container-query threshold so the
           // real tab buttons (not the compact <select>) are visible and clickable.
-          // setRightSidebarWidth()/widen() settle-wait on .cc-chat-root, which
-          // isn't mounted here — resize and wait on the workbench leaf instead.
-          await harness.page.evaluate((size) => {
-            const w = window as unknown as { app: { workspace: { rightSplit: { setSize?(px: number): void; containerEl: HTMLElement }; onLayoutChange(): void } } };
-            const rightSplit = w.app.workspace.rightSplit;
-            if (typeof rightSplit.setSize === "function") rightSplit.setSize(size);
-            else { rightSplit.containerEl.style.width = `${size}px`; rightSplit.containerEl.style.flexBasis = `${size}px`; }
-            w.app.workspace.onLayoutChange();
-          }, 760);
-          await expect.poll(async () => (await workbench.boundingBox())?.width ?? 0).toBeGreaterThan(720);
-          const tabs = workbench.locator('[role="tab"]');
-          if ((await tabs.count()) > 1) {
-            await tabs.nth(1).click();
-          }
-          await shoot(leaf, "research-workbench.png", theme);
+          await setRightSidebarWidth(harness.page, 760);
+          await expect.poll(async () => (await leaf.boundingBox())?.width ?? 0).toBeCloseTo(760, 0);
+          const intelligence = workbench.getByRole("tab", { name: "Intelligence" });
+          await intelligence.click();
+          await expect(workbench.getByRole("heading", { name: "Research intelligence" })).toBeVisible();
+          await shoot(leaf, "research-workbench-intelligence.png", theme);
         } finally {
           await harness.close();
         }
@@ -192,10 +239,11 @@ test.describe("README captures", () => {
       test("local-fallback-indicator.png", async () => {
         const harness = await launchObsidianHarness({
           endpointModels: ["local-model"],
+          endpointReply: "Your vault summary is ready — generated entirely on this device.",
           // ollamaHost is non-empty by default (localhost:11434), so Ollama would
           // otherwise be probed as the fallback candidate ahead of the stub below
           // and, on a machine actually running Ollama, answer instead of it.
-          settingsOverride: { chatBackend: "auto", openaiCompatModel: "local-model", ollamaHost: "" },
+          settingsOverride: { chatBackend: "auto", model: "claude-sonnet-5", openaiCompatModel: "local-model", ollamaHost: "" },
           providerFail: () => 503,
           theme,
         });
@@ -206,23 +254,22 @@ test.describe("README captures", () => {
           await input.fill("Summarize my vault in one line.");
           await input.press("Enter");
           await expect(root.locator(".cc-fallback-note")).toBeVisible({ timeout: 30_000 });
-          // The endpoint stub now actually answers /chat/completions, so the local
-          // retry succeeds — no error card, just the fallback note and its reply.
-          await expect(root.locator(".cc-msg.cc-assistant").last()).toContainText("Answered locally by the endpoint stub.", { timeout: 15_000 });
+          const answer = root.locator(".cc-msg.cc-assistant").last();
+          await expect(answer).toContainText("generated entirely on this device", { timeout: 15_000 });
           await expect(root.locator(".cc-error")).toHaveCount(0);
-          await shoot(root, "local-fallback-indicator.png", theme);
+          await shootThrough(root, answer, 376, "local-fallback-indicator.png", theme);
         } finally {
           await harness.close();
         }
       });
 
       test("agent-tool-chips.png", async () => {
-        const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true }, theme });
+        const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true, model: "claude-sonnet-5" }, theme });
         try {
           const root = await openChat(harness);
           await widen(harness.page, 420);
           const input = root.locator("textarea").first();
-          await input.fill("Show me the chips: search the vault for Continuity.");
+          await input.fill("Find my Continuity research project and summarize it.");
           await input.press("Enter");
           const chips = root.locator(".cc-tool-chip");
           await expect(chips).toHaveCount(2, { timeout: 30_000 });
@@ -240,33 +287,8 @@ test.describe("README captures", () => {
             }
             window.scrollTo(0, 0);
           });
-          const rootBox = await root.boundingBox();
           const bubble = root.locator(".cc-msg.cc-assistant").last();
-          const bubbleBox = await bubble.boundingBox();
-          if (!rootBox || !bubbleBox) throw new Error("Failed to get bounding boxes");
-          const path = outputPath("agent-tool-chips.png", theme);
-          await mkdir(dirname(path), { recursive: true });
-          // A startup Notice (e.g. the secrets migration banner) can still be showing
-          // when a shot is fast; strip any on-screen notices so they never land in frame.
-          await harness.page.evaluate(() => {
-            document.querySelectorAll(".notice").forEach((n) => n.remove());
-          });
-          await harness.page.screenshot({
-            clip: {
-              x: rootBox.x,
-              y: rootBox.y,
-              width: rootBox.width,
-              height: bubbleBox.y + bubbleBox.height - rootBox.y + 12,
-            },
-            path,
-            scale: "device",
-            animations: "disabled",
-          });
-          const buf = await readFile(path);
-          const width = buf.readUInt32BE(16);
-          const bytes = (await stat(path)).size;
-          expect(width, "agent-tool-chips.png width").toBeLessThanOrEqual(1600 * 2);
-          expect(bytes, "agent-tool-chips.png bytes").toBeLessThan(1_000_000);
+          await shootThrough(root, bubble, 450, "agent-tool-chips.png", theme);
         } finally {
           await harness.close();
         }

@@ -45,6 +45,8 @@ export interface ObsidianHarnessOptions {
    * point `openaiCompatHost` at it (LM Studio / mlx-lm / vLLM stand-in).
    */
   endpointModels?: string[];
+  /** Product-real reply copy for an OpenAI-compatible endpoint scene. */
+  endpointReply?: string;
   /** Relaunch on a previous harness's vault + profile without re-seeding. */
   reuse?: { vault: string; profile: string };
   /** Answer a provider request by its raw body; null falls through to the default payload. */
@@ -137,9 +139,8 @@ async function openSettingsSurface(context: BrowserContext, page: Page, tabId: s
 
 /**
  * Resize the right sidebar (where the chat pane docks) to `px` for narrow-pane
- * layout tests. Prefers `rightSplit.setSize`; falls back to a direct style set
- * for Obsidian builds that lack it. Waits for `.cc-chat-root` to settle within
- * `px + 20`.
+ * layout tests. Prefers `rightSplit.setSize`, then pins the split's CSS width so
+ * repeated documentation captures cannot inherit a previous workspace size.
  */
 export async function setRightSidebarWidth(page: Page, px: number): Promise<void> {
   await page.evaluate((size) => {
@@ -154,18 +155,21 @@ export async function setRightSidebarWidth(page: Page, px: number): Promise<void
     const rightSplit = w.app.workspace.rightSplit;
     if (typeof rightSplit.setSize === "function") {
       rightSplit.setSize(size);
-    } else {
-      rightSplit.containerEl.style.width = `${size}px`;
-      rightSplit.containerEl.style.flexBasis = `${size}px`;
     }
+    rightSplit.containerEl.style.width = `${size}px`;
+    rightSplit.containerEl.style.minWidth = `${size}px`;
+    rightSplit.containerEl.style.maxWidth = `${size}px`;
+    rightSplit.containerEl.style.flex = `0 0 ${size}px`;
+    rightSplit.containerEl.style.flexBasis = `${size}px`;
     w.app.workspace.onLayoutChange();
   }, px);
   await page.waitForFunction(
-    (maxWidth) => {
-      const width = document.querySelector(".cc-chat-root")?.getBoundingClientRect().width;
-      return typeof width === "number" && width <= maxWidth;
+    (expectedWidth) => {
+      const split = document.querySelector<HTMLElement>(".workspace-split.mod-right-split");
+      const width = split?.getBoundingClientRect().width;
+      return typeof width === "number" && Math.abs(width - expectedWidth) <= 0.5;
     },
-    px + 20,
+    px,
     { timeout: 5_000 },
   );
 }
@@ -275,7 +279,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
   let requests = 0;
   const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
-  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const status = options.providerFail?.(body) ?? null; if (status !== null) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `stubbed ${status}` } })); return; } const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
+  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const status = options.providerFail?.(body) ?? null; if (status !== null) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `stubbed ${status}` } })); return; } const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { if (/"stream"\s*:\s*true/.test(body)) { response.writeHead(200, { "content-type": "text/event-stream" }); response.write(`data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`); response.write(`data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`); response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`); return; } response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
   // OpenAI-compatible endpoint stub: /v1/models for the pickers, /v1/chat/completions
@@ -284,7 +288,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   let endpointPort: number | null = null;
   if (options.endpointModels) {
     const ids = options.endpointModels;
-    const endpointReply = "Answered locally by the endpoint stub.";
+    const endpointReply = options.endpointReply ?? "Answered locally by the endpoint stub.";
     endpoint = createServer((request, response) => {
       // stream() (unlike listModels()/complete(), which go through Obsidian's
       // requestUrl) calls the real browser fetch(), so a JSON POST triggers a
@@ -400,7 +404,7 @@ case "$*" in
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
           trap '' INT TERM
           while :; do sleep 1; done ;;
-        *chips*)
+        *"Continuity research"*)
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
           printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__obsidian-vault__vault_search","input":{"query":"Continuity"}}]}}\\n'
           printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Research/Alpha/Project.md — Continuity research"}]}}\\n'

@@ -11,9 +11,7 @@ search embeds on device. Your vault stays the single source of truth.
 [![Obsidian downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-![The Companion for Claude side-panel chat, with vault context attached to the conversation](assets/chat-panel.png)
-
-<!-- screenshots wanted: session-to-note.png, chat-controls.png — see assets/CAPTURE.md in the mirror repo -->
+![The Companion for Claude side-panel chat with a completed vault-grounded answer](assets/chat-panel.png)
 
 > **Choose how Claude runs.** On desktop, Companion can use the installed,
 > signed-in Claude Code CLI for subscription-backed chat without storing an API
@@ -49,9 +47,11 @@ search embeds on device. Your vault stays the single source of truth.
 - **First-run in seconds** — an unconfigured vault shows an in-chat **Connect to
   Claude** card; use a detected Claude Code sign-in on desktop or paste an API
   key, without losing the message you already typed.
-- **Errors don't lose work** — if a turn fails mid-stream, the partial reply is
-  kept and a **Retry** appears; a truncated reply offers **retry with a higher
-  limit**; attachments survive failed sends and Regenerate.
+- **Errors and restarts don't lose work** — the request and partial reply are
+  persisted before a model turn starts. If the app closes mid-turn, the saved
+  conversation restores it as stopped work with **Retry**; a truncated reply
+  offers **retry with a higher limit**, and attachments survive failed sends
+  and Regenerate.
 - **Continue the active workspace** — empty Chat surfaces one relevant card for
   the active note or research project. Research Desk and Workbench can hand the
   canonical project back to Companion without sending a request automatically;
@@ -240,10 +240,6 @@ with confirm-before-write guardrails.
   pulled over HTTPS — the agent path that works from a phone, where the local
   bridge can't run. Experimental (Anthropic's Routines API is in beta); setup
   is a guided checklist under *Agent in the cloud* in settings.
-
-| ![A prioritized roadmap artifact generated from the vault](assets/manifest-roadmap.png) | ![A generated working map of the vault](assets/working-map.png) |
-|---|---|
-| *A prioritized roadmap artifact, produced by an advisor persona surveying the vault over the bridge.* | *A generated working map — a canvas-style overview built from real notes.* |
 
 ### Typed sources & ontology (on by default)
 

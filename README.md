@@ -16,11 +16,9 @@ included; semantic search embeds on device and never leaves your machine.
 
 **Open source · MIT · Claude Code sign-in, API key, or fully local with Ollama · on-device search**
 
-<!-- hero: assets/hero-daily-rollup.gif — pending capture, see assets/CAPTURE.md -->
-
 | Chat with your vault | Interactive artifacts |
 |---|---|
-| ![Companion chat panel with vault context](obsidian-plugin/assets/chat-panel.png) | ![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png) |
+| ![Companion chat panel with a completed vault-grounded answer](obsidian-plugin/assets/chat-panel.png) | ![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png) |
 
 ---
 
@@ -41,8 +39,10 @@ the vault, both off by default and per-call confirmed.
 On desktop, Companion can run chat through the installed, signed-in `claude`
 command, so Claude subscribers do not need to create or store an API key. Each
 saved conversation resumes its own CLI session, and agent writes keep the same
-per-action confirmation as every other backend. Direct API, local Ollama, and
-OpenAI-compatible backends remain available.
+per-action confirmation as every other backend. If the app closes during a
+turn, the request and partial response remain in that conversation as stopped
+work with a Retry action. Direct API, local Ollama, and OpenAI-compatible
+backends remain available.
 
 ![Agent mode: vault_search and note_read tool chips, one expanded to show its result](assets/agent-tool-chips.png)
 
@@ -62,8 +62,6 @@ read-only tools and ends in a proposed plan.
 Claude emits a `claude-html` block; Companion renders it inline in a sandboxed
 iframe with no vault, network, or cookie access. Open it in a browser or save it
 as a note. → [artifacts.md](guides/artifacts.md)
-
-![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png)
 
 ### Research Desk and Workbench
 
@@ -101,13 +99,11 @@ arXiv, **Zotero**, or the vault.
 
 ### Local models
 
-The Auto chat backend falls back to a local Ollama model when Claude is offline
-or out of usage; Local only runs every request on Ollama — **including the
-agent**, on models whose metadata reports tool support. Settings badge every
-detected model with its tools/thinking capabilities, and a composer indicator
-shows when the current backend reasons before answering. Semantic search uses a
-built-in on-device embedding model on desktop and mobile — and also indexes
-**vault PDFs**, keeping page locators in every result.
+Auto starts with Claude and falls back to a reachable local model when Claude is
+offline, rate-limited, or unavailable. Local only stays on Ollama, including
+agent mode when the selected model reports tool support. Semantic search uses a
+built-in on-device embedding model on desktop and mobile, including vault PDFs
+with page locators retained in results.
 → [local-models.md](guides/local-models.md)
 
 ![Chat on the Auto backend after a Claude failure, showing the local-model fallback note](assets/local-fallback-indicator.png)
