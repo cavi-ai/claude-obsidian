@@ -2105,7 +2105,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.convState = previousState;
       throw error;
     }
-    this.activity.finish(this.chatActivityId(conversationId), { currentItem: "Response saved" });
+    this.activity.dismiss(this.chatActivityId(conversationId));
   }
 
   async interruptActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[], error = "Interrupted"): Promise<void> {

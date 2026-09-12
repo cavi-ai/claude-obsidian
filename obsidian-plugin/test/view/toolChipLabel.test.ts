@@ -65,22 +65,22 @@ describe("formatToolArgs", () => {
 });
 
 describe("chipLabel", () => {
-  it("joins the bare tool name and its formatted args with an em dash", () => {
-    expect(chipLabel("vault_search", { query: "Continuity" })).toBe('vault_search — "Continuity"');
-    expect(chipLabel("note_read", { path: "Research/Alpha/Project.md" })).toBe("note_read — Research/Alpha/Project.md");
+  it("uses human labels and concise note names for built-in tools", () => {
+    expect(chipLabel("vault_search", { query: "Continuity" })).toBe('Search vault — "Continuity"');
+    expect(chipLabel("note_read", { path: "Research/Alpha/Project.md" })).toBe("Read note — Project");
   });
 
   it("omits the dash and args entirely when there is nothing to show", () => {
-    expect(chipLabel("note_read", {})).toBe("note_read");
+    expect(chipLabel("note_read", {})).toBe("Read note");
   });
 
   it("shows the path for propose_note_edit, ignoring the edits array", () => {
-    expect(chipLabel("propose_note_edit", { path: "Build plan.md", edits: [] })).toBe("propose_note_edit — Build plan.md");
+    expect(chipLabel("propose_note_edit", { path: "Build plan.md", edits: [] })).toBe("Propose edit — Build plan");
   });
 
   it("strips the chat-bridge's own mcp__obsidian-vault__ prefix for display", () => {
-    expect(chipLabel("mcp__obsidian-vault__vault_search", { query: "x" })).toBe('vault_search — "x"');
-    expect(chipLabel("mcp__obsidian-vault__note_read", {})).toBe("note_read");
+    expect(chipLabel("mcp__obsidian-vault__vault_search", { query: "x" })).toBe('Search vault — "x"');
+    expect(chipLabel("mcp__obsidian-vault__note_read", {})).toBe("Read note");
   });
 
   it("leaves a user-configured external MCP server's namespaced name intact", () => {
@@ -92,10 +92,10 @@ describe("chipLabel", () => {
   });
 
   it("shows a truncated JSON string verbatim when it cannot be parsed", () => {
-    expect(chipLabel("note_read", '{"path":"Research/Alpha/Proj…')).toBe("note_read — {\"path\":\"Research/Alpha/Proj…");
+    expect(chipLabel("note_read", '{"path":"Research/Alpha/Proj…')).toBe("Read note — {\"path\":\"Research/Alpha/Proj…");
   });
 
   it("returns tool name only when given an empty string input", () => {
-    expect(chipLabel("vault_search", "")).toBe("vault_search");
+    expect(chipLabel("vault_search", "")).toBe("Search vault");
   });
 });

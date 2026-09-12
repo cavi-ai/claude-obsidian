@@ -554,7 +554,7 @@ export class ChatView extends ItemView {
     const { model: resolvedModel } = this.plugin.router().chatProvider();
     const caps = this.plugin.router().chatCapabilities();
     const chosen = modelLabel(this.controls?.model ?? this.plugin.settings.model);
-    const label = caps.local ? `${modelLabel(resolvedModel)} · local` : caps.cli ? `${chosen} · Claude Code` : chosen;
+    const label = caps.local ? `${modelLabel(resolvedModel)} · local` : chosen;
     this.modelLabelEl.setText(label);
     if (this.usageEl) this.updateUsageBar();
   }

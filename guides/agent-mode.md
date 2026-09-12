@@ -27,7 +27,7 @@ arguments, and a preview of what came back (green for success, flagged for error
 Chips are recorded with the conversation, so reopening an old chat shows the same
 trace.
 
-<!-- screenshot: ../assets/agent-tool-chips.png — pending capture -->
+![Agent mode showing vault search and note read tool calls, with one result expanded](../assets/agent-tool-chips.png)
 
 ## What Claude can do
 
@@ -109,7 +109,7 @@ open, Companion renders word-level additions and removals directly in the
 editor with per-hunk controls; otherwise it opens the red/green review modal.
 Only accepted hunks are written, and Claude is told which ones those were.
 
-<!-- screenshot: ../assets/diff-review.png — pending capture -->
+![Per-hunk edit review with independent accept and reject controls](../assets/diff-review.png)
 
 `propose_note_edit` is not classified as a write tool, so it remains available
 with *Allow write tools* off. Each replacement must match the note exactly once,

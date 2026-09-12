@@ -93,4 +93,19 @@ describe("mobile chat interactions", () => {
 
     expect((view as unknown as { modelLabelEl: FakeElement }).modelLabelEl.textContent).toBe("Qwen2.5 Coder:7b · local");
   });
+
+  it("does not repeat the Claude Code backend in the model label", () => {
+    const plugin = pluginStub();
+    plugin.router = () => ({
+      chatProvider: () => ({ provider: { id: "claude-cli" }, model: DEFAULT_SETTINGS.model }),
+      chatCapabilities: () => ({ agentActions: true, claudeControls: false, metered: false, local: false, cli: true }),
+    }) as unknown as ClaudeCompanionPlugin["router"];
+    const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
+    (view as unknown as { controls: { model: string }; modelLabelEl: FakeElement }).controls = { model: DEFAULT_SETTINGS.model };
+    (view as unknown as { modelLabelEl: FakeElement }).modelLabelEl = new FakeElement();
+
+    view.refreshModelLabel();
+
+    expect((view as unknown as { modelLabelEl: FakeElement }).modelLabelEl.textContent).toBe("Claude Sonnet 5");
+  });
 });

@@ -5,6 +5,20 @@ const TEXT_MAX = 80;
 
 const QUERY_TOOLS = new Set(["vault_search", "web_search"]);
 const PATH_TOOLS = new Set(["note_read", "note_append", "note_update", "note_patch", "get_backlinks", "get_outgoing_links", "note_move", "propose_note_edit"]);
+const TOOL_LABELS: Record<string, string> = {
+  vault_search: "Search vault",
+  note_read: "Read note",
+  note_create: "Create note",
+  note_append: "Append to note",
+  note_update: "Update note",
+  note_patch: "Update note",
+  propose_note_edit: "Propose edit",
+  get_backlinks: "Find backlinks",
+  get_outgoing_links: "Find outgoing links",
+  note_move: "Move note",
+  web_search: "Search web",
+  web_fetch: "Read webpage",
+};
 
 function cap(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
@@ -77,7 +91,18 @@ export function formatToolArgs(name: string, input: unknown): string {
  *  Strips the chat-bridge's own MCP prefix so it reads as the bare tool name;
  *  user-configured external MCP servers keep their `mcp__<server>__` names. */
 export function chipLabel(name: string, input: unknown): string {
-  const label = stripCliToolName(name);
-  const args = formatToolArgs(name, input);
+  const bare = stripCliToolName(name);
+  const label = bare.startsWith("mcp__")
+    ? bare
+    : TOOL_LABELS[bare] ?? bare.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+  let args = formatToolArgs(name, input);
+  if (PATH_TOOLS.has(bare)) {
+    let parsed = input;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { /* keep the diagnostic fallback */ }
+    }
+    const path = field(parsed, "path");
+    if (path) args = path.split("/").at(-1)?.replace(/\.md$/i, "") ?? args;
+  }
   return args ? `${label} — ${args}` : label;
 }
