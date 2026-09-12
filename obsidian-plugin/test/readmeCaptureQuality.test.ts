@@ -33,8 +33,8 @@ const captures: CaptureContract[] = [
   },
   {
     path: join(plugin, "..", "assets", "agent-tool-chips.png"),
-    width: 840,
-    height: 900,
+    width: 1040,
+    height: 952,
     maxHeightToWidth: 1.25,
   },
   {

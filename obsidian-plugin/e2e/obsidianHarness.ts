@@ -404,14 +404,14 @@ case "$*" in
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
           trap '' INT TERM
           while :; do sleep 1; done ;;
-        *"Continuity research"*)
+        *"weakens my continuity claim"*)
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
-          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__obsidian-vault__vault_search","input":{"query":"Continuity"}}]}}\\n'
-          printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Research/Alpha/Project.md — Continuity research"}]}}\\n'
-          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__obsidian-vault__note_read","input":{"path":"Research/Alpha/Project.md"}}]}}\\n'
-          printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"# Continuity research"}]}}\\n'
-          printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Found the Continuity research project."}}}\\n'
-          printf '{"type":"result","subtype":"success","result":"Found the Continuity research project.","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n' ;;
+          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__obsidian-vault__vault_search","input":{"query":"challenges continuity claim"}}]}}\\n'
+          printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Research/Alpha/Evidence/Challenge.md — proposed evidence"}]}}\\n'
+          printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__obsidian-vault__note_read","input":{"path":"Research/Alpha/Evidence/Challenge.md"}}]}}\\n'
+          printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"> Continuity varies by workflow.\\\\n\\\\nLocator: p. 8 · Review: proposed"}]}}\\n'
+          printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Your weakest point is scope: the evidence says continuity varies by workflow, so “provenance preserves continuity” is too absolute. Narrow the claim to the workflows where source links remain intact, then review the proposed evidence on page 8."}}}\\n'
+          printf '{"type":"result","subtype":"success","result":"Your weakest point is scope: the evidence says continuity varies by workflow, so “provenance preserves continuity” is too absolute. Narrow the claim to the workflows where source links remain intact, then review the proposed evidence on page 8.","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n' ;;
         *)
           printf '{"type":"system","subtype":"init","session_id":"e2e-session","model":"e2e","tools":[],"mcp_servers":[{"name":"obsidian-vault","status":"connected"}]}\\n'
           printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong from claude code"}}}\\n'

@@ -249,7 +249,7 @@ test.describe("README captures", () => {
         });
         try {
           const root = await openChat(harness);
-          await widen(harness.page, 420);
+          await widen(harness.page, 520);
           const input = root.locator("textarea").first();
           await input.fill("Summarize my vault in one line.");
           await input.press("Enter");
@@ -267,13 +267,13 @@ test.describe("README captures", () => {
         const harness = await launchObsidianHarness({ claudeCli: true, settingsOverride: { agentModeEnabled: true, model: "claude-sonnet-5" }, theme });
         try {
           const root = await openChat(harness);
-          await widen(harness.page, 420);
+          await widen(harness.page, 520);
           const input = root.locator("textarea").first();
-          await input.fill("Find my Continuity research project and summarize it.");
+          await input.fill("Which evidence weakens my continuity claim?");
           await input.press("Enter");
           const chips = root.locator(".cc-tool-chip");
           await expect(chips).toHaveCount(2, { timeout: 30_000 });
-          await chips.first().locator("summary").click();
+          await chips.nth(1).locator("summary").click();
           // Crop to the transcript only: from top of .cc-chat-root down to bottom
           // of last assistant bubble, excluding the composer.
           // Hide the composer so nothing overflows and causes horizontal scroll offset.
@@ -288,7 +288,7 @@ test.describe("README captures", () => {
             window.scrollTo(0, 0);
           });
           const bubble = root.locator(".cc-msg.cc-assistant").last();
-          await shootThrough(root, bubble, 450, "agent-tool-chips.png", theme);
+          await shootThrough(root, bubble, 476, "agent-tool-chips.png", theme);
         } finally {
           await harness.close();
         }

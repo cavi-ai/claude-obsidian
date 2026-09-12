@@ -77,6 +77,7 @@ describe("plugin durable Chat turn lifecycle", () => {
     expect(plugin.getActiveConversation()).toMatchObject({ messages: [...messages, { role: "assistant", content: "Done" }] });
     expect(plugin.getActiveConversation()?.activeTurn).toBeUndefined();
     expect(saves.at(-1)).toMatchObject({ conversations: [{ messages: [...messages, { role: "assistant", content: "Done" }] }] });
+    expect(plugin.activity.snapshot().records).toEqual([]);
   });
 
   it("routes global Activity stop and resume actions to the exact conversation", async () => {
