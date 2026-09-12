@@ -1,213 +1,154 @@
-# claude-obsidian
+# Companion for Claude
 
-**Cowork with Claude inside your [Obsidian](https://obsidian.md) vault.** Chat
-with your notes as context, let Claude work the vault with its own tools, render
-interactive artifacts inline, and drive the *same* vault from Claude Code. Run it
-on your Claude Code sign-in, an API key, or fully local with Ollama, agent
-included; semantic search embeds on device and never leaves your machine.
+**Cowork with Claude inside your Obsidian vault.** Your notes stay the context,
+memory, and output while Claude searches, reasons, drafts, and helps you move
+work forward.
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
 [![Obsidian downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[**▶ Install the Obsidian plugin**](obsidian://show-plugin?id=claude-companion)
- · [**Add portable agent workflows**](#getting-it)
- · [Latest release](https://github.com/cavi-ai/companion-for-claude/releases/latest)
+[**Install Companion for Claude**](https://obsidian.md/plugins?id=claude-companion)
+· [Quick start](#quick-start)
+· [Read the guides](#guides)
 
-**Open source · MIT · Claude Code sign-in, API key, or fully local with Ollama · on-device search**
-
-| Chat with your vault | Interactive artifacts |
-|---|---|
-| ![Companion chat panel with a completed vault-grounded answer](obsidian-plugin/assets/chat-panel.png) | ![A claude-html artifact rendered inline](obsidian-plugin/assets/artifact-inline.png) |
-
----
-
-## What it does
-
-### Agent mode
-
-Claude searches, reads, and follows links across the vault while answering, each
-step shown as a tool chip. Write tools require per-action confirmation. The same
-agent runs **fully local** on a tool-capable Ollama model (llama3.1, qwen3) —
-the composer tells you when the selected model lacks tool support. Optional
-**web search & fetch** tools and **external MCP servers** extend the agent past
-the vault, both off by default and per-call confirmed.
-→ [agent-mode.md](guides/agent-mode.md)
-
-### Claude Code chat backend
-
-On desktop, Companion can run chat through the installed, signed-in `claude`
-command, so Claude subscribers do not need to create or store an API key. Each
-saved conversation resumes its own CLI session, and agent writes keep the same
-per-action confirmation as every other backend. If the app closes during a
-turn, the request and partial response remain in that conversation as stopped
-work with a Retry action. Direct API, local Ollama, and OpenAI-compatible
-backends remain available.
-
-![Agent mode: vault_search and note_read tool chips, one expanded to show its result](assets/agent-tool-chips.png)
-
-### Diff-reviewed edits
-
-When the target note is open, proposed edits render directly in the editor as
-word-level changes with accept/reject controls for each hunk. Other edits fall
-back to the red/green review modal. Inline rewrites use the same review path:
-select text → *Rewrite selection with Claude…*. Plan Mode restricts a turn to
-read-only tools and ends in a proposed plan.
-→ [agent-mode.md](guides/agent-mode.md#editing-notes-diffs-not-writes)
-
-![Per-hunk diff review of a proposed edit, with accept and reject controls](assets/diff-review.png)
-
-### Interactive artifacts
-
-Claude emits a `claude-html` block; Companion renders it inline in a sandboxed
-iframe with no vault, network, or cookie access. Open it in a browser or save it
-as a note. → [artifacts.md](guides/artifacts.md)
-
-### Research Desk and Workbench
-
-Sources → evidence → claims → outline → draft → assurance, stored as Markdown
-notes. Only reviewed, locatable, non-stale evidence counts as claim support.
-Draft revisions are validated before preview and reject unsupported citations.
-→ [research-workbench.md](guides/research-workbench.md)
-
-![Research Desk with the current stage and the next action for a project](assets/research-desk.png)
-
-### Optional MCP bridge
-
-Companion runs a loopback-only, token-gated MCP server over the live vault. The
-bridge is a specialized integration for explicitly configured MCP clients; it
-is separate from the CLI-only `obsidian-agent` plugin. The client direction
-works too: the agent can consume **external MCP servers** (HTTP or stdio) from
-chat, each call confirmed — Companion is the two-way hub.
-→ [claude-code-bridge.md](guides/claude-code-bridge.md)
-
-![MCP server settings: enabled, port 22360, masked token, running status](assets/mcp-bridge-settings.png)
-
-### Sources, clippings & research import
-
-A watched clippings inbox auto-enriches new clips with typed frontmatter
-(title, tags, summary — works on a thinking-free local utility call, so bulk
-ingest stays cheap and reliable) without replacing the clip body or existing
-metadata. After enrichment, **Review all links** collects every suggested
-wikilink into one Git-style review: a collapsed accordion per note, with
-note-level and per-hunk selection before the accepted set is written. The
-**Organize clippings** command takes the existing pile: meaningful renames,
-tags, and an LLM-inferred domain/project folder per clip, shown as a reviewable
-move plan before anything is filed. Research sources import from web, PDF, DOI,
-arXiv, **Zotero**, or the vault.
-→ [research-workbench.md](guides/research-workbench.md)
-
-### Local models
-
-Auto starts with Claude and falls back to a reachable local model when Claude is
-offline, rate-limited, or unavailable. Local only stays on Ollama, including
-agent mode when the selected model reports tool support. Semantic search uses a
-built-in on-device embedding model on desktop and mobile, including vault PDFs
-with page locators retained in results.
-→ [local-models.md](guides/local-models.md)
-
-![Chat on the Auto backend after a Claude failure, showing the local-model fallback note](assets/local-fallback-indicator.png)
+![Companion giving a grounded next action from the active research project](obsidian-plugin/assets/chat-panel.png)
 
 ## Quick start
 
-1. **Install** — *Settings → Community plugins → Browse → "Companion for Claude" → Install → Enable*, or [open it in Obsidian](obsidian://show-plugin?id=claude-companion).
-2. **Connect Claude** — on desktop, choose **Use Claude Code sign-in** when the installed `claude` command is signed in. On any device, you can instead paste an [Anthropic API key](https://console.anthropic.com/settings/keys) in *Settings → Companion for Claude → Connection* and click **Save & test connection**.
-3. **Ask something** — open the Companion panel, toggle the `Context` chip for your active note, and ask a question about it.
+1. In Obsidian, open **Settings → Community plugins → Browse**, search for
+   **Companion for Claude**, then install and enable it.
+2. Open Companion and choose how Claude runs: your signed-in Claude Code CLI on
+   desktop, an Anthropic API key on any device, or a local model.
+3. Open a note, turn on the **Note** context chip, and ask Claude what to work on
+   next.
 
-## Guides
+[Full setup guide →](guides/getting-started.md)
 
-- [Getting started](guides/getting-started.md) — install, key, first chat, first artifact
-- [Agent mode](guides/agent-mode.md) — the tool loop, the tools, the guardrails
-- [Artifacts](guides/artifacts.md) — `claude-html` blocks and the sandbox model
-- [Research Desk & Workbench](guides/research-workbench.md) — evidence-backed writing end to end
-- [The Claude Code bridge](guides/claude-code-bridge.md) — MCP setup and full tool reference
-- [Local models & semantic search](guides/local-models.md) — Ollama fallback and on-device embeddings
-- [Authentication & cost](guides/auth.md) — Claude Code sign-in, direct API credentials, caching, key safety
-- [Architecture](guides/architecture.md) — module map, testability, bundling, security
-- [FAQ](guides/faq.md) — cost, privacy, mobile, troubleshooting
+## One vault. One continuous workflow.
 
----
+Companion is built for work that develops across many notes and many sessions.
+It keeps the live vault at the center instead of copying your knowledge into a
+separate chat product.
 
-## Products and integrations
+### Understand the vault
 
-| Path | What it is | Ships to |
-|---|---|---|
-| [`obsidian-plugin/`](obsidian-plugin/) | **Companion for Claude** — the Obsidian community plugin: chat with agent mode, diff-reviewed edits, vault context with PDF/image attachments, link suggestions, consolidated memory, native Canvas/Bases output, inline `claude-html` artifacts, prompt caching, local-model fallback, and the MCP bridge. | Obsidian community store |
-| [`claude-plugin/`](https://github.com/cavi-ai/obsidian-agent) | **obsidian-agent** — universal workflows for Claude, Codex, Gemini, OpenCode, and AgentSkills hosts over the official Obsidian CLI. It has no Companion or MCP dependency. The compatibility-named path is a pinned submodule; see its [README](https://github.com/cavi-ai/obsidian-agent#readme). | [`cavi-ai/plugins`](https://github.com/cavi-ai/plugins) and native host packages |
-| [`upstream/html-effectiveness/`](upstream/) | Thariq Shihipar's ["unreasonable effectiveness of HTML"](https://github.com/ThariqS/html-effectiveness) gallery, vendored as a **pinned, unmodified submodule** (its own Apache-2.0 license). See [`NOTICE`](NOTICE). | — |
-| [`upstream/obsidian-skills/`](upstream/) | Steph Ango's (@kepano) [Obsidian Skills](https://github.com/kepano/obsidian-skills), vendored the same way (its own MIT license) and used as the format reference for the Bases, Canvas, and Obsidian-Flavored-Markdown emitters. See [`NOTICE`](NOTICE). | — |
+Chat with the active note, a selection, linked notes, folders, PDFs, images, or
+the whole vault. In agent mode, Claude can search, read, and follow links as it
+works; every tool step stays visible. Keyword and on-device semantic search make
+the same material discoverable without sending an embedding index away.
 
-```mermaid
-flowchart LR
-    companion["Companion for Claude<br/>Obsidian plugin<br/>chat + artifacts · runs the MCP server"]
-    bridge(["Loopback MCP bridge<br/>127.0.0.1 · bearer token · port 22360<br/>11 reads · 16 write-gated tools"])
-    agent["obsidian-agent<br/>cross-host plugin<br/>official Obsidian CLI"]
-    client["Optional MCP clients"]
+[Explore context and agent mode →](guides/agent-mode.md)
 
-    companion <-->|"exposes vault tools"| bridge
-    client <-->|"specialized live-vault integration"| bridge
-    agent -->|"independent portable workflows"| cli["Official Obsidian CLI"]
-```
+### Research and write with continuity
 
-Eleven read/audit tools are available when the default ontology is enabled.
-Sixteen mutations require *Allow writes*. Optional **web_search** and
-**web_fetch** join the read set when
-enabled. In agent mode, writes also keep their per-action confirmation.
+The Research Desk carries a project from sources to evidence, claims, outline,
+draft, and assurance. Evidence keeps its source locator and fingerprint, and
+only reviewed, current evidence counts as trusted support. The vault remains
+the readable source of truth at every stage.
 
-## Getting it
+<p align="center">
+  <img src="assets/research-desk.png" width="760" alt="Research Desk showing a project's stage, next action, document progress, and attention queue">
+</p>
 
-**Install the Obsidian plugin (Companion for Claude)** — *Settings → Community
-plugins → Browse → search "Companion for Claude" → Install → Enable*, or
-[open it in Obsidian](obsidian://show-plugin?id=claude-companion).
+[See the research workflow →](guides/research-workbench.md)
 
-**Install the universal Obsidian agent plugin for Claude Code** — enable the
-official CLI in Obsidian 1.12.7 or newer, then run:
+### Review before Claude changes anything
+
+Claude can propose edits, create notes, build native Canvas and Bases files, or
+hand a plan to Claude Code. Writes stay behind confirmation, and note edits are
+presented as reviewable hunks so you choose exactly what lands. If the app
+closes during a turn, the saved conversation restores the interrupted work as
+stopped with a **Retry** action.
+
+[Learn about edits and guardrails →](guides/agent-mode.md#editing-notes-diffs-not-writes)
+
+## Choose how Claude runs
+
+- **Claude Code sign-in** — desktop chat through the installed, signed-in
+  `claude` command; no API credential stored by Companion.
+- **Anthropic API** — direct streaming chat on desktop and mobile with your API
+  key, long-term OAuth token, or environment credential.
+- **Local models** — Ollama or an OpenAI-compatible endpoint for chat and
+  utility work. Tool-capable Ollama models can run the vault agent locally.
+- **Auto** — start with Claude and fall back to a reachable local model when
+  Claude is offline, rate-limited, or unavailable.
+
+[Authentication and cost →](guides/auth.md) ·
+[Local models and on-device search →](guides/local-models.md)
+
+## Built for control
+
+- **Reviewable by default.** Agent writes require confirmation; diff-based edits
+  require explicit hunk acceptance.
+- **Local-first where it matters.** Semantic embeddings run on device. The
+  optional MCP bridge binds to `127.0.0.1`, requires a bearer token, and keeps
+  writes disabled until you enable them.
+- **Your vault remains yours.** Research records, artifacts, Canvas files,
+  Bases, and generated notes are ordinary vault files. Conversations persist
+  across restarts without becoming a separate knowledge store.
+- **Extensible without being tangled.** Companion can expose live-vault tools
+  through its optional MCP bridge and consume explicitly configured external
+  MCP servers from agent mode.
+
+[Privacy and data flow →](obsidian-plugin/README.md#what-leaves-your-machine) ·
+[MCP bridge security and setup →](guides/claude-code-bridge.md)
+
+## Companion and portable workflows
+
+This repository contains two related products with separate jobs:
+
+- [`obsidian-plugin/`](obsidian-plugin/) is **Companion for Claude**, the
+  Obsidian community plugin described on this page.
+- [`claude-plugin/`](https://github.com/cavi-ai/obsidian-agent) is the pinned
+  **obsidian-agent** project: portable workflows for Claude, Codex, Gemini,
+  OpenCode, and AgentSkills hosts using the official Obsidian CLI. It does not
+  require Companion or MCP.
+
+To add the portable workflows in Claude Code:
 
 ```text
 /plugin marketplace add cavi-ai/plugins
 /plugin install obsidian-agent@cavi-ai
 ```
 
-The universal plugin works without Companion and without MCP. Install Companion
-separately when you want its in-Obsidian chat, artifacts, local models, or
-optional live-vault MCP bridge.
+## Guides
 
-<details><summary>Build from source (development)</summary>
+- [Getting started](guides/getting-started.md)
+- [Agent mode, edits, and guardrails](guides/agent-mode.md)
+- [Research Desk and Workbench](guides/research-workbench.md)
+- [Interactive artifacts](guides/artifacts.md)
+- [Local models and semantic search](guides/local-models.md)
+- [Claude Code and the MCP bridge](guides/claude-code-bridge.md)
+- [Authentication and cost](guides/auth.md)
+- [Architecture](guides/architecture.md)
+- [FAQ](guides/faq.md)
+
+<details>
+<summary><strong>Build from source</strong></summary>
 
 ```bash
 git clone --recurse-submodules https://github.com/cavi-ai/claude-obsidian.git
-# already cloned without submodules?
+```
+
+Already cloned without submodules:
+
+```bash
 git submodule update --init --recursive
 ```
 
-See [`obsidian-plugin/README.md`](obsidian-plugin/README.md) for plugin dev/build steps.
+See [`obsidian-plugin/README.md`](obsidian-plugin/README.md#development-and-testing)
+for development and test commands.
+
 </details>
 
-## Open-source hygiene
+## Open source
 
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — local development, release versioning,
-  security-sensitive review rules.
-- [`SECURITY.md`](SECURITY.md) — supported versions, vulnerability reporting,
-  security boundaries.
-- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — contributor standard.
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
+[Code of conduct](CODE_OF_CONDUCT.md) · [Attribution](NOTICE) · [MIT license](LICENSE)
 
-## Provenance
-
-The artifact design system is an original reformulation of the aesthetic in
-Thariq Shihipar's gallery, not a copy of his HTML. The gallery is vendored as a
-pinned, unmodified submodule.
-
-Steph Ango's (@kepano) [Obsidian Skills](https://github.com/kepano/obsidian-skills)
-are vendored the same way at `upstream/obsidian-skills/` and serve as the format
-reference for `.base`, `.canvas`, and Obsidian-flavored Markdown generation. His
-skills operate on vault files; the Companion MCP bridge operates on the running
-vault. Web-source capture uses his [Defuddle](https://github.com/kepano/defuddle)
-library (MIT), the extraction engine behind the Obsidian Web Clipper.
-
-Full attribution is in [`NOTICE`](NOTICE). Everything authored here is
-MIT-licensed ([`LICENSE`](LICENSE)).
-
-## License
-
-MIT — see [`LICENSE`](LICENSE). The vendored `upstream/html-effectiveness`
-submodule is under its own Apache-2.0 license.
+The interface aesthetic is an original reformulation inspired by Thariq
+Shihipar's [“unreasonable effectiveness of HTML”](https://github.com/ThariqS/html-effectiveness)
+gallery. Steph Ango's [Obsidian Skills](https://github.com/kepano/obsidian-skills)
+serve as format references for Obsidian-native output. Both upstream projects
+are pinned, unmodified submodules with full attribution in [`NOTICE`](NOTICE).

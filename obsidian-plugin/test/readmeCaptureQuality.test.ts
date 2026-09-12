@@ -14,6 +14,12 @@ interface CaptureContract {
 
 const captures: CaptureContract[] = [
   {
+    path: join(plugin, "..", "assets", "social-card.png"),
+    width: 1280,
+    height: 640,
+    maxHeightToWidth: 0.5,
+  },
+  {
     path: join(plugin, "assets", "chat-panel.png"),
     width: 1040,
     height: 662,

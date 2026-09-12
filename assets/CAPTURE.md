@@ -66,16 +66,16 @@ Regenerate it any time with `python3 demo-vault/_generate-demo-vault.py demo-vau
 
 | Filename | Scene | Consumed by |
 |---|---|---|
-| `chat-panel.png` | Tight Companion chat crop with a completed, vault-grounded next-action reply. | Root README hero table · `guides/getting-started.md` §3 |
-| `artifact-inline.png` | A `claude-html` artifact rendered inline in the sandboxed iframe — a dashboard or report in the clay/olive palette. | Root README hero table + §Interactive artifacts · `guides/getting-started.md` §4 · `guides/artifacts.md` |
+| `chat-panel.png` | Tight Companion chat crop with a completed, vault-grounded next-action reply. | Root README · plugin README · `guides/getting-started.md` §3 |
+| `artifact-inline.png` | A `claude-html` artifact rendered inline in the sandboxed iframe — a dashboard or report in the clay/olive palette. | `guides/getting-started.md` §4 · `guides/artifacts.md` |
 | `manifest-roadmap.png` | Legacy `manifest-pm` roadmap example retained for the asset archive. | Not currently embedded |
 | `working-map.png` | Legacy working-map example retained for the asset archive. | Not currently embedded |
-| `agent-tool-chips.png` | Chat with a vault-search tool chain and one expanded result. | Root README · `guides/getting-started.md` · `guides/agent-mode.md` |
-| `diff-review.png` | Two independently reviewable edit hunks. | Root README · `guides/agent-mode.md` |
+| `agent-tool-chips.png` | Chat with a vault-search tool chain and one expanded result. | `guides/getting-started.md` · `guides/agent-mode.md` |
+| `diff-review.png` | Two independently reviewable edit hunks. | `guides/agent-mode.md` |
 | `research-desk.png` | Wide Research Desk view with stage, next action, document, and attention queue. | Root README · `guides/research-workbench.md` |
 | `research-workbench-intelligence.png` | Intelligence tab with deterministic findings visible. | `guides/research-workbench.md` |
-| `mcp-bridge-settings.png` | Running loopback MCP bridge with its token masked. | Root README · `guides/claude-code-bridge.md` |
-| `local-fallback-indicator.png` | Tight chat crop showing the local fallback status and reason. | Root README · `guides/local-models.md` |
+| `mcp-bridge-settings.png` | Running loopback MCP bridge with its token masked. | `guides/claude-code-bridge.md` |
+| `local-fallback-indicator.png` | Tight chat crop showing the local fallback status and reason. | `guides/local-models.md` |
 | `social-card.png` | 1280×640 GitHub social preview: tagline, feature pills, MIT / bring-your-own-key / local-first badges, and the chat panel bleeding off the right edge. **Composed, not captured** — built from HTML at 2× and downsampled, so it needs no vault and can be regenerated whenever the pitch changes. | GitHub repo settings → Social preview (manual upload; no REST API exists for it) |
 
 ## Remaining candidates
