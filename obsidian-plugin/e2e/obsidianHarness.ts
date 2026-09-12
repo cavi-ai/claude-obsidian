@@ -1,5 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { createServer, type Server } from "node:http";
+import { rmSync } from "node:fs";
 import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -14,6 +15,8 @@ export { effectiveObsidianCoreVersion };
 
 export interface ObsidianHarness {
   page: Page;
+  /** OS process identity, used to prove ordinary test leases share one launch. */
+  processId: number;
   /**
    * Open a settings tab and return the page that renders it. Obsidian 1.13 moved
    * Settings into its own window, so this is not always the vault window.
@@ -272,23 +275,81 @@ async function waitForCdp(port: number): Promise<void> {
   throw new Error("Obsidian did not expose its debugging endpoint");
 }
 
-export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}): Promise<ObsidianHarness> {
+async function settleObsidianPage(context: BrowserContext, page: Page, firstRun: boolean, hidden: boolean, pid?: number, checkTrust = true): Promise<void> {
+  await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
+  if (hidden && pid) await hideAppWindow(pid);
+  if (checkTrust) {
+    const trustDeadline = Date.now() + 5_000;
+    let trustAccepted = false;
+    while (!trustAccepted && Date.now() < trustDeadline) {
+      for (const candidate of context.pages()) {
+        const trustButton = candidate.getByRole("button", { name: "Trust author and enable plugins" });
+        if (await trustButton.isVisible().catch(() => false)) {
+          await trustButton.click();
+          trustAccepted = true;
+          break;
+        }
+      }
+      if (!trustAccepted) await page.waitForTimeout(100);
+    }
+  }
+  await page.waitForFunction(() => {
+    const app = (window as unknown as { app?: { commands?: { commands?: Record<string, unknown> } } }).app;
+    return Boolean(app?.commands?.commands?.["claude-companion:open-research-desk"]);
+  }, undefined, { timeout: 30_000 });
+
+  const setupDeadline = Date.now() + (firstRun ? 0 : 8_000);
+  let quietSince = Date.now();
+  while (Date.now() < setupDeadline && Date.now() - quietSince < 1_500) {
+    const deferSetup = page.getByRole("button", { name: "Not now" }).last();
+    const appeared = await deferSetup.waitFor({ state: "visible", timeout: 250 }).then(() => true).catch(() => false);
+    if (!appeared) continue;
+    await deferSetup.click();
+    quietSince = Date.now();
+  }
+
+  if (!firstRun) {
+    for (const candidate of context.pages()) {
+      if (candidate === page || candidate.isClosed()) continue;
+      const title = await candidate.title().catch(() => "");
+      if (title.startsWith("Settings - ")) await candidate.close();
+    }
+    await page.bringToFront();
+    if (hidden && pid) await hideAppWindow(pid);
+  }
+}
+
+interface PhysicalObsidianHarness extends ObsidianHarness {
+  reset(options: ObsidianHarnessOptions): Promise<void>;
+  shutdown(options?: { keep?: boolean }): Promise<void>;
+  killNow(): void;
+}
+
+let pooledHarness: PhysicalObsidianHarness | null = null;
+let pooledLeaseActive = false;
+
+function needsStandaloneProcess(options: ObsidianHarnessOptions): boolean {
+  // These scenarios assert startup or process-death behavior. Reusing the
+  // ordinary worker process would remove the lifecycle boundary under test.
+  return options.firstRun === true || options.liveClaude === true || options.reuse !== undefined;
+}
+
+async function launchFreshObsidianHarness(options: ObsidianHarnessOptions = {}, pooled = false): Promise<PhysicalObsidianHarness> {
+  let activeOptions = options;
   const hidden = options.hidden ?? process.env.CC_E2E_SHOW !== "1";
   const root = options.reuse ? dirname(options.reuse.vault) : await mkdtemp(join(tmpdir(), "claude-companion-e2e-"));
   const vault = options.reuse?.vault ?? join(root, "vault"); const profile = options.reuse?.profile ?? join(root, "profile");
   if (!options.reuse) { await mkdir(vault, { recursive: true }); await mkdir(profile, { recursive: true }); }
   let requests = 0;
   const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
-  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const status = options.providerFail?.(body) ?? null; if (status !== null) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `stubbed ${status}` } })); return; } const text = options.providerReply?.(body) ?? defaultReply; const respond = () => { if (/"stream"\s*:\s*true/.test(body)) { response.writeHead(200, { "content-type": "text/event-stream" }); response.write(`data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`); response.write(`data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`); response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`); return; } response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (options.providerDelayMs) setTimeout(respond, options.providerDelayMs); else respond(); }); });
+  const provider = createServer((request, response) => { requests += 1; let body = ""; request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); }); request.on("end", () => { const status = activeOptions.providerFail?.(body) ?? null; if (status !== null) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify({ type: "error", error: { type: "api_error", message: `stubbed ${status}` } })); return; } const text = activeOptions.providerReply?.(body) ?? defaultReply; const respond = () => { if (/"stream"\s*:\s*true/.test(body)) { response.writeHead(200, { "content-type": "text/event-stream" }); response.write(`data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`); response.write(`data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`); response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`); return; } response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ content: [{ type: "text", text }] })); }; if (activeOptions.providerDelayMs) setTimeout(respond, activeOptions.providerDelayMs); else respond(); }); });
   await new Promise<void>((resolve, reject) => { provider.once("error", reject); provider.listen(0, "127.0.0.1", () => resolve()); });
   const address = provider.address(); if (!address || typeof address === "string") throw new Error("Provider stub did not bind");
   // OpenAI-compatible endpoint stub: /v1/models for the pickers, /v1/chat/completions
   // (stream + non-stream) so a real chat turn against it can actually answer.
   let endpoint: Server | null = null;
   let endpointPort: number | null = null;
-  if (options.endpointModels) {
-    const ids = options.endpointModels;
-    const endpointReply = options.endpointReply ?? "Answered locally by the endpoint stub.";
+  if (options.endpointModels || pooled) {
     endpoint = createServer((request, response) => {
       // stream() (unlike listModels()/complete(), which go through Obsidian's
       // requestUrl) calls the real browser fetch(), so a JSON POST triggers a
@@ -303,7 +364,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
       if (request.url?.endsWith("/models")) {
         request.resume();
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ object: "list", data: ids.map((id) => ({ id, object: "model" })) }));
+        response.end(JSON.stringify({ object: "list", data: (activeOptions.endpointModels ?? []).map((id) => ({ id, object: "model" })) }));
         return;
       }
       if (request.method === "POST" && request.url?.endsWith("/chat/completions")) {
@@ -313,12 +374,12 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
           const streaming = /"stream"\s*:\s*true/.test(body);
           if (streaming) {
             response.writeHead(200, { "content-type": "text/event-stream" });
-            response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: endpointReply } }] })}\n\n`);
+            response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: activeOptions.endpointReply ?? "Answered locally by the endpoint stub." } }] })}\n\n`);
             response.write("data: [DONE]\n\n");
             response.end();
           } else {
             response.writeHead(200, { "content-type": "application/json" });
-            response.end(JSON.stringify({ choices: [{ message: { content: endpointReply } }] }));
+            response.end(JSON.stringify({ choices: [{ message: { content: activeOptions.endpointReply ?? "Answered locally by the endpoint stub." } }] }));
           }
         });
         return;
@@ -336,7 +397,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   // (so the model picker + "reachable" check see one model, "stub-embed").
   let embed: Server | null = null;
   let embedPort: number | null = null;
-  if (options.embedStub) {
+  if (options.embedStub || pooled) {
     embed = createServer((request, response) => {
       if (request.method === "GET" && request.url?.endsWith("/api/tags")) {
         request.resume();
@@ -364,7 +425,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
     embedPort = embedAddress.port;
   }
   if (!options.reuse) {
-    await seedVault(vault, address.port, options.firstRun === true, endpointPort, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, embedPort, options.settingsOverride ?? {}, options.theme);
+    await seedVault(vault, address.port, options.firstRun === true, options.endpointModels ? endpointPort : null, options.claudeCli === true || options.liveClaude === true, options.liveClaude === true, options.embedStub ? embedPort : null, options.settingsOverride ?? {}, options.theme);
   } else {
     // Stub server ports are re-rolled every launch; a reused vault's data.json still
     // names the previous launch's (now-closed) ports, so every provider/embed call
@@ -381,7 +442,7 @@ export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}
   let executablePath = process.env.PATH ?? "";
   // The real binary lives in ~/.local/bin, which Obsidian's own PATH lacks.
   if (options.liveClaude) executablePath = `${join(homedir(), ".local", "bin")}:${executablePath}`;
-  if (!options.liveClaude && (options.fakeClaudeCode || options.claudeCli)) {
+  if (!options.liveClaude && (options.fakeClaudeCode || options.claudeCli || pooled)) {
     const bin = join(root, "bin");
     await mkdir(bin, { recursive: true });
     const claude = join(bin, "claude");
@@ -432,6 +493,7 @@ esac
   if (coreAsarPath) await copyFile(coreAsarPath, join(profile, basename(coreAsarPath)));
   const hiddenArgs = hidden ? ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--window-position=-4000,-4000"] : [];
   const processHandle = spawn(executable, [vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${debuggingPort}`, "--disable-gpu", "--no-sandbox", ...hiddenArgs], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: executablePath } });
+  if (!processHandle.pid) throw new Error("Obsidian process did not start");
   let processOutput = ""; processHandle.stdout?.on("data", (chunk) => { processOutput += String(chunk); }); processHandle.stderr?.on("data", (chunk) => { processOutput += String(chunk); });
   await waitForCdp(debuggingPort);
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${debuggingPort}`);
@@ -440,46 +502,139 @@ esac
   const deadline = Date.now() + 30_000;
   while (!page && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 250)); page = context.pages().find((candidate) => candidate.url().startsWith("app://obsidian.md")); }
   if (!page) throw new Error(`Obsidian page not found. ${processOutput.slice(-1000)}`);
-  await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
-  if (hidden && processHandle.pid) await hideAppWindow(processHandle.pid);
-  const trustButton = page.getByRole("button", { name: "Trust author and enable plugins" });
-  if (await trustButton.waitFor({ state: "visible", timeout: 5_000 }).then(() => true).catch(() => false)) {
-    await trustButton.click();
-  }
-  await page.waitForFunction(() => {
-    const app = (window as unknown as { app?: { commands?: { commands?: Record<string, unknown> } } }).app;
-    return Boolean(app?.commands?.commands?.["claude-companion:open-research-desk"]);
-  }, undefined, { timeout: 30_000 });
-  // First-run prompts are intentionally sequential. A later prompt may mount
-  // after the previous modal closes, so one missing 250 ms poll is not proof
-  // that setup has settled. Wait for a sustained quiet period instead.
-  // firstRun specs assert on those prompts, so nothing is dismissed for them.
-  const setupDeadline = Date.now() + (options.firstRun ? 0 : 8_000);
-  let quietSince = Date.now();
-  while (Date.now() < setupDeadline && Date.now() - quietSince < 1_500) {
-    const deferSetup = page.getByRole("button", { name: "Not now" }).last();
-    const appeared = await deferSetup.waitFor({ state: "visible", timeout: 250 })
-      .then(() => true)
-      .catch(() => false);
-    if (!appeared) continue;
-    await deferSetup.click();
-    quietSince = Date.now();
-  }
-  // Accepting Obsidian's community-plugin trust prompt can leave an auxiliary
-  // Settings BrowserWindow focused. Obsidian's Modal API then mounts dialogs
-  // in that window even when Playwright clicks a control in the vault window.
-  // Remove only that harness-created window so modal tests exercise one
-  // deterministic renderer. First-run specs retain every onboarding surface.
-  if (!options.firstRun) {
+  await settleObsidianPage(context, page, options.firstRun === true, hidden, processHandle.pid);
+
+  const argvLog = join(root, "bin", "claude-argv.log");
+  const shutdown = async ({ keep = false }: { keep?: boolean } = {}): Promise<void> => {
+    await browser.close().catch(() => undefined);
+    await stop(processHandle);
+    await closeServer(provider);
+    if (endpoint) await closeServer(endpoint);
+    if (embed) await closeServer(embed);
+    if (!keep) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  };
+  const reset = async (nextOptions: ObsidianHarnessOptions): Promise<void> => {
+    activeOptions = nextOptions;
     for (const candidate of context.pages()) {
-      if (candidate === page || candidate.isClosed()) continue;
-      const title = await candidate.title().catch(() => "");
-      if (title.startsWith("Settings - ")) await candidate.close();
+      if (candidate !== page && !candidate.isClosed()) await candidate.close();
     }
-    await page.bringToFront();
-    if (hidden && processHandle.pid) await hideAppWindow(processHandle.pid);
+    for (let attempt = 0; attempt < 6 && await page.locator(".modal-container").count(); attempt += 1) {
+      await page.keyboard.press("Escape");
+    }
+    await page.evaluate(() => {
+      const app = (window as unknown as {
+        app: {
+          plugins: { disablePlugin(id: string): Promise<void> };
+          workspace: { getLeavesOfType(type: string): Array<{ detach(): void }> };
+        };
+      }).app;
+      for (const type of ["claude-companion-chat", "claude-research-desk", "claude-research-workbench", "claude-build-runner", "claude-source-inbox", "markdown"]) {
+        for (const leaf of app.workspace.getLeavesOfType(type)) leaf.detach();
+      }
+      return app.plugins.disablePlugin("claude-companion");
+    });
+    for (const entry of await readdir(vault)) {
+      if (entry !== ".obsidian") await rm(join(vault, entry), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+    await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    for (const file of ["appearance.json", "workspace.json", "workspace-mobile.json"]) {
+      await rm(join(vault, ".obsidian", file), { force: true });
+    }
+    await seedVault(vault, address.port, false, nextOptions.endpointModels ? endpointPort : null, nextOptions.claudeCli === true, false, nextOptions.embedStub ? embedPort : null, nextOptions.settingsOverride ?? {}, nextOptions.theme);
+    const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
+    const data = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
+    if (data.settings) delete data.settings.apiKey;
+    await writeFile(dataPath, JSON.stringify(data));
+    if (nextOptions.extraFiles) {
+      for (const [rel, content] of Object.entries(nextOptions.extraFiles)) {
+        const dest = join(vault, rel);
+        await mkdir(dirname(dest), { recursive: true });
+        await writeFile(dest, content);
+      }
+    }
+    await writeFile(argvLog, "");
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.evaluate(async (theme) => {
+      document.body.classList.remove("theme-light", "theme-dark");
+      document.body.classList.add(theme === "dark" ? "theme-dark" : "theme-light");
+      const app = (window as unknown as {
+        app: { plugins: { enablePlugin(id: string): Promise<void> } };
+      }).app;
+      await app.plugins.enablePlugin("claude-companion");
+    }, nextOptions.theme ?? "light");
+    await settleObsidianPage(context, page, false, nextOptions.hidden ?? process.env.CC_E2E_SHOW !== "1", processHandle.pid, false);
+    await page.evaluate(() => {
+      document.querySelectorAll(".notice").forEach((notice) => notice.remove());
+      document.body.classList.remove("is-mobile");
+      const rightSplit = document.querySelector<HTMLElement>(".workspace-split.mod-right-split");
+      for (const property of ["display", "position", "inset", "width", "min-width", "max-width", "flex", "z-index"]) {
+        rightSplit?.style.removeProperty(property);
+      }
+      const workspace = (window as unknown as {
+        app: {
+          workspace: {
+            leftSplit: { setSize?(px: number): void };
+            rightSplit: { setSize?(px: number): void };
+            onLayoutChange(): void;
+          };
+        };
+      }).app.workspace;
+      workspace.leftSplit.setSize?.(300);
+      workspace.rightSplit.setSize?.(520);
+      workspace.onLayoutChange();
+      for (const element of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
+        element.scrollLeft = 0;
+        element.scrollTop = 0;
+      }
+      window.scrollTo(0, 0);
+    });
+  };
+  return {
+    page,
+    processId: processHandle.pid,
+    openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId),
+    windows: () => context.pages().filter((candidate) => !candidate.isClosed()),
+    providerRequests: () => requests,
+    argvLog,
+    paths: { vault, profile },
+    close: shutdown,
+    reset,
+    shutdown,
+    killNow: () => {
+      processHandle.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    },
+  };
+}
+
+export async function launchObsidianHarness(options: ObsidianHarnessOptions = {}): Promise<ObsidianHarness> {
+  if (needsStandaloneProcess(options)) return launchFreshObsidianHarness(options);
+  if (pooledLeaseActive) throw new Error("The shared Obsidian E2E session already has an active test lease");
+  if (!pooledHarness) {
+    // Bootstrap one encrypted test credential and all optional stub transports.
+    // Every ordinary test thereafter receives a clean logical lease.
+    pooledHarness = await launchFreshObsidianHarness({}, true);
+    process.once("exit", () => {
+      pooledHarness?.killNow();
+    });
   }
-  return { page, openSettings: (tabId = "claude-companion") => openSettingsSurface(context, page, tabId), windows: () => context.pages().filter((candidate) => !candidate.isClosed()), providerRequests: () => requests, argvLog: join(root, "bin", "claude-argv.log"), paths: { vault, profile }, close: async ({ keep = false } = {}) => { await browser.close().catch(() => undefined); await stop(processHandle); await closeServer(provider); if (endpoint) await closeServer(endpoint); if (embed) await closeServer(embed); if (!keep) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } };
+  await pooledHarness.reset(options);
+  pooledLeaseActive = true;
+  const requestBaseline = pooledHarness.providerRequests();
+  const physical = pooledHarness;
+  return {
+    ...physical,
+    providerRequests: () => physical.providerRequests() - requestBaseline,
+    close: async ({ keep = false } = {}) => {
+      if (keep) {
+        pooledHarness = null;
+        pooledLeaseActive = false;
+        await physical.shutdown({ keep: true });
+        return;
+      }
+      pooledLeaseActive = false;
+    },
+  };
 }
 
 async function stop(handle: ChildProcess): Promise<void> { if (handle.exitCode !== null) return; handle.kill("SIGTERM"); await Promise.race([new Promise<void>((resolve) => handle.once("exit", () => resolve())), new Promise<void>((resolve) => setTimeout(resolve, 3_000))]); if (handle.exitCode === null) handle.kill("SIGKILL"); }
