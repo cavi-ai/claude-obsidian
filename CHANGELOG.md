@@ -4,6 +4,37 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] — 2026-09-12
+
+### Added
+- **Choose how each chat turn works.** The composer now presents a single
+  Ask / Plan / Act control, making tool and write authority visible before a
+  request is sent.
+
+### Changed
+- **Companion has a more focused visual system.** Chat, Research Desk, review
+  surfaces, controls, typography, spacing, and status treatments now share the
+  same Obsidian-native design language in light and dark themes.
+- **Agent activity is easier to scan.** Tool chips show useful paths and queries
+  instead of raw JSON, long-running work has clearer status text, and replayed
+  tool calls preserve their readable labels.
+- **The product documentation now leads with real workflows.** The README and
+  guides use current, higher-quality captures and a shorter path from setup to
+  Claude Code, local models, research, and reviewed edits.
+- **Desktop end-to-end tests reuse one hidden Obsidian session.** The harness no
+  longer repeatedly opens, closes, or foregrounds the app for every scenario.
+
+### Fixed
+- **Interrupted Claude Code turns survive restarts.** In-progress conversation
+  state is persisted, recovered on load, and resolved without losing the task
+  record when the process or app exits unexpectedly.
+- **Mobile chat and indexing stay responsive under load.** Semantic work is
+  bounded and recoverable, batch enrichment coalesces reindexing, and chat
+  controls remain usable at narrow widths.
+- **Provider and agent status reflects the actual backend.** Local model labels,
+  fallback errors, write-mode restoration, and tool names now describe what
+  Companion is really doing.
+
 ## [0.28.0] — 2026-09-06
 
 ### Added
