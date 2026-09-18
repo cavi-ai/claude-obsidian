@@ -1730,9 +1730,9 @@ export class ChatView extends ItemView {
     const chips = this.createToolChips(bubble, body);
     const deps: AgentTurnDeps = {
       stream: (req, handlers) => provider.stream(req, handlers),
-      execute: (block) =>
+      execute: (block, signal) =>
         parseExternalToolName(block.name)
-          ? this.executeExternalMcp(block)
+          ? this.executeExternalMcp(block, signal)
           : executeTool(
               {
                 call: (name, args) => this.plugin.agentTools().call(name, args),
@@ -1846,7 +1846,7 @@ export class ChatView extends ItemView {
    * servers can do anything), then dispatch; errors become is_error results
    * so the model adapts instead of the turn dying.
    */
-  private async executeExternalMcp(block: ToolUseBlock): Promise<ToolResultBlock> {
+  private async executeExternalMcp(block: ToolUseBlock, signal?: AbortSignal): Promise<ToolResultBlock> {
     const result = (content: string, isError?: boolean): ToolResultBlock => ({
       type: "tool_result",
       tool_use_id: block.id,
@@ -1854,6 +1854,8 @@ export class ChatView extends ItemView {
       ...(isError ? { is_error: true } : {}),
     });
     if (block.parseError) return result(block.parseError, true);
+    // Stop was pressed while a prior tool was running — don't fire another call.
+    if (signal?.aborted) return result("Turn stopped before this tool ran.", true);
     if (!(await this.confirmAgentWrite(block))) return result("User declined.", true);
     try {
       return result(truncateResult(await this.plugin.callExternalMcp(block.name, block.input)));

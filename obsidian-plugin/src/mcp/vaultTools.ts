@@ -254,7 +254,7 @@ export class VaultTools {
         },
         {
           name: "update_frontmatter",
-          description: "Merge YAML frontmatter into a note. 'tags' are unioned and normalized; other keys are set. Preserves the note body.",
+          description: "Merge YAML frontmatter into a note. 'tags' are unioned and normalized; other keys are set. Preserves the note body. Companion-managed keys (type, type_name, ontology, source_kind, canonical_id, content_fingerprint, discovery_provenance, zotero_key, arxiv_id, doi, locator_value, source_enriched, session_id) are reserved and rejected.",
           inputSchema: {
             type: "object",
             properties: {
@@ -687,6 +687,7 @@ export class VaultTools {
     const t = (target && typeof target === "object" ? target : {}) as { kind?: unknown; heading?: unknown; id?: unknown; key?: unknown };
     if (t.kind === "frontmatter") {
       const key = str(t.key);
+      assertWritableFrontmatterKey(key);
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
         if (op === "replace") {
           fm[key] = content;
@@ -719,6 +720,7 @@ export class VaultTools {
         if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") scalars[k] = v;
       }
     }
+    for (const k of Object.keys(scalars)) assertWritableFrontmatterKey(k);
     await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
       if (tags.length) {
         const existing = Array.isArray(fm.tags)
@@ -830,6 +832,49 @@ function optObj(v: unknown): Record<string, unknown> | undefined {
 }
 /** note_create base-frontmatter keys the model's `properties` may never overwrite. */
 const PROTECTED_KEYS: ReadonlySet<string> = new Set(["type", "title", "created", "source", "tags"]);
+
+/**
+ * Machine-owned frontmatter keys the generic frontmatter writers
+ * (update_frontmatter, note_patch kind=frontmatter) may never set. These encode
+ * plugin identity/state — a research record's type, a memory digest's
+ * session_id, an inbox clip's enrichment flag, a source's content fingerprint —
+ * so an agent scribbling over them silently breaks research parsing, session
+ * dedup, and triage. Dedicated flows own these keys.
+ */
+const RESERVED_FRONTMATTER_KEYS: ReadonlySet<string> = new Set([
+  // identity / schema
+  "type",
+  "type_name",
+  "ontology",
+  // research records (research/parse.ts, research/render.ts): the record type
+  // gate plus the relations and locator/state fields the parser validates.
+  "project",
+  "source",
+  "source_kind",
+  "canonical_id",
+  "source_fingerprint",
+  "content_fingerprint",
+  "discovery_provenance",
+  "zotero_key",
+  "arxiv_id",
+  "doi",
+  "locator_kind",
+  "locator_value",
+  "review_state",
+  "document_kind",
+  // capture / enrichment state
+  "source_enriched",
+  // memory digests (memory/note.ts)
+  "session_id",
+  "claude-session",
+]);
+
+/** Guard the generic frontmatter writers against clobbering machine-owned keys. */
+function assertWritableFrontmatterKey(key: string): void {
+  if (RESERVED_FRONTMATTER_KEYS.has(key)) {
+    throw new Error(`Frontmatter key "${key}" is managed by Companion and cannot be set through this tool.`);
+  }
+}
 /** Narrow a conformance-fixed record to buildFrontmatter's value types; anything else is dropped. */
 function toFrontmatterData(record: Record<string, unknown>): FrontmatterData {
   const out: FrontmatterData = {};
