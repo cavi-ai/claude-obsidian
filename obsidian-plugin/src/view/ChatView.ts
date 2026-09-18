@@ -2512,7 +2512,7 @@ export class ChatView extends ItemView {
     if (!this.plugin.settings.autoTagOnSave) return { tags: [] };
     try {
       const { summarizeAndTag, existingVaultTags } = await import("../indexing/autoTagger");
-      const res = await summarizeAndTag(this.app, this.plugin.router(), content, existingVaultTags(this.app));
+      const res = await summarizeAndTag(this.plugin.router(), content, existingVaultTags(this.app));
       return {
         tags: res.tags,
         ...(res.summary ? { summary: res.summary } : {}),
