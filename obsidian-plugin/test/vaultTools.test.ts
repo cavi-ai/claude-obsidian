@@ -237,6 +237,22 @@ describe("update_frontmatter", () => {
     const vt = new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude" });
     await expect(vt.call("update_frontmatter", { path: "Notes/Tagged.md", tags: ["x"] })).rejects.toThrow(/disabled/);
   });
+
+  it("refuses to overwrite Companion-managed identity keys", async () => {
+    const app = new App();
+    app.vault.seed("R/E.md", "---\ntype: evidence\nreview_state: reviewed\n---\n\n# E\n");
+    app.vault.seed("M/Digest.md", "---\nsession_id: abc\n---\n\n# Digest\n");
+    const vt = new VaultTools(app as never, { allowWrites: true, defaultFolder: "Claude" });
+
+    await expect(vt.call("update_frontmatter", { path: "R/E.md", fields: { type: "claim" } })).rejects.toThrow(/managed by Companion/);
+    await expect(vt.call("update_frontmatter", { path: "R/E.md", fields: { review_state: "rejected" } })).rejects.toThrow(/managed by Companion/);
+    await expect(vt.call("update_frontmatter", { path: "M/Digest.md", fields: { session_id: "xyz" } })).rejects.toThrow(/managed by Companion/);
+    // Reserved keys are untouched, and ordinary keys still work.
+    await vt.call("update_frontmatter", { path: "R/E.md", fields: { status: "active" } });
+    const read = await vt.call("note_read", { path: "R/E.md" });
+    expect(read).toContain('type: "evidence"');
+    expect(read).toContain('status: "active"');
+  });
 });
 
 describe("frontmatter_query", () => {
