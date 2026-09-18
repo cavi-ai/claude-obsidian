@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { externalAnthropicTools, externalToolName, parseExternalToolName } from "../../src/mcp/external";
+import { externalAnthropicTools, externalToolName, parseExternalToolName, sanitizeServerName } from "../../src/mcp/external";
 import { createHttpMcpTransport, extractReply, parseSseMessages, type HttpResponseLike } from "../../src/mcp/httpTransport";
 import type { JsonRpcRequest } from "../../src/mcp/protocol";
 
@@ -11,6 +11,14 @@ describe("external tool namespacing", () => {
     expect(parseExternalToolName("vault_search")).toBeNull();
     expect(parseExternalToolName("mcp__noversion")).toBeNull();
     expect(parseExternalToolName("mcp__s__")).toBeNull();
+  });
+
+  it("sanitizes server names to a stable, unambiguous segment", () => {
+    expect(sanitizeServerName("My Server!")).toBe("My-Server");
+    // `__` is the name/tool separator, so runs are collapsed to keep the split unique.
+    expect(sanitizeServerName("my__server")).toBe("my_server");
+    expect(sanitizeServerName("  ")).toBe("server");
+    expect(parseExternalToolName(externalToolName("my__server", "tool"))).toEqual({ server: "my_server", tool: "tool" });
   });
 
   it("prefixes defs with the server name in name and description", () => {

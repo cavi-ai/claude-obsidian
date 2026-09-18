@@ -137,4 +137,23 @@ describe("SemanticStore", () => {
 
     expect(SemanticStore.load(null, "nomic").stats().notes).toBe(0);
   });
+
+  it("load: a corrupt persisted index rebuilds empty instead of crashing", () => {
+    const base = { version: INDEX_VERSION, model: "nomic", dim: 2 };
+    // `typeof null === "object"` — must not be accepted.
+    const nullNotes = SemanticStore.load({ ...base, notes: null }, "nomic");
+    expect(nullNotes.stats()).toEqual({ notes: 0, chunks: 0 });
+    expect(nullNotes.search([1, 0], 5)).toEqual([]);
+
+    // notes as an array / non-object, and an entry missing `chunks`, are corrupt too.
+    expect(SemanticStore.load({ ...base, notes: [] }, "nomic").stats().notes).toBe(0);
+    expect(SemanticStore.load({ ...base, notes: "nope" }, "nomic").stats().notes).toBe(0);
+    const badEntry = SemanticStore.load({ ...base, notes: { "A.md": { hash: "h" } } }, "nomic");
+    expect(badEntry.stats().notes).toBe(0);
+
+    // A valid index still loads.
+    const good = new SemanticStore(emptyIndex("nomic"));
+    good.upsertNote("A.md", "h", 1, [{ ord: 0, text: "x", vector: [1, 2] }]);
+    expect(SemanticStore.load(good.toJSON(), "nomic").hasNote("A.md")).toBe(true);
+  });
 });

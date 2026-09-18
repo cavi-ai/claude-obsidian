@@ -38,6 +38,16 @@ export function emptyIndex(model: string): IndexData {
   return { version: INDEX_VERSION, model, dim: 0, notes: {} };
 }
 
+/** A plain (non-null, non-array) object — the shape `notes` and each entry must have. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** True when every note entry has the fields the store reads (hash, chunks[]). */
+function notesAreWellFormed(notes: Record<string, unknown>): boolean {
+  return Object.values(notes).every((entry) => isRecord(entry) && Array.isArray(entry.chunks));
+}
+
 /**
  * A thin, pure wrapper over IndexData with the operations the indexer needs.
  * Stores best-effort: callers persist via toJSON() after mutating.
@@ -45,10 +55,19 @@ export function emptyIndex(model: string): IndexData {
 export class SemanticStore {
   constructor(private data: IndexData) {}
 
-  /** Rebuild from persisted JSON, or start empty if absent/stale/model-changed. */
+  /** Rebuild from persisted JSON, or start empty if absent/stale/model-changed/corrupt. */
   static load(raw: unknown, model: string): SemanticStore {
     const d = raw as Partial<IndexData> | null | undefined;
-    if (!d || d.version !== INDEX_VERSION || d.model !== model || typeof d.notes !== "object") {
+    // `typeof null === "object"`, so a persisted `notes: null` would otherwise
+    // pass and crash on the first read. Validate shape, not just typeof.
+    if (
+      !d ||
+      d.version !== INDEX_VERSION ||
+      d.model !== model ||
+      !isRecord(d.notes) ||
+      !notesAreWellFormed(d.notes) ||
+      (d.dim !== undefined && typeof d.dim !== "number")
+    ) {
       return new SemanticStore(emptyIndex(model));
     }
     return new SemanticStore({
