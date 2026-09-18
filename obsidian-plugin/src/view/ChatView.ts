@@ -190,7 +190,7 @@ export class ChatView extends ItemView {
     this.disposeChrome?.();
     this.disposeChrome = null;
     root.empty();
-    root.addClass("cc-chat-root"); // establishes the container-query context (see styles.css)
+    root.addClass("cc-chat-root"); // scroll/layout root the mobile CSS keys on (see styles.css)
     root.addClass("cc-root");
 
     // Initialize per-session controls from the settings default model.
