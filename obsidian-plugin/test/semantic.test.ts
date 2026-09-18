@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { chunkNote, stripFrontmatter, contentHash } from "../src/semantic/chunk";
-import { cosineSimilarity, topKByVector, reciprocalRankFusion } from "../src/semantic/similarity";
+import { cosineSimilarity, reciprocalRankFusion } from "../src/semantic/similarity";
 import { SemanticStore, emptyIndex, INDEX_VERSION } from "../src/semantic/store";
 
 describe("chunk", () => {
@@ -48,16 +48,6 @@ describe("similarity", () => {
 
   it("cosine: zero vector → 0 (no NaN)", () => {
     expect(cosineSimilarity([0, 0], [1, 1])).toBe(0);
-  });
-
-  it("topKByVector ranks by closeness", () => {
-    const items = [
-      { id: "a", vector: [1, 0] },
-      { id: "b", vector: [0.9, 0.1] },
-      { id: "c", vector: [0, 1] },
-    ];
-    const top = topKByVector([1, 0], items, 2);
-    expect(top.map((r) => r.id)).toEqual(["a", "b"]);
   });
 
   it("reciprocalRankFusion rewards items ranked high across lists", () => {

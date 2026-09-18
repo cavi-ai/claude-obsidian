@@ -57,22 +57,37 @@ export class OllamaProvider implements Provider {
       let buffer = "";
       let full = "";
       const toolCalls: OllamaToolCall[] = [];
+      let usage: { promptEvalCount?: number; evalCount?: number } = {};
       const consume = (chunk: string): void => {
         buffer += chunk;
         let nl: number;
         while ((nl = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
-          const { text, error, toolCalls: chunkCalls } = parseOllamaLine(line);
+          const { text, error, toolCalls: chunkCalls, promptEvalCount, evalCount } = parseOllamaLine(line);
           if (error) throw new ProviderError(error);
           if (text) {
             full += text;
             handlers.onText(text);
           }
           if (chunkCalls) toolCalls.push(...chunkCalls);
+          if (promptEvalCount !== undefined || evalCount !== undefined) {
+            usage = {
+              ...(promptEvalCount !== undefined ? { promptEvalCount } : {}),
+              ...(evalCount !== undefined ? { evalCount } : {}),
+            };
+          }
         }
       };
       await readStreamBody(res.body, consume);
+      // Report local token counts so the usage bar isn't blank for Ollama turns
+      // (there's no cost, but context/throughput are still useful).
+      if (usage.promptEvalCount !== undefined || usage.evalCount !== undefined) {
+        handlers.onUsage?.({
+          ...(usage.promptEvalCount !== undefined ? { input_tokens: usage.promptEvalCount } : {}),
+          ...(usage.evalCount !== undefined ? { output_tokens: usage.evalCount } : {}),
+        });
+      }
       // Tool calls arrive complete in the final chunks; emit after the stream
       // ends (the agent loop collects them before its own stop handling).
       toolCalls.forEach((call, i) => {
