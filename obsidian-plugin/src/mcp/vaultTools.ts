@@ -14,9 +14,11 @@ import { readFrontmatter } from "./frontmatterRead";
 import { applyPatch, type PatchTarget } from "./patch";
 import { buildCanvas, serializeCanvas, type ProposedCanvasNode, type ProposedCanvasEdge } from "../canvas/jsonCanvas";
 import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
+import { hasPathTraversal } from "../paths";
 import { ResearchRepository } from "../research/repository";
 import { createResearchRepository } from "../research/repositoryFactory";
 import { RESEARCH_WRITE_TOOLS, ResearchTools, type ZoteroResolve } from "../research/tools";
+import { VAULT_WRITE_TOOLS } from "./writeTools";
 import { captureWebSource, type WebCapture } from "../research/webCapture";
 import { ZoteroAdapter, type ZoteroLibrary } from "../discovery/adapters/zotero";
 import { createObsidianDiscoveryHttp } from "../discovery/adapters/obsidianHttp";
@@ -30,7 +32,7 @@ import { createObsidianDiscoveryHttp } from "../discovery/adapters/obsidianHttp"
  */
 export function assertVaultPath(p: string): string {
   const norm = normalizePath(p);
-  if (norm.startsWith("/") || norm.split("/").some((seg) => seg === "..")) {
+  if (hasPathTraversal(norm)) {
     throw new Error(`Path escapes the vault: ${p}`);
   }
   return norm;
@@ -389,6 +391,9 @@ export class VaultTools {
       if (RESEARCH_WRITE_TOOLS.has(name)) this.assertWrites();
       return new ResearchTools(this.researchRepository(), this.webCapture(), this.zoteroResolve()).call(name, args);
     }
+    // Single write gate driven by the canonical registry, instead of an
+    // assertWrites() call per case that could drift from agent/tools.ts.
+    if (VAULT_WRITE_TOOLS.has(name)) this.assertWrites();
     switch (name) {
       case "vault_search":
         return this.search(str(args.query), num(args.limit, 8));
@@ -417,31 +422,22 @@ export class VaultTools {
       case "ontology_get":
         return this.ontologyGet(optStr(args.type));
       case "note_create":
-        this.assertWrites();
         return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags), optStr(args.type), optObj(args.properties));
       case "note_append":
-        this.assertWrites();
         return this.append(str(args.path), str(args.content));
       case "note_update":
-        this.assertWrites();
         return this.update(str(args.path), str(args.content), optStr(args.section));
       case "note_patch":
-        this.assertWrites();
         return this.patch(str(args.path), args.target, str(args.op), str(args.content));
       case "update_frontmatter":
-        this.assertWrites();
         return this.updateFrontmatter(str(args.path), strArray(args.tags), args.fields);
       case "note_move":
-        this.assertWrites();
         return this.move(str(args.path), str(args.to));
       case "canvas_create":
-        this.assertWrites();
         return this.createCanvas(str(args.title), args.nodes, args.edges, optStr(args.folder));
       case "base_create":
-        this.assertWrites();
         return this.createBase(str(args.title), args, optStr(args.folder));
       case "ontology_propose":
-        this.assertWrites();
         return this.ontologyPropose(args);
       default:
         throw new Error(`Unknown tool: ${name}`);
