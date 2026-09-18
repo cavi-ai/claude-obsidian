@@ -1,7 +1,7 @@
 // Pure in-memory vector store + (de)serialization. No Obsidian, no IO — the
 // indexer service feeds it embeddings and persists toJSON()/fromJSON().
 
-import { topKByVector } from "./similarity";
+import { cosineSimilarity } from "./similarity";
 
 export const INDEX_VERSION = 1;
 
@@ -134,29 +134,24 @@ export class SemanticStore {
   /**
    * Cosine search over all chunks. Returns the best chunk per note (so results
    * are note-deduped for citation), highest score first, up to k notes.
+   *
+   * Single pass: score each chunk and keep the best per note as we go, instead
+   * of materializing every chunk + a parallel metadata map and sorting the whole
+   * chunk set. Allocation is per-note (the result), not per-chunk.
    */
   search(queryVec: number[], k: number): SearchHit[] {
-    const items: { id: string; vector: number[] }[] = [];
-    const meta = new Map<string, { path: string; ord: number; text: string }>();
-    for (const [path, entry] of Object.entries(this.data.notes)) {
-      for (const c of entry.chunks) {
-        const id = `${path}\t${c.ord}`;
-        items.push({ id, vector: c.vector });
-        meta.set(id, { path, ord: c.ord, text: c.text });
-      }
-    }
-    if (!items.length) return [];
-
-    // Rank all chunks, then keep the top-scoring chunk per note.
-    const ranked = topKByVector(queryVec, items, items.length);
     const bestPerNote = new Map<string, SearchHit>();
-    for (const r of ranked) {
-      const m = meta.get(r.id);
-      if (!m) continue;
-      if (!bestPerNote.has(m.path)) {
-        bestPerNote.set(m.path, { path: m.path, ord: m.ord, text: m.text, score: r.score });
+    for (const [path, entry] of Object.entries(this.data.notes)) {
+      let best: SearchHit | undefined;
+      for (const c of entry.chunks) {
+        const score = cosineSimilarity(queryVec, c.vector);
+        if (!best || score > best.score) {
+          best = { path, ord: c.ord, text: c.text, score };
+        }
       }
+      if (best) bestPerNote.set(path, best);
     }
+    if (bestPerNote.size === 0) return [];
     return Array.from(bestPerNote.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(0, k));

@@ -37,7 +37,7 @@ import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
 import { chipLabel } from "./toolChipLabel";
 import { needsCredentialSetup } from "../providers/setupState";
 import { mergeDetectedModels } from "../providers/localModels";
-import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
+import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
 import { ActionModal, type ActionModalItem } from "./ActionModal";
@@ -509,7 +509,7 @@ export class ChatView extends ItemView {
     const convo = this.messages.map((m) => m.content).join("\n");
     const draft = this.inputEl?.value ?? "";
     const ctxAllowance = this.anyContextEnabled() ? this.plugin.settings.contextCharBudget : 0;
-    const estIn = estimateTokens(this.plugin.composeSystemPrompt()) + estimateTokens(convo) + estimateTokens(draft) + estimateTokens("x".repeat(ctxAllowance));
+    const estIn = estimateTokens(this.plugin.composeSystemPrompt()) + estimateTokens(convo) + estimateTokens(draft) + estimateTokensForChars(ctxAllowance);
 
     const g = contextGauge(estIn, model, reserved);
     this.gaugeFillEl.setCssStyles({ width: `${Math.round(g.fraction * 100)}%` });
@@ -519,6 +519,11 @@ export class ChatView extends ItemView {
     const parts: string[] = [];
     if (local) {
       parts.push(`~${formatTokens(estIn)} ctx · local (no metered cost)`);
+      // Local turns report token counts too (Ollama), so show running totals
+      // without a cost — the same shape as the OAuth/subscription branch.
+      if (this.session.requests > 0) {
+        parts.push(`session ${formatTokens(this.session.inputTokens)}↑ ${formatTokens(this.session.outputTokens)}↓`);
+      }
     } else {
       parts.push(`~${formatTokens(estIn)} / ${formatTokens(g.window)} ctx`);
       // OAuth subscription tokens don't bill per-token, so show token totals

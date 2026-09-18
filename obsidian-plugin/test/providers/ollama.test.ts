@@ -53,6 +53,18 @@ describe("OllamaProvider — stream", () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it("reports final token counts via onUsage", async () => {
+    const lines = [
+      `${JSON.stringify({ message: { content: "hi" }, done: false })}\n`,
+      `${JSON.stringify({ done: true, prompt_eval_count: 12, eval_count: 34 })}\n`,
+    ];
+    const { res } = streamResponse(lines);
+    vi.stubGlobal("window", { fetch: vi.fn().mockResolvedValue(res) });
+    const onUsage = vi.fn();
+    await new OllamaProvider("http://localhost:11434", "llama3.1").stream(req, { onText: () => {}, onUsage });
+    expect(onUsage).toHaveBeenCalledWith({ input_tokens: 12, output_tokens: 34 });
+  });
+
   it("cancels the reader when an error line aborts the stream", async () => {
     const lines = [`${JSON.stringify({ error: "model not found" })}\n`];
     const { res, cancel } = streamResponse(lines);
