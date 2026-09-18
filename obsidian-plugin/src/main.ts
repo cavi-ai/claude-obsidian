@@ -416,7 +416,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           },
           suggestTags: async (content) => {
             try {
-              const { tags } = await summarizeAndTag(this.app, this.router(), content, existingVaultTags(this.app));
+              const { tags } = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
               return tags;
             } catch (e) {
               console.warn("[companion] source tagging failed", e);
@@ -2753,7 +2753,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     let tagResult: { title: string; tags: string[]; summary: string } | null = null;
     if (options.rename || options.frontmatter) {
       try {
-        tagResult = await summarizeAndTag(this.app, this.router(), content, existingVaultTags(this.app));
+        tagResult = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
       } catch (e) {
         if (e instanceof UtilityUnavailableError) throw e;
         // Tagging is best-effort — links/lint still run.
