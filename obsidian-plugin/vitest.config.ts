@@ -10,6 +10,8 @@ export default defineConfig({
     // The full suite performs several dynamic-import integration tests. Capping
     // workers avoids CPU contention that made their 5s assertions flaky in CI.
     maxWorkers: 2,
+    // A cold dynamic import of src/main can exceed the 5s default on a loaded host.
+    testTimeout: 15_000,
     coverage: {
       provider: "v8",
       reporter: ["text-summary", "lcov"],
