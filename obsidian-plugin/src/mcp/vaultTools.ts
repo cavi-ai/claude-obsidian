@@ -219,7 +219,7 @@ export class VaultTools {
         },
         {
           name: "note_update",
-          description: "Replace a note's content in place — the whole body, or one named '## section' if 'section' is given. Overwrites; not append.",
+          description: "Replace a note's content in place — the whole body, or one named '## section' if 'section' is given. Overwrites; not append. Companion-managed frontmatter keys cannot be changed this way.",
           inputSchema: {
             type: "object",
             properties: {
@@ -673,6 +673,8 @@ export class VaultTools {
       await this.app.vault.modify(file, next);
       return `Updated section "${section}" in ${file.path}${await this.conformanceLine(file)}`;
     }
+    const current = await this.app.vault.cachedRead(file);
+    assertReservedFrontmatterUnchanged(current, content);
     await this.app.vault.modify(file, content);
     return `Updated ${file.path}${await this.conformanceLine(file)}`;
   }
@@ -869,6 +871,16 @@ const RESERVED_FRONTMATTER_KEYS: ReadonlySet<string> = new Set([
 function assertWritableFrontmatterKey(key: string): void {
   if (RESERVED_FRONTMATTER_KEYS.has(key)) {
     throw new Error(`Frontmatter key "${key}" is managed by Companion and cannot be set through this tool.`);
+  }
+}
+/** Guard note_update's whole-note overwrite against changing any reserved key. */
+function assertReservedFrontmatterUnchanged(oldContent: string, newContent: string): void {
+  const oldFm = readFrontmatter(oldContent, (yaml) => parseYaml(yaml) as unknown) ?? {};
+  const newFm = readFrontmatter(newContent, (yaml) => parseYaml(yaml) as unknown) ?? {};
+  for (const key of RESERVED_FRONTMATTER_KEYS) {
+    if (JSON.stringify(oldFm[key]) !== JSON.stringify(newFm[key])) {
+      throw new Error(`Frontmatter key "${key}" is managed by Companion and cannot be set through this tool.`);
+    }
   }
 }
 /** Narrow a conformance-fixed record to buildFrontmatter's value types; anything else is dropped. */
