@@ -4,6 +4,50 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] — 2026-09-18
+
+### Added
+- **Local model turns show token usage.** The usage bar reports running
+  session token totals for Ollama turns, read from Ollama's own counts. No cost
+  is shown.
+
+### Changed
+- **Semantic search does less work per query.** Scoring keeps the best chunk per
+  note in a single pass; results are unchanged.
+- **The context gauge is cheaper to update while typing.**
+
+### Fixed
+- **Agents can't overwrite Companion-managed frontmatter.** `update_frontmatter`,
+  `note_patch`, and whole-note `note_update` reject changes to research
+  identity, review state, fingerprints, enrichment state, and memory session
+  keys.
+- **A hung MCP server no longer stalls a chat turn.** Stdio and HTTP requests
+  time out after 60 seconds, late HTTP replies are discarded, and closing a
+  connection settles in-flight requests.
+- **Claude Code sign-in is picked up without a restart.** A blocked send and the
+  connect card re-check `claude`, so signing in from a terminal takes effect on
+  the next send.
+- **A silent Claude Code turn no longer waits forever.** After 60 seconds
+  without output the chat says it is still waiting; after five minutes the turn
+  ends with an error and the process is stopped. Time spent waiting on a tool,
+  including a write awaiting approval, doesn't count.
+- **External MCP servers with spaces or symbols in their name work.** Tool calls
+  route by the sanitized name the model sees.
+- **Stopping a turn stops its tools.** The stop signal reaches tool execution, a
+  failing tool returns an error to the model instead of ending the turn, and
+  external MCP calls are skipped once stopped.
+- **Extended thinking with a small output limit no longer fails with HTTP 400.**
+- **A corrupt semantic index rebuilds instead of crashing on first search.**
+- **Streaming keeps a character split across the final chunk and releases the
+  connection on errors**, for Claude, Ollama, and OpenAI-compatible backends.
+- **A brief Ollama outage no longer disables agent and reasoning mode until
+  restart.**
+- **Large rewrites no longer freeze the diff view.**
+- **"Open in browser" for artifacts applies the same content security policy as
+  the in-app frame.**
+- **Cloud replies over 1 MB are reported and skipped instead of saved as empty
+  notes**, and one failed reply no longer stops the sync.
+
 ## [0.29.0] — 2026-09-12
 
 ### Added
