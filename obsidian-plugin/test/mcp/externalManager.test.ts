@@ -171,4 +171,38 @@ describe("ExternalMcpManager name routing", () => {
     expect(servers[0]?.server).toBe("my_server");
     await expect(manager.call("mcp__my_server__search", {})).resolves.toBe("hit");
   });
+
+  it("times out a tool call whose server never replies, instead of hanging the turn", async () => {
+    vi.useFakeTimers();
+    try {
+      requestUrlMock.mockImplementation(async (req: { body: string }) => {
+        const message = JSON.parse(req.body) as { id?: number; method: string };
+        if (message.method === "notifications/initialized") return { status: 202, headers: {}, text: "" };
+        if (message.method === "initialize") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            text: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake", version: "1" } } }),
+          };
+        }
+        if (message.method === "tools/list") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            text: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "search", description: "Search", inputSchema: { type: "object" } }] } }),
+          };
+        }
+        return new Promise(() => {}); // tools/call: server accepts but never replies
+      });
+      const manager = new ExternalMcpManager(() => [namedConfig("docs", "https://one.test/mcp")]);
+      await manager.servers();
+
+      const pending = manager.call("mcp__docs__search", {});
+      const assertion = expect(pending).rejects.toThrow(/did not reply to tools\/call within 60s/);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
