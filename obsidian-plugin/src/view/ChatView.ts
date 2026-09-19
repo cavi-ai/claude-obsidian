@@ -143,6 +143,8 @@ export class ChatView extends ItemView {
   /** Whether the current chat backend can run tool-driven agent turns (refreshed per turn + backend change). */
   private agentCapable = false;
   private reasoningEl: HTMLButtonElement | null = null;
+  /** Guards the setup card's background sign-in probe against stacking on re-render. */
+  private cliSetupProbeInFlight = false;
 
   /** Re-derive agent capability + reasoning state for the controls row (async, backend-aware). */
   private refreshCapabilityIndicators(): void {
@@ -1105,7 +1107,15 @@ export class ChatView extends ItemView {
   /** First-run card: connect to Claude without leaving the chat panel. */
   private renderSetupCard(parent: HTMLElement): void {
     const card = parent.createDiv({ cls: "cc-setup-card" });
-    const cliSignedIn = this.plugin.router().claudeCli.hasCredentials();
+    const router = this.plugin.router();
+    const cliSignedIn = router.claudeCli.hasCredentials();
+    if (!cliSignedIn && router.claudeCli.available() && !this.cliSetupProbeInFlight) {
+      this.cliSetupProbeInFlight = true;
+      void router.claudeCli.refresh().finally(() => {
+        this.cliSetupProbeInFlight = false;
+        if (router.claudeCli.hasCredentials() && this.messagesEl.querySelector(".cc-setup-card")) this.renderEmptyState();
+      });
+    }
     const storage = this.plugin.secrets().available()
       ? "It’s kept in your device’s secret storage, not in this vault — nothing else leaves your machine."
       : "It’s stored in this vault’s plugin data — nothing else leaves your machine.";
@@ -1452,12 +1462,23 @@ export class ChatView extends ItemView {
     this._lastBuffer = ""; // never let a previous turn's partial leak into this one
     void this.refreshBackendPill();
     const router = this.plugin.router();
-    const { provider, model } = router.chatProvider();
+    let { provider, model } = router.chatProvider();
     const backend = router.chatBackend;
-    const caps = router.chatCapabilities();
+    let caps = router.chatCapabilities();
     if (backend === "claude-cli" && !caps.cli && !router.anthropic.hasCredentials()) {
-      new Notice(router.claudeCli.available() ? "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings." : "Claude Code runs on desktop only. Add an API key to chat here.");
-      return;
+      // The cached sign-in probe can be stale (user just ran `claude auth login`); re-probe once before blocking.
+      if (router.claudeCli.available()) {
+        await router.claudeCli.refresh();
+        caps = router.chatCapabilities();
+        if (caps.cli) {
+          ({ provider, model } = router.chatProvider());
+          void this.refreshBackendPill();
+        }
+      }
+      if (!caps.cli) {
+        new Notice(router.claudeCli.available() ? "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings." : "Claude Code runs on desktop only. Add an API key to chat here.");
+        return;
+      }
     }
     if (!provider.hasCredentials() && backend !== "auto") {
       const where =
