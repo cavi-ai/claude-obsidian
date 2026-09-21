@@ -24,8 +24,8 @@ import { inferResearchProjectPath, isResearchProjectChange, projectPathForActiva
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
-import { listSessionsForVault, type SessionMeta } from "./memory/sessions";
-import { ingestSession, ingestConversation } from "./memory/ingest";
+import type { SessionMeta } from "./memory/sessions";
+import { MemoryController } from "./memory/controller";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
@@ -35,7 +35,6 @@ import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, linkMention, type LinkCandidate } from "./links/unlinkedMentions";
-import { selectDigests, buildConsolidationPrompt, parseConsolidation, renderMemoryNote, MEMORY_NOTE_BASENAME, type DigestSource } from "./memory/consolidate";
 import { mentionEdits } from "./links/suggest";
 import { planEdits, applyPlan, diffToEdits, type EditPlan } from "./edit/diff";
 import { inlineDiffExtension, reviewInline } from "./editor/inlineDiffExtension";
@@ -69,7 +68,6 @@ import { buildClaudeArgv, mcpConfigJson } from "./cli/argv";
 import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, type InteractiveToolDeps } from "./cli/bridgeTools";
 import { createNodeCliRuntime, type ClaudeCliRuntime } from "./cli/runtime";
 import { ClaudeCliProvider } from "./providers/claudeCli";
-import { excludeSessions } from "./memory/sessions";
 import { type BuildRun } from "./build/run";
 import { BuildController } from "./build/controller";
 import { CloudController } from "./cloud/controller";
@@ -325,6 +323,44 @@ export default class ClaudeCompanionPlugin extends Plugin {
       utilityLifecycleGeneration: () => this.utilityLifecycleGeneration ?? 0,
       notice: (msg, timeout) => new Notice(msg, timeout),
       openChoiceModal: (opts) => { const m = new ChoiceModal(this.app, opts); m.open(); return m; },
+    }));
+  }
+  private _memory: MemoryController | null = null;
+  memory(): MemoryController {
+    return (this._memory ??= new MemoryController({
+      settings: () => this.settings,
+      isMobile: Platform.isMobile,
+      ingestApp: this.app,
+      vaultBasePath: () => this.vaultBasePath(),
+      vault: {
+        markdownFilesUnder: (prefix) => this.app.vault.getMarkdownFiles()
+          .filter((f) => f.path.startsWith(`${prefix}/`))
+          .map((f) => ({ path: f.path, mtime: f.stat.mtime })),
+        readContent: async (path) => {
+          const f = this.app.vault.getAbstractFileByPath(path);
+          return f instanceof TFile ? this.app.vault.cachedRead(f) : null;
+        },
+        writeContent: async (path, content) => {
+          const f = this.app.vault.getAbstractFileByPath(path);
+          if (f instanceof TFile) await this.app.vault.modify(f, content);
+          else await this.app.vault.create(path, content);
+        },
+      },
+      router: () => this.router(),
+      excludedSessionIds: () => this.conversations().list().flatMap(cliSessionIds),
+      getActiveConversation: () => this.getActiveConversation(),
+      nodeSessionReader: async () => {
+        const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
+        return { reader: nodeSessionReader, defaultProjectsRoot };
+      },
+      notice: (msg, timeout) => new Notice(msg, timeout),
+      refreshMemoryView: () => this.refreshMemoryView(),
+      openFile: async (path) => {
+        const f = this.app.vault.getAbstractFileByPath(path);
+        if (f instanceof TFile) await this.app.workspace.getLeaf(false).openFile(f);
+      },
+      openSessionPicker: (sessions, onPick) => new SessionPicker(this.app, sessions, onPick).open(),
+      normalizePath,
     }));
   }
   private clipperVerificationTimers = new Map<string, number>();
@@ -644,9 +680,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       reviewLinkSuggestions: () => void this.reviewLinkSuggestions(),
       openWorkflowPicker: () => void this.openWorkflowPicker(),
       createPromptTemplate: () => void this.createPromptTemplate(),
-      openSessionPicker: () => void this.openSessionPicker(),
+      openSessionPicker: () => void this.memory().openSessionPicker(),
       openMemoryView: () => void this.activateMemoryView(),
-      consolidateMemory: () => void this.consolidateMemory(),
+      consolidateMemory: () => void this.memory().consolidateMemory(),
       enrichNoteAsSource: (file) => void this.enrichment().runEnrich(file),
       openSourceInbox: () => void this.activateInboxView(),
       exportClipperTemplates: () => void this.exportClipperTemplates(),
@@ -1510,7 +1546,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       case "embedding-settings": this.openCompanionSettings(); return;
       case "rebuild-index":
       case "retry-index": await this.rebuildSemanticIndex(); return;
-      case "consolidate-memory": await this.consolidateMemory(); return;
+      case "consolidate-memory": await this.memory().consolidateMemory(); return;
       case "clippings-inbox": await this.activateInboxView(); return;
       case "review-inbox-failures": await this.activateInboxView(); return;
       case "utility-settings": this.openCompanionSettings(); return;
@@ -2848,25 +2884,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null;
   }
 
-  /** List this vault's Claude Code sessions (newest first). Desktop-only. */
   async listVaultSessions(): Promise<SessionMeta[]> {
-    const base = this.vaultBasePath();
-    if (!base || Platform.isMobile) return [];
-    // node fs reader lives in the desktop-only module — load it lazily.
-    const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
-    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.conversations().list().flatMap(cliSessionIds));
-  }
-
-  private ingestDeps() {
-    return {
-      app: this.app,
-      read: async (path: string) => {
-        const { nodeSessionReader } = await import("./memory/nodeReader");
-        return nodeSessionReader.read(path);
-      },
-      folder: this.settings.memoryFolder,
-      baseTags: this.settings.memoryBaseTags,
-    };
+    return this.memory().listVaultSessions();
   }
 
   /** Open the workflows picker; run the chosen workflow in the chat. */
@@ -2885,137 +2904,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await view.submitPrompt(wf.prompt, wf.name, ARTIFACT_MAX_TOKENS);
   }
 
-  /** Open the picker; ingest the chosen session. */
   async openSessionPicker(): Promise<void> {
-    if (!this.settings.memoryEnabled) {
-      new Notice("Session memory is disabled in settings.");
-      return;
-    }
-    const sessions = await this.listVaultSessions();
-    if (sessions.length === 0) {
-      new Notice(
-        "No Claude Code sessions found for this vault. Run the `claude` CLI from this vault's folder, then capture.",
-        8000,
-      );
-      return;
-    }
-    new SessionPicker(this.app, sessions, (session) => {
-      void this.captureSession(session);
-    }).open();
+    return this.memory().openSessionPicker();
   }
 
-  /** Ingest one session and report. */
   async captureSession(session: SessionMeta): Promise<void> {
-    try {
-      const res = await ingestSession(this.ingestDeps(), { id: session.id, path: session.path });
-      new Notice(`Captured session · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
-      await this.refreshMemoryView();
-      await this.app.workspace.getLeaf(false).openFile(res.file);
-      if (this.settings.memoryAutoConsolidate) void this.consolidateMemory({ quiet: true });
-    } catch (e) {
-      console.error("[Claude Companion] session capture failed", e);
-      new Notice("Session capture failed — see console.");
-    }
+    return this.memory().captureSession(session);
   }
 
-  /**
-   * Merge recent session digests into the evolving "What Claude Knows" note
-   * (spec 2026-07-05 memory consolidation). Routes through the utility
-   * provider — local Ollama when enabled, else Claude. Idempotent: rewrites
-   * the same note each run from the newest digests + its previous content.
-   */
   async consolidateMemory(opts?: { quiet?: boolean }): Promise<void> {
-    const s = this.settings;
-    if (!s.memoryEnabled) {
-      new Notice("Turn on session memory in Companion settings first.");
-      return;
-    }
-    const folder = normalizePath(s.memoryFolder);
-    const files = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${folder}/`));
-    const sources: DigestSource[] = [];
-    for (const f of files) {
-      sources.push({ path: f.path, mtime: f.stat.mtime, content: await this.app.vault.cachedRead(f) });
-    }
-    const digests = selectDigests(sources);
-    if (digests.length === 0) {
-      if (!opts?.quiet) new Notice("No session digests to consolidate yet — capture a session first.");
-      return;
-    }
-
-    const memoryPath = normalizePath(`${folder}/${MEMORY_NOTE_BASENAME}.md`);
-    const existingFile = this.app.vault.getAbstractFileByPath(memoryPath);
-    const existing = existingFile instanceof TFile ? await this.app.vault.cachedRead(existingFile) : null;
-
-    if (!opts?.quiet) new Notice(`Consolidating ${digests.length} session digest${digests.length === 1 ? "" : "s"}…`);
-    try {
-      const { text: raw, provider } = await this.router().complete("utility", {
-        system: "You maintain concise, factual memory notes. Output markdown only.",
-        user: buildConsolidationPrompt(existing, digests.map((d) => d.content)),
-        maxTokens: 4000,
-        temperature: 0.2,
-      });
-      const body = parseConsolidation(raw);
-      const note = renderMemoryNote(body, {
-        updated: new Date().toISOString().slice(0, 10),
-        digestCount: digests.length,
-        baseTags: [...s.memoryBaseTags, "memory"],
-      });
-      if (existingFile instanceof TFile) await this.app.vault.modify(existingFile, note);
-      else await this.app.vault.create(memoryPath, note);
-      new Notice(`Memory consolidated → ${MEMORY_NOTE_BASENAME} (via ${provider.label}).`);
-    } catch (e) {
-      console.error("[Claude Companion] memory consolidation failed", e);
-      if (!opts?.quiet) new Notice(`Memory consolidation failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    return this.memory().consolidateMemory(opts);
   }
 
-  /** Capture the most-recent CLI session for this vault. */
   async captureLatestSession(): Promise<void> {
-    const sessions = await this.listVaultSessions();
-    if (sessions.length === 0) {
-      new Notice("No Claude Code session found for this vault to ingest.");
-      return;
-    }
-    const latest = sessions[0];
-    if (!latest) return;
-    await this.captureSession(latest);
+    return this.memory().captureLatestSession();
   }
 
-  /**
-   * Capture the current in-app conversation into memory (adapter B). Idempotent
-   * by conversation id, so re-saving updates the same digest note. Best-effort.
-   */
   async captureConversation(messages: ChatMessage[]): Promise<void> {
-    if (!this.settings.memoryEnabled || messages.length === 0) return;
-    const conv = this.getActiveConversation();
-    try {
-      const meta = {
-        ...(conv?.id !== undefined ? { sessionId: conv.id } : {}),
-        model: this.settings.model,
-        ...(conv ? { startedAt: new Date(conv.createdAt).toISOString(), endedAt: new Date(conv.updatedAt).toISOString() } : {}),
-      };
-      const res = await ingestConversation(
-        { app: this.app, folder: this.settings.memoryFolder, baseTags: this.settings.memoryBaseTags },
-        messages,
-        meta,
-      );
-      new Notice(`Conversation captured to memory · ${res.redactions} secret${res.redactions === 1 ? "" : "s"} redacted`);
-      await this.refreshMemoryView();
-    } catch (e) {
-      console.error("[Claude Companion] conversation capture failed", e);
-      new Notice("Couldn't capture this conversation to memory — see console.");
-    }
+    return this.memory().captureConversation(messages);
   }
 
-  /** Re-ingest by session id (called from the sidebar). */
   async reingestSession(sessionId: string): Promise<void> {
-    const sessions = await this.listVaultSessions();
-    const match = sessions.find((s) => (s.sessionId ?? s.id) === sessionId);
-    if (!match) {
-      new Notice("Original session transcript not found on disk.");
-      return;
-    }
-    await this.captureSession(match);
+    return this.memory().reingestSession(sessionId);
   }
 
   async activateMemoryView(): Promise<void> {
