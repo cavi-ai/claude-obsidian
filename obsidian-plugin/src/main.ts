@@ -1,4 +1,4 @@
-import { App, FileSystemAdapter, MarkdownView, Modal, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
+import { App, FileSystemAdapter, MarkdownView, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { InboxView, INBOX_VIEW_TYPE } from "./view/InboxView";
@@ -9,7 +9,7 @@ import { BuildView, BUILD_VIEW_TYPE, type BuildViewDependencies } from "./view/B
 import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
-import { ensureVaultFolder } from "./vault/vaultFiles";
+import { ensureVaultFolder, writeOrReplaceFile } from "./vault/vaultFiles";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
 import { DraftCoordinator } from "./research/draftCoordinator";
@@ -75,8 +75,10 @@ import { trackerNoteBody } from "./build/tracker";
 import { BuildRunCoordinator, createBuildRun, restoreBuildRuns, type BuildRun, type BuildTaskExecutor } from "./build/run";
 import { DesktopBuildExecutor } from "./build/desktopExecutor";
 import { CloudBuildExecutor, type CloudBuildHttpRequest } from "./build/cloudExecutor";
-import { type CloudDispatchConfig, buildFireRequest, parseFireResponse, composeDispatchText, configError } from "./cloud/routines";
-import { type RepliesConfig, buildContentsRequest, parseDirListing, parseFileResponse, isMarkdown, configError as repliesConfigError } from "./cloud/replies";
+import { configError } from "./cloud/routines";
+import { configError as repliesConfigError } from "./cloud/replies";
+import { CloudController } from "./cloud/controller";
+import { CloudDispatchModal } from "./view/CloudDispatchModal";
 import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import { existingVaultTags } from "./indexing/autoTagger";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
@@ -99,20 +101,10 @@ import {
   type ConversationState,
   emptyState,
   fromPersisted,
-  getActive,
-  newConversation,
-  withCliSession,
   cliSessionIds,
-  saveConversation,
-  deleteConversation as removeConversation,
-  setActive,
-  touch,
-  startConversationTurn,
-  settleConversationTurn,
-  clearConversationTurn,
   type ChatTurnMode,
 } from "./conversations/store";
-import { ChatTurnLifecycle } from "./chat/turnLifecycle";
+import { ConversationsController } from "./conversations/controller";
 import type { ChatMessage } from "./types";
 import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
 import { enrichCapture, type EnrichDeps } from "./sources/enrich";
@@ -146,6 +138,7 @@ import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
 import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
+import { ConfirmModal } from "./view/ConfirmModal";
 import { OBSIDIAN_GENERAL_SETTINGS_TAB, claudeDesktopConfigPath, type DesktopPlatform } from "./integrations/desktop";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
@@ -221,9 +214,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     );
   }
   private convState: ConversationState = emptyState();
-  private convSeq = 0;
-  private _chatTurnLifecycle?: ChatTurnLifecycle;
-  private chatTurnLifecycle(): ChatTurnLifecycle { return this._chatTurnLifecycle ??= new ChatTurnLifecycle(); }
+  private _conversations?: ConversationsController;
+  private conversations(): ConversationsController {
+    return (this._conversations ??= new ConversationsController({
+      state: { get: () => this.convState, set: (next) => { this.convState = next; } },
+      persist: () => this.persist(),
+      activity: () => this.activity,
+      settings: () => this.settings,
+    }));
+  }
   private researchDeskPreferences: ResearchDeskPreferenceMap = {};
   private buildRuns: Record<string, BuildRun> = {};
   private activeBuildRunId: string | null = null;
@@ -307,6 +306,22 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Debounces research-only metadata changes without reacting to unrelated vault notes. */
   private researchRefreshTimer: number | null = null;
   private researchRefreshChanges: Array<{ path: string; oldPath?: string }> = [];
+  /** Teardown callbacks registered by extracted controllers; run in reverse order on unload. */
+  private disposables?: Array<() => void>;
+  /** Listeners notified after every successful saveSettings() (per-domain reactions). */
+  private settingsListeners?: Set<() => void>;
+
+  /** Register a teardown callback run by onunload (reverse registration order). */
+  registerDisposable(dispose: () => void): void {
+    (this.disposables ??= []).push(dispose);
+  }
+
+  /** Subscribe to successful settings saves. Returns an unsubscribe function. */
+  onSettingsChanged(listener: () => void): () => void {
+    const listeners = (this.settingsListeners ??= new Set());
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  }
 
   override async onload(): Promise<void> {
     this.mcpLifecycleGeneration = (this.mcpLifecycleGeneration ?? 0) + 1;
@@ -404,7 +419,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           }),
           saveAsset: async (projectPath, name, data) => {
             const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
-            await this.ensureFolder(folder);
+            await ensureVaultFolder(this.app, folder);
             let path = normalizePath(`${folder}/${name}`);
             if (this.app.vault.getAbstractFileByPath(path)) {
               const base = name.replace(/\.[^.]+$/, "");
@@ -844,10 +859,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const opts = { path: this.settings.sourceInboxFolder, tags: this.settings.sourceBaseTags };
     const types: SourceType[] = ["article", "video", "dataset"];
     const schemas = types.map((t) => getSchema(t, this.settings.sourceSchemaOverrides));
-    await this.ensureFolder(folder);
+    await ensureVaultFolder(this.app, folder);
     for (const schema of schemas) {
       const template = clipperTemplateFor(schema, opts);
-      await this.writeOrReplace(normalizePath(`${folder}/${clipperTemplateFileName(template)}`), serializeClipperTemplate(template));
+      await writeOrReplaceFile(this.app, normalizePath(`${folder}/${clipperTemplateFileName(template)}`), serializeClipperTemplate(template));
     }
     this.settings.clipperTemplateFingerprint = clipperFingerprint(schemas, opts);
     await this.saveSettings();
@@ -890,8 +905,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       saveJson: async (setup) => {
         const folder = "Claude/Clipper templates";
-        await this.ensureFolder(folder);
-        await this.writeOrReplace(normalizePath(`${folder}/companion-${setup.type}-clipper.json`), setup.json);
+        await ensureVaultFolder(this.app, folder);
+        await writeOrReplaceFile(this.app, normalizePath(`${folder}/companion-${setup.type}-clipper.json`), setup.json);
         new Notice(`Saved ${setup.templateName} JSON to ${folder}.`, 4000);
       },
     }).open();
@@ -1304,7 +1319,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
             const file = this.app.vault.getAbstractFileByPath(move.from);
             if (!(file instanceof TFile)) continue;
             const dir = move.to.slice(0, move.to.lastIndexOf("/"));
-            await this.ensureFolder(dir);
+            await ensureVaultFolder(this.app, dir);
             await this.app.fileManager.renameFile(file, move.to);
             moved++;
           }
@@ -1561,6 +1576,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   override onunload(): void {
+    for (const dispose of [...(this.disposables ?? [])].reverse()) dispose();
+    this.disposables = [];
+    this.settingsListeners?.clear();
     void this.closeCliSessions();
     this._activity?.dispose();
     this.utilityLifecycleEnded = true;
@@ -1885,7 +1903,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
     if (activityId.startsWith("chat-turn:")) {
       const conversationId = activityId.slice("chat-turn:".length);
-      const conversation = this.convState.conversations.find(({ id }) => id === conversationId);
+      const conversation = this.conversations().list().find(({ id }) => id === conversationId);
       if (!conversation) throw new Error("That conversation no longer exists.");
       if (actionId === "stop-chat-turn") {
         if (!conversation.activeTurn) return;
@@ -1936,7 +1954,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.convState = isNamespacedData(raw)
       ? fromPersisted({ conversations: (raw).conversations, activeId: (raw).activeConversationId })
       : emptyState();
-    this.restoreChatTurnActivities();
+    this.conversations().restoreTurnActivities();
     this.researchDeskPreferences = normalizeDeskPreferenceMap(isNamespacedData(raw) ? (raw).researchDeskPreferences : undefined);
     const runs = restoreBuildRuns(isNamespacedData(raw) ? raw.buildRuns : undefined);
     this.buildRuns = Object.fromEntries(runs.map((run) => [run.id, run]));
@@ -1999,174 +2017,60 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     this.refreshViews();
     await this.syncMcpServer();
+    for (const listener of this.settingsListeners ?? []) listener();
   }
 
   // ---------- conversation history ----------
 
-  private nextConversationId(): string {
-    return `c${Date.now().toString(36)}-${(this.convSeq++).toString(36)}`;
-  }
-
   listConversations(): Conversation[] {
-    return this.convState.conversations;
+    return this.conversations().list();
   }
 
   getActiveConversation(): Conversation | null {
-    return getActive(this.convState);
+    return this.conversations().getActive();
   }
 
-  /**
-   * Persist the current message list into the active conversation, creating one
-   * on first save. Returns the active conversation id (or null when there is
-   * nothing to save). Best-effort: a save failure never blocks the chat.
-   */
   async saveActiveConversation(messages: ChatMessage[]): Promise<string | null> {
-    if (messages.length === 0) return this.convState.activeId;
-    const base = getActive(this.convState) ?? newConversation(this.nextConversationId(), Date.now());
-    const updated = touch(base, messages, Date.now());
-    this.convState = saveConversation(this.convState, updated, this.settings.maxConversations);
-    try {
-      await this.persist();
-    } catch (e) {
-      console.error("[Claude Companion] failed to save conversation", e);
-    }
-    return updated.id;
+    return this.conversations().saveActive(messages);
   }
 
   async beginActiveConversationTurn(
     messages: ChatMessage[],
     input: { backend: string; model: string; mode: ChatTurnMode },
   ): Promise<{ conversationId: string; turnId: string }> {
-    const previousState = this.convState;
-    const conversationId = this.activeConversationId();
-    const turnId = crypto.randomUUID();
-    const now = Date.now();
-    this.convState = startConversationTurn(this.convState, conversationId, messages, {
-      id: turnId,
-      state: "running",
-      backend: input.backend,
-      model: input.model,
-      mode: input.mode,
-      userMessageIndex: messages.length - 1,
-      createdAt: now,
-      updatedAt: now,
-    }, this.settings.maxConversations);
-    try {
-      await this.persist();
-    } catch (error) {
-      this.convState = previousState;
-      throw error;
-    }
-    const title = this.getActiveConversation()?.title ?? "Chat request";
-    const activityId = this.chatActivityId(conversationId);
-    this.activity.start({ id: activityId, kind: "chat-turn", title });
-    this.activity.update(activityId, {
-      currentItem: input.backend === "claude-cli" ? "Claude Code is working" : "Response is running",
-      recovery: [
-        { id: "open-chat", label: "Open Chat", kind: "open" },
-        { id: "stop-chat-turn", label: "Stop", kind: "stop" },
-      ],
-    });
-    return { conversationId, turnId };
+    return this.conversations().beginTurn(messages, input);
   }
 
   registerActiveChatTurn(conversationId: string, turnId: string, stop: () => void): () => void {
-    return this.chatTurnLifecycle().register(conversationId, turnId, stop);
+    return this.conversations().registerTurn(conversationId, turnId, stop);
   }
 
   async stopActiveChatTurn(conversationId: string, turnId: string): Promise<void> {
-    const turn = this.convState.conversations.find(({ id }) => id === conversationId)?.activeTurn;
-    if (!turn || turn.id !== turnId || turn.state === "interrupted") return;
-    this.convState = settleConversationTurn(this.convState, conversationId, turnId, "interrupted", Date.now(), "Stopped by user");
-    this.activity.update(this.chatActivityId(conversationId), {
-      state: "paused",
-      currentItem: "Interrupted — review any partial changes before resuming",
-      recovery: [
-        { id: "open-chat", label: "Open Chat", kind: "open" },
-        { id: "resume-chat-turn", label: "Resume", kind: "resume" },
-      ],
-    });
-    try {
-      await this.persist();
-    } finally {
-      this.chatTurnLifecycle().stop(conversationId, turnId);
-    }
+    return this.conversations().stopTurn(conversationId, turnId);
   }
 
   async completeActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[]): Promise<void> {
-    const conversation = this.convState.conversations.find(({ id }) => id === conversationId);
-    if (!conversation?.activeTurn || conversation.activeTurn.id !== turnId || conversation.activeTurn.state !== "running") return;
-    const previousState = this.convState;
-    this.convState = saveConversation(this.convState, touch(conversation, messages, Date.now()), this.settings.maxConversations);
-    this.convState = clearConversationTurn(this.convState, conversationId, turnId, Date.now());
-    try {
-      await this.persist();
-    } catch (error) {
-      this.convState = previousState;
-      throw error;
-    }
-    this.activity.dismiss(this.chatActivityId(conversationId));
+    return this.conversations().completeTurn(conversationId, turnId, messages);
   }
 
   async interruptActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[], error = "Interrupted"): Promise<void> {
-    const conversation = this.convState.conversations.find(({ id }) => id === conversationId);
-    if (!conversation?.activeTurn || conversation.activeTurn.id !== turnId) return;
-    this.convState = saveConversation(this.convState, touch(conversation, messages, Date.now()), this.settings.maxConversations);
-    this.convState = settleConversationTurn(this.convState, conversationId, turnId, "interrupted", Date.now(), error);
-    await this.persist();
-    this.activity.update(this.chatActivityId(conversationId), {
-      state: "paused",
-      currentItem: "Interrupted — review any partial changes before resuming",
-      recovery: [
-        { id: "open-chat", label: "Open Chat", kind: "open" },
-        { id: "resume-chat-turn", label: "Resume", kind: "resume" },
-      ],
-    });
+    return this.conversations().interruptTurn(conversationId, turnId, messages, error);
   }
 
-  private chatActivityId(conversationId: string): string { return `chat-turn:${conversationId}`; }
-
-  private restoreChatTurnActivities(): void {
-    for (const conversation of this.convState.conversations) {
-      if (!conversation.activeTurn) continue;
-      const id = this.chatActivityId(conversation.id);
-      this.activity.start({ id, kind: "chat-turn", title: conversation.title });
-      this.activity.update(id, {
-        state: conversation.activeTurn.state === "failed" ? "needs-attention" : "paused",
-        currentItem: conversation.activeTurn.error ?? "Interrupted — review any partial changes before resuming",
-        recovery: [
-          { id: "open-chat", label: "Open Chat", kind: "open" },
-          { id: "resume-chat-turn", label: "Resume", kind: "resume" },
-        ],
-      });
-    }
-  }
-
-  /** The active conversation id, creating and persisting one when the chat is fresh. */
   activeConversationId(): string {
-    const active = getActive(this.convState);
-    if (active) return active.id;
-    const fresh = newConversation(this.nextConversationId(), Date.now());
-    this.convState = saveConversation(this.convState, fresh, this.settings.maxConversations);
-    return fresh.id;
+    return this.conversations().activeId();
   }
 
-  /** Switch the active conversation (e.g. from the history picker). */
   async setActiveConversation(id: string): Promise<Conversation | null> {
-    this.convState = setActive(this.convState, id);
-    await this.persist();
-    return getActive(this.convState);
+    return this.conversations().setActive(id);
   }
 
-  /** Start a fresh conversation (the current one is already auto-saved). */
   async startNewConversation(): Promise<void> {
-    this.convState = setActive(this.convState, null);
-    await this.persist();
+    return this.conversations().startNew();
   }
 
   async deleteConversation(id: string): Promise<void> {
-    this.convState = removeConversation(this.convState, id);
-    await this.persist();
+    return this.conversations().delete(id);
   }
 
   private async browseConversations(): Promise<void> {
@@ -2488,7 +2392,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Create the default ontology schema notes (never overwrites), then reload and report. */
   private async seedOntology(): Promise<void> {
     const folder = normalizePath(this.settings.ontologyFolder);
-    await this.ensureFolder(folder);
+    await ensureVaultFolder(this.app, folder);
     let created = 0;
     for (const f of seedFiles()) {
       const path = normalizePath(`${folder}/${f.fileName}`);
@@ -2894,7 +2798,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
             const file = this.app.vault.getAbstractFileByPath(move.from);
             if (!(file instanceof TFile)) continue;
             const dir = move.to.slice(0, move.to.lastIndexOf("/"));
-            await this.ensureFolder(dir);
+            await ensureVaultFolder(this.app, dir);
             await this.app.fileManager.renameFile(file, move.to);
             moved++;
           }
@@ -3035,15 +2939,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async setConversationCliSession(conversationId: string, sessionId: string): Promise<void> {
-    this.convState = {
-      ...this.convState,
-      conversations: this.convState.conversations.map((c) => {
-        if (c.id !== conversationId) return c;
-        const updated = withCliSession(c, sessionId);
-        return updated.activeTurn ? { ...updated, activeTurn: { ...updated.activeTurn, cliSessionId: sessionId, updatedAt: Date.now() } } : updated;
-      }),
-    };
-    await this.persist();
+    return this.conversations().setCliSession(conversationId, sessionId);
   }
 
   /**
@@ -3138,7 +3034,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Scaffold a template note with the frontmatter schema and open it for editing. */
   async createPromptTemplate(): Promise<void> {
     const folder = normalizePath(this.settings.templatesFolder);
-    await this.ensureFolder(folder);
+    await ensureVaultFolder(this.app, folder);
     let path = normalizePath(`${folder}/My template.md`);
     for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) {
       path = normalizePath(`${folder}/My template ${i}.md`);
@@ -3614,7 +3510,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!base || Platform.isMobile) return [];
     // node fs reader lives in the desktop-only module — load it lazily.
     const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
-    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.convState.conversations.flatMap(cliSessionIds));
+    return excludeSessions(await listSessionsForVault(nodeSessionReader, base, defaultProjectsRoot()), this.conversations().list().flatMap(cliSessionIds));
   }
 
   private ingestDeps() {
@@ -3923,7 +3819,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private researchRepository(): ResearchRepository {
     return createResearchRepository(this.app, {
-      ensureFolder: (folder) => this.ensureFolder(folder),
+      ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
       includeBinary: true,
     });
   }
@@ -4035,7 +3931,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
     if (!confirmed) return;
 
-    await this.ensureFolder(folder);
+    await ensureVaultFolder(this.app, folder);
     const specPath = normalizePath(`${folder}/${title} — spec.md`);
     const trackerPath = normalizePath(`${folder}/${title} — tracker.md`);
 
@@ -4043,7 +3939,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     // Spec note.
     const specFm = buildFrontmatter({ title: `${title} — spec`, created: new Date().toISOString().slice(0, 10), source: "claude-companion", type: "build-spec", tags: normalizeTags(["claude", "build", "spec"]) });
-    await this.writeOrReplace(specPath, `${specFm}\n\n${specBody(input)}`);
+    await writeOrReplaceFile(this.app, specPath, `${specFm}\n\n${specBody(input)}`);
 
     const run = createBuildRun({
       id: `build-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -4057,7 +3953,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     // Tracker note is durable Markdown; the native view owns interactive controls.
     const trackerFm = buildFrontmatter({ title: `${title} — tracker`, created: new Date().toISOString().slice(0, 10), source: "claude-companion", type: "build-tracker", tags: normalizeTags(["claude", "build", "tracker"]) });
-    await this.writeOrReplace(trackerPath, `${trackerFm}\n\n${trackerNoteBody(run)}`);
+    await writeOrReplaceFile(this.app, trackerPath, `${trackerFm}\n\n${trackerNoteBody(run)}`);
     this.buildRuns ??= {};
     this.buildRuns[run.id] = run;
     this.activeBuildRunId = run.id;
@@ -4145,13 +4041,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
         cancelMode: "after-current",
         execute: async (input, signal, emit) => {
           if (!this.settings.cloudDispatchEnabled) throw new Error("Cloud builds are off. Open Companion settings → Cloud session, enable dispatch, then Retry.");
-          const routineError = configError(this.cloudConfig());
+          const routineError = configError(this.cloud().dispatchConfig());
           if (routineError) throw new Error(`Cloud build setup is incomplete: ${routineError}`);
-          const replyError = repliesConfigError(this.replyConfig());
+          const replyError = repliesConfigError(this.cloud().repliesConfig());
           if (replyError) throw new Error(`Cloud build tracking is incomplete: ${replyError}`);
           executor ??= new CloudBuildExecutor({
-            routine: this.cloudConfig(),
-            replies: this.replyConfig(),
+            routine: this.cloud().dispatchConfig(),
+            replies: this.cloud().repliesConfig(),
             http: { request: (request: CloudBuildHttpRequest) => this.buildHttpRequest(request) },
           });
           return executor.execute(input, signal, emit);
@@ -4183,8 +4079,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   private async buildHttpRequest(request: CloudBuildHttpRequest): Promise<{ status: number; text: string }> {
-    const response = await requestUrl({ url: request.url, method: request.method, headers: request.headers, ...(request.body ? { body: request.body } : {}), throw: false });
-    return { status: response.status, text: response.text };
+    return this.cloud().httpRequest(request);
   }
 
   private async persistBuildRun(run: BuildRun): Promise<void> {
@@ -4205,151 +4100,44 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (this.buildTrackerWriteChains.get(run.id) === write) this.buildTrackerWriteChains.delete(run.id);
   }
 
-  private async ensureFolder(folder: string): Promise<void> {
-    await ensureVaultFolder(this.app, folder);
-  }
-
-  private async writeOrReplace(path: string, content: string): Promise<TFile> {
-    const existing = this.app.vault.getAbstractFileByPath(path);
-    if (existing instanceof TFile) {
-      await this.app.vault.modify(existing, content);
-      return existing;
-    }
-    return this.app.vault.create(path, content);
-  }
-
   // ---------- cloud session dispatch ----------
 
-  private cloudConfig(): CloudDispatchConfig {
-    return {
-      fireUrl: this.settings.cloudRoutineFireUrl,
-      token: this.settings.cloudRoutineToken,
-      betaHeader: this.settings.cloudRoutineBetaHeader,
-    };
+  private _cloud?: CloudController;
+  private cloud(): CloudController {
+    return (this._cloud ??= new CloudController({
+      settings: () => this.settings,
+      http: async (req) => {
+        const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, ...(req.body ? { body: req.body } : {}), throw: false });
+        return { status: res.status, text: res.text };
+      },
+      vault: {
+        fileExists: (path) => !!this.app.vault.getAbstractFileByPath(path),
+        create: async (path, content) => { await this.app.vault.create(path, content); },
+        ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
+        normalizePath,
+      },
+      ui: {
+        notice: (msg, timeout) => new Notice(msg, timeout),
+        clipboard: (text) => navigator.clipboard.writeText(text),
+        activeSelection: () => {
+          const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+          return { path: mdView?.file?.path, selection: mdView?.editor.getSelection().trim() || undefined };
+        },
+        promptInstruction: (context, onSubmit) => new CloudDispatchModal(this.app, context, onSubmit).open(),
+      },
+    }));
   }
 
-  /**
-   * Prompt for what a cloud session should do, attach light vault context
-   * (active note path + selection), and fire the configured routine. Desktop
-   * first (Phase 1) — de-risks the Routines API ahead of the mobile build.
-   */
   async dispatchCloudSession(): Promise<void> {
-    if (!this.settings.cloudDispatchEnabled) {
-      new Notice("Cloud session dispatch is off. Enable it in Companion settings → Cloud session.", 7000);
-      return;
-    }
-    const cfgErr = configError(this.cloudConfig());
-    if (cfgErr) {
-      new Notice(`Cloud session not configured: ${cfgErr}`, 9000);
-      return;
-    }
-    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    const selection = mdView?.editor.getSelection().trim() ?? "";
-    const parts: string[] = [];
-    if (mdView?.file) parts.push(`Active note: ${mdView.file.path}`);
-    if (selection) parts.push(`Selected text:\n${selection}`);
-    const context = parts.length ? parts.join("\n\n") : undefined;
-
-    new CloudDispatchModal(this.app, context, (instruction) => void this.fireCloudSession(instruction, context)).open();
+    return this.cloud().dispatchSession();
   }
 
-  private async fireCloudSession(instruction: string, context?: string): Promise<void> {
-    const pending = new Notice("Dispatching cloud session…", 0);
-    try {
-      const req = buildFireRequest(this.cloudConfig(), composeDispatchText(instruction, context));
-      const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, body: req.body, throw: false });
-      const result = parseFireResponse(res.status, res.text);
-      pending.hide();
-      if (result.sessionUrl) {
-        await navigator.clipboard.writeText(result.sessionUrl).catch(() => {});
-        new Notice(`Cloud session started — link copied to clipboard:\n${result.sessionUrl}`, 12000);
-      } else {
-        new Notice("Cloud session fired. (No session link was returned.)", 8000);
-      }
-    } catch (e) {
-      pending.hide();
-      const msg = e instanceof Error ? e.message : String(e);
-      const hint = errorHint(msg, "anthropic");
-      new Notice(`Cloud dispatch failed: ${msg}${hint ? ` — ${hint}` : ""}`, 10000);
-    }
-  }
-
-  private replyConfig(): RepliesConfig {
-    return {
-      repo: this.settings.cloudReplyRepo,
-      branch: this.settings.cloudReplyBranch,
-      folder: this.settings.cloudReplyFolder,
-      token: this.settings.cloudReplyToken,
-    };
-  }
-
-  /**
-   * Live-verify the replies config: one read of the replies folder over the
-   * Contents API. Powers the settings "Test connection" button — read-only,
-   * no side effects, works on mobile.
-   */
   async testCloudReplies(): Promise<{ ok: boolean; message: string }> {
-    const cfg = this.replyConfig();
-    const cfgErr = repliesConfigError(cfg);
-    if (cfgErr) return { ok: false, message: cfgErr };
-    try {
-      const req = buildContentsRequest(cfg, cfg.folder);
-      const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, throw: false });
-      const files = parseDirListing(res.status, res.text);
-      return { ok: true, message: `Connected — ${files.length} file${files.length === 1 ? "" : "s"} in “${cfg.folder}” on ${cfg.branch}.` };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const hint = errorHint(msg, "anthropic");
-      return { ok: false, message: `${msg}${hint ? ` — ${hint}` : ""}` };
-    }
+    return this.cloud().testReplies();
   }
 
-  /**
-   * Fetch reply notes a cloud session wrote into the vault's GitHub repo and
-   * land any new ones in the vault — over HTTPS, so it works on mobile. Existing
-   * notes are left untouched (never clobbers local edits).
-   */
   async pullCloudReplies(): Promise<void> {
-    const cfg = this.replyConfig();
-    const cfgErr = repliesConfigError(cfg);
-    if (cfgErr) {
-      new Notice(`Cloud replies not configured: ${cfgErr}`, 9000);
-      return;
-    }
-    const pending = new Notice("Checking for cloud replies…", 0);
-    try {
-      const list = buildContentsRequest(cfg, cfg.folder);
-      const listRes = await requestUrl({ url: list.url, method: list.method, headers: list.headers, throw: false });
-      const files = parseDirListing(listRes.status, listRes.text).filter((f) => isMarkdown(f.name));
-      let pulled = 0;
-      let failed = 0;
-      for (const f of files) {
-        if (this.app.vault.getAbstractFileByPath(normalizePath(f.path))) continue; // don't clobber local notes
-        // One unreadable/oversized reply must not abort the whole sync; count it
-        // and keep pulling the rest.
-        try {
-          const fileReq = buildContentsRequest(cfg, f.path);
-          const fileRes = await requestUrl({ url: fileReq.url, method: fileReq.method, headers: fileReq.headers, throw: false });
-          const got = parseFileResponse(fileRes.status, fileRes.text);
-          const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
-          if (dir) await this.ensureFolder(dir);
-          await this.app.vault.create(normalizePath(f.path), got.text);
-          pulled++;
-        } catch (error) {
-          failed++;
-          console.warn("[companion] cloud reply skipped", f.path, error);
-        }
-      }
-      pending.hide();
-      const pulledMsg = pulled > 0 ? `Pulled ${pulled} cloud repl${pulled === 1 ? "y" : "ies"} into the vault.` : "No new cloud replies.";
-      const failedMsg = failed > 0 ? ` ${failed} couldn't be pulled (see console).` : "";
-      new Notice(pulledMsg + failedMsg, 7000);
-    } catch (e) {
-      pending.hide();
-      const msg = e instanceof Error ? e.message : String(e);
-      const hint = errorHint(msg, "anthropic");
-      new Notice(`Couldn't pull cloud replies: ${msg}${hint ? ` — ${hint}` : ""}`, 10000);
-    }
+    return this.cloud().pullReplies();
   }
 
   async generateArtifactFromContext(): Promise<void> {
@@ -4366,84 +4154,5 @@ export default class ClaudeCompanionPlugin extends Plugin {
       `Turn ${target} into an artifact`,
       ARTIFACT_MAX_TOKENS,
     );
-  }
-}
-
-/** A simple confirm/cancel dialog that resolves a boolean. */
-class ConfirmModal extends Modal {
-  private decided = false;
-  constructor(
-    app: App,
-    private opts: { title: string; body: string; cta: string; onResolve: (ok: boolean) => void },
-  ) {
-    super(app);
-  }
-
-  override onOpen(): void {
-    this.titleEl.setText(this.opts.title);
-    const p = this.contentEl.createEl("p", { cls: "setting-item-description" });
-    p.setCssStyles({ whiteSpace: "pre-wrap" });
-    p.setText(this.opts.body);
-    const row = this.contentEl.createDiv({ cls: "modal-button-container" });
-    row.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = row.createEl("button", { cls: "mod-cta", text: this.opts.cta });
-    ok.addEventListener("click", () => {
-      this.decided = true;
-      this.opts.onResolve(true);
-      this.close();
-    });
-  }
-
-  override onClose(): void {
-    if (!this.decided) this.opts.onResolve(false);
-  }
-}
-
-/** Minimal prompt for what a dispatched cloud session should do. */
-class CloudDispatchModal extends Modal {
-  private value = "";
-
-  constructor(
-    app: App,
-    private context: string | undefined,
-    private onSubmit: (instruction: string) => void,
-  ) {
-    super(app);
-  }
-
-  override onOpen(): void {
-    const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Send to cloud Claude session" });
-    contentEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Fires your Claude Code routine in the cloud against your vault's repo. What should it do?",
-    });
-    if (this.context) {
-      contentEl.createEl("p", { cls: "setting-item-description", text: `Attaching — ${this.context.split("\n")[0]}` });
-    }
-
-    const ta = contentEl.createEl("textarea");
-    ta.rows = 5;
-    ta.setCssStyles({ width: "100%" });
-    ta.placeholder = "e.g. Summarize this week's meeting notes into a decisions log and open a PR.";
-    ta.addEventListener("input", () => (this.value = ta.value));
-    window.setTimeout(() => ta.focus(), 0);
-
-    const controls = contentEl.createDiv({ cls: "modal-button-container" });
-    const send = controls.createEl("button", { text: "Dispatch", cls: "mod-cta" });
-    send.addEventListener("click", () => {
-      const v = this.value.trim();
-      if (!v) {
-        new Notice("Type what the cloud session should do.");
-        return;
-      }
-      this.close();
-      this.onSubmit(v);
-    });
-    controls.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-  }
-
-  override onClose(): void {
-    this.contentEl.empty();
   }
 }
