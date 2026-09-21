@@ -38,6 +38,7 @@ function inboxPlugin(
     settings: { ...DEFAULT_SETTINGS, sourceCaptureEnabled: true, sourceInboxFolder: "Clippings" },
     enrichInboxItem,
     sourceEnrichmentBackendLabel: () => "Ollama · utility-model",
+    suspendReindex: () => () => {},
   });
   return plugin;
 }
@@ -77,6 +78,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichPending: new Map<string, TFile>(),
       enrichQueueRunning: false,
+      suspendReindex: () => () => {},
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
       runEnrich: async (candidate: TFile): Promise<EnrichRunOutcome> => {
@@ -129,6 +131,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichPending: new Map<string, TFile>(),
       enrichQueueRunning: false,
+      suspendReindex: () => () => {},
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
       runEnrich: async (candidate: TFile): Promise<EnrichRunOutcome> => {
@@ -173,6 +176,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichPending: new Map<string, TFile>(),
       enrichQueueRunning: false,
+      suspendReindex: () => () => {},
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
       enrichFile: async (file: TFile): Promise<EnrichRunOutcome> => {
@@ -224,6 +228,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichPending: new Map<string, TFile>(),
       enrichQueueRunning: false,
+      suspendReindex: () => () => {},
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
       saveSettings,
@@ -262,6 +267,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichPending: new Map<string, TFile>(),
       enrichQueueRunning: false,
+      suspendReindex: () => () => {},
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
     });
@@ -399,6 +405,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
+      suspendReindex: () => () => {},
     });
     vi.spyOn(plugin.router().openaiCompat, "complete").mockImplementation(async () => {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
@@ -454,6 +461,7 @@ describe("enrichment lifecycle", () => {
       enrichTimers: new Map<string, number>(),
       enrichPending: new Map([["Clippings/pending.md", new TFile("Clippings/pending.md", "Pending", 0)]]),
       enrichQueueRunning: false,
+      suspendReindex: () => () => {},
       enrichRecentlyWritten: new Set<string>(),
       enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
       reindexTimer: null,

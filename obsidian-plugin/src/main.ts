@@ -83,19 +83,15 @@ import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
 import { existingVaultTags } from "./indexing/autoTagger";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
-import { SemanticIndexer, type IndexFile } from "./semantic/indexer";
-import { extractPdfPages } from "./semantic/pdf";
-import type { IndexData } from "./semantic/store";
-import { OllamaEmbedder, embedderId, type Embedder } from "./semantic/embedder";
-import { builtinModelById } from "./semantic/transformers/model";
+import { SemanticIndexer } from "./semantic/indexer";
+import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
 import { needsCredentialSetup } from "./providers/setupState";
 import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
-import { clearCachedModel, hasCachedModel } from "./semantic/transformers/cache";
-import { TransformersEmbedder, type WorkerLike } from "./semantic/transformers/embedder";
-import { createEmbedWorker } from "./semantic/transformers/workerSource";
+import type { TransformersEmbedder } from "./semantic/transformers/embedder";
+import { builtinModelById } from "./semantic/transformers/model";
 import {
   type Conversation,
   type ConversationState,
@@ -130,7 +126,7 @@ import { reviewInboxBatchLinks } from "./links/inboxBatchReview";
 import { ActivityStore } from "./activity/store";
 import type { CompanionChromeDependencies } from "./view/companionChrome";
 import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./view/quickOptions";
-import { classifyEmbeddingFailure, type EmbeddingRecovery } from "./semantic/recovery";
+import type { EmbeddingRecovery } from "./semantic/recovery";
 import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
 import { verifyClipperNote } from "./sources/clipperVerification";
 import { KeyedSerialQueue } from "./sources/keyedSerialQueue";
@@ -263,20 +259,43 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpLifecycleEnded = false;
   /** Signature of the currently-running MCP server, to skip needless restarts. */
   private mcpSignature: string | null = null;
-  /** Lazily-built semantic index (local embeddings); null until first use. */
-  private _indexer: SemanticIndexer | null = null;
-  /** Built-in engine's worker-backed embedder; created lazily, torn down on unload/engine switch. */
-  private _builtinEmbedder: TransformersEmbedder | null = null;
-  /** Memoized "built-in model is in the local cache" (only flips false→true; downloads are additive). */
-  private _builtinModelCached = false;
-  /** One Notice per session when incremental reindex is paused awaiting the model download. */
-  private reindexPausedNotified = false;
-  /** Embedding model the live indexer was built for (rebuild on change). */
-  private indexerModel: string | null = null;
-  /** Debounce timer for incremental re-index on note changes. */
-  private reindexTimer: number | null = null;
-  private reindexQueue = new Set<string>();
-  private reindexSuspended = 0;
+  private _semantic: SemanticController | null = null;
+  private semantic(): SemanticController {
+    return (this._semantic ??= new SemanticController({
+      settings: () => this.settings,
+      saveSettings: () => this.saveSettings(),
+      manifestDir: this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`,
+      manifestId: this.manifest.id,
+      activity: () => this.activity,
+      enrichDiagnostics: () => this.enrichDiagnostics,
+      router: () => this.router(),
+      isMobile: Platform.isMobile,
+      vault: {
+        adapterExists: (p) => this.app.vault.adapter.exists(p),
+        adapterRead: (p) => this.app.vault.adapter.read(p),
+        adapterWrite: (p, d) => this.app.vault.adapter.write(p, d),
+        getMarkdownFiles: () => this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
+        getPdfFiles: () => this.app.vault.getFiles().filter((f) => f.extension === "pdf").map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
+        getAbstractFileByPath: (p) => {
+          const f = this.app.vault.getAbstractFileByPath(p);
+          return f instanceof TFile ? { path: f.path, stat: { mtime: f.stat.mtime, size: f.stat.size } } : null;
+        },
+        cachedRead: (p) => {
+          const f = this.app.vault.getAbstractFileByPath(p);
+          return f instanceof TFile ? this.app.vault.cachedRead(f) : Promise.resolve("");
+        },
+        readBinary: (p) => {
+          const f = this.app.vault.getAbstractFileByPath(p);
+          if (!(f instanceof TFile)) return Promise.reject(new Error(`Not a file: ${p}`));
+          return this.app.vault.readBinary(f);
+        },
+      },
+      notice: (msg, timeout) => new Notice(msg, timeout),
+      openChoiceModal: (opts) => new ChoiceModal(this.app, opts).open(),
+      mobileSourceNoteMaxBytes: MOBILE_SOURCE_NOTE_MAX_BYTES,
+      mobilePdfMaxBytes: MOBILE_SEMANTIC_PDF_MAX_BYTES,
+    }));
+  }
   private enrichTimers = new Map<string, number>();
   /** Debounced Clipper arrivals waiting for one-at-a-time utility processing. */
   private enrichPending = new Map<string, TFile>();
@@ -1618,9 +1637,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.mcpServer = null;
     void this._externalMcp?.close();
     this._externalMcp = null;
-    this._builtinEmbedder?.terminate();
-    this._builtinEmbedder = null;
-    if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
+    this._semantic?.destroy();
     if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
     if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
     if (this.inboxBadgeTimer !== null) window.clearTimeout(this.inboxBadgeTimer);
@@ -1691,8 +1708,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       semanticEnabled: this.settings.semanticEnabled,
       embeddingEngine: this.settings.embeddingEngine,
       embeddingModel,
-      embeddingHealth: this.settings.semanticEnabled ? (this._indexer ? "Ready" : "Index not built yet") : "Disabled",
-      indexHealth: this._indexer ? "Ready" : "Not built yet",
+      ...this.semantic().indexerHealth(),
       memoryEnabled: this.settings.memoryEnabled,
       memoryFolder: this.settings.memoryFolder,
       memoryAutoConsolidate: this.settings.memoryAutoConsolidate,
@@ -1889,16 +1905,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   embeddingRecovery(error: unknown): EmbeddingRecovery {
-    const endpoint = this.settings.embeddingEngine === "ollama"
-      ? this.settings.ollamaHost
-      : this.settings.embeddingEngine === "custom"
-        ? this.settings.openaiCompatHost
-        : undefined;
-    return classifyEmbeddingFailure(error, {
-      engine: this.settings.embeddingEngine,
-      isMobile: Platform.isMobile,
-      ...(endpoint ? { endpoint } : {}),
-    });
+    return this.semantic().embeddingRecovery(error);
   }
 
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
@@ -2006,16 +2013,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this._mcpServersSnapshot = serversJson;
       if (this._externalMcp) void this._externalMcp.close();
     }
-    // Rebuild the indexer if the embedding engine/model or enabled state changed.
-    const activeEmbedder = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel, this.settings.builtinEmbeddingModel, this.settings.openaiCompatEmbeddingModel);
-    if (this.indexerModel !== activeEmbedder || (!this.settings.semanticEnabled && this._indexer)) {
-      this.invalidateIndexer();
-    }
-    // Engine no longer builtin → don't leave its worker idling.
-    if (this.settings.embeddingEngine !== "builtin" && this._builtinEmbedder) {
-      this._builtinEmbedder.terminate();
-      this._builtinEmbedder = null;
-    }
+    this._semantic?.onSettingsChanged();
     this.refreshViews();
     await this.syncMcpServer();
     for (const listener of this.settingsListeners ?? []) listener();
@@ -2323,51 +2321,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     for (const coordinator of this._viewDiscoveryCoordinators ?? []) coordinator.clearCache();
   }
 
-  /** The built-in engine's embedder (worker-backed); created lazily, torn down on unload. */
-  builtinEmbedder(): TransformersEmbedder {
-    const model = builtinModelById(this.settings.builtinEmbeddingModel);
-    // Model selection changed → swap the worker pipeline (and re-probe the cache).
-    if (this._builtinEmbedder && this._builtinEmbedder.id !== model.id) {
-      this._builtinEmbedder.terminate();
-      this._builtinEmbedder = null;
-      this._builtinModelCached = false;
-    }
-    // Runtime-compatible: WorkerLike is the DOM Worker surface the embedder uses;
-    // only the onmessage/onerror event-param types differ (narrower here).
-    if (!this._builtinEmbedder) this._builtinEmbedder = new TransformersEmbedder(() => createEmbedWorker() as unknown as WorkerLike, model);
-    return this._builtinEmbedder;
-  }
-
-  /** Whether the selected built-in model's weights are already in the local cache (a load needs no network). */
-  async builtinModelCached(): Promise<boolean> {
-    if (this._builtinModelCached) return true;
-    const repo = builtinModelById(this.settings.builtinEmbeddingModel).hfRepo;
-    if (await hasCachedModel(typeof caches !== "undefined" ? caches : undefined, repo)) this._builtinModelCached = true;
-    return this._builtinModelCached;
-  }
-
-  /**
-   * Delete the downloaded built-in model (+ ORT runtime) from the local cache
-   * and drop the loaded pipeline. Returns the number of cache entries deleted.
-   */
-  async clearBuiltinModel(): Promise<number> {
-    this._builtinEmbedder?.terminate();
-    this._builtinEmbedder = null;
-    const deleted = await clearCachedModel(typeof caches !== "undefined" ? caches : undefined);
-    this._builtinModelCached = false;
-    return deleted;
-  }
-
-  /**
-   * Consent gate for IMPLICIT embed paths (incremental reindex, query-time
-   * search): true when embedding cannot trigger a network download — Ollama
-   * engine, model already loaded, or weights already cached (loads offline).
-   * Explicit paths (rebuild command, settings Download button) have their own gates.
-   */
-  private async canEmbedWithoutDownload(): Promise<boolean> {
-    if (this.settings.embeddingEngine !== "builtin") return true;
-    return this.builtinEmbedder().backend() !== null || (await this.builtinModelCached());
-  }
+  builtinEmbedder(): TransformersEmbedder { return this.semantic().builtinEmbedder(); }
+  async builtinModelCached(): Promise<boolean> { return this.semantic().builtinModelCached(); }
+  async clearBuiltinModel(): Promise<number> { return this.semantic().clearBuiltinModel(); }
 
   /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
   ontology(): OntologyRegistry | null {
@@ -3060,379 +3016,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- semantic index (local embeddings) ----------
 
-  /** Absolute-ish vault-relative path to the persisted index, in the plugin dir. */
-  private indexPath(): string {
-    return `${this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`}/semantic-index.json`;
-  }
-
-  /**
-   * The live semantic indexer, or null when semantic search is off. Rebuilds the
-   * instance if the embedding model changed. IO is wired here; logic is pure.
-   */
-  indexer(): SemanticIndexer | null {
-    if (!this.settings.semanticEnabled) return null;
-    const model = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel, this.settings.builtinEmbeddingModel, this.settings.openaiCompatEmbeddingModel);
-    if (this._indexer && this.indexerModel === model) return this._indexer;
-
-    const adapter = this.app.vault.adapter;
-    const path = this.indexPath();
-    const embedder: Embedder =
-      this.settings.embeddingEngine === "builtin"
-        ? this.builtinEmbedder()
-        : this.settings.embeddingEngine === "custom"
-          ? new OllamaEmbedder(model, (_m, input) => this.router().openaiCompat.embed(this.settings.openaiCompatEmbeddingModel, input))
-          : new OllamaEmbedder(this.settings.embeddingModel, (m, input) => this.router().ollama.embed(m, input));
-    this._indexer = new SemanticIndexer({
-      embeddingModel: model,
-      listMarkdown: (): IndexFile[] =>
-        this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
-      read: async (p: string) => {
-        const f = this.app.vault.getAbstractFileByPath(p);
-        return f instanceof TFile ? this.app.vault.cachedRead(f) : "";
-      },
-      ...(this.settings.semanticIndexPdfs
-        ? {
-            listPdf: (): IndexFile[] =>
-              this.app.vault.getFiles().filter((f) => f.extension === "pdf").map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
-            readPdfPages: async (p: string) => {
-              const f = this.app.vault.getAbstractFileByPath(p);
-              if (!(f instanceof TFile)) return null;
-              try {
-                // Lazy: pdf.js and its inlined worker are the largest thing in the
-                // bundle, and a vault with no PDFs must never pay for them.
-                const { loadPdf } = await import("./semantic/pdfjs");
-                return await extractPdfPages(loadPdf, await this.app.vault.readBinary(f));
-              } catch (e) {
-                console.debug("Claude Companion: skipping unreadable PDF", p, e);
-                return null;
-              }
-            },
-          }
-        : {}),
-      embed: async (input: string[]) => {
-        // Belt-and-braces consent gate: no indexer path (build, update, query,
-        // related-notes fallback) may implicitly fetch weights from the network.
-        if (!(await this.canEmbedWithoutDownload())) {
-          throw new Error("Built-in embedding model not downloaded — download it in Companion settings.");
-        }
-        return embedder.embed(input);
-      },
-      ...(Platform.isMobile && this.settings.embeddingEngine === "builtin" ? { embedBatchSize: 1 } : {}),
-      onPhase: (phase, fields) => this.enrichDiagnostics.log(phase, fields),
-      ...(Platform.isMobile
-        ? { maxInputBytes: (p: string) => p.toLowerCase().endsWith(".pdf") ? MOBILE_SEMANTIC_PDF_MAX_BYTES : MOBILE_SOURCE_NOTE_MAX_BYTES }
-        : {}),
-      load: async () => {
-        try {
-          if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
-        } catch (e) {
-          console.debug("Claude Companion: corrupt/missing semantic index, rebuilding", e);
-        }
-        return null;
-      },
-      save: async (data: IndexData) => {
-        this.enrichDiagnostics.log("serialize-start", { notes: Object.keys(data.notes).length });
-        const json = JSON.stringify(data);
-        this.enrichDiagnostics.log("save-start", { bytes: json.length });
-        await adapter.write(path, json);
-        this.enrichDiagnostics.log("save-done", { bytes: json.length });
-      },
-    });
-    this.indexerModel = model;
-    return this._indexer;
-  }
-
-  /**
-   * One-time offer to download the on-device embedding model. Semantic search
-   * ships on, but no path may fetch weights implicitly — so the first run asks.
-   * Skips when the model is already loaded/cached or the engine is Ollama.
-   */
-  async promptSemanticModelIfNeeded(): Promise<void> {
-    if (this.settings.embeddingEngine !== "builtin") return;
-    if (this.settings.semanticModelPrompted) return;
-    if (this.builtinEmbedder().backend() !== null) return;
-    if (await this.builtinModelCached()) return; // loads on first use, offline
-    this.settings.semanticModelPrompted = true;
-    await this.saveSettings();
-    const model = builtinModelById(this.settings.builtinEmbeddingModel);
-    await new Promise<void>((resolve) => {
-      new ChoiceModal<"download" | "skip">(this.app, {
-        title: "Set up semantic search",
-        message:
-          "Companion can index your vault on-device so vault search and related notes work by meaning, not just keywords. " +
-          `This needs a one-time download (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net; cached and fully offline afterwards). ` +
-          "Until then, search stays keyword-only.",
-        buttons: [
-          { label: `Download (~${model.approxDownloadMB} MB)`, value: "download", cta: true },
-          { label: "Not now", value: "skip" },
-        ],
-        fallback: "skip",
-        onChoice: (c) => {
-          if (c === "download") void this.downloadBuiltinModelAndIndex();
-          resolve();
-        },
-      }).open();
-    });
-  }
-
-  /** Download the built-in embedding model with progress, then build the index. */
-  private async downloadBuiltinModelAndIndex(): Promise<void> {
-    const model = builtinModelById(this.settings.builtinEmbeddingModel);
-    const activityId = this.activity.start({
-      id: `embedding-download:${model.id}`,
-      kind: "embedding-download",
-      title: "Downloading embedding model",
-      total: 100,
-    });
-    try {
-      await this.builtinEmbedder().download((progress) => this.activity.update(activityId, {
-        completed: progress.percent,
-        total: 100,
-        currentItem: progress.file,
-      }));
-      this.activity.finish(activityId, { completed: 100, succeeded: 1 });
-      await this.rebuildSemanticIndex();
-    } catch (error) {
-      const recovery = this.embeddingRecovery(error);
-      this.activity.fail(activityId, {
-        failed: 1,
-        technicalDetails: recovery.technicalDetails,
-        recovery: recovery.actions,
-        details: [{ label: model.hfRepo, message: recovery.message, state: "error" }],
-      });
-    }
-  }
-
-  /** Human-readable label for the active embedding engine/model (Notices, status copy). */
-  private embeddingLabel(): string {
-    if (this.settings.embeddingEngine === "builtin") {
-      return `built-in (${builtinModelById(this.settings.builtinEmbeddingModel).id.replace(/^builtin:/, "")})`;
-    }
-    if (this.settings.embeddingEngine === "custom") {
-      return `${this.settings.openaiCompatEmbeddingModel || "custom endpoint"}`;
-    }
-    return this.settings.embeddingModel;
-  }
-
-  /** Drop the cached indexer (after the embedding model / enabled state changes). */
-  invalidateIndexer(): void {
-    this._indexer = null;
-    this.indexerModel = null;
-  }
-
-  /** Semantic retriever for chat grounding. Returns [] when off or unavailable. */
-  async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> {
-    const ix = this.indexer();
-    if (!ix) return [];
-    if (!(await this.canEmbedWithoutDownload())) return []; // consent gate → keyword-only, same as other fallbacks
-    try {
-      const hits = await ix.search(query, k);
-      return hits.map((h) => ({ path: h.path, text: h.text }));
-    } catch (e) {
-      console.debug("Claude Companion: semantic search failed, falling back to keyword-only", e);
-      return [];
-    }
-  }
-
-  /** Notes related to a given note (for the Related Notes panel). [] when off. */
-  async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> {
-    const ix = this.indexer();
-    if (!ix) return [];
-    const hits = await ix.related(path, k);
-    return hits.map((h) => ({ path: h.path, score: h.score }));
-  }
-
-  /** Full (re)build of the semantic index, with a progress toast. */
-  async rebuildSemanticIndex(): Promise<void> {
-    const modelId = embedderId(this.settings.embeddingEngine, this.settings.embeddingModel, this.settings.builtinEmbeddingModel, this.settings.openaiCompatEmbeddingModel);
-    const activityId = this.activity.start({
-      id: `semantic-index:${modelId}`,
-      kind: "semantic-index",
-      title: "Building semantic index",
-    });
-    if (!this.settings.semanticEnabled) {
-      this.activity.fail(activityId, {
-        failed: 1,
-        details: [{ label: "Semantic search", message: "Semantic search is turned off.", state: "error" }],
-        recovery: [{ id: "embedding-settings", label: "Open embedding settings", kind: "settings" }],
-      });
-      return;
-    }
-    if (this.settings.embeddingEngine === "ollama") {
-      if (!this.router().ollama.hasCredentials()) {
-        const recovery = this.embeddingRecovery(new Error("Ollama connection unavailable"));
-        this.activity.fail(activityId, {
-          failed: 1,
-          technicalDetails: recovery.technicalDetails,
-          recovery: recovery.actions,
-          details: [{ label: "Ollama", message: recovery.message, state: "error" }],
-        });
-        return;
-      }
-    } else if (!(await this.canEmbedWithoutDownload())) {
-      // Consent gate: embedding with no downloaded model would fetch weights
-      // implicitly. Cached weights pass — they load offline.
-      const recovery = this.embeddingRecovery(new Error("Built-in embedding model not downloaded"));
-      this.activity.fail(activityId, {
-        failed: 1,
-        technicalDetails: recovery.technicalDetails,
-        recovery: recovery.actions,
-        details: [{ label: "Built-in model", message: recovery.message, state: "error" }],
-      });
-      return;
-    }
-    const ix = this.indexer();
-    if (!ix) return;
-    let completed = 0;
-    let total: number | undefined;
-    try {
-      const res = await ix.build({
-        force: true,
-        onProgress: (done, nextTotal) => {
-          completed = done;
-          total = nextTotal;
-          this.activity.update(activityId, { completed: done, total: nextTotal });
-        },
-      });
-      const summary = `${res.indexed} embedded, ${res.skipped} skipped, ${res.removed} pruned`;
-      if (res.failureCount > 0) {
-        const recovery = this.embeddingRecovery(new Error(res.failures[0]?.message ?? "Embedding failed"));
-        this.activity.fail(activityId, {
-          completed: total ?? completed,
-          ...(total === undefined ? {} : { total }),
-          succeeded: res.indexed,
-          failed: res.failureCount,
-          details: res.failures.map(({ path, message }) => ({ path, message })).map(({ path, message }) => ({ label: path, message: classifyEmbeddingFailure(new Error(message), {
-            engine: this.settings.embeddingEngine,
-            isMobile: Platform.isMobile,
-            ...(this.settings.embeddingEngine === "ollama" ? { endpoint: this.settings.ollamaHost } : this.settings.embeddingEngine === "custom" ? { endpoint: this.settings.openaiCompatHost } : {}),
-          }).technicalDetails, state: "error" as const })),
-          technicalDetails: recovery.technicalDetails,
-          recovery: recovery.actions,
-        });
-      } else {
-        this.activity.finish(activityId, {
-          completed: total ?? completed,
-          ...(total === undefined ? {} : { total }),
-          succeeded: res.indexed,
-          details: [{ label: "Index ready", message: summary, state: "success" }],
-        });
-      }
-    } catch (error) {
-      console.error("[Claude Companion] semantic index build failed", error);
-      const recovery = this.embeddingRecovery(error);
-      this.activity.fail(activityId, {
-        failed: 1,
-        technicalDetails: recovery.technicalDetails,
-        recovery: recovery.actions,
-        details: [{ label: this.embeddingLabel(), message: recovery.message, state: "error" }],
-      });
-    }
-  }
-
-  /** Report the semantic index state in a Notice (on/off · counts · model · reach). */
-  async showSemanticIndexStatus(): Promise<void> {
-    if (!this.settings.semanticEnabled) {
-      new Notice("Semantic search is off — turn it on in Companion settings to index your vault.", 7000);
-      return;
-    }
-    const ix = this.indexer();
-    if (!ix) {
-      new Notice("Semantic index is unavailable.", 6000);
-      return;
-    }
-    try {
-      let reach: string;
-      let stats: { notes: number; chunks: number };
-      if (this.settings.embeddingEngine === "builtin") {
-        stats = await ix.stats();
-        const backend = this.builtinEmbedder().backend();
-        reach = backend ? `model ready (${backend === "webgpu" ? "WebGPU" : "WASM"})` : "model not downloaded — download it in settings";
-      } else {
-        const [s, localOk] = await Promise.all([ix.stats(), this.router().localAvailable()]);
-        stats = s;
-        reach = localOk ? "Ollama reachable" : "Ollama unreachable — searches fall back to keyword";
-      }
-      new Notice(`Semantic index · ${stats.notes} notes, ${stats.chunks} chunks · “${this.embeddingLabel()}” · ${reach}`, 9000);
-    } catch (e) {
-      new Notice(`Semantic index status unavailable: ${e instanceof Error ? e.message : String(e)}`, 8000);
-    }
-  }
-
-  /** Queue a single note for incremental re-embed (debounced ~1.5s). */
-  private queueReindex(path: string): void {
-    if (!this.settings.semanticEnabled) return;
-    this.reindexQueue.add(path);
-    if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
-    this.reindexTimer = window.setTimeout(() => void this.flushReindex(), 1500);
-  }
-
-  /** Hold reindexing during a batch; the last release flushes once for every queued note. */
-  suspendReindex(): () => void {
-    this.reindexSuspended++;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      this.reindexSuspended--;
-      if (this.reindexSuspended === 0 && this.reindexQueue.size > 0) void this.flushReindex();
-    };
-  }
-
-  private async flushReindex(): Promise<void> {
-    // A suspend-triggered flush can run ahead of the debounce timer; cancel it so it
-    // doesn't fire again later against an already-drained queue.
-    if (this.reindexTimer !== null) { window.clearTimeout(this.reindexTimer); this.reindexTimer = null; }
-    if (this.reindexSuspended > 0) return;
-    const ix = this.indexer();
-    if (!ix) {
-      this.reindexQueue.clear();
-      return;
-    }
-    if (!(await this.canEmbedWithoutDownload())) {
-      // Consent gate: drop the queue (notes re-queue on their next change) and
-      // say so once per session instead of spamming a Notice per save.
-      this.reindexQueue.clear();
-      if (!this.reindexPausedNotified) {
-        this.reindexPausedNotified = true;
-        new Notice("Semantic reindex paused — download the built-in model in settings.");
-      }
-      return;
-    }
-    const paths = Array.from(this.reindexQueue);
-    this.reindexQueue.clear();
-    this.enrichDiagnostics.log("reindex-flush-start", { n: paths.length });
-    const entries = paths.flatMap((p) => {
-      const f = this.app.vault.getAbstractFileByPath(p);
-      return f instanceof TFile ? [{ path: p, mtime: f.stat.mtime, size: f.stat.size }] : [];
-    });
-    if (entries.length === 0) return;
-    let failures: Array<{ path: string; error: unknown }>;
-    try {
-      failures = await ix.updateNotes(
-        entries,
-        Platform.isMobile ? { yieldBetween: () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)) } : {},
-      );
-    } catch (error) {
-      this.enrichDiagnostics.log("reindex-flush-rejected", { n: entries.length });
-      failures = entries.map(({ path }) => ({ path, error }));
-    }
-    for (const { path: p, error } of failures) {
-      console.error(`[Claude Companion] semantic reindex failed for ${p}`, error);
-      const recovery = this.embeddingRecovery(error);
-      const activityId = this.activity.start({
-        id: `semantic-index:incremental:${p}`,
-        kind: "semantic-index",
-        title: "Semantic index needs attention",
-      });
-      this.activity.fail(activityId, {
-        failed: 1,
-        technicalDetails: recovery.technicalDetails,
-        recovery: recovery.actions,
-        details: [{ label: p, message: recovery.message, state: "error" }],
-      });
-    }
-  }
+  indexer(): SemanticIndexer | null { return this.semantic().indexer(); }
+  async promptSemanticModelIfNeeded(): Promise<void> { return this.semantic().promptSemanticModelIfNeeded(); }
+  private async downloadBuiltinModelAndIndex(): Promise<void> { return this.semantic().downloadBuiltinModelAndIndex(); }
+  invalidateIndexer(): void { this.semantic().invalidateIndexer(); }
+  async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k); }
+  async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedNotes(path, k); }
+  async rebuildSemanticIndex(): Promise<void> { return this.semantic().rebuildSemanticIndex(); }
+  async showSemanticIndexStatus(): Promise<void> { return this.semantic().showSemanticIndexStatus(); }
+  private queueReindex(path: string): void { this.semantic().queueReindex(path); }
+  suspendReindex(): () => void { return this.semantic().suspendReindex(); }
+  private async canEmbedWithoutDownload(): Promise<boolean> { return this.semantic().canEmbedWithoutDownload(); }
 
   // ---------- view ----------
 
