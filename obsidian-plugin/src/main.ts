@@ -26,6 +26,7 @@ import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
 import type { SessionMeta } from "./memory/sessions";
 import { MemoryController } from "./memory/controller";
+import { McpBridgeController } from "./mcp/bridgeController";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
@@ -61,7 +62,7 @@ import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type Enrich
 import { sanitizeFileName } from "./artifacts/parse";
 import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
 import { stripFrontmatter } from "./semantic/chunk";
-import { generateToken, resolveMcpToken } from "./mcp/clientConfig";
+import { generateToken } from "./mcp/clientConfig";
 import type { AgentTurnRunner } from "./agent/loop";
 import { ClaudeCliSession } from "./cli/session";
 import { buildClaudeArgv, mcpConfigJson } from "./cli/argv";
@@ -241,7 +242,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
   private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
   private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
-  private mcpServer: McpHttpServer | null = null;
   private cliSessions = new Map<string, { session: ClaudeCliSession; bridge: McpHttpServer; signature: string; promptFile: string; lastUsed: number }>();
   private cliPromptFiles = new Set<string>();
   private _cliRuntime: ClaudeCliRuntime | null | undefined;
@@ -252,16 +252,45 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }> = () => import("./integrations/desktopRuntime");
   private _externalMcp: ExternalMcpManager | null = null;
   private _mcpServersSnapshot = "[]";
-  private vaultTools: VaultTools | null = null;
   /** Chat-scoped vault tools (agent mode) — separate instance and write gate from the MCP bridge. */
   private agentVaultTools: VaultTools | null = null;
-  /** Serializes overlapping syncMcpServer() calls (settings fire it per keystroke). */
-  private mcpSyncChain: Promise<void> = Promise.resolve();
-  /** Invalidates an MCP bridge that finishes starting after plugin shutdown. */
   private mcpLifecycleGeneration = 0;
   private mcpLifecycleEnded = false;
-  /** Signature of the currently-running MCP server, to skip needless restarts. */
-  private mcpSignature: string | null = null;
+  private _mcpBridge: McpBridgeController | null = null;
+  private mcpBridge(): McpBridgeController {
+    return (this._mcpBridge ??= new McpBridgeController({
+      settings: () => this.settings,
+      saveSettings: () => this.saveSettings(),
+      isMobile: Platform.isMobile,
+      isLifecycleEnded: () => this.mcpLifecycleEnded,
+      lifecycleGeneration: () => this.mcpLifecycleGeneration ?? 0,
+      buildToolOptions: () => ({
+        allowWrites: this.settings.mcpAllowWrites,
+        defaultFolder: this.settings.mcpWriteFolder,
+        semantic: (q: string, k: number) => this.semanticSearch(q, k),
+        ontology: () => this.ontology(),
+        ontologyFolder: () => this.settings.ontologyFolder,
+        zotero: () => this.zoteroLibrary(),
+        ...this.webToolImpls(),
+      }),
+      createTools: (opts) => new VaultTools(this.app, opts),
+      createServer: async (tools, port, token) => {
+        const { McpHttpServer } = await import("./mcp/server");
+        return new McpHttpServer(
+          {
+            port,
+            token,
+            serverInfo: { name: "obsidian-vault", version: "0.2.0" },
+            resources: vaultResourceProvider(this.app),
+            prompts: catalogPromptProvider(() => this.promptTemplates()),
+          },
+          tools as unknown as VaultTools,
+          (level, message) => { if (level === "error") console.error("[Claude Companion MCP]", message); },
+        );
+      },
+      notice: (msg) => new Notice(msg),
+    }));
+  }
   private _semantic: SemanticController | null = null;
   private semantic(): SemanticController {
     return (this._semantic ??= new SemanticController({
@@ -1418,8 +1447,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._build?.destroy();
     this.mcpLifecycleEnded = true;
     this.mcpLifecycleGeneration = (this.mcpLifecycleGeneration ?? 0) + 1;
-    void this.mcpServer?.stop();
-    this.mcpServer = null;
+    this._mcpBridge?.destroy();
     void this._externalMcp?.close();
     this._externalMcp = null;
     this._semantic?.destroy();
@@ -1878,113 +1906,24 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- MCP bridge ----------
 
-  /**
-   * Start, stop, or restart the MCP server to match current settings. Serialized
-   * (the settings UI calls saveSettings → this on every keystroke, un-awaited)
-   * and idempotent (skips a restart when the running server already matches), so
-   * overlapping syncs can't EADDRINUSE the fixed port and silently drop the bridge.
-   */
   syncMcpServer(): Promise<void> {
-    this.mcpSyncChain = this.mcpSyncChain.catch(() => {}).then(() => this.applyMcpServer());
-    return this.mcpSyncChain;
+    return this.mcpBridge().sync();
   }
 
-  /** The bearer token the server validates against: env var wins over stored. */
   private resolvedMcpToken(): string {
-    const env = (window as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
-    return resolveMcpToken(env, this.settings.mcpToken).token;
-  }
-
-  /** Desired server signature for the current settings, or null when it shouldn't run. */
-  private mcpDesiredSignature(): string | null {
-    const s = this.settings;
-    if (Platform.isMobile || !s.mcpEnabled) return null;
-    return JSON.stringify({ port: s.mcpPort, token: this.resolvedMcpToken(), writes: s.mcpAllowWrites, folder: s.mcpWriteFolder });
-  }
-
-  private async applyMcpServer(): Promise<void> {
-    const lifecycleGeneration = this.mcpLifecycleGeneration ?? 0;
-    const desired = this.mcpDesiredSignature();
-    // Already running with the same config → nothing to do (avoids churning the
-    // port on unrelated settings changes).
-    if (desired !== null && this.mcpServer?.isRunning() && desired === this.mcpSignature) return;
-
-    if (this.mcpServer) {
-      await this.mcpServer.stop();
-      this.mcpServer = null;
-      this.mcpSignature = null;
-    }
-    // The MCP bridge runs only on desktop — it needs a Node http server, which
-    // Obsidian's mobile runtime lacks. The dynamic import below keeps that code
-    // (and its `http` dependency) from ever loading on mobile.
-    if (desired === null) return;
-
-    const s = this.settings;
-    const toolOpts = {
-      allowWrites: s.mcpAllowWrites,
-      defaultFolder: s.mcpWriteFolder,
-      semantic: (q: string, k: number) => this.semanticSearch(q, k),
-      ontology: () => this.ontology(),
-      ontologyFolder: () => this.settings.ontologyFolder,
-      zotero: () => this.zoteroLibrary(),
-      ...this.webToolImpls(),
-    };
-    if (!this.vaultTools) {
-      this.vaultTools = new VaultTools(this.app, toolOpts);
-    } else {
-      this.vaultTools.setOptions(toolOpts);
-    }
-
-    const { McpHttpServer } = await import("./mcp/server");
-    const server = new McpHttpServer(
-      {
-        port: s.mcpPort,
-        token: this.resolvedMcpToken(),
-        serverInfo: { name: "obsidian-vault", version: "0.2.0" },
-        resources: vaultResourceProvider(this.app),
-        prompts: catalogPromptProvider(() => this.promptTemplates()),
-      },
-      this.vaultTools,
-      (level, message) => { if (level === "error") console.error("[Claude Companion MCP]", message); },
-    );
-    try {
-      await server.start();
-      if (
-        this.mcpLifecycleEnded
-        || (this.mcpLifecycleGeneration ?? 0) !== lifecycleGeneration
-        || this.mcpDesiredSignature() !== desired
-      ) {
-        await server.stop();
-        return;
-      }
-      this.mcpServer = server;
-      this.mcpSignature = desired;
-    } catch (e) {
-      new Notice(`MCP bridge failed to start on port ${s.mcpPort}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    return this.mcpBridge().resolvedToken();
   }
 
   mcpRunning(): boolean {
-    return this.mcpServer?.isRunning() ?? false;
+    return this.mcpBridge().running();
   }
 
   mcpStats(): { running: boolean; port: number | null; activeRequests: number; handledRequests: number } {
-    const stats = this.mcpServer?.stats() ?? { activeRequests: 0, handledRequests: 0 };
-    return {
-      running: this.mcpRunning(),
-      port: this.mcpServer?.address()?.port ?? null,
-      activeRequests: stats.activeRequests,
-      handledRequests: stats.handledRequests,
-    };
+    return this.mcpBridge().stats();
   }
 
   async setMcpEnabled(enabled: boolean): Promise<void> {
-    this.settings.mcpEnabled = enabled;
-    // Only mint a stored token when neither the env var nor a stored token exists.
-    if (enabled && !this.resolvedMcpToken()) {
-      this.settings.mcpToken = generateToken();
-    }
-    await this.saveSettings();
+    return this.mcpBridge().setEnabled(enabled);
   }
 
   refreshViews(): void {
