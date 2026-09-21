@@ -5,7 +5,7 @@ import { InboxView, INBOX_VIEW_TYPE } from "./view/InboxView";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, ProjectCreateModal, QUESTION_INSTRUCTION, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
 import { ResearchDeskView, RESEARCH_DESK_VIEW_TYPE } from "./view/ResearchDeskView";
-import { BuildView, BUILD_VIEW_TYPE, type BuildViewDependencies } from "./view/BuildView";
+import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
 import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
@@ -70,16 +70,11 @@ import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, type InteractiveTo
 import { createNodeCliRuntime, type ClaudeCliRuntime } from "./cli/runtime";
 import { ClaudeCliProvider } from "./providers/claudeCli";
 import { excludeSessions } from "./memory/sessions";
-import { extractTasks, specBody, type SpecInput } from "./build/spec";
-import { trackerNoteBody } from "./build/tracker";
-import { BuildRunCoordinator, createBuildRun, restoreBuildRuns, type BuildRun, type BuildTaskExecutor } from "./build/run";
-import { DesktopBuildExecutor } from "./build/desktopExecutor";
-import { CloudBuildExecutor, type CloudBuildHttpRequest } from "./build/cloudExecutor";
-import { configError } from "./cloud/routines";
-import { configError as repliesConfigError } from "./cloud/replies";
+import { type BuildRun } from "./build/run";
+import { BuildController } from "./build/controller";
 import { CloudController } from "./cloud/controller";
 import { CloudDispatchModal } from "./view/CloudDispatchModal";
-import { buildFrontmatter, normalizeTags } from "./indexing/frontmatter";
+import { normalizeTags } from "./indexing/frontmatter";
 import { existingVaultTags } from "./indexing/autoTagger";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
@@ -220,11 +215,39 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
   private researchDeskPreferences: ResearchDeskPreferenceMap = {};
-  private buildRuns: Record<string, BuildRun> = {};
-  private activeBuildRunId: string | null = null;
-  private buildCoordinators = new Map<string, BuildRunCoordinator>();
-  private buildRunListeners = new Set<(run: BuildRun) => void>();
-  private buildTrackerWriteChains = new Map<string, Promise<void>>();
+  private _build: BuildController | null = null;
+  private build(): BuildController {
+    return (this._build ??= new BuildController({
+      settings: () => this.settings,
+      persist: () => this.persist(),
+      isMobile: Platform.isMobile,
+      vault: {
+        cachedRead: (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? this.app.vault.cachedRead(file) : Promise.reject(new Error(`File not found: ${path}`));
+        },
+        processFile: async (path, fn) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          if (file instanceof TFile) await this.app.vault.process(file, fn);
+        },
+      },
+      writeFile: async (path, content) => { await writeOrReplaceFile(this.app, path, content); },
+      ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
+      openFile: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
+      },
+      normalizePath,
+      notice: (msg, timeout) => new Notice(msg, timeout),
+      confirm: (opts) => new Promise<boolean>((resolve) => {
+        new ConfirmModal(this.app, { ...opts, onResolve: resolve }).open();
+      }),
+      cloud: () => this.cloud(),
+      vaultBasePath: () => this.vaultBasePath(),
+      desktopProcess: () => (window as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process,
+      desktopRuntimeLoader: () => this._desktopRuntimeLoader(),
+    }));
+  }
   /** data.json contains several domains; serialize snapshots so an older write cannot land last. */
   private persistChain: Promise<void> = Promise.resolve();
   /** Credentials live here, not in data.json. Lazy so tests can construct the plugin. */
@@ -397,7 +420,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(INBOX_VIEW_TYPE, (leaf: WorkspaceLeaf) => new InboxView(leaf, this));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
-    this.registerView(BUILD_VIEW_TYPE, (leaf: WorkspaceLeaf) => new BuildView(leaf, this.buildViewDependencies()));
+    this.registerView(BUILD_VIEW_TYPE, (leaf: WorkspaceLeaf) => new BuildView(leaf, this.build().viewDependencies()));
     this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchDeskView(leaf, this.researchRepository(), {
       chrome: this.companionChrome(),
       preferencesFor: (projectPath) => this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] },
@@ -1628,9 +1651,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._viewIntelligenceCoordinators?.clear();
     for (const coordinator of this._viewDiscoveryCoordinators ?? []) { coordinator.cancel(); coordinator.clearCache(); }
     this._viewDiscoveryCoordinators?.clear();
-    for (const coordinator of this.buildCoordinators?.values() ?? []) void coordinator.dispose();
-    this.buildCoordinators?.clear();
-    this.buildRunListeners?.clear();
+    this._build?.destroy();
     this.mcpLifecycleEnded = true;
     this.mcpLifecycleGeneration = (this.mcpLifecycleGeneration ?? 0) + 1;
     void this.mcpServer?.stop();
@@ -1964,10 +1985,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       : emptyState();
     this.conversations().restoreTurnActivities();
     this.researchDeskPreferences = normalizeDeskPreferenceMap(isNamespacedData(raw) ? (raw).researchDeskPreferences : undefined);
-    const runs = restoreBuildRuns(isNamespacedData(raw) ? raw.buildRuns : undefined);
-    this.buildRuns = Object.fromEntries(runs.map((run) => [run.id, run]));
-    const savedActive = isNamespacedData(raw) ? raw.activeBuildRunId : null;
-    this.activeBuildRunId = typeof savedActive === "string" && this.buildRuns[savedActive] ? savedActive : runs.at(-1)?.id ?? null;
+    this.build().restoreState(
+      isNamespacedData(raw) ? raw.buildRuns : undefined,
+      isNamespacedData(raw) ? raw.activeBuildRunId : null,
+    );
 
     // Any plaintext credential still in data.json moves to the secret store now,
     // then the file is rewritten without it. Must run after buildRuns is restored:
@@ -1993,8 +2014,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       conversations: this.convState.conversations,
       activeConversationId: this.convState.activeId,
       researchDeskPreferences: this.researchDeskPreferences,
-      buildRuns: Object.values(this.buildRuns ?? {}),
-      activeBuildRunId: this.activeBuildRunId,
+      ...this.build().serializeState(),
     })) as PersistedData;
     const result = (this.persistChain ?? Promise.resolve()).catch(() => {}).then(() => this.saveData(data));
     this.persistChain = result.catch(() => {});
@@ -3491,79 +3511,20 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  /** Turn a plan into durable build documents and a native, user-controlled run. */
   async handoffToBuild(planFile?: TFile): Promise<void> {
     const file = planFile ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null;
-    if (!(file instanceof TFile)) {
-      new Notice("Open a plan note first — a note with a task checklist (`- [ ]`) or numbered milestones.", 8000);
-      return;
-    }
-    const plan = await this.app.vault.cachedRead(file);
-    const tasks = extractTasks(plan);
-    // A "plan note" is one we can extract work items from. If we can't, don't
-    // dispatch a hollow build — tell the user exactly what's missing.
-    if (tasks.length === 0) {
-      new Notice(
-        `“${file.basename}” doesn't look like a plan — no task checklist (\`- [ ]\`) or numbered milestones found. ` +
-          `Run “Generate implementation plan” first, or add tasks, then build.`,
-        9000,
-      );
-      return;
-    }
-
-    const title = file.basename;
-    const folder = "Claude/Builds";
-
-    // Confirm note creation only. Execution never starts until Start is pressed.
-    const confirmed = await new Promise<boolean>((resolve) => {
-      new ConfirmModal(this.app, {
-        title: "Build from this plan?",
-        body:
-          `Detected ${tasks.length} task${tasks.length === 1 ? "" : "s"} in “${file.basename}”.\n\n` +
-          `This creates a build spec and tracker in “${folder}”, then opens Build Runner. Nothing runs until you press Start.`,
-        cta: "Create build",
-        onResolve: resolve,
-      }).open();
-    });
-    if (!confirmed) return;
-
-    await ensureVaultFolder(this.app, folder);
-    const specPath = normalizePath(`${folder}/${title} — spec.md`);
-    const trackerPath = normalizePath(`${folder}/${title} — tracker.md`);
-
-    const input: SpecInput = { title, plan, specPath, trackerPath, tasks };
-
-    // Spec note.
-    const specFm = buildFrontmatter({ title: `${title} — spec`, created: new Date().toISOString().slice(0, 10), source: "claude-companion", type: "build-spec", tags: normalizeTags(["claude", "build", "spec"]) });
-    await writeOrReplaceFile(this.app, specPath, `${specFm}\n\n${specBody(input)}`);
-
-    const run = createBuildRun({
-      id: `build-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      specPath,
-      trackerPath,
-      transport: Platform.isMobile ? "cloud" : "desktop",
-      tasks,
-      now: Date.now(),
-    });
-
-    // Tracker note is durable Markdown; the native view owns interactive controls.
-    const trackerFm = buildFrontmatter({ title: `${title} — tracker`, created: new Date().toISOString().slice(0, 10), source: "claude-companion", type: "build-tracker", tags: normalizeTags(["claude", "build", "tracker"]) });
-    await writeOrReplaceFile(this.app, trackerPath, `${trackerFm}\n\n${trackerNoteBody(run)}`);
-    this.buildRuns ??= {};
-    this.buildRuns[run.id] = run;
-    this.activeBuildRunId = run.id;
-    await this.persist();
-    await this.activateBuildView(run.id);
+    const runId = await this.build().handoffToBuild(
+      file instanceof TFile ? { path: file.path, basename: file.basename } : null,
+    );
+    if (runId) await this.activateBuildView(runId);
   }
 
   activeBuildRun(): BuildRun | null {
-    if (!this.activeBuildRunId) return null;
-    return this.buildRuns?.[this.activeBuildRunId] ?? null;
+    return this.build().activeBuildRun();
   }
 
   async activateBuildView(runId?: string): Promise<BuildView | null> {
-    if (runId && this.buildRuns?.[runId]) this.activeBuildRunId = runId;
+    if (runId) this.build().selectActiveRun(runId);
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(BUILD_VIEW_TYPE)[0] ?? null;
     if (!leaf) {
@@ -3577,123 +3538,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return leaf.view instanceof BuildView ? leaf.view : null;
     }
     return null;
-  }
-
-  private buildViewDependencies(): BuildViewDependencies {
-    return {
-      getRun: () => this.activeBuildRun(),
-      subscribe: (listener) => {
-        this.buildRunListeners ??= new Set();
-        this.buildRunListeners.add(listener);
-        return () => this.buildRunListeners.delete(listener);
-      },
-      start: () => this.runActiveBuild("start"),
-      pause: () => this.runActiveBuild("pause"),
-      resume: () => this.runActiveBuild("resume"),
-      cancel: () => this.runActiveBuild("cancel"),
-      openSpec: () => this.openActiveBuildFile("specPath"),
-      openTracker: () => this.openActiveBuildFile("trackerPath"),
-      openSession: () => {
-        const url = this.activeBuildRun()?.sessionUrl;
-        if (url) window.open(url, "_blank", "noopener,noreferrer");
-      },
-    };
-  }
-
-  private async openActiveBuildFile(field: "specPath" | "trackerPath"): Promise<void> {
-    const path = this.activeBuildRun()?.[field];
-    if (!path) return;
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-  }
-
-  private runActiveBuild(action: "start" | "pause" | "resume" | "cancel"): Promise<void> {
-    const run = this.activeBuildRun();
-    if (!run) return Promise.resolve();
-    const coordinator = this.buildCoordinatorFor(run);
-    return coordinator[action]();
-  }
-
-  private buildCoordinatorFor(run: BuildRun): BuildRunCoordinator {
-    this.buildCoordinators ??= new Map();
-    const existing = this.buildCoordinators.get(run.id);
-    if (existing) return existing;
-    const coordinator = new BuildRunCoordinator(run, {
-      executor: this.buildExecutor(run.transport),
-      persist: (snapshot) => this.persistBuildRun(snapshot),
-      onChange: (snapshot) => {
-        this.buildRunListeners ??= new Set();
-        for (const listener of this.buildRunListeners) listener(snapshot);
-      },
-    });
-    this.buildCoordinators.set(run.id, coordinator);
-    return coordinator;
-  }
-
-  private buildExecutor(transport: BuildRun["transport"]): BuildTaskExecutor {
-    if (transport === "cloud") {
-      let executor: CloudBuildExecutor | null = null;
-      return {
-        cancelMode: "after-current",
-        execute: async (input, signal, emit) => {
-          if (!this.settings.cloudDispatchEnabled) throw new Error("Cloud builds are off. Open Companion settings → Cloud session, enable dispatch, then Retry.");
-          const routineError = configError(this.cloud().dispatchConfig());
-          if (routineError) throw new Error(`Cloud build setup is incomplete: ${routineError}`);
-          const replyError = repliesConfigError(this.cloud().repliesConfig());
-          if (replyError) throw new Error(`Cloud build tracking is incomplete: ${replyError}`);
-          executor ??= new CloudBuildExecutor({
-            routine: this.cloud().dispatchConfig(),
-            replies: this.cloud().repliesConfig(),
-            http: { request: (request: CloudBuildHttpRequest) => this.buildHttpRequest(request) },
-          });
-          return executor.execute(input, signal, emit);
-        },
-      };
-    }
-
-    let executor: DesktopBuildExecutor | null = null;
-    return {
-      cancelMode: "immediate",
-      execute: async (input, signal, emit) => {
-        if (!executor) {
-          const vaultPath = this.vaultBasePath();
-          if (!vaultPath) throw new Error("This vault does not expose a desktop filesystem path. Move it to a local filesystem vault, then Retry.");
-          const processLike = (window as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process;
-          const platform: DesktopPlatform = processLike?.platform === "darwin" || processLike?.platform === "win32" || processLike?.platform === "linux" ? processLike.platform : "unsupported";
-          const env = processLike?.env ?? {};
-          const homeDir = env.HOME || env.USERPROFILE || "";
-          if (!homeDir) throw new Error("The desktop home directory is unavailable. Open Desktop integrations for setup help.");
-          const module = await this._desktopRuntimeLoader();
-          const runtime = await module.createNodeDesktopRuntime(platform, homeDir, { APPDATA: env.APPDATA });
-          if (!runtime.resolveClaudeCodeExecutable) throw new Error("This Companion build cannot manage Claude Code. Update Companion, then Retry.");
-          const executable = await runtime.resolveClaudeCodeExecutable();
-          executor = new DesktopBuildExecutor({ process: module.createNodeManagedProcessPort(), executable, cwd: vaultPath });
-        }
-        return executor.execute(input, signal, emit);
-      },
-    };
-  }
-
-  private async buildHttpRequest(request: CloudBuildHttpRequest): Promise<{ status: number; text: string }> {
-    return this.cloud().httpRequest(request);
-  }
-
-  private async persistBuildRun(run: BuildRun): Promise<void> {
-    this.buildRuns ??= {};
-    this.buildRuns[run.id] = run;
-    this.activeBuildRunId = run.id;
-    await this.persist();
-    this.buildTrackerWriteChains ??= new Map();
-    const previous = this.buildTrackerWriteChains.get(run.id) ?? Promise.resolve();
-    const write = previous.catch(() => {}).then(async () => {
-      const file = this.app.vault.getAbstractFileByPath(run.trackerPath);
-      if (!(file instanceof TFile)) return;
-      const trackerFm = buildFrontmatter({ title: `${run.title} — tracker`, created: new Date(run.createdAt).toISOString().slice(0, 10), source: "claude-companion", type: "build-tracker", tags: normalizeTags(["claude", "build", "tracker"]) });
-      await this.app.vault.process(file, () => `${trackerFm}\n\n${trackerNoteBody(run)}`);
-    });
-    this.buildTrackerWriteChains.set(run.id, write);
-    await write;
-    if (this.buildTrackerWriteChains.get(run.id) === write) this.buildTrackerWriteChains.delete(run.id);
   }
 
   // ---------- cloud session dispatch ----------

@@ -1,4 +1,4 @@
-import { App, clearNotices, FakeElement, getNotices, WorkspaceLeaf } from "obsidian";
+import { App, clearNotices, FakeElement, WorkspaceLeaf } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
