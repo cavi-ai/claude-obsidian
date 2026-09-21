@@ -98,10 +98,9 @@ import {
 import { ConversationsController } from "./conversations/controller";
 import type { ChatMessage } from "./types";
 import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
-import { enrichCapture, type EnrichDeps } from "./sources/enrich";
 import { inboxItems } from "./sources/inbox";
-import { shouldEnrich } from "./sources/watcher";
 import { parseClipUrl } from "./sources/detect";
+import { SourceEnrichmentController, sourceActivityDetail, type EnrichRunOutcome } from "./sources/controller";
 import { getSchema } from "./sources/registry";
 import { clipperTemplateFor, clipperTemplateFileName, serializeClipperTemplate, clipperFingerprint } from "./sources/clipperTemplate";
 import type { SourceType } from "./sources/types";
@@ -124,7 +123,6 @@ import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./
 import type { EmbeddingRecovery } from "./semantic/recovery";
 import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
 import { verifyClipperNote } from "./sources/clipperVerification";
-import { KeyedSerialQueue } from "./sources/keyedSerialQueue";
 import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
 import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
@@ -158,11 +156,6 @@ interface PersistedData {
   activeBuildRunId?: string | null;
 }
 
-type EnrichRunOutcome =
-  | { status: "enriched" }
-  | { status: "skipped"; reason: string }
-  | { status: "failed"; error: Error };
-
 type UtilityFallbackConsentKey = Pick<UtilityFallbackConsentContext, "identity" | "destinationFingerprint">;
 
 function sameUtilityFallbackConsentContext(
@@ -170,17 +163,6 @@ function sameUtilityFallbackConsentContext(
   right: UtilityFallbackConsentKey | null | undefined,
 ): boolean {
   return !!right && left.identity === right.identity && left.destinationFingerprint === right.destinationFingerprint;
-}
-
-function sourceActivityDetail(value: string): string {
-  return value
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^/\s?#]*@/gi, "$1")
-    .replace(/\bBearer\s+\S+/gi, "[redacted]")
-    .replace(/\b(?:api[_-]?key|token|password)\s*[=:]\s*\S+/gi, "[redacted]")
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 500);
 }
 
 export default class ClaudeCompanionPlugin extends Plugin {
@@ -319,19 +301,35 @@ export default class ClaudeCompanionPlugin extends Plugin {
       mobilePdfMaxBytes: MOBILE_SEMANTIC_PDF_MAX_BYTES,
     }));
   }
-  private enrichTimers = new Map<string, number>();
-  /** Debounced Clipper arrivals waiting for one-at-a-time utility processing. */
-  private enrichPending = new Map<string, TFile>();
-  private enrichQueueRunning = false;
-  /** Shared admission lane for automatic, Inbox, and organizer enrichment. */
-  private _enrichmentCoordinator: KeyedSerialQueue<string, EnrichRunOutcome> | undefined;
-  private enrichRecentlyWritten = new Set<string>();
-  private enrichRecentlyWrittenExpiryTimers = new Map<string, number>();
+  private _enrichment: SourceEnrichmentController | null = null;
+  private enrichment(): SourceEnrichmentController {
+    return (this._enrichment ??= new SourceEnrichmentController({
+      settings: () => this.settings,
+      saveSettings: () => this.saveSettings(),
+      isMobile: Platform.isMobile,
+      mobileSourceNoteMaxBytes: MOBILE_SOURCE_NOTE_MAX_BYTES,
+      enrichApp: this.app,
+      vault: {
+        cachedRead: (path) => {
+          const f = this.app.vault.getAbstractFileByPath(path);
+          return f instanceof TFile ? this.app.vault.cachedRead(f) : Promise.resolve("");
+        },
+      },
+      activity: () => this.activity,
+      enrichDiagnostics: () => this.enrichDiagnostics,
+      router: () => this.router(),
+      suspendReindex: () => this.suspendReindex(),
+      isUtilityLifecycleActive: (g) => this.isUtilityLifecycleActive(g),
+      assertUtilityLifecycleActive: (g) => this.assertUtilityLifecycleActive(g),
+      utilityLifecycleEnded: () => this.utilityLifecycleEnded,
+      utilityLifecycleGeneration: () => this.utilityLifecycleGeneration ?? 0,
+      notice: (msg, timeout) => new Notice(msg, timeout),
+      openChoiceModal: (opts) => { const m = new ChoiceModal(this.app, opts); m.open(); return m; },
+    }));
+  }
   private clipperVerificationTimers = new Map<string, number>();
   private utilityLifecycleEnded = false;
   private utilityLifecycleGeneration = 0;
-  private sourceCaptureConsentModal: ChoiceModal<"allow" | "deny"> | null = null;
-  private sourceCaptureConsentInFlight: Promise<boolean> | null = null;
   /** Mobile loopback → Claude consent, scoped to one exact source/destination context. */
   private mobileUtilityFallbackApproval: UtilityFallbackConsentKey & { decision: UtilityFallbackApproval } | undefined;
   /** Coalesces concurrent automatic enrichments onto one consent decision. */
@@ -370,9 +368,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.mcpLifecycleEnded = false;
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
     this.utilityLifecycleEnded = false;
-    this._enrichmentCoordinator = new KeyedSerialQueue<string, EnrichRunOutcome>();
-    this.sourceCaptureConsentModal = null;
-    this.sourceCaptureConsentInFlight = null;
+    this._enrichment?.resetLifecycle();
     this.mobileUtilityFallbackApproval = undefined;
     this.mobileUtilityFallbackConsentInFlight = null;
     this.mobileUtilityFallbackModal = null;
@@ -530,7 +526,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => {
-        if (f instanceof TFile && (f.extension === "md" || f.extension === "csv") && this.settings.sourceCaptureEnabled && this.settings.sourceEnrichOnCreate) this.queueEnrich(f);
+        if (f instanceof TFile && (f.extension === "md" || f.extension === "csv") && this.settings.sourceCaptureEnabled && this.settings.sourceEnrichOnCreate) this.enrichment().queueEnrich(f);
       }));
       this.registerEvent(this.app.vault.on("create", (f) => {
         if (f instanceof TFile && f.extension === "md") this.queueClipperVerification(f);
@@ -651,7 +647,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       openSessionPicker: () => void this.openSessionPicker(),
       openMemoryView: () => void this.activateMemoryView(),
       consolidateMemory: () => void this.consolidateMemory(),
-      enrichNoteAsSource: (file) => void this.runEnrich(file),
+      enrichNoteAsSource: (file) => void this.enrichment().runEnrich(file),
       openSourceInbox: () => void this.activateInboxView(),
       exportClipperTemplates: () => void this.exportClipperTemplates(),
       seedOntology: () => void this.seedOntology(),
@@ -666,40 +662,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     view?.refreshModelLabel();
     const how = this.settings.semanticEnabled ? "semantic + keyword" : "keyword";
     new Notice(`Vault search is on (${how}) — ask your question in the chat panel.`);
-  }
-
-  private enrichDeps(
-    selection: ProviderSelection,
-    lifecycleGeneration = this.utilityLifecycleGeneration ?? 0,
-  ): EnrichDeps {
-    const router = this.router();
-    return {
-      app: this.app,
-      complete: async (system, user, opts) => {
-        this.assertUtilityLifecycleActive(lifecycleGeneration);
-        const text = (
-          await router.completeResolved(selection, {
-            system,
-            user,
-            ...(opts?.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
-            ...(opts?.responseSchema ? { responseFormat: "json" as const, responseSchema: opts.responseSchema } : {}),
-            ...(opts?.disableThinking ? { thinking: { type: "disabled" as const } } : {}),
-          })
-        ).text;
-        this.enrichDiagnostics.log("response-received", { chars: text.length });
-        return text;
-      },
-      overrides: this.settings.sourceSchemaOverrides,
-      baseTags: this.settings.sourceBaseTags,
-      enrichedBy: selection.provider.id === "anthropic" ? "claude" : "local",
-      now: () => new Date().toISOString(),
-      assertActive: () => this.assertUtilityLifecycleActive(lifecycleGeneration),
-    };
-  }
-
-  /** Resolve enrichment once so completion and provenance cannot disagree. */
-  private async resolvedEnrichDeps(): Promise<EnrichDeps> {
-    return this.enrichDeps(await this.router().utilitySelection());
   }
 
   /** Plugin-owned runtime/privacy hook used by every router utility completion. */
@@ -1043,220 +1005,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return clipperFingerprint(schemas, opts) !== saved;
   }
 
-  private queueEnrich(file: TFile): void {
-    if (this.utilityLifecycleEnded) return;
-    const path = file.path;
-    const prev = this.enrichTimers.get(path);
-    if (prev) window.clearTimeout(prev);
-    this.enrichTimers.set(
-      path,
-      window.setTimeout(() => {
-        this.enrichTimers.delete(path);
-        if (this.utilityLifecycleEnded) return;
-        this.enrichPending.set(path, file);
-        void this.drainEnrichQueue();
-      }, 1500),
-    );
-  }
-
-  /**
-   * Clipper and agent imports can create many notes in one event-loop turn.
-   * Keep their model calls and vault rewrites serial so a burst cannot multiply
-   * renderer memory, and isolate an unreadable/deleted file from later clips.
-   */
-  private async drainEnrichQueue(): Promise<void> {
-    if (this.enrichQueueRunning || this.utilityLifecycleEnded) return;
-    this.enrichQueueRunning = true;
-    const release = this.suspendReindex();
-    try {
-      while (!this.utilityLifecycleEnded) {
-        const next = this.enrichPending.entries().next().value;
-        if (!next) break;
-        const [path, file] = next;
-        this.enrichPending.delete(path);
-        try {
-          await this.enrichFile(file);
-        } catch (error) {
-          if (!this.isUtilityLifecycleActive(this.utilityLifecycleGeneration ?? 0)) continue;
-          const detail = sourceActivityDetail(error instanceof Error ? error.message : String(error));
-          console.warn("[companion] automatic source enrichment failed", error);
-          const activityId = this.activity.start({
-            id: `source-enrichment:auto:${path}`,
-            kind: "source-enrichment",
-            title: `Enriching ${file.basename}`,
-            total: 1,
-          });
-          this.activity.fail(activityId, {
-            completed: 1,
-            failed: 1,
-            technicalDetails: detail,
-            details: [{ label: path, message: detail, state: "error" }],
-            recovery: [
-              { id: "review-inbox-failures", label: "Open Source Inbox", kind: "retry" },
-              { id: "utility-settings", label: "Open utility settings", kind: "settings" },
-            ],
-          });
-        }
-      }
-    } finally {
-      release();
-      this.enrichQueueRunning = false;
-      if (!this.utilityLifecycleEnded && this.enrichPending.size > 0) void this.drainEnrichQueue();
-    }
-  }
-
-  private enrichFile(file: TFile, notify = true): Promise<EnrichRunOutcome> {
-    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
-    const coordinator = this._enrichmentCoordinator ??= new KeyedSerialQueue<string, EnrichRunOutcome>();
-    return coordinator.run(file.path, async () => {
-      if (!this.isUtilityLifecycleActive(lifecycleGeneration)) {
-        return {
-          status: "failed",
-          error: new Error("Companion unloaded before source enrichment started; no content was sent."),
-        };
-      }
-      return this.performEnrichFile(file, notify);
-    });
-  }
-
-  private async performEnrichFile(file: TFile, notify = true): Promise<EnrichRunOutcome> {
-    const sizeFailure = this.mobileSourceSizeFailure(file);
-    if (sizeFailure) return sizeFailure;
-    const content = file.extension === "md" ? await this.app.vault.cachedRead(file) : "";
-    if (!shouldEnrich({ path: file.path, ext: file.extension, content, inboxFolder: this.settings.sourceInboxFolder, recentlyWritten: this.enrichRecentlyWritten })) {
-      return { status: "skipped", reason: `${file.basename} is not eligible for source enrichment.` };
-    }
-    if (this.settings.sourceCaptureConsent === "deny") {
-      return { status: "skipped", reason: "automatic source enrichment is set to manual only." };
-    }
-    if (this.settings.sourceCaptureConsent !== "allow" && !(await this.askSourceCaptureConsent())) {
-      return { status: "skipped", reason: "automatic source enrichment was not approved." };
-    }
-    return this.runEnrich(file, notify, file.extension === "md" ? content : undefined);
-  }
-
-  private mobileSourceSizeFailure(file: TFile): Extract<EnrichRunOutcome, { status: "failed" }> | null {
-    if (!Platform.isMobile || file.stat.size <= MOBILE_SOURCE_NOTE_MAX_BYTES) return null;
-    return {
-      status: "failed",
-      error: new Error(
-        `${file.basename} exceeds the 5 MiB mobile enrichment limit. Reduce the clip before enriching it.`,
-      ),
-    };
-  }
-
-  /**
-   * One-time consent before the first automatic enrichment: auto-enrich sends
-   * each new inbox file to the utility model, so we ask before doing it
-   * unprompted. Declining turns off auto-enrich (the manual command stays).
-   */
-  private async askSourceCaptureConsent(): Promise<boolean> {
-    if (this.settings.sourceCaptureConsent === "allow") return true;
-    if (this.settings.sourceCaptureConsent === "deny" || this.utilityLifecycleEnded) return false;
-    if (this.sourceCaptureConsentInFlight) return this.sourceCaptureConsentInFlight;
-    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
-    const consent = new Promise<boolean>((resolve, reject) => {
-      const modal = new ChoiceModal<"allow" | "deny">(this.app, {
-        title: "Enrich clips automatically?",
-        message:
-          `Source capture can type each new file in ${this.settings.sourceInboxFolder}/ into a schema-validated source note. ` +
-          "This sends the file's content to your utility model (Claude, unless you enable the local model in settings).",
-        buttons: [
-          { label: "Enrich automatically", value: "allow", cta: true },
-          { label: "Manual only", value: "deny" },
-        ],
-        fallback: "deny",
-        onChoice: (c) => {
-          this.sourceCaptureConsentModal = null;
-          if (!this.isUtilityLifecycleActive(lifecycleGeneration)) { resolve(false); return; }
-          const previousConsent = this.settings.sourceCaptureConsent;
-          const previousAutoEnrich = this.settings.sourceEnrichOnCreate;
-          this.settings.sourceCaptureConsent = c;
-          if (c === "deny") this.settings.sourceEnrichOnCreate = false;
-          void this.saveSettings().then(
-            () => resolve(this.isUtilityLifecycleActive(lifecycleGeneration) && c === "allow"),
-            (error: unknown) => {
-              this.settings.sourceCaptureConsent = previousConsent;
-              this.settings.sourceEnrichOnCreate = previousAutoEnrich;
-              reject(error instanceof Error ? error : new Error(String(error)));
-            },
-          );
-        },
-      });
-      this.sourceCaptureConsentModal = modal;
-      modal.open();
-    });
-    this.sourceCaptureConsentInFlight = consent;
-    void consent.then(
-      () => { if (this.sourceCaptureConsentInFlight === consent) this.sourceCaptureConsentInFlight = null; },
-      () => { if (this.sourceCaptureConsentInFlight === consent) this.sourceCaptureConsentInFlight = null; },
-    );
-    return consent;
-  }
-
-  private async runEnrich(file: TFile, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
-    const sizeFailure = this.mobileSourceSizeFailure(file);
-    if (sizeFailure) return sizeFailure;
-    let selection: ProviderSelection | undefined;
-    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
-    const activityId = notify
-      ? this.activity.start({
-          id: `source-enrichment:${file.path}`,
-          kind: "source-enrichment",
-          title: `Enriching ${file.basename}`,
-          total: 1,
-        })
-      : undefined;
-    try {
-      const raw = prefetchedContent ?? await this.app.vault.cachedRead(file);
-      this.enrichDiagnostics.log("item-start", { path: file.path, bytes: raw.length });
-      const capture =
-        file.extension === "md"
-          ? { kind: "markdown" as const, path: file.path, basename: file.basename, content: raw, url: parseClipUrl(raw) }
-          : { kind: "datafile" as const, path: file.path, basename: file.basename, ext: file.extension, content: raw };
-      selection = await this.router().utilitySelection();
-      const res = await enrichCapture(this.enrichDeps(selection, lifecycleGeneration), capture);
-      this.enrichDiagnostics.log("write-done", { path: res.file.path });
-      this.assertUtilityLifecycleActive(lifecycleGeneration);
-      this.markEnrichRecentlyWritten(res.file.path, lifecycleGeneration);
-      if (activityId) {
-        this.activity.finish(activityId, {
-          completed: 1,
-          total: 1,
-          succeeded: 1,
-          details: [{ label: res.file.path, message: `Typed as ${res.type}`, state: "success" }],
-        });
-      }
-      return { status: "enriched" };
-    } catch (e) {
-      if (!this.isUtilityLifecycleActive(lifecycleGeneration)) {
-        return { status: "failed", error: e instanceof Error ? e : new Error(String(e)) };
-      }
-      if (!(e instanceof UtilityUnavailableError)) console.warn("[companion] source enrichment failed", e);
-      const message = e instanceof Error ? e.message : String(e);
-      const detail = e instanceof UtilityUnavailableError
-        ? message
-        : selection
-          ? errorHint(message, selection.provider.id, selection.endpoint) ?? message
-          : message;
-      if (activityId) {
-        const safeDetail = sourceActivityDetail(detail);
-        this.activity.fail(activityId, {
-          completed: 1,
-          total: 1,
-          failed: 1,
-          technicalDetails: safeDetail,
-          details: [{ label: file.path, message: safeDetail, state: "error" }],
-          recovery: [
-            { id: "review-inbox-failures", label: "Open Source Inbox", kind: "retry" },
-            { id: "utility-settings", label: "Open utility settings", kind: "settings" },
-          ],
-        });
-      }
-      return { status: "failed", error: e instanceof Error ? e : new Error(String(e)) };
-    }
-  }
-
   private isUtilityLifecycleActive(generation: number): boolean {
     return !this.utilityLifecycleEnded && (this.utilityLifecycleGeneration ?? 0) === generation;
   }
@@ -1265,18 +1013,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!this.isUtilityLifecycleActive(generation)) {
       throw new Error("Companion unloaded while utility work was in flight; the result was discarded without writing.");
     }
-  }
-
-  private markEnrichRecentlyWritten(path: string, lifecycleGeneration = this.utilityLifecycleGeneration ?? 0): void {
-    if (!this.isUtilityLifecycleActive(lifecycleGeneration)) return;
-    this.enrichRecentlyWritten.add(path);
-    const previous = this.enrichRecentlyWrittenExpiryTimers.get(path);
-    if (previous !== undefined) window.clearTimeout(previous);
-    const timer = window.setTimeout(() => {
-      this.enrichRecentlyWrittenExpiryTimers.delete(path);
-      this.enrichRecentlyWritten.delete(path);
-    }, 5000);
-    this.enrichRecentlyWrittenExpiryTimers.set(path, timer);
   }
 
   /**
@@ -1303,7 +1039,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const file of files) {
         const content = await this.app.vault.cachedRead(file);
         if (!/^source_enriched:\s*true\s*$/m.test(content)) {
-          const outcome = await this.enrichFile(file);
+          const outcome = await this.enrichment().enrichFile(file);
           if (outcome.status !== "enriched") {
             const detail = outcome.status === "failed" ? outcome.error.message : outcome.reason;
             new Notice(`Organizing stopped — ${detail}`);
@@ -1515,7 +1251,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const file of files) {
         const content = await this.app.vault.cachedRead(file);
         if (/^source_enriched:\s*true\s*$/m.test(content)) continue;
-        const outcome = await this.runEnrich(file, false);
+        const outcome = await this.enrichment().runEnrich(file, false);
         if (outcome.status === "failed") throw outcome.error;
         if (outcome.status === "skipped") throw new Error(outcome.reason);
       }
@@ -1560,7 +1296,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
       const triagePath = normalizePath(`${folder}/Triage.md`);
       const board = renderTriageNote(groups, new Map(notes.map((n) => [n.path, n])), new Date().toISOString());
-      this.markEnrichRecentlyWritten(triagePath);
+      this.enrichment().markEnrichRecentlyWritten(triagePath);
       const existing = this.app.vault.getAbstractFileByPath(triagePath);
       if (existing instanceof TFile) await this.app.vault.modify(existing, board);
       else await this.app.vault.create(triagePath, board);
@@ -1625,19 +1361,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._activity?.dispose();
     this.utilityLifecycleEnded = true;
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
-    this.sourceCaptureConsentModal?.close();
-    this.sourceCaptureConsentModal = null;
+    this._enrichment?.destroy();
     this.mobileUtilityFallbackApproval = undefined;
     this.mobileUtilityFallbackModal?.close();
     this.mobileUtilityFallbackModal = null;
     this.mobileUtilityFallbackConsentInFlight = null;
-    for (const timer of this.enrichTimers?.values() ?? []) window.clearTimeout(timer);
-    this.enrichTimers?.clear();
-    this.enrichPending?.clear();
-    this._enrichmentCoordinator = undefined;
-    for (const timer of this.enrichRecentlyWrittenExpiryTimers?.values() ?? []) window.clearTimeout(timer);
-    this.enrichRecentlyWrittenExpiryTimers?.clear();
-    this.enrichRecentlyWritten?.clear();
     for (const timer of this.clipperVerificationTimers?.values() ?? []) window.clearTimeout(timer);
     this.clipperVerificationTimers?.clear();
     this._intelligenceCoordinator?.cancel();
@@ -3312,7 +3040,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Inbox-view entry point: guard + consent + enrich, then refresh open inbox views. */
   async enrichInboxItem(file: TFile, options?: { inline?: boolean; refreshInboxViews?: boolean }): Promise<EnrichRunOutcome> {
-    const outcome = await this.enrichFile(file, !options?.inline);
+    const outcome = await this.enrichment().enrichFile(file, !options?.inline);
     if (options?.refreshInboxViews === false) return outcome;
     for (const leaf of this.app.workspace.getLeavesOfType(INBOX_VIEW_TYPE)) {
       if (leaf.view instanceof InboxView) {
