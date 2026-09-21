@@ -18,7 +18,8 @@ export function resourcePath(uri: string): string | null {
   if (!uri.startsWith(SCHEME)) return null;
   try {
     return uri.slice(SCHEME.length).split("/").map(decodeURIComponent).join("/");
-  } catch {
+  } catch (e) {
+    console.debug("Claude Companion: resource URI decode failed", e);
     return null;
   }
 }
@@ -50,7 +51,8 @@ export function vaultResourceProvider(app: App): ResourceProvider {
       let path: string;
       try {
         path = assertVaultPath(raw);
-      } catch {
+      } catch (e) {
+        console.debug("Claude Companion: vault resource path validation failed", e);
         return null;
       }
       const file = app.vault.getAbstractFileByPath(path);

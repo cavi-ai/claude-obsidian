@@ -1840,7 +1840,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (!Platform.isMobile) {
       try {
         configPath = claudeDesktopConfigPath(platform, env.HOME || env.USERPROFILE || "", { APPDATA: env.APPDATA });
-      } catch {
+      } catch (e) {
+        console.debug("Claude Companion: could not resolve Desktop config path", e);
         configPath = undefined;
       }
     }
@@ -2682,8 +2683,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
           temperature: 0.2,
         });
         body = parseLintResponse(text, body) ?? body;
-      } catch {
-        // Lint is best-effort — keep whatever the earlier steps produced.
+      } catch (e) {
+        console.debug("Claude Companion: lint pass failed, keeping prior result", e);
       }
     }
     const edits = diffToEdits(content, body);
@@ -3022,9 +3023,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const body = stripFrontmatter(await this.app.vault.cachedRead(f));
         const template = parseTemplateNote(f.path, f.basename, fm, body);
         if (template) out.push(template);
-      } catch {
-        // A transiently unreadable or vanished template must not remove every
-        // other slash command from the catalog.
+      } catch (e) {
+        console.debug("Claude Companion: skipping unreadable template", f.path, e);
       }
     }
     out.sort((a, b) => a.name.localeCompare(b.name));
@@ -3102,8 +3102,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
                 // bundle, and a vault with no PDFs must never pay for them.
                 const { loadPdf } = await import("./semantic/pdfjs");
                 return await extractPdfPages(loadPdf, await this.app.vault.readBinary(f));
-              } catch {
-                return null; // encrypted/corrupt PDFs skip, they never abort a build
+              } catch (e) {
+                console.debug("Claude Companion: skipping unreadable PDF", p, e);
+                return null;
               }
             },
           }
@@ -3124,8 +3125,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       load: async () => {
         try {
           if (await adapter.exists(path)) return JSON.parse(await adapter.read(path)) as IndexData;
-        } catch {
-          /* corrupt/missing → rebuild from empty */
+        } catch (e) {
+          console.debug("Claude Companion: corrupt/missing semantic index, rebuilding", e);
         }
         return null;
       },
@@ -3227,8 +3228,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     try {
       const hits = await ix.search(query, k);
       return hits.map((h) => ({ path: h.path, text: h.text }));
-    } catch {
-      return []; // Ollama down / model missing → keyword-only, no regression
+    } catch (e) {
+      console.debug("Claude Companion: semantic search failed, falling back to keyword-only", e);
+      return [];
     }
   }
 
@@ -3486,7 +3488,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
             ...(vm.nextAction ? { nextAction: vm.nextAction.label, nextReason: vm.nextAction.reason } : {}),
           },
         });
-      } catch { /* Fall back to the active note instead of blocking Chat. */ }
+      } catch (e) { console.debug("Claude Companion: research workspace resolution failed, using active note", e); }
     }
     return resolveCompanionWorkspace({ activeNote: { path: active.path, title: active.basename } });
   }
