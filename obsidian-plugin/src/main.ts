@@ -49,7 +49,8 @@ import { RewriteModal } from "./view/RewriteModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools, SEMANTIC_OFF_MESSAGE, type VaultToolsOptions } from "./mcp/vaultTools";
-import { catalogPromptProvider, vaultResourceProvider } from "./mcp/providers";
+import { catalogPromptProvider, composeResourceProviders, substrateResourceProvider, vaultResourceProvider } from "./mcp/providers";
+import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
 import type { AnthropicToolDef, ProviderId } from "./providers/types";
@@ -257,6 +258,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpLifecycleGeneration = 0;
   private mcpLifecycleEnded = false;
   private _mcpBridge: McpBridgeController | null = null;
+  private memoryNotePath(): string {
+    return normalizePath(`${this.settings.memoryFolder}/${MEMORY_NOTE_BASENAME}.md`);
+  }
   private mcpBridge(): McpBridgeController {
     return (this._mcpBridge ??= new McpBridgeController({
       settings: () => this.settings,
@@ -285,7 +289,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
             port,
             token,
             serverInfo: { name: "obsidian-vault", version: "0.2.0" },
-            resources: vaultResourceProvider(this.app),
+            resources: composeResourceProviders(
+              substrateResourceProvider(this.app, { call: (n, a) => (tools as unknown as VaultTools).call(n, a), memoryPath: () => this.memoryNotePath() }),
+              vaultResourceProvider(this.app),
+            ),
             prompts: catalogPromptProvider(() => this.promptTemplates()),
           },
           tools as unknown as VaultTools,
@@ -2544,7 +2551,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         port: 0,
         token,
         serverInfo: { name: "obsidian-vault", version: "0.2.0" },
-        resources: vaultResourceProvider(this.app),
+        resources: composeResourceProviders(
+          substrateResourceProvider(this.app, { call: (n, a) => this.agentTools().call(n, a), memoryPath: () => this.memoryNotePath() }),
+          vaultResourceProvider(this.app),
+        ),
         prompts: catalogPromptProvider(() => this.promptTemplates()),
       },
       registry,
