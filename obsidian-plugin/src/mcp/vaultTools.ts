@@ -486,18 +486,19 @@ export class VaultTools {
 
   private async search(query: string, limit: number, filter: SearchFilter | null): Promise<string> {
     const terms = tokenize(query);
-    const keep = (path: string): boolean => {
-      if (!filter) return true;
-      const meta = this.noteMeta(path);
-      return meta !== null && matchesSearchFilter(meta.frontmatter, meta.tags, filter);
-    };
-    const keyword = (await keywordVaultSearch(this.app, query)).filter((h) => keep(h.path));
+    const accept = filter
+      ? (path: string): boolean => {
+          const meta = this.noteMeta(path);
+          return meta !== null && matchesSearchFilter(meta.frontmatter, meta.tags, filter);
+        }
+      : undefined;
+    const keyword = await keywordVaultSearch(this.app, query, null, accept);
 
     // Semantic pass (when enabled + index built); degrades to keyword on failure.
     let semantic: { path: string; text: string }[] = [];
     if (this.opts.semantic) {
       try {
-        semantic = (await this.opts.semantic(query, filter ? Math.min(limit * 5, 100) : limit)).filter((h) => keep(h.path));
+        semantic = await this.opts.semantic(query, limit, accept);
       } catch (e) {
         console.debug("Claude Companion: semantic search failed, falling back to keyword", e);
       }

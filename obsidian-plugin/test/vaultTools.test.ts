@@ -534,18 +534,24 @@ describe("vault_search filters", () => {
     expect(out).toMatch(/## Notes\/Loose\.md\n(?!type:)/);
   });
 
-  it("over-fetches semantic hits when filtering and drops the non-matching ones", async () => {
-    const semantic = vi.fn(async () => [{ path: "Notes/Loose.md", text: "loose chunk" }, { path: "Research/Beta/Evidence/E2.md", text: "beta chunk" }]);
+  it("passes an accept predicate to semantic search when filtering, at the requested k", async () => {
+    const semantic = vi.fn(async () => [{ path: "Research/Beta/Evidence/E2.md", text: "beta chunk" }]);
     const out = await searchTools(semantic).call("vault_search", { query: "pelican", limit: 4, type: "research-evidence" });
-    expect(semantic).toHaveBeenCalledWith("pelican", 20);
+    expect(semantic).toHaveBeenCalledWith("pelican", 4, expect.any(Function));
+    const accept = semantic.mock.calls[0]?.[2] as (path: string) => boolean;
+    expect(accept("Notes/Loose.md")).toBe(false);
+    expect(accept("Research/Beta/Evidence/E2.md")).toBe(true);
     expect(out).not.toContain("Loose.md");
     expect(out).toContain("E2.md");
   });
 
-  it("keeps the requested semantic k when unfiltered", async () => {
+  it("keeps the requested semantic k and passes no predicate when unfiltered", async () => {
     const semantic = vi.fn(async () => []);
     await searchTools(semantic).call("vault_search", { query: "pelican", limit: 4 });
-    expect(semantic).toHaveBeenCalledWith("pelican", 4);
+    const call = semantic.mock.calls[0];
+    expect(call?.[0]).toBe("pelican");
+    expect(call?.[1]).toBe(4);
+    expect(call?.length === 2 || call?.[2] === undefined).toBe(true);
   });
 
   it("names the active filters when nothing matches", async () => {

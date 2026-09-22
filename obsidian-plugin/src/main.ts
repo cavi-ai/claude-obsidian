@@ -267,7 +267,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       buildToolOptions: () => ({
         allowWrites: this.settings.mcpAllowWrites,
         defaultFolder: this.settings.mcpWriteFolder,
-        semantic: (q: string, k: number) => this.semanticSearch(q, k),
+        semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
         ontology: () => this.ontology(),
         ontologyFolder: () => this.settings.ontologyFolder,
         zotero: () => this.zoteroLibrary(),
@@ -2505,7 +2505,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const opts = {
       allowWrites: this.settings.agentAllowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
-      semantic: (q: string, k: number) => this.semanticSearch(q, k),
+      semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
       ontology: () => this.ontology(),
       ontologyFolder: () => this.settings.ontologyFolder,
       zotero: () => this.zoteroLibrary(),
@@ -2743,7 +2743,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async promptSemanticModelIfNeeded(): Promise<void> { return this.semantic().promptSemanticModelIfNeeded(); }
   private async downloadBuiltinModelAndIndex(): Promise<void> { return this.semantic().downloadBuiltinModelAndIndex(); }
   invalidateIndexer(): void { this.semantic().invalidateIndexer(); }
-  async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k); }
+  async semanticSearch(query: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k, accept); }
   async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedNotes(path, k); }
   async rebuildSemanticIndex(): Promise<void> { return this.semantic().rebuildSemanticIndex(); }
   async showSemanticIndexStatus(): Promise<void> { return this.semantic().showSemanticIndexStatus(); }

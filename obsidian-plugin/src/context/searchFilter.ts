@@ -13,6 +13,13 @@ function text(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+/** Trimmed non-empty strings from a string or arbitrarily nested arrays; anything else is []. */
+function strings(v: unknown): string[] {
+  if (typeof v === "string") return v.trim() ? [v.trim()] : [];
+  if (Array.isArray(v)) return v.flatMap(strings);
+  return [];
+}
+
 export function parseSearchFilter(args: Record<string, unknown>): SearchFilter | null {
   const type = text(args.type);
   const project = text(args.project);
@@ -26,12 +33,16 @@ export function normalizeProjectRef(v: string): string {
   return (link?.[1] ?? v).trim().replace(/\.md$/i, "").toLowerCase();
 }
 
+/** `want` matches `have` itself (or a /-bounded suffix), or have's parent dir (or a /-bounded suffix of it). */
+function oneProjectMatches(have: string, want: string): boolean {
+  if (have === want || have.endsWith(`/${want}`)) return true;
+  const parent = have.includes("/") ? have.slice(0, have.lastIndexOf("/")) : have;
+  return parent === want || parent.endsWith(`/${want}`);
+}
+
 function projectMatches(value: unknown, wanted: string): boolean {
-  const s = text(value);
-  if (!s) return false;
-  const have = normalizeProjectRef(s);
   const want = normalizeProjectRef(wanted);
-  return have === want || have.endsWith(`/${want}`);
+  return strings(value).some((s) => oneProjectMatches(normalizeProjectRef(s), want));
 }
 
 function tagMatches(tags: readonly string[], wanted: string): boolean {
@@ -43,7 +54,7 @@ function tagMatches(tags: readonly string[], wanted: string): boolean {
 }
 
 export function matchesSearchFilter(frontmatter: Record<string, unknown> | undefined, tags: readonly string[], filter: SearchFilter): boolean {
-  if (filter.type !== undefined && text(frontmatter?.type) !== filter.type) return false;
+  if (filter.type !== undefined && !strings(frontmatter?.type).includes(filter.type)) return false;
   if (filter.project !== undefined && !projectMatches(frontmatter?.project, filter.project)) return false;
   if (filter.tag !== undefined && !tagMatches(tags, filter.tag)) return false;
   return true;
@@ -52,8 +63,8 @@ export function matchesSearchFilter(frontmatter: Record<string, unknown> | undef
 export function hitMetadata(frontmatter: Record<string, unknown> | undefined): string {
   if (!frontmatter) return "";
   return PROVENANCE_KEYS.flatMap((k) => {
-    const v = text(frontmatter[k]);
-    return v ? [`${k}: ${v}`] : [];
+    const vals = strings(frontmatter[k]);
+    return vals.length ? [`${k}: ${vals.join(", ").replace(/\s+/g, " ")}`] : [];
   }).join(" · ");
 }
 

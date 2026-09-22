@@ -139,9 +139,10 @@ export class SemanticStore {
    * of materializing every chunk + a parallel metadata map and sorting the whole
    * chunk set. Allocation is per-note (the result), not per-chunk.
    */
-  search(queryVec: number[], k: number): SearchHit[] {
+  search(queryVec: number[], k: number, accept?: (path: string) => boolean): SearchHit[] {
     const bestPerNote = new Map<string, SearchHit>();
     for (const [path, entry] of Object.entries(this.data.notes)) {
+      if (accept && !accept(path)) continue;
       let best: SearchHit | undefined;
       for (const c of entry.chunks) {
         const score = cosineSimilarity(queryVec, c.vector);

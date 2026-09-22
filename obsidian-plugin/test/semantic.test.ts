@@ -80,6 +80,16 @@ describe("SemanticStore", () => {
     expect(hits.filter((h) => h.path === "A.md").length).toBe(1);
   });
 
+  it("search skips notes an accept predicate rejects, even the best-scoring one", () => {
+    const store = new SemanticStore(emptyIndex("nomic"));
+    store.upsertNote("A.md", "h1", 1, [{ ord: 0, text: "cats", vector: [1, 0] }]);
+    store.upsertNote("B.md", "h2", 1, [{ ord: 0, text: "fish", vector: [0.9, 0.1] }]);
+    store.upsertNote("C.md", "h3", 1, [{ ord: 0, text: "dogs", vector: [0, 1] }]);
+    const hits = store.search([1, 0], 1, (path) => path !== "A.md");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].path).toBe("B.md");
+  });
+
   it("remove / rename / prune", () => {
     const store = new SemanticStore(emptyIndex("nomic"));
     store.upsertNote("A.md", "h", 1, [{ ord: 0, text: "x", vector: [1] }]);
