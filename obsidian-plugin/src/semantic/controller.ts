@@ -218,17 +218,17 @@ export class SemanticController {
     }
   }
 
-  async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> {
+  async relatedNotes(path: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; score: number }[]> {
     const ix = this.indexer();
     if (!ix) return [];
-    const hits = await ix.related(path, k);
+    const hits = await ix.related(path, k, accept);
     return hits.map((h) => ({ path: h.path, score: h.score }));
   }
 
   /** Tool and Bases-view neighbours; never starts an embedding-model download. */
-  async relatedForTools(path: string, k: number): Promise<{ path: string; score: number }[]> {
+  async relatedForTools(path: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; score: number }[]> {
     if (!(await this.canEmbedWithoutDownload())) return [];
-    return this.relatedNotes(path, k);
+    return this.relatedNotes(path, k, accept);
   }
 
   async rebuildSemanticIndex(): Promise<void> {

@@ -310,12 +310,12 @@ export class VaultTools {
               filters: { description: "Global filters: a statement string, an array of statements (AND-ed), or one recursive {and|or|not: [...]} group." },
               views: {
                 type: "array",
-                description: "Views: {name, type? (table|cards|list|map), order? (property list like 'file.name'/'note.status'), groupBy? {property, direction}, limit?, filters?, summaries? (property → built-in aggregate like Sum/Average/Median or a custom summaries key)}.",
+                description: "Views: {name, type? (table|cards|list|map|companion-similar), order? (property list like 'file.name'/'note.status'), groupBy? {property, direction}, limit?, filters?, summaries? (property → built-in aggregate like Sum/Average/Median or a custom summaries key)}.",
                 items: {
                   type: "object",
                   properties: {
                     name: { type: "string" },
-                    type: { type: "string", enum: ["table", "cards", "list", "map"] },
+                    type: { type: "string", enum: ["table", "cards", "list", "map", "companion-similar"] },
                     order: { type: "array", items: { type: "string" } },
                     groupBy: {
                       type: "object",
