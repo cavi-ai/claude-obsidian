@@ -489,8 +489,8 @@ export class VaultTools {
     if (this.opts.semantic) {
       try {
         semantic = await this.opts.semantic(query, limit);
-      } catch {
-        /* Ollama down / no index → keyword only */
+      } catch (e) {
+        console.debug("Claude Companion: semantic search failed, falling back to keyword", e);
       }
     }
 
@@ -630,7 +630,8 @@ export class VaultTools {
     try {
       // The metadata cache updates asynchronously; the file on disk is already written.
       fm = readFrontmatter(await this.app.vault.read(file), (yaml) => parseYaml(yaml) as unknown);
-    } catch {
+    } catch (e) {
+      console.debug("Claude Companion: conformance frontmatter read failed", e);
       return "";
     }
     if (!fm || typeof fm.type !== "string") return "";
