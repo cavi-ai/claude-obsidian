@@ -558,3 +558,43 @@ describe("vault_search filters", () => {
     expect(await searchTools().call("vault_search", { query: "pelican", type: "nope" })).toBe('No matches for "pelican" (type: nope).');
   });
 });
+
+describe("related_notes", () => {
+  function relatedTools(related?: (p: string, k: number) => Promise<{ path: string; score: number }[]>) {
+    const app = new App();
+    app.vault.seed("Notes/A.md", "# A");
+    app.vault.seed("Notes/B.md", "# B", { frontmatter: { type: "concept" } });
+    app.vault.seed("Notes/C.md", "# C");
+    return new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude", ...(related ? { related } : {}) });
+  }
+
+  it("is a read tool listed right after vault_search", () => {
+    const names = relatedTools().definitions().map((d) => d.name);
+    expect(names.indexOf("related_notes")).toBe(names.indexOf("vault_search") + 1);
+  });
+
+  it("errors when semantic search is not wired", async () => {
+    await expect(relatedTools().call("related_notes", { path: "Notes/A.md" })).rejects.toThrow("Semantic search is off");
+  });
+
+  it("errors on a missing or escaping path", async () => {
+    const vt = relatedTools(async () => []);
+    await expect(vt.call("related_notes", { path: "Notes/Missing.md" })).rejects.toThrow("Note not found: Notes/Missing.md");
+    await expect(vt.call("related_notes", { path: "../x.md" })).rejects.toThrow(/escapes the vault/);
+  });
+
+  it("formats hits with score and type, and clamps limit to 1..25", async () => {
+    const related = vi.fn(async () => [{ path: "Notes/B.md", score: 0.8312 }, { path: "Notes/C.md", score: 0.5 }]);
+    const vt = relatedTools(related);
+    expect(await vt.call("related_notes", { path: "Notes/A.md", limit: 99 })).toBe("- Notes/B.md (similarity 0.83) · type: concept\n- Notes/C.md (similarity 0.50)");
+    expect(related).toHaveBeenLastCalledWith("Notes/A.md", 25);
+    await vt.call("related_notes", { path: "Notes/A.md", limit: 0 });
+    expect(related).toHaveBeenLastCalledWith("Notes/A.md", 1);
+    await vt.call("related_notes", { path: "Notes/A.md" });
+    expect(related).toHaveBeenLastCalledWith("Notes/A.md", 8);
+  });
+
+  it("says the note is not indexed when there are no neighbours", async () => {
+    expect(await relatedTools(async () => []).call("related_notes", { path: "Notes/A.md" })).toBe("No related notes for Notes/A.md (index empty or note not indexed).");
+  });
+});

@@ -48,8 +48,9 @@ import { BatchDiffModal } from "./view/BatchDiffModal";
 import { RewriteModal } from "./view/RewriteModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
-import { VaultTools, type VaultToolsOptions } from "./mcp/vaultTools";
-import { catalogPromptProvider, vaultResourceProvider } from "./mcp/providers";
+import { VaultTools, SEMANTIC_OFF_MESSAGE, type VaultToolsOptions } from "./mcp/vaultTools";
+import { catalogPromptProvider, composeResourceProviders, substrateResourceProvider, vaultResourceProvider } from "./mcp/providers";
+import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
 import type { AnthropicToolDef, ProviderId } from "./providers/types";
@@ -257,6 +258,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpLifecycleGeneration = 0;
   private mcpLifecycleEnded = false;
   private _mcpBridge: McpBridgeController | null = null;
+  private memoryNotePath(): string {
+    return normalizePath(`${this.settings.memoryFolder}/${MEMORY_NOTE_BASENAME}.md`);
+  }
   private mcpBridge(): McpBridgeController {
     return (this._mcpBridge ??= new McpBridgeController({
       settings: () => this.settings,
@@ -268,6 +272,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         allowWrites: this.settings.mcpAllowWrites,
         defaultFolder: this.settings.mcpWriteFolder,
         semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
+        related: async (p: string, k: number) => {
+          if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
+          return this.relatedForTools(p, k);
+        },
         ontology: () => this.ontology(),
         ontologyFolder: () => this.settings.ontologyFolder,
         zotero: () => this.zoteroLibrary(),
@@ -281,7 +289,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
             port,
             token,
             serverInfo: { name: "obsidian-vault", version: "0.2.0" },
-            resources: vaultResourceProvider(this.app),
+            resources: composeResourceProviders(
+              substrateResourceProvider(this.app, { call: (n, a) => (tools as unknown as VaultTools).call(n, a), memoryPath: () => this.memoryNotePath() }),
+              vaultResourceProvider(this.app),
+            ),
             prompts: catalogPromptProvider(() => this.promptTemplates()),
           },
           tools as unknown as VaultTools,
@@ -2506,6 +2517,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: this.settings.agentAllowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
       semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
+      related: async (p: string, k: number) => {
+        if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
+        return this.relatedForTools(p, k);
+      },
       ontology: () => this.ontology(),
       ontologyFolder: () => this.settings.ontologyFolder,
       zotero: () => this.zoteroLibrary(),
@@ -2536,7 +2551,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         port: 0,
         token,
         serverInfo: { name: "obsidian-vault", version: "0.2.0" },
-        resources: vaultResourceProvider(this.app),
+        resources: composeResourceProviders(
+          substrateResourceProvider(this.app, { call: (n, a) => this.agentTools().call(n, a), memoryPath: () => this.memoryNotePath() }),
+          vaultResourceProvider(this.app),
+        ),
         prompts: catalogPromptProvider(() => this.promptTemplates()),
       },
       registry,
@@ -2745,6 +2763,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   invalidateIndexer(): void { this.semantic().invalidateIndexer(); }
   async semanticSearch(query: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k, accept); }
   async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedNotes(path, k); }
+  async relatedForTools(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedForTools(path, k); }
   async rebuildSemanticIndex(): Promise<void> { return this.semantic().rebuildSemanticIndex(); }
   async showSemanticIndexStatus(): Promise<void> { return this.semantic().showSemanticIndexStatus(); }
   private queueReindex(path: string): void { this.semantic().queueReindex(path); }
