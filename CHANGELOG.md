@@ -4,6 +4,24 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] — 2026-09-22
+
+### Added
+- **Filtered vault search for agents.** `vault_search` accepts `type`,
+  `project`, and `tag` filters, applied before keyword and semantic ranking.
+  Each hit shows its type, project, review state, and source fields.
+- **`related_notes` tool.** Agents can list the notes most similar to a given
+  note from the local semantic index. It never starts a model download.
+- **Substrate MCP resources.** The bridge serves the vault ontology
+  (`obsidian://ontology`), the "What Claude Knows" memory note
+  (`obsidian://memory`), and research project snapshots
+  (`obsidian://research/{project}`).
+- **Similar notes Bases view.** A "Similar notes" view ranks a base's notes by
+  semantic similarity to the note you last opened. `base_create` can add it.
+
+### Changed
+- **Previously silent failures log at debug level** in the developer console.
+
 ## [0.29.1] — 2026-09-18
 
 ### Added
