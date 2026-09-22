@@ -56,7 +56,11 @@ export interface VaultToolsOptions {
   /** Web tools (read-only, explicit calls only); absent disables each. */
   webSearch?: ((query: string, count: number) => Promise<string>) | undefined;
   webFetch?: ((url: string) => Promise<string>) | undefined;
+  /** Semantic neighbours of a note; absent disables related_notes. */
+  related?: ((path: string, k: number) => Promise<{ path: string; score: number }[]>) | undefined;
 }
+
+export const SEMANTIC_OFF_MESSAGE = "Semantic search is off. Enable it in Companion settings → Semantic search.";
 
 /**
  * Vault tools exposed over MCP so Claude Code / Claude Desktop can read,
@@ -89,6 +93,18 @@ export class VaultTools {
             tag: { type: "string", description: "Only notes with this tag or a nested child of it ('ml' matches #ml and #ml/vision)." },
           },
           required: ["query"],
+        },
+      },
+      {
+        name: "related_notes",
+        description: "List notes semantically similar to a note, from the local semantic index. Returns vault paths with a similarity score.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Vault-relative path of the note." },
+            limit: { type: "number", description: "Max results (default 8, max 25)." },
+          },
+          required: ["path"],
         },
       },
       {
@@ -401,6 +417,8 @@ export class VaultTools {
     switch (name) {
       case "vault_search":
         return this.search(str(args.query), num(args.limit, 8), parseSearchFilter(args));
+      case "related_notes":
+        return this.related(str(args.path), Math.min(Math.max(Math.trunc(num(args.limit, 8)), 1), 25));
       case "web_search": {
         if (!this.opts.webSearch) throw new Error("Web search is disabled. Enable it in Companion settings → Agent.");
         return this.opts.webSearch(str(args.query), Math.min(num(args.count, 5), 10));
@@ -525,6 +543,19 @@ export class VaultTools {
     if (!(file instanceof TFile)) return null;
     const cache = this.app.metadataCache.getFileCache(file);
     return { frontmatter: cache?.frontmatter as Record<string, unknown> | undefined, tags: cache ? getAllTags(cache) ?? [] : [] };
+  }
+
+  private async related(path: string, limit: number): Promise<string> {
+    if (!this.opts.related) throw new Error(SEMANTIC_OFF_MESSAGE);
+    const file = this.resolveFile(assertVaultPath(path));
+    const hits = await this.opts.related(file.path, limit);
+    if (hits.length === 0) return `No related notes for ${file.path} (index empty or note not indexed).`;
+    return hits
+      .map((h) => {
+        const type = this.noteMeta(h.path)?.frontmatter?.type;
+        return `- ${h.path} (similarity ${h.score.toFixed(2)})${typeof type === "string" && type ? ` · type: ${type}` : ""}`;
+      })
+      .join("\n");
   }
 
   private async read(path: string): Promise<string> {

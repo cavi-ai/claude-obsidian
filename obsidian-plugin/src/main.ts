@@ -48,7 +48,7 @@ import { BatchDiffModal } from "./view/BatchDiffModal";
 import { RewriteModal } from "./view/RewriteModal";
 import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
-import { VaultTools, type VaultToolsOptions } from "./mcp/vaultTools";
+import { VaultTools, SEMANTIC_OFF_MESSAGE, type VaultToolsOptions } from "./mcp/vaultTools";
 import { catalogPromptProvider, vaultResourceProvider } from "./mcp/providers";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
@@ -268,6 +268,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         allowWrites: this.settings.mcpAllowWrites,
         defaultFolder: this.settings.mcpWriteFolder,
         semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
+        related: async (p: string, k: number) => {
+          if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
+          return this.relatedForTools(p, k);
+        },
         ontology: () => this.ontology(),
         ontologyFolder: () => this.settings.ontologyFolder,
         zotero: () => this.zoteroLibrary(),
@@ -2506,6 +2510,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       allowWrites: this.settings.agentAllowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
       semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
+      related: async (p: string, k: number) => {
+        if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
+        return this.relatedForTools(p, k);
+      },
       ontology: () => this.ontology(),
       ontologyFolder: () => this.settings.ontologyFolder,
       zotero: () => this.zoteroLibrary(),
