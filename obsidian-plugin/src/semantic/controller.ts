@@ -225,6 +225,12 @@ export class SemanticController {
     return hits.map((h) => ({ path: h.path, score: h.score }));
   }
 
+  /** Tool and Bases-view neighbours; never starts an embedding-model download. */
+  async relatedForTools(path: string, k: number): Promise<{ path: string; score: number }[]> {
+    if (!(await this.canEmbedWithoutDownload())) return [];
+    return this.relatedNotes(path, k);
+  }
+
   async rebuildSemanticIndex(): Promise<void> {
     const s = this.deps.settings();
     const modelId = embedderId(s.embeddingEngine, s.embeddingModel, s.builtinEmbeddingModel, s.openaiCompatEmbeddingModel);

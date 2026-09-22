@@ -2745,6 +2745,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   invalidateIndexer(): void { this.semantic().invalidateIndexer(); }
   async semanticSearch(query: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k, accept); }
   async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedNotes(path, k); }
+  async relatedForTools(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedForTools(path, k); }
   async rebuildSemanticIndex(): Promise<void> { return this.semantic().rebuildSemanticIndex(); }
   async showSemanticIndexStatus(): Promise<void> { return this.semantic().showSemanticIndexStatus(); }
   private queueReindex(path: string): void { this.semantic().queueReindex(path); }
