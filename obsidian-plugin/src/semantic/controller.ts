@@ -205,12 +205,12 @@ export class SemanticController {
     this.indexerModel = null;
   }
 
-  async semanticSearch(query: string, k: number): Promise<{ path: string; text: string }[]> {
+  async semanticSearch(query: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; text: string }[]> {
     const ix = this.indexer();
     if (!ix) return [];
     if (!(await this.canEmbedWithoutDownload())) return [];
     try {
-      const hits = await ix.search(query, k);
+      const hits = await ix.search(query, k, accept);
       return hits.map((h) => ({ path: h.path, text: h.text }));
     } catch (e) {
       console.debug("Claude Companion: semantic search failed, falling back to keyword-only", e);

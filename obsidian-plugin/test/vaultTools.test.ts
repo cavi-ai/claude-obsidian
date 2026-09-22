@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { App } from "obsidian";
 import { parse as parseYaml } from "yaml";
-import { VaultTools, assertVaultPath } from "../src/mcp/vaultTools";
+import { VaultTools, assertVaultPath, type SemanticSearch } from "../src/mcp/vaultTools";
 import { OntologyRegistry } from "../src/ontology/registry";
 import { schemaNoteContent, SEED_TYPES } from "../src/ontology/seed";
 
@@ -493,5 +493,68 @@ describe("note_create with ontology", () => {
     const msg = await vt.call("update_frontmatter", { path: file.path, fields: { banana: 1 } });
     expect(msg).toContain("Conformance:");
     expect(msg).toContain("banana");
+  });
+});
+
+describe("vault_search filters", () => {
+  function searchTools(semantic?: SemanticSearch) {
+    const app = new App();
+    app.vault.seed("Research/Alpha/Evidence/E1.md", "pelican pelican pelican", { frontmatter: { type: "research-evidence", project: "[[Research/Alpha/Project.md]]", review_state: "reviewed" }, tags: ["birds/coastal"] });
+    app.vault.seed("Research/Beta/Evidence/E2.md", "pelican", { frontmatter: { type: "research-evidence", project: "[[Research/Beta/Project.md]]" } });
+    app.vault.seed("Notes/Loose.md", "pelican pelican pelican pelican pelican");
+    return new VaultTools(app as never, { allowWrites: false, defaultFolder: "Claude", ...(semantic ? { semantic } : {}) });
+  }
+
+  it("type filter drops a higher-scoring untyped note", async () => {
+    const out = await searchTools().call("vault_search", { query: "pelican", type: "research-evidence" });
+    expect(out).toContain("## Research/Alpha/Evidence/E1.md");
+    expect(out).toContain("## Research/Beta/Evidence/E2.md");
+    expect(out).not.toContain("Notes/Loose.md");
+  });
+
+  it("project filter selects one project by path suffix or full path", async () => {
+    const bySuffix = await searchTools().call("vault_search", { query: "pelican", project: "Alpha/Project" });
+    expect(bySuffix).toContain("E1.md");
+    expect(bySuffix).not.toContain("E2.md");
+    const byPath = await searchTools().call("vault_search", { query: "pelican", project: "Research/Beta/Project.md" });
+    expect(byPath).toContain("E2.md");
+    expect(byPath).not.toContain("E1.md");
+  });
+
+  it("tag filter matches a nested child tag", async () => {
+    const out = await searchTools().call("vault_search", { query: "pelican", tag: "#birds" });
+    expect(out).toContain("E1.md");
+    expect(out).not.toContain("E2.md");
+    expect(out).not.toContain("Loose.md");
+  });
+
+  it("prints the provenance line only for notes that carry those fields", async () => {
+    const out = await searchTools().call("vault_search", { query: "pelican" });
+    expect(out).toContain("## Research/Alpha/Evidence/E1.md\ntype: research-evidence · project: [[Research/Alpha/Project.md]] · review_state: reviewed\n");
+    expect(out).toMatch(/## Notes\/Loose\.md\n(?!type:)/);
+  });
+
+  it("passes an accept predicate to semantic search when filtering, at the requested k", async () => {
+    const semantic = vi.fn(async () => [{ path: "Research/Beta/Evidence/E2.md", text: "beta chunk" }]);
+    const out = await searchTools(semantic).call("vault_search", { query: "pelican", limit: 4, type: "research-evidence" });
+    expect(semantic).toHaveBeenCalledWith("pelican", 4, expect.any(Function));
+    const accept = semantic.mock.calls[0]?.[2] as (path: string) => boolean;
+    expect(accept("Notes/Loose.md")).toBe(false);
+    expect(accept("Research/Beta/Evidence/E2.md")).toBe(true);
+    expect(out).not.toContain("Loose.md");
+    expect(out).toContain("E2.md");
+  });
+
+  it("keeps the requested semantic k and passes no predicate when unfiltered", async () => {
+    const semantic = vi.fn(async () => []);
+    await searchTools(semantic).call("vault_search", { query: "pelican", limit: 4 });
+    const call = semantic.mock.calls[0];
+    expect(call?.[0]).toBe("pelican");
+    expect(call?.[1]).toBe(4);
+    expect(call?.length === 2 || call?.[2] === undefined).toBe(true);
+  });
+
+  it("names the active filters when nothing matches", async () => {
+    expect(await searchTools().call("vault_search", { query: "pelican", type: "nope" })).toBe('No matches for "pelican" (type: nope).');
   });
 });

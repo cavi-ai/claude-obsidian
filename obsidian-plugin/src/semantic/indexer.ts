@@ -208,12 +208,12 @@ export class SemanticIndexer {
   }
 
   /** Semantic search: embed the query, return best chunk per note (top k). */
-  async search(query: string, k: number): Promise<SearchHit[]> {
+  async search(query: string, k: number, accept?: (path: string) => boolean): Promise<SearchHit[]> {
     const store = await this.ensureLoaded();
     if (store.stats().chunks === 0) return [];
     const [qv] = await this.deps.embed([query]);
     if (!qv || qv.length === 0) return [];
-    return store.search(qv, k);
+    return store.search(qv, k, accept);
   }
 
   /**
