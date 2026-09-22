@@ -2,6 +2,7 @@ import { App, TFile, normalizePath, getAllTags, requestUrl, parseYaml } from "ob
 import type { McpToolDef } from "./protocol";
 import { tokenize } from "../context/search";
 import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from "../context/hybridSearch";
+import { describeFilter, hitMetadata, matchesSearchFilter, parseSearchFilter, type SearchFilter } from "../context/searchFilter";
 import { ensureVaultFolder } from "../vault/vaultFiles";
 import { buildFrontmatter, normalizeTags, type FrontmatterData } from "../indexing/frontmatter";
 import { conform } from "../ontology/conform";
@@ -77,12 +78,15 @@ export class VaultTools {
     const defs: McpToolDef[] = [
       {
         name: "vault_search",
-        description: "Search the Obsidian vault by meaning and keyword (semantic when enabled, otherwise keyword). Returns matching notes with a snippet.",
+        description: "Search the Obsidian vault by meaning and keyword (semantic when enabled, otherwise keyword). Optional filters narrow by frontmatter type, research project, or tag. Returns matching notes with provenance fields and a snippet.",
         inputSchema: {
           type: "object",
           properties: {
             query: { type: "string", description: "Keywords to search for." },
             limit: { type: "number", description: "Max results (default 8)." },
+            type: { type: "string", description: "Only notes whose frontmatter `type` equals this (e.g. 'research-evidence')." },
+            project: { type: "string", description: "Only notes whose frontmatter `project` is this project note path (e.g. 'Research/Alpha/Project.md' or 'Alpha/Project')." },
+            tag: { type: "string", description: "Only notes with this tag or a nested child of it ('ml' matches #ml and #ml/vision)." },
           },
           required: ["query"],
         },
@@ -396,7 +400,7 @@ export class VaultTools {
     if (VAULT_WRITE_TOOLS.has(name)) this.assertWrites();
     switch (name) {
       case "vault_search":
-        return this.search(str(args.query), num(args.limit, 8));
+        return this.search(str(args.query), num(args.limit, 8), parseSearchFilter(args));
       case "web_search": {
         if (!this.opts.webSearch) throw new Error("Web search is disabled. Enable it in Companion settings → Agent.");
         return this.opts.webSearch(str(args.query), Math.min(num(args.count, 5), 10));
@@ -480,28 +484,46 @@ export class VaultTools {
     });
   }
 
-  private async search(query: string, limit: number): Promise<string> {
+  private async search(query: string, limit: number, filter: SearchFilter | null): Promise<string> {
     const terms = tokenize(query);
-    const keyword = await keywordVaultSearch(this.app, query);
+    const keep = (path: string): boolean => {
+      if (!filter) return true;
+      const meta = this.noteMeta(path);
+      return meta !== null && matchesSearchFilter(meta.frontmatter, meta.tags, filter);
+    };
+    const keyword = (await keywordVaultSearch(this.app, query)).filter((h) => keep(h.path));
 
     // Semantic pass (when enabled + index built); degrades to keyword on failure.
     let semantic: { path: string; text: string }[] = [];
     if (this.opts.semantic) {
       try {
-        semantic = await this.opts.semantic(query, limit);
+        semantic = (await this.opts.semantic(query, filter ? Math.min(limit * 5, 100) : limit)).filter((h) => keep(h.path));
       } catch (e) {
         console.debug("Claude Companion: semantic search failed, falling back to keyword", e);
       }
     }
 
     if (keyword.length === 0 && semantic.length === 0) {
-      return terms.length === 0 && !this.opts.semantic ? "No searchable terms in query." : `No matches for "${query}".`;
+      if (terms.length === 0 && !this.opts.semantic) return "No searchable terms in query.";
+      return filter ? `No matches for "${query}" (${describeFilter(filter)}).` : `No matches for "${query}".`;
     }
 
     const fused = fuseKeywordAndSemantic(keyword, semantic, limit);
     const mode = semantic.length ? "semantic + keyword" : "keyword";
-    const body = fused.map((f) => `## ${f.path}\n${f.snippet}`).join("\n\n");
+    const body = fused
+      .map((f) => {
+        const meta = hitMetadata(this.noteMeta(f.path)?.frontmatter);
+        return `## ${f.path}\n${meta ? `${meta}\n` : ""}${f.snippet}`;
+      })
+      .join("\n\n");
     return `(${mode} search)\n\n${body}`;
+  }
+
+  private noteMeta(path: string): { frontmatter: Record<string, unknown> | undefined; tags: string[] } | null {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return null;
+    const cache = this.app.metadataCache.getFileCache(file);
+    return { frontmatter: cache?.frontmatter as Record<string, unknown> | undefined, tags: cache ? getAllTags(cache) ?? [] : [] };
   }
 
   private async read(path: string): Promise<string> {
