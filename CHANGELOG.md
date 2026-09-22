@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.1] — 2026-09-22
+
+### Fixed
+- **Similar notes follows its note.** Renaming the note the view ranks against
+  keeps the ranking; deleting it resets the view to "Open a note".
+- **Project filters read heading and alias links.** A `project` value like
+  `[[Research/Alpha/Project#Scope]]` matches the Alpha project.
+
 ## [0.30.0] — 2026-09-22
 
 ### Added
