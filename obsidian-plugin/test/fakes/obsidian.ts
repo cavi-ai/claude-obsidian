@@ -262,6 +262,9 @@ export function requireApiVersion(version: string): boolean {
   return a !== x ? a > x : b !== y ? b > y : c >= z;
 }
 
+/** Bases' null-cell sentinel; real toString() is undeclared, so assume the worst. */
+export class NullValue { toString(): string { return "null"; } }
+
 // Value stubs for modules that import these names (not exercised in tests).
 const noticeHistory: Notice[] = [];
 export function clearNotices(): void { noticeHistory.length = 0; }

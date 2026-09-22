@@ -177,10 +177,10 @@ export class SemanticStore {
    * Notes most similar to the given note (by chunk-centroid), excluding the note
    * itself. Returns [] if the note isn't indexed.
    */
-  related(path: string, k: number): SearchHit[] {
+  related(path: string, k: number, accept?: (path: string) => boolean): SearchHit[] {
     const v = this.noteVector(path);
     if (!v) return [];
-    return this.search(v, k + 1)
+    return this.search(v, k + 1, accept)
       .filter((h) => h.path !== path)
       .slice(0, Math.max(0, k));
   }

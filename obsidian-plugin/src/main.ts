@@ -563,7 +563,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       icon: "sparkles",
       factory: (controller, containerEl) => new SimilarBasesView(controller, containerEl, {
         semanticEnabled: () => this.settings.semanticEnabled,
-        related: (path, k) => this.relatedForTools(path, k),
+        related: (path, k, accept) => this.relatedForTools(path, k, accept),
       }),
       options: () => [{ type: "slider", key: "limit", displayName: "Results", min: 5, max: 50, step: 1, default: 20 }],
     });
@@ -2773,7 +2773,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   invalidateIndexer(): void { this.semantic().invalidateIndexer(); }
   async semanticSearch(query: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k, accept); }
   async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedNotes(path, k); }
-  async relatedForTools(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedForTools(path, k); }
+  async relatedForTools(path: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; score: number }[]> { return this.semantic().relatedForTools(path, k, accept); }
   async rebuildSemanticIndex(): Promise<void> { return this.semantic().rebuildSemanticIndex(); }
   async showSemanticIndexStatus(): Promise<void> { return this.semantic().showSemanticIndexStatus(); }
   private queueReindex(path: string): void { this.semantic().queueReindex(path); }
