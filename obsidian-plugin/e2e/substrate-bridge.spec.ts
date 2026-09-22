@@ -54,7 +54,9 @@ test("typed search, related notes and substrate resources over the live bridge",
   expect(searchText).not.toContain("Loose");
 
   const related = await rpc("tools/call", { name: "related_notes", arguments: { path: "Research/Alpha/Evidence/E1.md" } });
-  expect(JSON.stringify(related.result)).toMatch(/similarity \d\.\d\d|No related notes for/);
+  const relatedText = JSON.stringify(related.result);
+  expect(relatedText).toMatch(/similarity \d\.\d\d/);
+  expect(relatedText).toContain("Research/Beta/Evidence/E2.md");
 
   const list = await rpc("resources/list");
   expect(JSON.stringify(list.result)).toContain("obsidian://memory");
