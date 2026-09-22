@@ -6,6 +6,7 @@ import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, ProjectCreateModal, QUESTION_INSTRUCTION, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
 import { ResearchDeskView, RESEARCH_DESK_VIEW_TYPE } from "./view/ResearchDeskView";
 import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
+import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesView";
 import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
@@ -557,6 +558,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
         };
       })(),
     ));
+    this.registerBasesView(SIMILAR_BASES_VIEW_TYPE, {
+      name: "Similar notes",
+      icon: "sparkles",
+      factory: (controller, containerEl) => new SimilarBasesView(controller, containerEl, {
+        semanticEnabled: () => this.settings.semanticEnabled,
+        related: (path, k) => this.relatedForTools(path, k),
+      }),
+      options: () => [{ type: "slider", key: "limit", displayName: "Results", min: 5, max: 50, step: 1, default: 20 }],
+    });
   }
 
   /** Inline interactive artifacts, rendered from claude-html fences. */
