@@ -3,35 +3,34 @@ import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ContextToggles, ToolTraceEntry } from "../types";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
 import type { ChatTurnService, TurnEvent } from "../chat/turnService";
-import { executeTool, toAnthropicTools, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
+import { toAnthropicTools, executeTool, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
 import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
 import { reviewEdits } from "../editor/reviewEdits";
-import type { ApiMessage, ContentBlock, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
+import type { ApiMessage, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
 import { TFile } from "obsidian";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, transcriptText, type Conversation } from "../conversations/store";
 import { ConversationPicker } from "./ConversationPicker";
-import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
+import { modelLabel, resolveModelId } from "../claude/models";
 import { isMobileModelChoiceActive, mobileModelChoices } from "./mobileModelChoices";
-import { capabilitiesFor, effortLevels } from "../claude/capabilities";
-import { type ChatControls, defaultChatControls, knobVisibility, shapeRequest } from "../claude/chatControls";
+import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
 import { ModeControl, type ChatMode } from "./ModeControl";
-import { type SlashCommand, runNativeSlashCommand, SLASH_COMMANDS, parseSlashQuery, workflowSlashCommands, templateSlashCommand, WORKFLOW_ACTION_PREFIX, skillSlashCommands, SKILL_ACTION_PREFIX } from "./slashCommands";
+import { skillSlashCommands, workflowSlashCommands, SLASH_COMMANDS, type SlashCommand, runNativeSlashCommand, templateSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
-import { detectPageUrl, pageLabel, type AttachedPage } from "../context/urlContext";
+import { type AttachedPage } from "../context/urlContext";
 import { WORKFLOWS } from "../workflows/catalog";
 import { SKILLS } from "../workflows/skillRegistry.generated";
 import { composeSkillPrompt, parseSkillInvocation, skillDisplay } from "../skills/compose";
 import { hasIncompleteHtmlArtifactFence, splitStreamingArtifact } from "./streamRender";
 import { TurnRenderer, type TurnRendererHost } from "./turnRenderer";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
-import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime, type MediaAttachment } from "../context/attachments";
+import { type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
-import { type AtItem, type ClaimAtSource, buildAtItems, buildClaimItems, activeAtQuery, activeHashQuery } from "../context/atMention";
+import { type AtItem, type ClaimAtSource } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
@@ -49,15 +48,14 @@ interface CliSignInProvider {
   available(): boolean;
   refresh(): Promise<unknown>;
 }
-import { mergeDetectedModels } from "../providers/localModels";
-import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
+import { addUsage, EMPTY_SESSION, contextGauge, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
 import { ActionModal, type ActionModalItem } from "./ActionModal";
 import { QuickOptionsModal } from "./QuickOptionsModal";
 import { quickNotice } from "../notice";
 import { ComposerContextManager } from "./ComposerContextManager";
-import { buildContextManagerModel, type AutomaticContextKey } from "./contextManagerModel";
+import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
 
@@ -113,7 +111,7 @@ export class ChatView extends ItemView {
   private set writeGrantPillEl(v: HTMLElement) { this.header.writeGrantPillEl = v; }
   private get mcpStatusEl(): HTMLButtonElement { return this.header.mcpStatusEl; }
   private set mcpStatusEl(v: HTMLButtonElement) { this.header.mcpStatusEl = v; }
-  private composer = new Composer();
+  private composer: Composer;
   private messages: ChatMessage[] = [];
   private messagesEl!: HTMLElement;
   private get inputEl(): HTMLTextAreaElement { return this.composer.inputEl; }
@@ -235,6 +233,20 @@ export class ChatView extends ItemView {
     private plugin: ClaudeCompanionPlugin,
   ) {
     super(leaf);
+    this.composer = new Composer(this.app, plugin, {
+      applyChatFontSize: (...args) => this.applyChatFontSize(...args),
+      applyMode: (...args) => this.applyMode(...args),
+      currentMode: (...args) => this.currentMode(...args),
+      onModelSelect: (...args) => this.onModelSelect(...args),
+      refreshCapabilityIndicators: (...args) => this.refreshCapabilityIndicators(...args),
+      registerDomEvent: (el, type, callback) => this.registerDomEvent(el, type, callback),
+      resolveMarkdownContextView: (...args) => this.resolveMarkdownContextView(...args),
+      updateModeControl: (...args) => this.updateModeControl(...args),
+      updateUsageBar: (...args) => this.updateUsageBar(...args),
+      cachedClaims: () => this.cachedClaims,
+      controls: () => this.controls,
+      streaming: () => this.streaming,
+    });
   }
 
   override getViewType(): string {
@@ -293,12 +305,12 @@ export class ChatView extends ItemView {
         retrySource: (id) => this.retryContextSource(id),
         addContext: () => this.openContextPicker(),
         onSend: () => void this.onSend(),
-        autosizeInput: () => this.autosizeInput(),
+        autosizeInput: () => this.composer.autosizeInput(),
         updateUsageBar: () => this.updateUsageBar(),
         syncSlashMenu: () => this.syncSlashMenu(),
-        syncAtMenu: () => this.syncAtMenu(),
-        syncPageOffer: () => this.syncPageOffer(),
-        attachPastedImage: (file) => void this.attachPastedImage(file),
+        syncAtMenu: () => this.composer.syncAtMenu(),
+        syncPageOffer: () => this.composer.syncPageOffer(),
+        attachPastedImage: (file) => void this.composer.attachPastedImage(file),
         renderControls: () => this.renderControls(),
       },
     );
@@ -465,7 +477,7 @@ export class ChatView extends ItemView {
     // rough allowance for the vault context that will be attached.
     const convo = this.messages.map((m) => m.content).join("\n");
     const draft = this.inputEl?.value ?? "";
-    const ctxAllowance = this.anyContextEnabled() ? this.plugin.settings.contextCharBudget : 0;
+    const ctxAllowance = this.composer.anyContextEnabled() ? this.plugin.settings.contextCharBudget : 0;
     const estIn = estimateTokens(this.plugin.composeSystemPrompt()) + estimateTokens(convo) + estimateTokens(draft) + estimateTokensForChars(ctxAllowance);
 
     const g = contextGauge(estIn, model, reserved);
@@ -492,11 +504,6 @@ export class ChatView extends ItemView {
       }
     }
     this.usageEl.setText(parts.join("  ·  "));
-  }
-
-  private anyContextEnabled(): boolean {
-    const c = this.plugin.settings.context;
-    return c.activeNote || c.selection || c.linkedNotes || c.searchVault || this.attachedPaths.length > 0 || this.attachedMedia.length > 0 || this.attachedPages.length > 0;
   }
 
   override async onClose(): Promise<void> {
@@ -539,35 +546,9 @@ export class ChatView extends ItemView {
 
   // ---------- "@" context picker ----------
 
-  /** Candidate sources for the "@" menu: specials, recents, notes, folders, bases, claims, media. */
-  private atItems(): AtItem[] {
-    const notes = this.app.vault.getMarkdownFiles().map((f) => f.path);
-    const folders = new Set<string>();
-    for (const p of notes) {
-      const i = p.lastIndexOf("/");
-      if (i > 0) folders.add(p.slice(0, i));
-    }
-    const media = this.app.vault
-      .getFiles()
-      .filter((f) => mediaKind(f.path) !== null)
-      .map((f) => f.path)
-      .sort();
-    const bases = this.app.vault
-      .getFiles()
-      .filter((f) => f.extension === "base")
-      .map((f) => f.path)
-      .sort();
-    const recents = this.app.workspace
-      .getLastOpenFiles()
-      .filter((p) => p.toLowerCase().endsWith(".md") && this.app.vault.getAbstractFileByPath(p) instanceof TFile)
-      .slice(0, 5);
-    return buildAtItems(notes, [...folders].sort(), media, bases, this.cachedClaims, recents);
-  }
+  private atItems(): AtItem[] { return this.composer.atItems(); }
 
-  /** Candidate sources for the "#" menu: research claims only. */
-  private hashItems(): AtItem[] {
-    return buildClaimItems(this.cachedClaims);
-  }
+  private hashItems(): AtItem[] { return this.composer.hashItems(); }
 
   /** Coalesces rapid vault/metadata events into one reloadClaims() after the last one. */
   private scheduleReloadClaims(): void {
@@ -596,318 +577,19 @@ export class ChatView extends ItemView {
     this.cachedClaims = claims;
   }
 
-  /** Load attached media into wire blocks; oversize/unreadable files are skipped with a notice. */
-  private async mediaBlocks(): Promise<ContentBlock[]> {
-    const blocks: ContentBlock[] = [];
-    for (const m of this.attachedMedia) {
-      try {
-        let data = m.data;
-        let mime = m.mime;
-        if (!data && m.path) {
-          const file = this.app.vault.getAbstractFileByPath(m.path);
-          if (!(file instanceof TFile)) throw new Error("file not found");
-          if (file.stat.size > maxBytesFor(m.kind)) {
-            new Notice(`${m.label} is too large to attach (max ${Math.round(maxBytesFor(m.kind) / 1024 / 1024)} MB).`);
-            continue;
-          }
-          const buf = await this.app.vault.readBinary(file);
-          // Trust the bytes over the extension so a mislabeled file isn't 400'd.
-          mime = sniffMime(buf) ?? m.mime;
-          data = arrayBufferToBase64(buf);
-        }
-        if (data) blocks.push(mediaBlock(m.kind, mime, data));
-      } catch (e) {
-        new Notice(`Couldn't attach ${m.label}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    return blocks;
-  }
+  private onAtChoose(item: AtItem): Promise<void> { return this.composer.onAtChoose(item); }
 
-  /** Attach an image pasted into the composer (screenshots, copied images). */
-  private async attachPastedImage(file: File): Promise<void> {
-    if (file.size > maxBytesFor("image")) {
-      new Notice(`Pasted image is too large to attach (max ${Math.round(maxBytesFor("image") / 1024 / 1024)} MB).`);
-      return;
-    }
-    const buf = await file.arrayBuffer();
-    const data = arrayBufferToBase64(buf);
-    const n = this.attachedMedia.filter((m) => !m.path).length + 1;
-    this.attachedMedia.push({ label: file.name || `Pasted image ${n}`, kind: "image", mime: sniffMime(buf) ?? (file.type || "image/png"), data });
-    this.renderContextManager();
-    quickNotice("Image attached to your next message.");
-  }
+  private renderContextManager(): void { return this.composer.renderContextManager(); }
 
-  /** Open/refresh/close the "@"/"#" picker based on the cursor's active token (innermost wins). */
-  private syncAtMenu(): void {
-    const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
-    const atHit = activeAtQuery(this.inputEl.value, cursor);
-    const hashHit = activeHashQuery(this.inputEl.value, cursor);
-    if (hashHit && (!atHit || hashHit.start > atHit.start)) {
-      this.activeMenuTrigger = "#";
-      this.atMenu.show(hashHit.query);
-    } else if (atHit) {
-      this.activeMenuTrigger = "@";
-      this.atMenu.show(atHit.query);
-    } else {
-      this.atMenu.hide();
-    }
-  }
+  private toggleAutomaticContext(key: AutomaticContextKey, enabled: boolean): void { return this.composer.toggleAutomaticContext(key, enabled); }
 
-  /**
-   * Offer "Attach page content" when the composer holds a URL. Never fetches
-   * on its own — the capture only fires from the Attach click (spec §7).
-   */
-  private syncPageOffer(): void {
-    if (!this.pageOfferEl) return;
-    const hide = () => this.pageOfferEl.setCssStyles({ display: "none" });
-    if (this.streaming || !this.plugin.captureWebPage()) return hide();
-    const url = detectPageUrl(this.inputEl.value);
-    if (!url || url === this.dismissedPageUrl || this.attachedPages.some((p) => p.url === url)) return hide();
+  private removeContextSource(id: string): void { return this.composer.removeContextSource(id); }
 
-    this.pageOfferEl.empty();
-    this.pageOfferEl.createSpan({ cls: "cc-page-offer-label", text: `Attach page content from ${pageLabel(url)}?` });
-    const attach = this.pageOfferEl.createEl("button", { cls: "cc-page-offer-btn", text: "Attach" });
-    attach.addEventListener("click", () => void this.attachPage(url));
-    const dismiss = this.pageOfferEl.createEl("button", { cls: "cc-page-offer-dismiss", text: "×", attr: { "aria-label": "Dismiss" } });
-    dismiss.addEventListener("click", () => {
-      this.dismissedPageUrl = url;
-      hide();
-    });
-    this.pageOfferEl.setCssStyles({ display: "" });
-  }
+  private retryContextSource(id: string): void { return this.composer.retryContextSource(id); }
 
-  /** Capture a URL into an attached page. Errors land on the pill, not the chat. */
-  private async attachPage(url: string): Promise<void> {
-    const capture = this.plugin.captureWebPage();
-    if (!capture) return;
-    this.pageOfferEl.setCssStyles({ display: "none" });
-    if (this.attachedPages.some((p) => p.url === url)) return;
-    const page: AttachedPage = { url, markdown: "" };
-    this.attachedPages.push(page);
-    await this.captureAttachedPage(page);
-  }
+  private openContextPicker(): void { return this.composer.openContextPicker(); }
 
-  private async captureAttachedPage(page: AttachedPage): Promise<void> {
-    const capture = this.plugin.captureWebPage();
-    if (!capture) return;
-    page.pending = true;
-    delete page.error;
-    this.renderContextManager();
-    try {
-      const result = await capture(page.url);
-      if (!result) {
-        page.error = "No readable content on that page.";
-      } else {
-        page.markdown = result.markdown;
-        if (result.title) page.title = result.title;
-      }
-    } catch (e) {
-      page.error = e instanceof Error ? e.message : String(e);
-    } finally {
-      page.pending = false;
-      this.renderContextManager();
-      this.updateUsageBar();
-    }
-  }
-
-  /** Apply a chosen "@"/"#" source: toggle a context flag or attach a note/folder. */
-  private async onAtChoose(item: AtItem): Promise<void> {
-    // Strip the "@query"/"#query" token the user typed.
-    const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
-    const hit = this.activeMenuTrigger === "#" ? activeHashQuery(this.inputEl.value, cursor) : activeAtQuery(this.inputEl.value, cursor);
-    if (hit) {
-      const v = this.inputEl.value;
-      this.inputEl.value = v.slice(0, hit.start) + v.slice(cursor);
-      this.inputEl.setSelectionRange(hit.start, hit.start);
-    }
-    this.inputEl.focus();
-
-    if (item.kind === "note") this.plugin.settings.context.activeNote = true;
-    else if (item.kind === "selection") this.plugin.settings.context.selection = true;
-    else if (item.kind === "linked") this.plugin.settings.context.linkedNotes = true;
-    else if (item.kind === "vault") this.plugin.settings.context.searchVault = true;
-    // note-path/folder-path (explicit attach), recent (a recently opened note), base-path
-    // (.base file) and claim (a research claim's note) all resolve to the same attach:
-    // a note by path, deduped against anything already attached at that path.
-    else if (item.path && (item.kind === "note-path" || item.kind === "folder-path" || item.kind === "recent" || item.kind === "base-path" || item.kind === "claim")) {
-      const kind = item.kind === "folder-path" ? "folder" : "note";
-      if (!this.attachedPaths.some((a) => a.path === item.path && a.kind === kind)) {
-        this.attachedPaths.push({ path: item.path, kind });
-      }
-    } else if (item.path && item.kind === "media-path") {
-      const kind = mediaKind(item.path);
-      if (kind && !this.attachedMedia.some((m) => m.path === item.path)) {
-        this.attachedMedia.push({ label: item.label, kind, mime: mediaMime(item.path), path: item.path });
-      }
-    }
-    await this.plugin.saveSettings();
-    this.renderContextManager();
-    this.updateUsageBar();
-  }
-
-  private renderContextManager(): void {
-    if (!this.contextManager) return;
-    const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
-    const model = buildContextManagerModel({
-      toggles: this.plugin.settings.context,
-      activeNotePath: active?.path ?? null,
-      paths: this.attachedPaths,
-      media: this.attachedMedia,
-      pages: this.attachedPages,
-    });
-    if (model.signature === this.lastContextManagerSignature) return;
-    this.lastContextManagerSignature = model.signature;
-    this.contextManager.render(model);
-  }
-
-  private toggleAutomaticContext(key: AutomaticContextKey, enabled: boolean): void {
-    this.plugin.settings.context[key] = enabled;
-    void this.plugin.saveSettings();
-    this.renderContextManager();
-    this.updateUsageBar();
-  }
-
-  private removeContextSource(id: string): void {
-    const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
-    const model = buildContextManagerModel({
-      toggles: this.plugin.settings.context,
-      activeNotePath: active?.path ?? null,
-      paths: this.attachedPaths,
-      media: this.attachedMedia,
-      pages: this.attachedPages,
-    });
-    const index = model.sources.findIndex((source) => source.id === id);
-    if (index < 0) return;
-    if (index < this.attachedPaths.length) this.attachedPaths.splice(index, 1);
-    else if (index < this.attachedPaths.length + this.attachedMedia.length) this.attachedMedia.splice(index - this.attachedPaths.length, 1);
-    else this.attachedPages.splice(index - this.attachedPaths.length - this.attachedMedia.length, 1);
-    this.renderContextManager();
-    this.updateUsageBar();
-  }
-
-  private retryContextSource(id: string): void {
-    const page = this.attachedPages.find((candidate) => `page:${candidate.url}` === id);
-    if (page) void this.captureAttachedPage(page);
-  }
-
-  private openContextPicker(): void {
-    this.contextManager.close({ restoreFocus: false });
-    this.inputEl.focus();
-    const value = this.inputEl.value;
-    const needsSpace = value.length > 0 && !value.endsWith(" ");
-    this.inputEl.value = `${value}${needsSpace ? " " : ""}@`;
-    const end = this.inputEl.value.length;
-    this.inputEl.setSelectionRange(end, end);
-    this.inputEl.dispatchEvent(new Event("input"));
-  }
-
-  /**
-   * Render the per-message control row. The visible knobs adapt to the selected
-   * model's capabilities, so a control that the model would 400 on is hidden
-   * rather than shown-and-broken. Ollama (local) sessions show no Claude knobs.
-   */
-  private renderControls(): void {
-    this.controlsEl.empty();
-
-    // The model switcher is built ONCE here and never destroyed on knob changes,
-    // so picking a model doesn't flicker or drop focus. Only `knobsEl` rebuilds.
-    const modelWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-model" });
-    const select = modelWrap.createEl("select", { cls: "cc-ctl-select", attr: { "aria-label": "Model" } });
-    const claudeGroup = select.createEl("optgroup", { attr: { label: "Claude" } });
-    const ids = new Set(CLAUDE_MODELS.map((m) => m.id));
-    for (const m of CLAUDE_MODELS) claudeGroup.createEl("option", { value: m.id, text: m.label });
-    if (!ids.has(this.controls.model)) claudeGroup.createEl("option", { value: this.controls.model, text: this.controls.model });
-    select.value = this.controls.model;
-    select.addEventListener("change", () => void this.onModelSelect(select.value));
-    // Pull in detected Ollama models so a local model can be picked here without
-    // opening settings. Async — appended once the local server answers.
-    void this.appendLocalModelOptions(select);
-    void this.appendCustomModelOptions(select);
-
-    // Reasoning indicator: lit when the current backend thinks before
-    // answering (Claude thinking on, or a local model with thinking metadata).
-    const reasoning = this.controlsEl.createEl("button", {
-      cls: "cc-ctl cc-reasoning-indicator",
-      attr: { "aria-label": "Reasoning status", tabindex: "-1" },
-    });
-    setIcon(reasoning, "brain");
-    this.reasoningEl = reasoning;
-    this.refreshCapabilityIndicators();
-
-    // Ask / Plan / Act — one segmented control for whether Claude can create /
-    // edit notes in chat. Only meaningful for Claude (Ollama has no vault
-    // tools), so it hides itself on local sessions. Each write still asks for
-    // confirmation; Act just controls whether the tools are offered.
-    this.modeControl = new ModeControl(this.controlsEl, {
-      initial: this.currentMode(),
-      onChange: (m) => this.applyMode(m),
-    });
-    this.updateModeControl();
-
-    // Knobs (thinking / effort / temp / max) live in a popover behind a single
-    // "tune" button, so the footer stays clean and Send is never buried.
-    const tuneWrap = this.controlsEl.createDiv({ cls: "cc-tune" });
-    const tuneBtn = tuneWrap.createEl("button", {
-      cls: "cc-icon-btn clickable-icon cc-tune-btn",
-      attr: { "aria-label": "Model controls — thinking, temperature, max tokens", "aria-expanded": "false" },
-    });
-    setIcon(tuneBtn, "sliders-horizontal");
-    this.knobsEl = tuneWrap.createDiv({ cls: "cc-knobs cc-knobs-popover" });
-    this.renderKnobs();
-    tuneBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const open = !this.knobsEl.hasClass("is-open");
-      this.knobsEl.toggleClass("is-open", open);
-      tuneBtn.setAttr("aria-expanded", String(open));
-    });
-    // Close the popover on an outside click (auto-cleaned with the view).
-    this.registerDomEvent(activeDocument, "click", (e) => {
-      if (this.knobsEl?.hasClass("is-open") && !tuneWrap.contains(e.target as Node)) {
-        this.knobsEl.removeClass("is-open");
-        tuneBtn.setAttr("aria-expanded", "false");
-      }
-    });
-  }
-
-  /** Append a "Local (Ollama)" optgroup of detected models to the switcher. */
-  private async appendLocalModelOptions(select: HTMLSelectElement): Promise<void> {
-    let detected: string[];
-    try {
-      detected = await this.plugin.router().ollama.listModels();
-    } catch (e) {
-      console.debug("Claude Companion: Ollama model listing failed", e);
-      detected = [];
-    }
-    const configured = this.plugin.settings.ollamaModel;
-    const models = mergeDetectedModels(detected, configured);
-    if (!models.length || !select.isConnected) return;
-    const group = select.createEl("optgroup", { attr: { label: "Local (Ollama)" } });
-    for (const m of models) group.createEl("option", { value: `ollama:${m}`, text: `${m} · local` });
-    // Now that local options exist, reflect the active backend in the selection.
-    if (this.plugin.settings.chatBackend === "local" && configured) select.value = `ollama:${configured}`;
-  }
-
-  /**
-   * Append a "Local (endpoint)" optgroup for the OpenAI-compatible server —
-   * every model it reports, so one can be picked here without knowing its id.
-   */
-  private async appendCustomModelOptions(select: HTMLSelectElement): Promise<void> {
-    if (!this.plugin.settings.openaiCompatHost.trim()) return;
-    let detected: string[];
-    try {
-      detected = await this.plugin.router().openaiCompat.listModels();
-    } catch (e) {
-      console.debug("Claude Companion: custom endpoint model listing failed", e);
-      detected = [];
-    }
-    const configured = this.plugin.settings.openaiCompatModel;
-    const models = mergeDetectedModels(detected, configured);
-    if (!models.length || !select.isConnected) return;
-    const group = select.createEl("optgroup", { attr: { label: "Local (endpoint)" } });
-    for (const m of models) group.createEl("option", { value: `custom:${m}`, text: `${m} · endpoint` });
-    const active = configured.trim() || models[0];
-    if (this.plugin.settings.chatBackend === "custom" && active) select.value = `custom:${active}`;
-  }
+  private renderControls(): void { return this.composer.renderControls(); }
 
   /**
    * Apply a model-switcher choice. Picking a `ollama:<model>` entry routes the
@@ -928,113 +610,11 @@ export class ChatView extends ItemView {
       if (this.plugin.settings.chatBackend === "local" || this.plugin.settings.chatBackend === "custom") this.plugin.settings.chatBackend = "auto";
     }
     await this.plugin.saveSettings();
-    this.renderKnobs(); // capabilities/provider changed → rebuild dependent knobs
+    this.composer.renderKnobs(); // capabilities/provider changed → rebuild dependent knobs
     this.refreshModelLabel();
     this.refreshCapabilityIndicators(); // provider changed → gates + reasoning
     this.updateUsageBar();
     void this.refreshBackendPill();
-  }
-
-  /** Rebuild only the capability-dependent knobs (keeps the model select stable). */
-  /** Rebuild only the capability-dependent knobs into the given container. */
-  private renderKnobsInto(parent: HTMLElement): void {
-    parent.empty();
-
-    // Chat text size — provider-independent, so it sits above the model knobs
-    // (and stays available on local sessions). Drives --cc-chat-font live.
-    const fontWrap = parent.createDiv({ cls: "cc-ctl cc-ctl-font", attr: { "aria-label": "Chat text size" } });
-    fontWrap.createSpan({ cls: "cc-ctl-label", text: "text" });
-    const font = fontWrap.createEl("input", {
-      cls: "cc-ctl-range",
-      attr: { type: "range", min: "11", max: "20", step: "1", "aria-label": "Chat text size (px)" },
-    });
-    const fontOut = fontWrap.createSpan({ cls: "cc-ctl-val" });
-    font.value = String(this.plugin.settings.chatFontSize);
-    fontOut.setText(`${this.plugin.settings.chatFontSize}px`);
-    font.addEventListener("input", () => {
-      const px = parseInt(font.value, 10);
-      this.plugin.settings.chatFontSize = px;
-      fontOut.setText(`${px}px`);
-      this.applyChatFontSize(); // live
-    });
-    font.addEventListener("change", () => void this.plugin.saveSettings());
-
-    const controlCaps = this.plugin.router().chatCapabilities();
-    if (!controlCaps.claudeControls) {
-      parent.createSpan({ cls: "cc-ctl-note", text: controlCaps.cli ? "Claude Code owns thinking and effort for this backend" : "local model · Claude controls apply when routed to Claude" });
-      return;
-    }
-
-    const caps = capabilitiesFor(this.controls.model);
-    const knobs = knobVisibility(caps, this.controls);
-
-    if (knobs.think) {
-      const think = parent.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Think", attr: { "aria-label": "Extended thinking" } });
-      think.toggleClass("is-active", this.controls.thinking);
-      think.addEventListener("click", () => {
-        this.controls.thinking = !this.controls.thinking;
-        this.renderKnobsInto(parent);
-        this.updateUsageBar();
-        this.refreshCapabilityIndicators();
-      });
-
-      if (knobs.effort) {
-        const eff = parent.createEl("select", { cls: "cc-ctl cc-ctl-select", attr: { "aria-label": "Effort" } });
-        for (const level of effortLevels(caps)) eff.createEl("option", { value: level, text: `effort: ${level}` });
-        if (!effortLevels(caps).includes(this.controls.effort)) this.controls.effort = "high";
-        eff.value = this.controls.effort;
-        eff.addEventListener("change", () => {
-          this.controls.effort = eff.value;
-        });
-      }
-
-      if (knobs.showReasoning) {
-        const show = parent.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Show reasoning" });
-        show.toggleClass("is-active", this.controls.showThinking);
-        show.addEventListener("click", () => {
-          this.controls.showThinking = !this.controls.showThinking;
-          show.toggleClass("is-active", this.controls.showThinking);
-        });
-      }
-    }
-
-    if (caps.temperature && !this.controls.thinking) {
-      const tempWrap = parent.createDiv({ cls: "cc-ctl cc-ctl-temp", attr: { "aria-label": "Temperature (double-click to reset)" } });
-      tempWrap.createSpan({ cls: "cc-ctl-label", text: "temp" });
-      const temp = tempWrap.createEl("input", {
-        cls: "cc-ctl-range",
-        attr: { type: "range", min: "0", max: "1", step: "0.1", "aria-label": "Temperature" },
-      });
-      const out = tempWrap.createSpan({ cls: "cc-ctl-val" });
-      const sync = () => out.setText(this.controls.temperature === null ? "auto" : this.controls.temperature.toFixed(1));
-      temp.value = String(this.controls.temperature ?? 0.7);
-      sync();
-      temp.addEventListener("input", () => {
-        this.controls.temperature = parseFloat(temp.value);
-        sync();
-      });
-      tempWrap.addEventListener("dblclick", () => {
-        this.controls.temperature = null;
-        sync();
-      });
-    }
-
-    const maxWrap = parent.createDiv({ cls: "cc-ctl cc-ctl-max" });
-    maxWrap.createSpan({ cls: "cc-ctl-label", text: "max" });
-    const maxIn = maxWrap.createEl("input", {
-      cls: "cc-ctl-num",
-      attr: { type: "number", min: "1", placeholder: String(this.plugin.settings.maxTokens), "aria-label": "Max output tokens" },
-    });
-    if (this.controls.maxTokens) maxIn.value = String(this.controls.maxTokens);
-    maxIn.addEventListener("change", () => {
-      const n = parseInt(maxIn.value, 10);
-      this.controls.maxTokens = Number.isFinite(n) && n > 0 ? n : null;
-      this.updateUsageBar();
-    });
-  }
-
-  private renderKnobs(): void {
-    if (this.knobsEl) this.renderKnobsInto(this.knobsEl);
   }
 
   private renderEmptyState(): void {
@@ -1072,7 +652,7 @@ export class ChatView extends ItemView {
         }
         this.inputEl.value = ex.prompt;
         this.inputEl.focus();
-        this.autosizeInput();
+        this.composer.autosizeInput();
         this.updateUsageBar();
         // A trailing-space prompt (the vault-search one) waits for the user to type.
         if (!ex.prompt.endsWith(" ")) void this.onSend();
@@ -1240,7 +820,7 @@ export class ChatView extends ItemView {
       ? `Help me continue ${workspace.title.replace(/^Continue /, "")}. `
       : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `;
     this.renderContextManager();
-    this.autosizeInput();
+    this.composer.autosizeInput();
     this.updateUsageBar();
     this.inputEl.focus();
   }
@@ -1301,34 +881,18 @@ export class ChatView extends ItemView {
       this.lastUserText = prompt;
       this.lastDisplay = display;
       this.inputEl.value = "";
-      this.autosizeInput();
+      this.composer.autosizeInput();
       await this.run(prompt, display, undefined, { context: { searchVault: true } });
       return;
     }
     this.lastUserText = text;
     this.lastDisplay = undefined;
     this.inputEl.value = "";
-    this.autosizeInput();
+    this.composer.autosizeInput();
     await this.run(text);
   }
 
-  /** Grow the composer with its content (1→~8 rows), then stop and scroll. */
-  private autosizeInput(): void {
-    const el = this.inputEl;
-    if (!el) return;
-    el.setCssStyles({ height: "auto" });
-    // Phone: ~6 rows then internal scroll, so the composer never eats the
-    // reading surface; desktop gets ~8 rows.
-    const max = Platform.isMobile ? 132 : 200;
-    el.setCssStyles({ height: `${Math.min(el.scrollHeight, max)}px` });
-  }
-
-  /** Open/refresh/close the slash palette based on the current input. */
-  private syncSlashMenu(): void {
-    const q = parseSlashQuery(this.inputEl.value);
-    if (q === null) this.slashMenu.hide();
-    else this.slashMenu.show(q);
-  }
+  private syncSlashMenu(): void { return this.composer.syncSlashMenu(); }
 
   /** Re-read the templates folder and rebuild the slash catalog (templates last). */
   private async reloadTemplates(): Promise<void> {
@@ -1347,14 +911,14 @@ export class ChatView extends ItemView {
       backend: this.plugin.settings.chatBackend,
       clearComposer: () => {
         this.inputEl.value = "";
-        this.autosizeInput();
+        this.composer.autosizeInput();
       },
       activateResearchDesk: () => this.plugin.activateResearchDesk(),
       requestCompletion: (prompt, display) => this.submitPrompt(prompt, display),
     })) return;
 
     this.inputEl.value = "";
-    this.autosizeInput();
+    this.composer.autosizeInput();
 
     // User template: substitute placeholders against the live editor state,
     // then send with the note's optional model/context overrides for this turn.
@@ -1375,7 +939,7 @@ export class ChatView extends ItemView {
         // Insert the template and let the user finish typing (e.g. "/explain ").
         this.inputEl.value = cmd.prompt;
         this.inputEl.focus();
-        this.autosizeInput();
+        this.composer.autosizeInput();
         this.updateUsageBar();
         return;
       }
@@ -1388,7 +952,7 @@ export class ChatView extends ItemView {
     if (cmd.action?.startsWith(SKILL_ACTION_PREFIX)) {
       this.inputEl.value = `/${cmd.action.slice(SKILL_ACTION_PREFIX.length)} `;
       this.inputEl.focus();
-      this.autosizeInput();
+      this.composer.autosizeInput();
       this.updateUsageBar();
       return;
     }
@@ -1513,7 +1077,7 @@ export class ChatView extends ItemView {
       this.messages.pop();
       if (this.inputEl) {
         this.inputEl.value = userText;
-        this.autosizeInput();
+        this.composer.autosizeInput();
       }
       new Notice(`Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -1575,7 +1139,7 @@ export class ChatView extends ItemView {
     // per-turn: consumed by this send, pills cleared). Local backends can't
     // see them — textContent() drops non-text blocks on the Ollama path.
     if (this.attachedMedia.length > 0) {
-      const blocks = await this.mediaBlocks();
+      const blocks = await this.composer.mediaBlocks();
       if (controller.signal.aborted) return;
       const last = apiMessages[apiMessages.length - 1];
       if (blocks.length > 0 && last && typeof last.content === "string") {
@@ -2346,7 +1910,7 @@ export class ChatView extends ItemView {
     const modal = new Modal(this.app);
     modal.titleEl.setText("Model controls");
     modal.contentEl.addClass("cc-knobs", "cc-knobs-modal");
-    this.renderKnobsInto(modal.contentEl);
+    this.composer.renderKnobsInto(modal.contentEl);
     modal.open();
   }
 
