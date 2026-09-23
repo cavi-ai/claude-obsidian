@@ -92,11 +92,7 @@ export function linkMention(content: string, m: Mention): string {
   return content.slice(0, start) + link + content.slice(start + m.surface.length);
 }
 
-/**
- * Set `linktext` on every candidate: the path (sans .md) when 2+ candidates
- * share a basename (case-insensitive), else the basename — so `[[Project]]`
- * never resolves ambiguously when duplicate note names exist in the vault.
- */
+/** Link target per candidate: its path when the basename is shared (case-insensitive), else the basename. */
 export function withLinktext(candidates: LinkCandidate[]): LinkCandidate[] {
   const counts = new Map<string, number>();
   for (const c of candidates) {

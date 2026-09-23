@@ -84,9 +84,8 @@ export function relativeFolders(parentPaths: string[], base: string): string[] {
 /** Lowercase dash-separated folder path, at most 2 segments; garbage → misc. */
 export function sanitizeDomain(value: string): string {
   const segments = value
-    .toLowerCase()
     .split("/")
-    .map((s) => s.trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))
+    .map(sanitizeSegment)
     .filter(Boolean)
     .slice(0, 2);
   return segments.length > 0 ? segments.join("/") : FALLBACK_DOMAIN;
@@ -108,11 +107,7 @@ function sanitizeSegment(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/**
- * Map every prefix of every existing folder, keyed by its sanitized segment
- * path, to that prefix's own raw spelling — so a 2-segment proposed domain
- * can be canonicalized one segment at a time (see canonicalizeDomain).
- */
+/** Every prefix of every existing folder, keyed by its sanitized path, mapped to its own spelling. */
 function existingPrefixesBySanitizedPath(existingFolders: string[]): Map<string, string> {
   const out = new Map<string, string>();
   for (const folder of [...existingFolders].sort()) {
@@ -129,14 +124,7 @@ function existingPrefixesBySanitizedPath(existingFolders: string[]): Map<string,
   return out;
 }
 
-/**
- * Canonicalize a sanitized domain segment by segment: for each position,
- * reuse an existing folder's own spelling when its sanitized prefix matches
- * the proposed prefix up to that point; otherwise keep the proposed segment.
- * Prevents a 2-segment proposal like "ai/new-topic" from creating a
- * case-only sibling of an existing "AI" at the first segment while still
- * falling through to the proposed spelling for the unmatched second segment.
- */
+/** Reuse an existing folder's spelling per segment so "ai/x" never creates a case-only sibling of "AI". */
 function canonicalizeDomain(domain: string, existingPrefixes: Map<string, string>): string {
   const segments = domain.split("/").filter(Boolean);
   const out: string[] = [];
@@ -152,9 +140,6 @@ function canonicalizeDomain(domain: string, existingPrefixes: Map<string, string
  * Plan renames + moves: each clip lands at <base>/<domain>/<Title>.md with a
  * collision-safe name (suffix " 2", " 3", …). Clips whose basename already
  * matches the proposed title keep their name; only the folder changes.
- * `existingFolders` canonicalizes the proposed domain segment by segment
- * against existing folders' own casing/spelling (avoids a case-only sibling
- * directory, e.g. a proposed "ai/new-topic" next to an existing "AI").
  */
 export function planOrganizeMoves(
   proposals: OrganizeProposal[],

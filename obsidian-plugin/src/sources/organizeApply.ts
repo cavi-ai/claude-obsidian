@@ -1,5 +1,4 @@
-// Apply planned organize moves against the vault. Each move is independent —
-// one failed rename is recorded and the rest still run.
+// Applies organize moves independently: a failed rename is recorded and the rest still run.
 
 import { App, TFile } from "obsidian";
 import { ensureVaultFolder } from "../vault/vaultFiles";
