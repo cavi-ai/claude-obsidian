@@ -110,6 +110,23 @@ describe("recent/base/claim @-items", () => {
   });
 });
 
+describe("project @-items", () => {
+  const projects = [{ id: "Claude/Projects/Launch.md", name: "Launch" }];
+
+  it("badges a project item and places it right after the specials", () => {
+    const items = buildAtItems([], [], [], [], [], [], projects);
+    expect(items.slice(0, 5).map((i) => i.kind)).toEqual(["note", "selection", "linked", "vault", "project"]);
+    const project = items.find((i) => i.kind === "project");
+    expect(project).toMatchObject({ id: "project:Claude/Projects/Launch.md", label: "Launch", sublabel: "project", path: "Claude/Projects/Launch.md" });
+  });
+
+  it("filters project items like everything else", () => {
+    const items = buildAtItems([], [], [], [], [], [], projects);
+    expect(filterAtItems(items, "launch").some((i) => i.kind === "project")).toBe(true);
+    expect(filterAtItems(items, "nope").some((i) => i.kind === "project")).toBe(false);
+  });
+});
+
 describe("activeHashQuery", () => {
   it("detects # at start", () => {
     expect(activeHashQuery("#raf", 4)).toEqual({ query: "raf", start: 0 });
