@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **New chat tab.** Open several chat leaves side by side, each with its own
+  conversation.
 - **First-run setup wizard.** A single 3-step modal (Connect, Vault tools,
   Index) replaces the chat setup card plus three separate one-shot modals;
   the "Open setup wizard" command reopens it for whatever is still pending.

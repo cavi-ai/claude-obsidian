@@ -18,6 +18,7 @@ export interface CommandActions {
 
   openChat(): void;
   newChat(): void;
+  newChatTab(): void;
   generatePlanFromNote(): void;
   generateArtifactFromContext(): void;
   rewriteSelection(editor: Editor, view: MarkdownView): void;
@@ -82,6 +83,7 @@ export function companionCommands(actions: CommandActions): Command[] {
   const commands: Command[] = [
     { id: "open-chat", name: "Open chat panel", callback: () => actions.openChat() },
     { id: "new-chat", name: "New chat", callback: () => actions.newChat() },
+    { id: "new-chat-tab", name: "New chat tab", callback: () => actions.newChatTab() },
     onActiveFile("plan-from-note", "Generate implementation plan from current note", actions, () => actions.generatePlanFromNote()),
     { id: "artifact-from-selection", name: "Turn selection / note into a beautiful artifact", callback: () => actions.generateArtifactFromContext() },
     {
