@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ContextToggles } from "../types";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
@@ -169,6 +169,8 @@ export class ChatView extends ItemView {
   private cliSetupProbeInFlight = new Set<string>();
 
   private renderVersions = new WeakMap<HTMLElement, number>();
+  /** The conversation this leaf shows; null for an unstarted "New chat tab". Persisted via getState/setState. */
+  private conversationId: string | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -247,10 +249,33 @@ export class ChatView extends ItemView {
     return CHAT_VIEW_TYPE;
   }
   override getDisplayText(): string {
-    return "Companion for Claude";
+    const conversation = this.conversationId ? this.plugin.listConversations().find((c) => c.id === this.conversationId) : undefined;
+    return conversation?.title ?? "Companion for Claude";
   }
   override getIcon(): string {
     return "sparkles";
+  }
+
+  override getState(): Record<string, unknown> {
+    return { conversationId: this.conversationId };
+  }
+
+  override async setState(state: unknown, result: ViewStateResult): Promise<void> {
+    const raw = (state as { conversationId?: unknown } | null)?.conversationId;
+    if (raw === null) {
+      // Explicit "start empty" signal (the New chat tab command) — overrides
+      // whatever onOpen loaded by default for a freshly created leaf.
+      this.conversationId = null;
+      this.resetToEmpty();
+    } else if (typeof raw === "string") {
+      const conversation = this.plugin.listConversations().find((c) => c.id === raw);
+      if (conversation) {
+        this.conversationId = raw;
+        this.loadConversation(conversation);
+      }
+      // An unknown id (e.g. a deleted conversation) keeps the current state.
+    }
+    await super.setState(state, result);
   }
 
   override async onOpen(): Promise<void> {
@@ -340,6 +365,7 @@ export class ChatView extends ItemView {
   /** Replace the panel contents with a stored conversation and render it. */
   loadConversation(conversation: Conversation): void {
     this.detachTurnRendering();
+    this.conversationId = conversation.id;
     this.session = { ...EMPTY_SESSION };
     this.messages = compactMessages(conversation.messages);
     this.messagesEl.empty();
@@ -381,6 +407,7 @@ export class ChatView extends ItemView {
   /** Clear the panel to its empty state without altering stored history. */
   resetToEmpty(): void {
     this.detachTurnRendering();
+    this.conversationId = null;
     this.messages = [];
     this.session = { ...EMPTY_SESSION };
     this.messagesEl.empty();
@@ -610,8 +637,8 @@ export class ChatView extends ItemView {
     this.planMode = false;
     this.updateModeControl();
     // The previous conversation is already auto-saved; detach so the next turn
-    // begins a fresh session.
-    void this.plugin.startNewConversation();
+    // begins a fresh one instead of continuing it.
+    this.conversationId = null;
     this.attachedPaths = [];
     this.attachedPages = [];
     this.composer.dismissedPageUrl = null;
@@ -845,7 +872,7 @@ export class ChatView extends ItemView {
     const turnMessages = [...this.messages];
     let turn: { conversationId: string; turnId: string };
     try {
-      turn = await this.plugin.beginActiveConversationTurn(this.messages, {
+      turn = await this.plugin.beginActiveConversationTurn(this.conversationId, this.messages, {
         backend,
         model: this.turnModelOverride ?? model,
         mode: this.currentMode(),
@@ -859,6 +886,7 @@ export class ChatView extends ItemView {
       new Notice(`Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
+    this.conversationId = turn.conversationId;
     this.currentTurn = turn;
     this.abort = new AbortController();
     const controller = this.abort;

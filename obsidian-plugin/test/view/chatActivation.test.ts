@@ -72,4 +72,46 @@ describe("Chat view activation", () => {
     expect(workspace.getLeaf).not.toHaveBeenCalled();
     expect(sidebarChat.setViewState).toHaveBeenCalledWith({ type: CHAT_VIEW_TYPE, active: true });
   });
+
+  it("desktop prefers the most recently focused chat leaf over the first one open", async () => {
+    const firstTab = chatLeaf({});
+    const secondTab = chatLeaf({});
+    const workspace = {
+      rightSplit: {},
+      getLeavesOfType: vi.fn(() => [firstTab, secondTab]),
+      getRightLeaf: vi.fn(),
+      getLeaf: vi.fn(),
+      revealLeaf: vi.fn(async () => undefined),
+      on: vi.fn(() => ({})),
+    };
+    const plugin = pluginForWorkspace(workspace);
+
+    // Simulate the user having focused the second tab last.
+    (plugin as unknown as { lastFocusedChatLeaf: unknown }).lastFocusedChatLeaf = secondTab;
+
+    const view = await plugin.activateView();
+
+    expect(view).toBe(secondTab.view);
+    expect(workspace.revealLeaf).toHaveBeenCalledWith(secondTab);
+    expect(workspace.getRightLeaf).not.toHaveBeenCalled();
+  });
+
+  it("new-chat-tab opens a second leaf with no conversation loaded", async () => {
+    const secondTab = chatLeaf({});
+    const workspace = {
+      rightSplit: {},
+      getLeavesOfType: vi.fn(() => []),
+      getRightLeaf: vi.fn(),
+      getLeaf: vi.fn(() => secondTab),
+      revealLeaf: vi.fn(async () => undefined),
+    };
+    const plugin = pluginForWorkspace(workspace);
+
+    const view = await plugin.openNewChatTab();
+
+    expect(view).toBe(secondTab.view);
+    expect(workspace.getLeaf).toHaveBeenCalledWith("tab");
+    expect(secondTab.setViewState).toHaveBeenCalledWith({ type: CHAT_VIEW_TYPE, active: true, state: { conversationId: null } });
+    expect(workspace.revealLeaf).toHaveBeenCalledWith(secondTab);
+  });
 });

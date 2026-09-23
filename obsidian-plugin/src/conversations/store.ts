@@ -146,6 +146,21 @@ export function saveConversation(state: ConversationState, convo: Conversation, 
   return { conversations: kept, activeId };
 }
 
+/**
+ * Insert or replace `convo`, keep the list ordered by recency, and prune to
+ * `maxKeep` like `saveConversation`, but leave `state.activeId` untouched
+ * unless it was pruned out (then fall back to the first kept). Used by the
+ * controller's id-taking paths so a background tab's turn doesn't steal the
+ * active slot from the focused leaf.
+ */
+export function upsertConversation(state: ConversationState, convo: Conversation, maxKeep: number): ConversationState {
+  const others = state.conversations.filter((c) => c.id !== convo.id);
+  const merged = [convo, ...others].sort((a, b) => b.updatedAt - a.updatedAt);
+  const kept = maxKeep > 0 ? merged.slice(0, maxKeep) : merged;
+  const activeId = state.activeId !== null && kept.some((c) => c.id === state.activeId) ? state.activeId : kept[0]?.id ?? null;
+  return { conversations: kept, activeId };
+}
+
 /** Store the submitted messages and running receipt before execution starts. */
 export function startConversationTurn(
   state: ConversationState,

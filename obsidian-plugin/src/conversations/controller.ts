@@ -9,10 +9,10 @@ import {
   newConversation,
   withCliSession,
   saveConversation,
+  upsertConversation,
   deleteConversation as removeConversation,
   setActive,
   touch,
-  startConversationTurn,
   settleConversationTurn,
   clearConversationTurn,
   type ChatTurnMode,
@@ -79,33 +79,52 @@ export class ConversationsController {
     return updated.id;
   }
 
+  /** Persist `messages` into `conversationId` (or a fresh one when null) without stealing the active slot. */
+  async save(conversationId: string | null, messages: ChatMessage[]): Promise<string | null> {
+    const { state, persist } = this.deps;
+    if (messages.length === 0) return conversationId;
+    const id = conversationId ?? this.nextId();
+    const base = state.get().conversations.find((c) => c.id === id) ?? newConversation(id, Date.now());
+    const updated = touch(base, messages, Date.now());
+    state.set(upsertConversation(state.get(), updated, this.maxConversations()));
+    try {
+      await persist();
+    } catch (e) {
+      console.error("[Claude Companion] failed to save conversation", e);
+    }
+    return updated.id;
+  }
+
   async beginTurn(
+    conversationId: string | null,
     messages: ChatMessage[],
     input: { backend: string; model: string; mode: ChatTurnMode },
   ): Promise<{ conversationId: string; turnId: string }> {
     const { state, persist } = this.deps;
     const previousState = state.get();
-    const conversationId = this.activeId();
+    const id = conversationId ?? this.nextId();
     const turnId = crypto.randomUUID();
     const now = Date.now();
-    state.set(startConversationTurn(state.get(), conversationId, messages, {
+    const base = state.get().conversations.find((c) => c.id === id) ?? newConversation(id, now);
+    const receipt = {
       id: turnId,
-      state: "running",
+      state: "running" as const,
       backend: input.backend,
       model: input.model,
       mode: input.mode,
       userMessageIndex: messages.length - 1,
       createdAt: now,
       updatedAt: now,
-    }, this.maxConversations()));
+    };
+    state.set(upsertConversation(state.get(), { ...touch(base, messages, now), activeTurn: receipt }, this.maxConversations()));
     try {
       await persist();
     } catch (error) {
       state.set(previousState);
       throw error;
     }
-    const title = this.getActive()?.title ?? "Chat request";
-    const activityId = this.activityId(conversationId);
+    const title = state.get().conversations.find((c) => c.id === id)?.title ?? "Chat request";
+    const activityId = this.activityId(id);
     const activity = this.deps.activity();
     activity.start({ id: activityId, kind: "chat-turn", title });
     activity.update(activityId, {
@@ -115,7 +134,7 @@ export class ConversationsController {
         { id: "stop-chat-turn", label: "Stop", kind: "stop" },
       ],
     });
-    return { conversationId, turnId };
+    return { conversationId: id, turnId };
   }
 
   registerTurn(conversationId: string, turnId: string, stop: () => void): () => void {

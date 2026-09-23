@@ -24,7 +24,7 @@ describe("plugin durable Chat turn lifecycle", () => {
   it("persists the submitted message before returning a running turn", async () => {
     const { plugin, saves } = harness();
 
-    const active = await plugin.beginActiveConversationTurn([user("Research this")], {
+    const active = await plugin.beginActiveConversationTurn(null, [user("Research this")], {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
     });
 
@@ -44,9 +44,41 @@ describe("plugin durable Chat turn lifecycle", () => {
     });
   });
 
+  it("beginTurn(null, …) creates a conversation without disturbing an unrelated active one", async () => {
+    const { plugin } = harness();
+    const first = await plugin.beginActiveConversationTurn(null, [user("First tab")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    expect(plugin.getActiveConversation()?.id).toBe(first.conversationId);
+
+    const second = await plugin.beginActiveConversationTurn(null, [user("Second tab")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+
+    expect(second.conversationId).not.toBe(first.conversationId);
+    // A background tab's fresh conversation must not steal the active slot.
+    expect(plugin.getActiveConversation()?.id).toBe(first.conversationId);
+  });
+
+  it("beginTurn(id, …) on an existing id keeps that id and appends to it", async () => {
+    const { plugin } = harness();
+    const first = await plugin.beginActiveConversationTurn(null, [user("Hello")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    await plugin.completeActiveConversationTurn(first.conversationId, first.turnId, [user("Hello"), { role: "assistant", content: "Hi" }]);
+
+    const second = await plugin.beginActiveConversationTurn(first.conversationId, [user("Hello"), { role: "assistant", content: "Hi" }, user("Again")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+
+    expect(second.conversationId).toBe(first.conversationId);
+    expect(plugin.listConversations()).toHaveLength(1);
+    expect(plugin.listConversations()[0]?.messages).toHaveLength(3);
+  });
+
   it("stops the exact runtime once and durably marks it interrupted", async () => {
     const { plugin } = harness();
-    const active = await plugin.beginActiveConversationTurn([user("Research this")], {
+    const active = await plugin.beginActiveConversationTurn(null, [user("Research this")], {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
     });
     const stop = vi.fn();
@@ -66,7 +98,7 @@ describe("plugin durable Chat turn lifecycle", () => {
   it("persists assistant output before clearing the matching receipt", async () => {
     const { plugin, saves } = harness();
     const messages = [user("Research this")];
-    const active = await plugin.beginActiveConversationTurn(messages, {
+    const active = await plugin.beginActiveConversationTurn(null, messages, {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
     });
 
@@ -80,7 +112,7 @@ describe("plugin durable Chat turn lifecycle", () => {
 
   it("routes global Activity stop and resume actions to the exact conversation", async () => {
     const { plugin } = harness();
-    const active = await plugin.beginActiveConversationTurn([user("Research this")], {
+    const active = await plugin.beginActiveConversationTurn(null, [user("Research this")], {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
     });
     const stop = vi.fn();
@@ -104,7 +136,7 @@ describe("plugin durable Chat turn lifecycle", () => {
     const { plugin } = harness();
     vi.spyOn(plugin, "saveData").mockRejectedValueOnce(new Error("disk full"));
 
-    await expect(plugin.beginActiveConversationTurn([user("Do not lose this")], {
+    await expect(plugin.beginActiveConversationTurn(null, [user("Do not lose this")], {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
     })).rejects.toThrow("disk full");
 
@@ -114,7 +146,7 @@ describe("plugin durable Chat turn lifecycle", () => {
 
   it("still terminates the live process when persisting Stop fails", async () => {
     const { plugin } = harness();
-    const active = await plugin.beginActiveConversationTurn([user("Research this")], {
+    const active = await plugin.beginActiveConversationTurn(null, [user("Research this")], {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
     });
     const stop = vi.fn();

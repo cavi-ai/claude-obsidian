@@ -5,6 +5,7 @@ import {
   newConversation,
   touch,
   saveConversation,
+  upsertConversation,
   deleteConversation,
   renameConversation,
   getActive,
@@ -129,6 +130,27 @@ describe("saveConversation", () => {
     let s = emptyState();
     for (let i = 1; i <= 5; i++) s = saveConversation(s, { ...newConversation(`c${i}`, i), updatedAt: i }, 3);
     expect(s.conversations.map((c) => c.id)).toEqual(["c5", "c4", "c3"]);
+  });
+});
+
+describe("upsertConversation", () => {
+  it("inserts and orders by recency without stealing the active slot", () => {
+    let s = saveConversation(emptyState(), { ...newConversation("a", 100), updatedAt: 100 }, 0);
+    expect(s.activeId).toBe("a");
+    s = upsertConversation(s, { ...newConversation("b", 200), updatedAt: 200 }, 0);
+    expect(s.conversations.map((c) => c.id)).toEqual(["b", "a"]);
+    expect(s.activeId).toBe("a");
+  });
+  it("activates the first-ever conversation, same as saveConversation", () => {
+    const s = upsertConversation(emptyState(), { ...newConversation("a", 100), updatedAt: 100 }, 0);
+    expect(s.activeId).toBe("a");
+  });
+  it("prunes like saveConversation, falling back to the first kept when the active one is pruned", () => {
+    let s = saveConversation(emptyState(), { ...newConversation("old", 1), updatedAt: 1 }, 0);
+    expect(s.activeId).toBe("old");
+    s = upsertConversation(s, { ...newConversation("new", 2), updatedAt: 2 }, 1);
+    expect(s.conversations.map((c) => c.id)).toEqual(["new"]);
+    expect(s.activeId).toBe("new");
   });
 });
 
