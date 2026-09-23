@@ -59,6 +59,7 @@ import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
 import { buildOrganizePrompt, buildFolderOrganizePrompt, parseOrganizeResponse, planOrganizeMoves, relativeFolders, type OrganizeCandidate } from "./sources/organize";
+import { applyOrganizeMoves } from "./sources/organizeApply";
 import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./enrich/noteEnrich";
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "./view/EnrichModal";
 import { sanitizeFileName } from "./artifacts/parse";
@@ -1182,16 +1183,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new OrganizeReviewModal(this.app, moves, (accepted) => {
         if (!accepted || accepted.length === 0) return;
         void (async () => {
-          let moved = 0;
-          for (const move of accepted) {
-            const file = this.app.vault.getAbstractFileByPath(move.from);
-            if (!(file instanceof TFile)) continue;
-            const dir = move.to.slice(0, move.to.lastIndexOf("/"));
-            await ensureVaultFolder(this.app, dir);
-            await this.app.fileManager.renameFile(file, move.to);
-            moved++;
-          }
-          new Notice(`Organized ${moved} clipping${moved === 1 ? "" : "s"} into ${base}/.`);
+          const { moved, failed } = await applyOrganizeMoves(this.app, accepted);
+          const failedNote = failed.length > 0 ? ` ${failed.length} failed — ${failed[0]!.error}` : "";
+          new Notice(`Organized ${moved} clipping${moved === 1 ? "" : "s"} into ${base}/.${failedNote}`);
         })();
       }).open();
     } finally {
@@ -2499,16 +2493,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new OrganizeReviewModal(this.app, moves, (accepted) => {
         if (!accepted || accepted.length === 0) return;
         void (async () => {
-          let moved = 0;
-          for (const move of accepted) {
-            const file = this.app.vault.getAbstractFileByPath(move.from);
-            if (!(file instanceof TFile)) continue;
-            const dir = move.to.slice(0, move.to.lastIndexOf("/"));
-            await ensureVaultFolder(this.app, dir);
-            await this.app.fileManager.renameFile(file, move.to);
-            moved++;
-          }
-          new Notice(`Organized ${moved} note${moved === 1 ? "" : "s"} into ${folder.path}/ subfolders.`);
+          const { moved, failed } = await applyOrganizeMoves(this.app, accepted);
+          const failedNote = failed.length > 0 ? ` ${failed.length} failed — ${failed[0]!.error}` : "";
+          new Notice(`Organized ${moved} note${moved === 1 ? "" : "s"} into ${folder.path}/ subfolders.${failedNote}`);
         })();
       }).open();
     } catch (e) {
