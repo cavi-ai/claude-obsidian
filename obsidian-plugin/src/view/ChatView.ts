@@ -441,6 +441,7 @@ export class ChatView extends ItemView {
     }
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
     bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
+    if (m.role === "assistant") this.addSparkMark(bubble);
     const body = bubble.createDiv({ cls: "cc-body" });
     if (m.role === "assistant" && m.toolTrace && m.toolTrace.length > 0) this.renderTraceChips(bubble, body, m.toolTrace);
     const rendered = m.display ?? m.content;
@@ -2055,9 +2056,15 @@ export class ChatView extends ItemView {
 
   // ---------- rendering ----------
 
+  /** The round spark mark before an assistant bubble's content (screen-reader label "Claude" is carried by .cc-role, not this icon). */
+  private addSparkMark(bubble: HTMLElement): void {
+    setIcon(bubble.createSpan({ cls: "cc-spark" }), "sparkles");
+  }
+
   private createAssistantBubble(): { bubble: HTMLElement; body: HTMLElement } {
     const bubble = this.messagesEl.createDiv({ cls: "cc-msg cc-assistant" });
     bubble.createDiv({ cls: "cc-role", text: "Claude" });
+    this.addSparkMark(bubble);
     const body = bubble.createDiv({ cls: "cc-body" });
     // One indicator only: the breathing smiley in the thinking status. (The old
     // "▍" cursor was a second clay marker fighting it.)
@@ -2124,6 +2131,7 @@ export class ChatView extends ItemView {
       return;
     }
     bubble.createDiv({ cls: "cc-role", text: role === "user" ? "You" : "Claude" });
+    if (role === "assistant") this.addSparkMark(bubble);
     const body = bubble.createDiv({ cls: "cc-body" });
     void this.renderMarkdownInto(body, text);
     this.scrollToBottom();
