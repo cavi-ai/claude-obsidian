@@ -4,6 +4,7 @@ import ClaudeCompanionPlugin from "../src/main";
 import { McpHttpServer } from "../src/mcp/server";
 import { ClaudeCliSession } from "../src/cli/session";
 import { DEFAULT_SETTINGS } from "../src/types";
+import { SetupWizardModal } from "../src/view/SetupWizardModal";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -142,5 +143,40 @@ describe("plugin Claude CLI lifecycle", () => {
     const after = p.router().claudeCli;
     expect(after).toBe(before);
     expect(after.hasCredentials()).toBe(true);
+  });
+
+  // Only the "connect" step is left in play: index/vault-tools are pre-satisfied
+  // so a wizard opening can only be explained by the credential race.
+  function forWizardRace(p: ClaudeCompanionPlugin): void {
+    p.settings = { ...p.settings, ontologyEnabled: false, semanticEnabled: false, desktopIntegrationsOffered: true, setupWizardDone: false };
+  }
+  type RunFirstRun = { runFirstRun(cliProbe?: Promise<unknown>): Promise<void> };
+
+  it("awaits the in-flight Claude Code probe before planning the wizard: signed-in resolves to no wizard", async () => {
+    const rt = runtime();
+    rt.authStatus = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return { loggedIn: true, method: "claude.ai" };
+    };
+    const p = plugin(rt);
+    forWizardRace(p);
+    const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
+    const cliProbe = p.router().claudeCli.refresh();
+    await (p as unknown as RunFirstRun).runFirstRun(cliProbe);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(p.router().claudeCli.hasCredentials()).toBe(true);
+  });
+
+  it("opens the wizard on the connect step when the probe settles not signed in and no API key is set", async () => {
+    const rt = runtime();
+    rt.authStatus = async () => ({ loggedIn: false, method: "" });
+    const p = plugin(rt);
+    forWizardRace(p);
+    const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
+    const cliProbe = p.router().claudeCli.refresh();
+    await (p as unknown as RunFirstRun).runFirstRun(cliProbe);
+    expect(openSpy).toHaveBeenCalledOnce();
+    const modal = openSpy.mock.instances[0] as unknown as { deps: { steps: string[] } };
+    expect(modal.deps.steps).toEqual(["connect"]);
   });
 });
