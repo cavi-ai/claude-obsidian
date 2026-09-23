@@ -1248,6 +1248,14 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   color: var(--cc-clay);
 }
 .cc-at-item .cc-slash-name { color: var(--text-normal); }
+.cc-at-badge, .cc-at-badge-recent, .cc-at-badge-base-path, .cc-at-badge-claim {
+  flex: 0 0 auto;
+  font-size: var(--cc-text-xs);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
 
 /* Composer context manager: one quiet trigger, expandable detail on demand. */
 .cc-context-manager { position: relative; min-width: 0; margin-bottom: 6px; }

@@ -3297,7 +3297,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }, 250);
   }
 
-  private researchRepository(): ResearchRepository {
+  researchRepository(): ResearchRepository {
     return createResearchRepository(this.app, {
       ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
       includeBinary: true,
