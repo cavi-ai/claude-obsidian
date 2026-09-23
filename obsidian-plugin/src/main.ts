@@ -96,6 +96,8 @@ import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type Sec
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
 import { needsCredentialSetup } from "./providers/setupState";
 import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
+import { wizardPlan, WIZARD_DISMISSED_SETTINGS, type WizardState, type WizardStep } from "./onboarding/wizard";
+import { SetupWizardModal, type SetupWizardDependencies } from "./view/SetupWizardModal";
 import type { TransformersEmbedder } from "./semantic/transformers/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
 import {
@@ -747,6 +749,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       openSourceInbox: () => void this.activateInboxView(),
       exportClipperTemplates: () => void this.exportClipperTemplates(),
       seedOntology: () => void this.seedOntology(),
+      openSetupWizard: () => this.openSetupWizard(),
     };
   }
 
@@ -2181,10 +2184,126 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
-  /** Layout-ready first run: load the ontology, then the ordered consent prompts. */
+  /** Layout-ready first run: load the ontology, then the wizard (or the legacy one-shot prompts). */
   private async runFirstRun(): Promise<void> {
     if (this.settings.ontologyEnabled) await this.loadOntologyOnStart();
+    if (!this.settings.setupWizardDone) {
+      const steps = wizardPlan(this.wizardState());
+      if (steps.length > 0) {
+        this.openSetupWizardWithSteps(steps);
+        return;
+      }
+    }
     await this.runFirstRunPrompts();
+  }
+
+  /** Settings-level view of what the setup wizard still has to offer. */
+  private wizardState(): WizardState {
+    const router = this.router();
+    return {
+      needsCredential: needsCredentialSetup({
+        backend: router.chatBackend,
+        hasAnthropicCredential: router.anthropic.hasCredentials(),
+        hasClaudeCli: router.claudeCli.hasCredentials(),
+      }),
+      isDesktop: !Platform.isMobile,
+      desktopIntegrationsOffered: this.settings.desktopIntegrationsOffered,
+      // A disabled feature has nothing left to decide, same as an already-prompted one.
+      semanticModelPrompted: !this.settings.semanticEnabled || this.settings.semanticModelPrompted,
+      ontologySeedPrompted: !this.settings.ontologyEnabled || this.settings.ontologySeedPrompted,
+    };
+  }
+
+  /** Command entry point: reopens the wizard for whatever is still pending. */
+  openSetupWizard(): void {
+    const steps = wizardPlan(this.wizardState());
+    if (steps.length === 0) {
+      new Notice("Nothing left to set up.");
+      return;
+    }
+    this.openSetupWizardWithSteps(steps);
+  }
+
+  private openSetupWizardWithSteps(steps: WizardStep[]): void {
+    new SetupWizardModal(this.app, this.buildWizardDependencies(steps)).open();
+  }
+
+  private buildWizardDependencies(steps: WizardStep[]): SetupWizardDependencies {
+    const router = this.router();
+    return {
+      steps,
+      storageBlurb: this.secrets().available()
+        ? "Stored in your device's secret storage, not in this vault."
+        : "Stored locally in this vault's plugin data.",
+      cliAvailable: router.claudeCli.available(),
+      cliSignedIn: router.claudeCli.hasCredentials(),
+      hasCredential: () => !needsCredentialSetup({
+        backend: this.router().chatBackend,
+        hasAnthropicCredential: this.router().anthropic.hasCredentials(),
+        hasClaudeCli: this.router().claudeCli.hasCredentials(),
+      }),
+      useClaudeCli: () => this.wizardUseClaudeCli(),
+      saveApiKey: (key) => this.wizardSaveApiKey(key),
+      ollamaHostDefault: DEFAULT_SETTINGS.ollamaHost,
+      useLocal: (host) => this.wizardUseLocal(host),
+      connectVaultTools: () => this.wizardConnectVaultTools(),
+      agentAllowWrites: this.settings.agentAllowWrites,
+      setAgentAllowWrites: (v) => this.wizardSetAgentWrites(v),
+      semanticPending: this.settings.semanticEnabled && !this.settings.semanticModelPrompted,
+      ontologyPending: this.settings.ontologyEnabled && !this.settings.ontologySeedPrompted,
+      downloadEmbeddings: () => this.wizardDownloadEmbeddings(),
+      seedOntology: () => this.wizardSeedOntology(),
+      finish: () => this.wizardFinish(),
+    };
+  }
+
+  private async wizardUseClaudeCli(): Promise<void> {
+    this.settings.chatBackend = "claude-cli";
+    await this.saveSettings();
+  }
+
+  private async wizardSaveApiKey(key: string): Promise<{ ok: boolean; detail?: string }> {
+    this.settings.authMode = "apiKey";
+    this.settings.apiKey = key;
+    await this.saveSettings();
+    const result = await this.router().anthropic.test();
+    return result.ok ? { ok: true } : { ok: false, detail: result.detail };
+  }
+
+  private async wizardUseLocal(host: string): Promise<void> {
+    this.settings.chatBackend = "local";
+    this.settings.ollamaHost = host;
+    await this.saveSettings();
+  }
+
+  /** Marks the offer spent, then reuses the real desktop-integrations flow. */
+  private wizardConnectVaultTools(): void {
+    this.settings.desktopIntegrationsOffered = true;
+    void this.saveSettings();
+    this.openDesktopIntegrations();
+  }
+
+  private async wizardSetAgentWrites(value: boolean): Promise<void> {
+    this.settings.agentAllowWrites = value;
+    await this.saveSettings();
+  }
+
+  private async wizardDownloadEmbeddings(): Promise<void> {
+    this.settings.semanticModelPrompted = true;
+    await this.saveSettings();
+    await this.semantic().downloadBuiltinModelAndIndex();
+  }
+
+  private async wizardSeedOntology(): Promise<void> {
+    this.settings.ontologySeedPrompted = true;
+    await this.saveSettings();
+    await this.seedOntology();
+  }
+
+  /** Both Finish and Skip/close call this — a dismissal doesn't reopen the wizard on its own. */
+  private async wizardFinish(): Promise<void> {
+    Object.assign(this.settings, WIZARD_DISMISSED_SETTINGS);
+    await this.saveSettings();
   }
 
   /**

@@ -47,6 +47,7 @@ export interface CommandActions {
   openSourceInbox(): void;
   exportClipperTemplates(): void;
   seedOntology(): void;
+  openSetupWizard(): void;
 }
 
 /** A command that only applies to the note in front of the user. */
@@ -144,6 +145,7 @@ export function companionCommands(actions: CommandActions): Command[] {
     { id: "open-source-inbox", name: "Open source inbox (clip triage)", callback: () => actions.openSourceInbox() },
     whenEnabled("export-clipper-templates", "Export Web Clipper templates (typed clipping)", () => actions.sourceCaptureEnabled(), () => actions.exportClipperTemplates()),
     whenEnabled("seed-ontology", "Seed ontology (default type schemas)", () => actions.ontologyEnabled(), () => actions.seedOntology()),
+    { id: "open-setup-wizard", name: "Open setup wizard", callback: () => actions.openSetupWizard() },
   );
 
   return commands;
