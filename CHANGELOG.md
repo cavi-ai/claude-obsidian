@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   items by default.
 
 ### Changed
+- **"@" picker adds bases, research claims, and recent notes.** The chat
+  composer's "@" menu now also offers `.base` files, a recently opened note
+  (max 5), and your active research projects' claims; a new "#" trigger lists
+  claims only.
 - **Chunked folder inference.** Organize batches candidates (16 per call) so a
   large inbox no longer overruns the reply token budget in one shot; the
   review modal groups proposed moves under a heading per destination folder.

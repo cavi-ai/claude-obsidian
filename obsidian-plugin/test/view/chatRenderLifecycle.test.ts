@@ -106,7 +106,7 @@ describe("Chat render lifecycle", () => {
     expect(stream).toHaveBeenCalledOnce();
   });
 
-  it("keeps a turn running (and persisting) after the view closes, and replays it once on reopen (P5)", async () => {
+  it("keeps a turn running (and persisting) after the view closes, and replays it once on reopen", async () => {
     let streamStarted!: () => void;
     const started = new Promise<void>((resolve) => { streamStarted = resolve; });
     let releaseRest!: (text: string) => void;

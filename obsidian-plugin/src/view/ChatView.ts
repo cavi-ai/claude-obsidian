@@ -31,7 +31,7 @@ import { TurnRenderer, type TurnRendererHost } from "./turnRenderer";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime, type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
-import { type AtItem, buildAtItems, activeAtQuery } from "../context/atMention";
+import { type AtItem, type ClaimAtSource, buildAtItems, buildClaimItems, activeAtQuery, activeHashQuery } from "../context/atMention";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
 import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
@@ -142,6 +142,12 @@ export class ChatView extends ItemView {
   /** User-defined prompt templates (notes in the templates folder). */
   private templateCommands: SlashCommand[] = [];
   private templateReloadGeneration = 0;
+  /** Research claims offered by the "@"/"#" pickers, refreshed when a research note changes. */
+  private cachedClaims: ClaimAtSource[] = [];
+  private claimReloadGeneration = 0;
+  private claimReloadTimer: number | null = null;
+  /** Which trigger ("@" or "#") the open at-menu is currently showing matches for. */
+  private activeMenuTrigger: "@" | "#" = "@";
   /** Per-turn overrides from a prompt template; reset at the start of each run. */
   private turnModelOverride: string | null = null;
   private turnContextOverride: Partial<ContextToggles> | null = null;
@@ -302,7 +308,7 @@ export class ChatView extends ItemView {
     // Slash is the single command surface: the built-in commands plus every vault
     // workflow (the browsable picker stays reachable via /workflows).
     this.slashMenu = new SlashMenu(composer, [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS)], (cmd) => void this.runSlashCommand(cmd));
-    this.atMenu = new AtMenu(composer, () => this.atItems(), (item) => void this.onAtChoose(item));
+    this.atMenu = new AtMenu(composer, () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()), (item) => void this.onAtChoose(item));
 
     // User templates: load now, refresh when a note in the folder changes.
     void this.reloadTemplates();
@@ -317,6 +323,14 @@ export class ChatView extends ItemView {
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       if (templateTouched(file) || templateTouched({ path: oldPath })) void this.reloadTemplates();
     }));
+
+    // Research claims for the "@"/"#" pickers: load now, refresh on the same
+    // signal the research views use to know a research note changed.
+    void this.reloadClaims();
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleReloadClaims()));
+    this.registerEvent(this.app.vault.on("create", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); }));
+    this.registerEvent(this.app.vault.on("delete", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => { if (file.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleReloadClaims(); }));
 
     // Mobile keeps the compact input row; the context manager above is the one
     // button-driven source entry point on every platform.
@@ -579,10 +593,15 @@ export class ChatView extends ItemView {
 
   override async onClose(): Promise<void> {
     this.templateReloadGeneration++;
+    this.claimReloadGeneration++;
+    if (this.claimReloadTimer !== null) {
+      window.clearTimeout(this.claimReloadTimer);
+      this.claimReloadTimer = null;
+    }
     this.disposeChrome?.(false);
     this.disposeChrome = null;
     // A live turn keeps running (and persisting) after the pane closes — only
-    // detach this view from its event stream (P5, ChatTurnService).
+    // detach this view from its event stream (ChatTurnService).
     this.detachTurnRendering();
     this.clearThinkingStatus();
     if (this.contextStatusInterval !== null) {
@@ -621,7 +640,7 @@ export class ChatView extends ItemView {
 
   // ---------- "@" context picker ----------
 
-  /** Candidate sources for the "@" menu: 4 specials + vault notes + folders. */
+  /** Candidate sources for the "@" menu: specials, recents, notes, folders, bases, claims, media. */
   private atItems(): AtItem[] {
     const notes = this.app.vault.getMarkdownFiles().map((f) => f.path);
     const folders = new Set<string>();
@@ -634,7 +653,48 @@ export class ChatView extends ItemView {
       .filter((f) => mediaKind(f.path) !== null)
       .map((f) => f.path)
       .sort();
-    return buildAtItems(notes, [...folders].sort(), media);
+    const bases = this.app.vault
+      .getFiles()
+      .filter((f) => f.extension === "base")
+      .map((f) => f.path)
+      .sort();
+    const recents = this.app.workspace
+      .getLastOpenFiles()
+      .filter((p) => p.toLowerCase().endsWith(".md") && this.app.vault.getAbstractFileByPath(p) instanceof TFile)
+      .slice(0, 5);
+    return buildAtItems(notes, [...folders].sort(), media, bases, this.cachedClaims, recents);
+  }
+
+  /** Candidate sources for the "#" menu: research claims only. */
+  private hashItems(): AtItem[] {
+    return buildClaimItems(this.cachedClaims);
+  }
+
+  /** Coalesces rapid vault/metadata events into one reloadClaims() after the last one. */
+  private scheduleReloadClaims(): void {
+    if (this.claimReloadTimer !== null) window.clearTimeout(this.claimReloadTimer);
+    this.claimReloadTimer = window.setTimeout(() => {
+      this.claimReloadTimer = null;
+      void this.reloadClaims();
+    }, 500);
+  }
+
+  /** Re-read every active research project's claims for the "@"/"#" pickers. */
+  private async reloadClaims(): Promise<void> {
+    const generation = ++this.claimReloadGeneration;
+    const claims: ClaimAtSource[] = [];
+    try {
+      const repo = this.plugin.researchRepository();
+      const projects = (await repo.listProjects()).filter((p) => p.status === "active");
+      for (const project of projects) {
+        const snapshot = await repo.loadProject(project.path);
+        for (const claim of snapshot.claims) claims.push({ path: claim.path, label: claim.proposition, project: claim.project });
+      }
+    } catch {
+      // Research repository unavailable — claims stay empty.
+    }
+    if (generation !== this.claimReloadGeneration) return;
+    this.cachedClaims = claims;
   }
 
   /** Load attached media into wire blocks; oversize/unreadable files are skipped with a notice. */
@@ -678,12 +738,20 @@ export class ChatView extends ItemView {
     quickNotice("Image attached to your next message.");
   }
 
-  /** Open/refresh/close the "@" picker based on the cursor's @-token. */
+  /** Open/refresh/close the "@"/"#" picker based on the cursor's active token (innermost wins). */
   private syncAtMenu(): void {
     const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
-    const hit = activeAtQuery(this.inputEl.value, cursor);
-    if (!hit) this.atMenu.hide();
-    else this.atMenu.show(hit.query);
+    const atHit = activeAtQuery(this.inputEl.value, cursor);
+    const hashHit = activeHashQuery(this.inputEl.value, cursor);
+    if (hashHit && (!atHit || hashHit.start > atHit.start)) {
+      this.activeMenuTrigger = "#";
+      this.atMenu.show(hashHit.query);
+    } else if (atHit) {
+      this.activeMenuTrigger = "@";
+      this.atMenu.show(atHit.query);
+    } else {
+      this.atMenu.hide();
+    }
   }
 
   /**
@@ -743,11 +811,11 @@ export class ChatView extends ItemView {
     }
   }
 
-  /** Apply a chosen "@" source: toggle a context flag or attach a note/folder. */
+  /** Apply a chosen "@"/"#" source: toggle a context flag or attach a note/folder. */
   private async onAtChoose(item: AtItem): Promise<void> {
-    // Strip the "@query" token the user typed.
+    // Strip the "@query"/"#query" token the user typed.
     const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
-    const hit = activeAtQuery(this.inputEl.value, cursor);
+    const hit = this.activeMenuTrigger === "#" ? activeHashQuery(this.inputEl.value, cursor) : activeAtQuery(this.inputEl.value, cursor);
     if (hit) {
       const v = this.inputEl.value;
       this.inputEl.value = v.slice(0, hit.start) + v.slice(cursor);
@@ -759,7 +827,10 @@ export class ChatView extends ItemView {
     else if (item.kind === "selection") this.plugin.settings.context.selection = true;
     else if (item.kind === "linked") this.plugin.settings.context.linkedNotes = true;
     else if (item.kind === "vault") this.plugin.settings.context.searchVault = true;
-    else if (item.path && (item.kind === "note-path" || item.kind === "folder-path")) {
+    // note-path/folder-path (explicit attach), recent (a recently opened note), base-path
+    // (.base file) and claim (a research claim's note) all resolve to the same attach:
+    // a note by path, deduped against anything already attached at that path.
+    else if (item.path && (item.kind === "note-path" || item.kind === "folder-path" || item.kind === "recent" || item.kind === "base-path" || item.kind === "claim")) {
       const kind = item.kind === "folder-path" ? "folder" : "note";
       if (!this.attachedPaths.some((a) => a.path === item.path && a.kind === kind)) {
         this.attachedPaths.push({ path: item.path, kind });
@@ -1508,7 +1579,7 @@ export class ChatView extends ItemView {
 
     this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
     // Snapshot now (not read from `this.messages` at completion) — the view may
-    // switch conversations while this turn is still in flight (P5).
+    // switch conversations while this turn is still in flight.
     const turnMessages = [...this.messages];
     let turn: { conversationId: string; turnId: string };
     try {
@@ -1602,7 +1673,7 @@ export class ChatView extends ItemView {
     const wantThinking = agentActive || caps.cli
       ? !!(this.controls.thinking && this.controls.showThinking)
       : !startedOnLocal && !!(this.controls.thinking && this.controls.showThinking);
-    // The primary-backend/local-fallback decision (P5): runs inside
+    // The primary-backend/local-fallback decision runs inside
     // ChatTurnService.start() so it keeps going — and still persists — even if
     // this view closes mid-turn. Mirrors the fallback policy run() used to
     // apply itself: an agent turn that already produced text/trace despite an
@@ -1671,7 +1742,7 @@ export class ChatView extends ItemView {
   /**
    * Run one streaming attempt on a backend, emitting through `handlers` instead
    * of touching the DOM directly — the view (attached or not) renders from the
-   * ChatTurnService event stream (P5). Always resolves; never rejects.
+   * ChatTurnService event stream. Always resolves; never rejects.
    */
   private streamTurn(
     target: "claude" | "local",
@@ -1821,7 +1892,7 @@ export class ChatView extends ItemView {
   }
 
   /**
-   * Subscribe this view's bubble/body to a conversation's live turn (P5): the
+   * Subscribe this view's bubble/body to a conversation's live turn: the
    * replay buffer renders first, then live events, through the same
    * TurnRenderer/tool-chips pipeline a same-view run() used to drive directly.
    * Returns the unsubscribe — self-invoked once the turn settles.
