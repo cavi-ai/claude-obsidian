@@ -1,8 +1,7 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
-import type { ChatMessage, ContextToggles, ToolTraceEntry } from "../types";
+import type { ChatMessage, ContextToggles } from "../types";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
-import type { ChatTurnService, TurnEvent } from "../chat/turnService";
 import { toAnthropicTools, executeTool, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
@@ -23,16 +22,12 @@ import { type AttachedPage } from "../context/urlContext";
 import { WORKFLOWS } from "../workflows/catalog";
 import { SKILLS } from "../workflows/skillRegistry.generated";
 import { composeSkillPrompt, parseSkillInvocation, skillDisplay } from "../skills/compose";
-import { hasIncompleteHtmlArtifactFence, splitStreamingArtifact } from "./streamRender";
-import { TurnRenderer, type TurnRendererHost } from "./turnRenderer";
+import { splitStreamingArtifact } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { type MediaAttachment } from "../context/attachments";
 import { AtMenu } from "./AtMenu";
 import { type AtItem, type ClaimAtSource } from "../context/atMention";
-import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../artifacts/artifactStore";
-import { extractTasks } from "../build/spec";
-import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
-import { chipLabel } from "./toolChipLabel";
+import { type ErrorHintProvider } from "../providers/errorHints";
 import { needsCredentialSetup } from "../providers/setupState";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
@@ -46,21 +41,17 @@ export interface CliSignInProvider {
   available(): boolean;
   refresh(): Promise<unknown>;
 }
-import { addUsage, EMPTY_SESSION, type SessionUsage } from "../usage/tokens";
-import { mergeUsage, type TokenUsage } from "../claude/sse";
+import { EMPTY_SESSION, type SessionUsage } from "../usage/tokens";
+import { type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
 import { quickNotice } from "../notice";
 import { ComposerContextManager } from "./ComposerContextManager";
 import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
+import { Transcript } from "./chat/Transcript";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
-/** Truncate a tool result for the expandable chip body. */
-function previewText(text: string): string {
-  return text.length > 400 ? `${text.slice(0, 400)}…` : text;
-}
 
 /** The message list a turn should persist as: `base` plus the assistant reply, when one was produced. */
 function appendAssistantMessage(base: ChatMessage[], result: AgentTurnResult): ChatMessage[] {
@@ -109,7 +100,9 @@ export class ChatView extends ItemView {
   private set mcpStatusEl(v: HTMLButtonElement) { this.header.mcpStatusEl = v; }
   private composer: Composer;
   private messages: ChatMessage[] = [];
-  private messagesEl!: HTMLElement;
+  private transcript: Transcript;
+  private get messagesEl(): HTMLElement { return this.transcript.messagesEl; }
+  private set messagesEl(v: HTMLElement) { this.transcript.messagesEl = v; }
   private get inputEl(): HTMLTextAreaElement { return this.composer.inputEl; }
   private set inputEl(v: HTMLTextAreaElement) { this.composer.inputEl = v; }
   private get sendBtn(): HTMLButtonElement { return this.composer.sendBtn; }
@@ -148,9 +141,6 @@ export class ChatView extends ItemView {
   private set attachedMedia(v: MediaAttachment[]) { this.composer.attachedMedia = v; }
   /** Media consumed by the last send — restored on failure, re-sent on Regenerate. */
   private lastUserMedia: MediaAttachment[] = [];
-  /** Rotating "thinking" status word timer + per-turn start offset. */
-  private thinkingTimer: number | null = null;
-  private claudianSeq = 0;
   /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
@@ -207,6 +197,40 @@ export class ChatView extends ItemView {
     private plugin: ClaudeCompanionPlugin,
   ) {
     super(leaf);
+    this.transcript = new Transcript(this.app, plugin, {
+      autosizeInput: () => this.composer.autosizeInput(),
+      onSend: (...args) => this.onSend(...args),
+      prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
+      regenerate: (...args) => this.regenerate(...args),
+      renderMarkdownInto: (...args) => this.renderMarkdownInto(...args),
+      renderSetupCard: (...args) => this.renderSetupCard(...args),
+      renderStreamingArtifactInto: (...args) => this.renderStreamingArtifactInto(...args),
+      resumeInterruptedTurn: (...args) => this.resumeInterruptedTurn(...args),
+      restoreMediaAfterFailure: (...args) => this.restoreMediaAfterFailure(...args),
+      setSending: (...args) => this.setSending(...args),
+      setupRequired: (...args) => this.setupRequired(...args),
+      submitPrompt: (text, display) => this.submitPrompt(text, display),
+      updateUsageBar: (...args) => this.updateUsageBar(...args),
+      _lastBuffer: () => this._lastBuffer,
+      set_lastBuffer: (v) => { this._lastBuffer = v; },
+      _turnUsage: () => this._turnUsage,
+      set_turnUsage: (v) => { this._turnUsage = v; },
+      abort: () => this.abort,
+      setAbort: (v) => { this.abort = v; },
+      controls: () => this.controls,
+      currentTurn: () => this.currentTurn,
+      setCurrentTurn: (v) => { this.currentTurn = v; },
+      inputEl: () => this.composer.inputEl,
+      lastUserText: () => this.lastUserText,
+      messages: () => this.messages,
+      session: () => this.session,
+      setSession: (v) => { this.session = v; },
+      streaming: () => this.streaming,
+      turnRenderUnsubscribe: () => this.turnRenderUnsubscribe,
+      setTurnRenderUnsubscribe: (v) => { this.turnRenderUnsubscribe = v; },
+      unregisterCurrentTurn: () => this.unregisterCurrentTurn,
+      setUnregisterCurrentTurn: (v) => { this.unregisterCurrentTurn = v; },
+    });
     this.header = new HeaderControls(this.app, plugin, {
       anyContextEnabled: () => this.composer.anyContextEnabled(),
       applyMode: (...args) => this.applyMode(...args),
@@ -217,7 +241,7 @@ export class ChatView extends ItemView {
       renderContextManager: (...args) => this.renderContextManager(...args),
       renderKnobs: () => this.composer.renderKnobs(),
       renderKnobsInto: (parent) => this.composer.renderKnobsInto(parent),
-      saveChat: (...args) => this.saveChat(...args),
+      saveChat: (...args) => this.transcript.saveChat(...args),
       updateModeControl: (...args) => this.updateModeControl(...args),
       agentCapable: () => this.agentCapable,
       setAgentCapable: (v) => { this.agentCapable = v; },
@@ -369,10 +393,10 @@ export class ChatView extends ItemView {
       for (const m of this.messages) this.renderStoredMessage(m);
       const live = this.plugin.turnService().live(conversation.id);
       if (live) this.attachLiveTurn(conversation.id, live.turnId);
-      else if (conversation.activeTurn) this.renderInterruptedTurn(conversation);
+      else if (conversation.activeTurn) this.transcript.renderInterruptedTurn(conversation);
     }
     this.updateUsageBar();
-    this.scrollToBottom();
+    this.transcript.scrollToBottom();
   }
 
   /** Reattach to a turn already running elsewhere: replay its buffer, then stream live. */
@@ -380,9 +404,9 @@ export class ChatView extends ItemView {
     this.currentTurn = { conversationId, turnId };
     this.setSending(true);
     this._turnUsage = null;
-    const { bubble, body } = this.createAssistantBubble();
+    const { bubble, body } = this.transcript.createAssistantBubble();
     const wantThinking = !!(this.controls?.thinking && this.controls?.showThinking);
-    this.turnRenderUnsubscribe = this.startTurnRendering(conversationId, bubble, body, wantThinking, this.plugin.turnService());
+    this.turnRenderUnsubscribe = this.transcript.startTurnRendering(conversationId, bubble, body, wantThinking, this.plugin.turnService());
   }
 
   /** Unsubscribe from the live turn's events without stopping it, and reset this view's send-state. */
@@ -396,28 +420,7 @@ export class ChatView extends ItemView {
     this.setSending(false);
   }
 
-  /** Render one persisted message, including assistant action buttons. */
-  private renderStoredMessage(m: ChatMessage): void {
-    // A user turn with a `display` is a slash/workflow invocation — show it as a
-    // command chip on replay too, matching the live render.
-    if (m.role === "user" && m.display !== undefined) {
-      const chipBubble = this.messagesEl.createDiv({ cls: "cc-msg cc-user cc-command" });
-      this.renderCommandChip(chipBubble, m.display);
-      return;
-    }
-    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
-    bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
-    if (m.role === "assistant") this.addSparkMark(bubble);
-    const body = bubble.createDiv({ cls: "cc-body" });
-    if (m.role === "assistant" && m.toolTrace && m.toolTrace.length > 0) this.renderTraceChips(bubble, body, m.toolTrace);
-    const rendered = m.display ?? m.content;
-    void this.renderMarkdownInto(body, rendered).catch(() => {
-      // A broken Markdown extension must not make persisted conversation text
-      // disappear or reject the fire-and-forget conversation replay.
-      body.setText(rendered);
-    });
-    if (m.role === "assistant" && m.content.trim().length > 0) this.addAssistantActions(bubble, m.content);
-  }
+  private renderStoredMessage(m: ChatMessage): void { return this.transcript.renderStoredMessage(m); }
 
   /** Clear the panel to its empty state without altering stored history. */
   resetToEmpty(): void {
@@ -444,7 +447,7 @@ export class ChatView extends ItemView {
     // A live turn keeps running (and persisting) after the pane closes — only
     // detach this view from its event stream (ChatTurnService).
     this.detachTurnRendering();
-    this.clearThinkingStatus();
+    this.transcript.clearThinkingStatus();
     if (this.contextStatusInterval !== null) {
       window.clearInterval(this.contextStatusInterval);
       this.contextStatusInterval = null;
@@ -509,48 +512,7 @@ export class ChatView extends ItemView {
 
   private renderControls(): void { return this.composer.renderControls(); }
 
-  private renderEmptyState(): void {
-    if (this.messages.length > 0) return;
-    this.messagesEl.empty();
-    const empty = this.messagesEl.createDiv({ cls: "cc-empty" });
-    setIcon(empty.createDiv({ cls: "cc-empty-icon" }), "sparkles");
-    empty.createDiv({ cls: "cc-empty-title", text: "Claude, in your vault." });
-    empty.createDiv({
-      cls: "cc-empty-sub",
-      text: "Stay in the thread across notes, research, thinking, and finished work.",
-    });
-    if (this.setupRequired()) {
-      // Without a credential every example below would just error — show the
-      // connect card instead and stop.
-      this.renderSetupCard(empty);
-      return;
-    }
-    const workspaceMount = empty.createDiv({ cls: "cc-context-workspace-mount", attr: { "aria-live": "polite" } });
-    void this.renderContextualWorkspace(workspaceMount);
-    empty.createDiv({ cls: "cc-empty-section-label", text: "START SOMETHING ELSE" });
-    const examples: { label: string; prompt: string; needsActiveNote?: boolean }[] = [
-      { label: "📋 Summarize my active note", prompt: "Summarize my active note as concise bullet points with the key takeaways first.", needsActiveNote: true },
-      { label: "📊 Turn this into a dashboard", prompt: "Turn my current note into a single beautiful, self-contained interactive dashboard artifact using the design system.", needsActiveNote: true },
-      { label: "🗺️ Plan a feature", prompt: "Help me plan a feature. Ask me clarifying questions first, then produce an implementation plan." },
-      { label: "🔍 Ask across my vault", prompt: "Search my vault and answer: what have I written about " },
-    ];
-    const grid = empty.createDiv({ cls: "cc-empty-examples" });
-    for (const ex of examples) {
-      const card = grid.createEl("button", { cls: "cc-example", text: ex.label });
-      card.addEventListener("click", () => {
-        if (ex.needsActiveNote && !this.app.workspace.getActiveFile()) {
-          new Notice("Open a note first, then try this one.");
-          return;
-        }
-        this.inputEl.value = ex.prompt;
-        this.inputEl.focus();
-        this.composer.autosizeInput();
-        this.updateUsageBar();
-        // A trailing-space prompt (the vault-search one) waits for the user to type.
-        if (!ex.prompt.endsWith(" ")) void this.onSend();
-      });
-    }
-  }
+  private renderEmptyState(): void { return this.transcript.renderEmptyState(); }
 
   /** Every CLI backend the router actually exposes, paired with its module (label, sign-in hint) — skips a partial test stub instead of crashing on it. */
   private cliEntries(router: ProviderRouter): { backend: CliBackend; provider: CliSignInProvider }[] {
@@ -668,39 +630,6 @@ export class ChatView extends ItemView {
     settingsBtn.addEventListener("click", () => this.openSettings());
   }
 
-  /** Surface the setup card on a blocked send without losing the typed text. */
-  private showSetupCard(): void {
-    const existing = this.messagesEl.querySelector<HTMLElement>(".cc-setup-card");
-    if (existing) {
-      existing.addClass("cc-setup-attn");
-      window.setTimeout(() => existing.removeClass("cc-setup-attn"), 900);
-      return;
-    }
-    this.renderSetupCard(this.messagesEl);
-    this.scrollToBottom();
-  }
-
-  private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
-    const workspace = await this.plugin.companionWorkspaceContext();
-    if (!mount.isConnected || this.messages.length > 0 || !workspace) return;
-    mount.empty();
-    const card = mount.createEl("section", { cls: `cc-context-workspace is-${workspace.kind}`, attr: { "aria-label": "Current Companion workspace" } });
-    card.createDiv({ cls: "cc-context-workspace-eyebrow", text: workspace.eyebrow });
-    card.createEl("h3", { text: workspace.title });
-    card.createEl("p", { text: workspace.description });
-    card.createDiv({ cls: "cc-context-workspace-meta", text: workspace.meta });
-    const actions = card.createDiv({ cls: "cc-context-workspace-actions" });
-    const primary = actions.createEl("button", { cls: "mod-cta", text: workspace.primaryAction });
-    const secondary = actions.createEl("button", { text: workspace.secondaryAction });
-    if (workspace.kind === "research") {
-      primary.addEventListener("click", () => void this.plugin.activateResearchDesk(workspace.contextPath));
-      secondary.addEventListener("click", () => void this.prepareWorkspaceQuestion(workspace));
-    } else {
-      primary.addEventListener("click", () => void this.prepareWorkspaceQuestion(workspace));
-      secondary.addEventListener("click", () => void this.plugin.activateRelatedView());
-    }
-  }
-
   /** Attach canonical workspace context and hand control back to the user. */
   prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
     const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
@@ -762,7 +691,7 @@ export class ChatView extends ItemView {
     // Check credentials BEFORE clearing the composer — a new user's first
     // message must never be silently discarded.
     if (this.setupRequired()) {
-      this.showSetupCard();
+      this.transcript.showSetupCard();
       return;
     }
     // A typed obsidian-agent skill invocation ("/wikilink-weaver <note path>") composes into a full turn with vault search on.
@@ -877,7 +806,7 @@ export class ChatView extends ItemView {
         this.openHistory();
         break;
       case "save":
-        await this.saveChat();
+        await this.transcript.saveChat();
         break;
       case "delete-active":
         await this.plugin.deleteActiveConversation();
@@ -987,7 +916,7 @@ export class ChatView extends ItemView {
     });
     this.setSending(true);
     this._turnUsage = null;
-    this.renderMessage("user", display ?? userText, { command: display !== undefined });
+    this.transcript.renderMessage("user", display ?? userText, { command: display !== undefined });
 
     // Agent mode: the model pulls vault context itself via tools. Gated on the
     // provider actually round-tripping tool_use (Claude, and local models whose
@@ -1024,7 +953,7 @@ export class ChatView extends ItemView {
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
       if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
-      this.annotateContext(ctx.sources);
+      this.transcript.annotateContext(ctx.sources);
     }
 
     // Attached PDFs/images become content blocks ahead of the text (media is
@@ -1045,7 +974,7 @@ export class ChatView extends ItemView {
       this.lastUserMedia = [];
     }
 
-    const { bubble, body } = this.createAssistantBubble();
+    const { bubble, body } = this.transcript.createAssistantBubble();
     const startedOnLocal = caps.local;
     const wantThinking = agentActive || caps.cli
       ? !!(this.controls.thinking && this.controls.showThinking)
@@ -1094,26 +1023,8 @@ export class ChatView extends ItemView {
       interruptTurn: (result, error) => this.plugin.interruptActiveConversationTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), error?.message ?? "Interrupted"),
       registerTurn: (stop) => this.plugin.registerActiveChatTurn(turn.conversationId, turn.turnId, stop),
     });
-    this.turnRenderUnsubscribe = this.startTurnRendering(turn.conversationId, bubble, body, wantThinking, turnService);
+    this.turnRenderUnsubscribe = this.transcript.startTurnRendering(turn.conversationId, bubble, body, wantThinking, turnService);
     await handle.result.catch(() => undefined);
-  }
-
-  /** Adapt this view to the TurnRenderer host contract (one per turn). */
-  private turnHost(): TurnRendererHost {
-    return {
-      renderMarkdownInto: (el, md) => this.renderMarkdownInto(el, md),
-      renderStreamingArtifactInto: (el, buffer) => this.renderStreamingArtifactInto(el, buffer),
-      scrollToBottom: () => this.scrollToBottom(),
-      clearThinkingStatus: () => this.clearThinkingStatus(),
-      createThinkingPanel: (bubble) => this.createThinkingPanel(bubble),
-      annotateTruncated: (bubble) => this.annotateTruncated(bubble),
-      mergeTurnUsage: (usage) => {
-        this._turnUsage = mergeUsage(this._turnUsage ?? undefined, usage);
-      },
-      syncBuffer: (buffer) => {
-        this._lastBuffer = buffer;
-      },
-    };
   }
 
   /**
@@ -1269,94 +1180,6 @@ export class ChatView extends ItemView {
   }
 
   /**
-   * Subscribe this view's bubble/body to a conversation's live turn: the
-   * replay buffer renders first, then live events, through the same
-   * TurnRenderer/tool-chips pipeline a same-view run() used to drive directly.
-   * Returns the unsubscribe — self-invoked once the turn settles.
-   */
-  private startTurnRendering(conversationId: string, bubble: HTMLElement, body: HTMLElement, wantThinking: boolean, turnService: ChatTurnService): () => void {
-    const renderer = new TurnRenderer(this.turnHost(), bubble, body, wantThinking);
-    const chips = this.createToolChips(bubble, body);
-    let unsubscribe: () => void = () => undefined;
-    const settle = (result: AgentTurnResult): void => {
-      void this.settleTurnRendering(conversationId, bubble, body, renderer, result).finally(() => {
-        unsubscribe();
-        if (this.turnRenderUnsubscribe === unsubscribe) this.turnRenderUnsubscribe = null;
-      });
-    };
-    const apply = (event: TurnEvent): void => {
-      switch (event.kind) {
-        case "text": renderer.onText(event.delta); break;
-        case "thinking": renderer.onThinking(event.delta); break;
-        case "toolStart": chips.start(event.block); break;
-        case "toolResult": chips.finish(event.block, event.result); renderer.markToolBoundary(); break;
-        case "notice": this.annotateAgentNotice(bubble, event.text); break;
-        case "usage": renderer.onUsage(event.usage); break;
-        case "truncated": renderer.onTruncated(); break;
-        case "done": settle(event.result); break;
-        case "error": settle({ text: renderer.buffer, trace: [], error: event.error }); break;
-      }
-    };
-    unsubscribe = turnService.subscribe(conversationId, (message) => {
-      if (message.kind === "replay") { for (const e of message.events) apply(e); return; }
-      apply(message);
-    });
-    return unsubscribe;
-  }
-
-  /** The DOM-only half of finishing a turn: final render, persisted-message push (view-local), error box. Persistence itself runs through ChatTurnService's completeTurn/interruptTurn regardless of whether this fires. */
-  private async settleTurnRendering(
-    conversationId: string,
-    bubble: HTMLElement,
-    body: HTMLElement,
-    renderer: TurnRenderer,
-    result: AgentTurnResult,
-  ): Promise<void> {
-    // Idempotent per bubble: "done"/"error" and a stale replay can both reach
-    // here for the same turn — only the first call commits the message + actions.
-    if (bubble.dataset.ccFinished === "1") return;
-    bubble.dataset.ccFinished = "1";
-    this.clearThinkingStatus();
-
-    // Never persist a half-generated HTML artifact fence left by an abort.
-    const incompleteArtifact = !!result.aborted && hasIncompleteHtmlArtifactFence(result.text);
-    if (incompleteArtifact) {
-      this.renderInterruptedArtifact(body);
-    } else {
-      try {
-        await renderer.finalize(result.text);
-      } catch {
-        body.setText(result.text);
-      }
-    }
-    const full = !incompleteArtifact && result.text.trim().length > 0 ? result.text : null;
-    if (full) {
-      this.messages.push({ role: "assistant", content: full, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) });
-      this.addAssistantActions(bubble, full);
-    }
-    if (result.error && !full) {
-      const providerId = (result.error as Error & { ccProvider?: ErrorHintProvider }).ccProvider ?? "anthropic";
-      this.renderError(body, result.error.message || "Request failed", providerId);
-      this.restoreMediaAfterFailure();
-    }
-    if (this.currentTurn?.conversationId === conversationId) {
-      this.unregisterCurrentTurn = null;
-      this.currentTurn = null;
-      this.setSending(false);
-      this.abort = null;
-    }
-    // Fold this turn's usage into the session exactly once. The API emits usage
-    // on both message_start and message_delta; counting each event would double
-    // the request count and inflate output tokens.
-    if (this._turnUsage) {
-      this.session = addUsage(this.session, this._turnUsage);
-      this._turnUsage = null;
-    }
-    this.updateUsageBar();
-    this.scrollToBottom();
-  }
-
-  /**
    * Handle a propose_note_edit call: plan against the current note, let the
    * user review per hunk inline or in the DiffModal, apply the accepted subset
    * atomically, and report the true outcome back to the model. Throws are
@@ -1476,50 +1299,6 @@ export class ChatView extends ItemView {
     }
   }
 
-  /** Live tool chips for the in-flight agent turn, inserted above the answer body. */
-  private createToolChips(bubble: HTMLElement, body: HTMLElement) {
-    let container: HTMLElement | null = null;
-    const open = new Map<string, HTMLElement>();
-    const ensure = (): HTMLElement => {
-      if (!container) {
-        container = bubble.createDiv({ cls: "cc-tool-chips" });
-        bubble.insertBefore(container, body);
-      }
-      return container;
-    };
-    return {
-      start: (block: ToolUseBlock): void => {
-        const chip = ensure().createEl("details", { cls: "cc-tool-chip is-running" });
-        chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(block.name, block.input) });
-        open.set(block.id, chip);
-        this.scrollToBottom();
-      },
-      finish: (block: ToolUseBlock, result: ToolResultBlock): void => {
-        const chip = open.get(block.id);
-        if (!chip) return;
-        chip.removeClass("is-running");
-        if (result.is_error) chip.addClass("is-error");
-        chip.createEl("pre", { cls: "cc-tool-chip-result", text: previewText(result.content) });
-      },
-    };
-  }
-
-  /** Re-render persisted tool chips (from a message's toolTrace) on replay. */
-  private renderTraceChips(bubble: HTMLElement, body: HTMLElement, trace: ToolTraceEntry[]): void {
-    const container = bubble.createDiv({ cls: "cc-tool-chips" });
-    bubble.insertBefore(container, body);
-    for (const t of trace) {
-      const chip = container.createEl("details", { cls: `cc-tool-chip${t.ok ? "" : " is-error"}` });
-      chip.createEl("summary", { cls: "cc-tool-chip-summary", text: chipLabel(t.name, t.argsSummary) });
-      chip.createEl("pre", { cls: "cc-tool-chip-result", text: t.resultPreview });
-    }
-  }
-
-  /** Muted status line under an agent turn (iteration cap, early end). */
-  private annotateAgentNotice(bubble: HTMLElement, text: string): void {
-    bubble.createDiv({ cls: "cc-agent-notice", text });
-  }
-
   private async stopCurrentTurn(): Promise<void> {
     const turn = this.currentTurn;
     if (!turn) {
@@ -1543,119 +1322,7 @@ export class ChatView extends ItemView {
     }
   }
 
-  private renderInterruptedTurn(conversation: Conversation): void {
-    const row = this.messagesEl.createDiv({ cls: "cc-agent-notice cc-interrupted-turn" });
-    row.createSpan({ text: "This task was interrupted. Review any partial changes before resuming." });
-    const resume = row.createEl("button", { text: "Resume", cls: "mod-cta" });
-    resume.addEventListener("click", () => void this.resumeInterruptedTurn(conversation));
-  }
-
   // ---------- rendering ----------
-
-  /** The round spark mark before an assistant bubble's content (screen-reader label "Claude" is carried by .cc-role, not this icon). */
-  private addSparkMark(bubble: HTMLElement): void {
-    setIcon(bubble.createSpan({ cls: "cc-spark" }), "sparkles");
-  }
-
-  private createAssistantBubble(): { bubble: HTMLElement; body: HTMLElement } {
-    const bubble = this.messagesEl.createDiv({ cls: "cc-msg cc-assistant" });
-    bubble.createDiv({ cls: "cc-role", text: "Claude" });
-    this.addSparkMark(bubble);
-    const body = bubble.createDiv({ cls: "cc-body" });
-    // One indicator only: the breathing smiley in the thinking status. (The old
-    // "▍" cursor was a second clay marker fighting it.)
-    this.startThinkingStatus(body);
-    this.scrollToBottom();
-    return { bubble, body };
-  }
-
-  /** Playful "Claudian" gerunds shown while Claude works, before text arrives. */
-  private static readonly CLAUDIAN = [
-    "Manifesting", "Synthesizing", "Philosophising", "Pondering",
-    "Actualizing", "Synergizing", "Ruminating", "Clauding",
-  ];
-
-  /**
-   * Show a single breathing smiley on the left with a whimsical word cycling
-   * beside it until the first token lands. The smiley is fixed-position so the
-   * word's changing length never shifts it. The smiley pulses 4× per word-fade
-   * cycle (80 bpm vs 20 bpm) — driven by CSS; the word swaps on the fade trough.
-   */
-  private startThinkingStatus(body: HTMLElement): void {
-    const status = body.createSpan({ cls: "cc-thinking-status" });
-    setIcon(status.createSpan({ cls: "cc-thinking-dot" }), "smile");
-    const word = status.createSpan({ cls: "cc-thinking-word" });
-    let i = this.claudianSeq++;
-    const tick = () => {
-      word.setText(`${ChatView.CLAUDIAN[i % ChatView.CLAUDIAN.length]}…`);
-      i++;
-    };
-    tick();
-    this.clearThinkingStatus();
-    // 3000ms = the 20-bpm word-fade period, so the swap lands at the fade trough.
-    this.thinkingTimer = window.setInterval(tick, 3000);
-  }
-
-  private clearThinkingStatus(): void {
-    if (this.thinkingTimer != null) {
-      window.clearInterval(this.thinkingTimer);
-      this.thinkingTimer = null;
-    }
-  }
-
-  /**
-   * Insert a collapsible reasoning panel before the answer body. Returns the
-   * element that thinking text is streamed into. Inserted once per turn.
-   */
-  private createThinkingPanel(bubble: HTMLElement): HTMLElement {
-    const details = bubble.createEl("details", { cls: "cc-thinking" });
-    details.setAttr("open", "");
-    details.createEl("summary", { cls: "cc-thinking-summary", text: "Reasoning" });
-    const pre = details.createEl("pre", { cls: "cc-thinking-body" });
-    // Place the panel right after the role label, above the answer body.
-    const body = bubble.querySelector(".cc-body");
-    if (body) bubble.insertBefore(details, body);
-    return pre;
-  }
-
-  private renderMessage(role: "user" | "assistant", text: string, opts?: { command?: boolean }): void {
-    if (this.messages.length === 1) this.messagesEl.empty();
-    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}${opts?.command ? " cc-command" : ""}` });
-    if (opts?.command) {
-      this.renderCommandChip(bubble, text);
-      this.scrollToBottom();
-      return;
-    }
-    bubble.createDiv({ cls: "cc-role", text: role === "user" ? "You" : "Claude" });
-    if (role === "assistant") this.addSparkMark(bubble);
-    const body = bubble.createDiv({ cls: "cc-body" });
-    void this.renderMarkdownInto(body, text);
-    this.scrollToBottom();
-  }
-
-  /** A slash command / workflow invocation renders as a compact accent chip
-   *  (e.g. "/summarize") instead of a plain user bubble of raw prompt text. */
-  private renderCommandChip(bubble: HTMLElement, label: string): void {
-    const chip = bubble.createDiv({ cls: "cc-command-chip" });
-    setIcon(chip.createSpan({ cls: "cc-command-chip-icon" }), "terminal");
-    chip.createSpan({ cls: "cc-command-chip-label", text: label });
-  }
-
-  private renderError(body: HTMLElement, message: string, provider: ErrorHintProvider): void {
-    // Append below any partial streamed content — never destroy what arrived.
-    // But a failure before the first token leaves the "thinking" indicator in
-    // place; drop it so the bubble doesn't show both a spinner and the error.
-    body.querySelector(".cc-thinking-status")?.remove();
-    const box = body.createDiv({ cls: "cc-error" });
-    box.createSpan({ cls: "cc-error-title", text: "Couldn’t reach the model" });
-    box.createSpan({ text: message });
-    const hint = errorHint(message, provider);
-    if (hint) box.createDiv({ cls: "cc-error-hint", text: hint });
-    if (this.lastUserText) {
-      const retry = box.createEl("button", { cls: "cc-error-retry", text: "Retry" });
-      retry.addEventListener("click", () => void this.regenerate());
-    }
-  }
 
   /** Re-attach the failed turn's media so a retry (or edit) still has it. */
   private restoreMediaAfterFailure(): void {
@@ -1663,31 +1330,6 @@ export class ChatView extends ItemView {
       this.attachedMedia = this.lastUserMedia;
       this.renderContextManager();
     }
-  }
-
-  /** Flag a reply that the model truncated at the output-token limit. */
-  private annotateTruncated(bubble: HTMLElement): void {
-    if (bubble.querySelector(".cc-truncated-note")) return;
-    const cap = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
-    const note = bubble.createDiv({ cls: "cc-truncated-note" });
-    note.createSpan({ cls: "cc-truncated-title", text: "Response hit the output-token limit" });
-    note.createSpan({ text: ` — it was cut off at ${cap} tokens.` });
-    const retry = note.createEl("button", { cls: "cc-error-retry", text: "Retry with a higher limit" });
-    retry.addEventListener("click", () => void this.regenerate({ maxTokens: Math.min(cap * 2, 64000) }));
-  }
-
-  private renderInterruptedArtifact(body: HTMLElement): void {
-    body.empty();
-    const box = body.createDiv({ cls: "cc-error" });
-    box.createSpan({ cls: "cc-error-title", text: "Artifact generation stopped" });
-    box.createSpan({ text: "The HTML block did not finish, so it was not saved to the chat history." });
-  }
-
-  private annotateContext(sources: string[]): void {
-    if (sources.length === 0) return;
-    const last = this.messagesEl.lastElementChild;
-    if (!last) return;
-    last.createDiv({ cls: "cc-context-note", text: `+ context: ${sources.join(", ")}` });
   }
 
   refreshBackendPill(): Promise<void> { return this.header.refreshBackendPill(); }
@@ -1761,99 +1403,6 @@ export class ChatView extends ItemView {
     return version;
   }
 
-  private addAssistantActions(bubble: HTMLElement, full: string): void {
-    bubble.querySelectorAll(":scope > .cc-actions").forEach((el) => el.remove());
-    // Per-code-block copy buttons inside the rendered markdown.
-    this.decorateCodeBlocks(bubble);
-
-    const bar = bubble.createDiv({ cls: "cc-actions" });
-    this.actionBtn(bar, "Copy", "copy", () => {
-      void navigator.clipboard.writeText(full);
-      quickNotice("Copied to clipboard");
-    });
-    this.actionBtn(bar, "Insert", "text-cursor-input", () => this.insertIntoNote(full));
-    // One Save button that adapts to the content: an artifact saves as an inline
-    // `claude-html` note (accented to stand out), anything else saves as a plain
-    // chat note. (These used to be two separate buttons running the same handler.)
-    const isArtifact = !!extractArtifact(full);
-    const saveBtn = this.actionBtn(
-      bar,
-      isArtifact ? "Save artifact" : "Save as note",
-      isArtifact ? "layout-dashboard" : "save",
-      () => void this.saveReplyAsNote(full),
-    );
-    if (isArtifact) saveBtn.addClass("cc-accent");
-    // A plan reply (has a `## Build tasks` checklist) gets execution buttons:
-    // "Implement" runs the tasks in-app via agent mode (vault work); "Build"
-    // hands the plan off to Claude Code (code work outside the vault).
-    if (extractTasks(full).length > 0) {
-      const impl = this.actionBtn(bar, "Implement", "play", () => void this.implementFromReply(full));
-      impl.addClass("cc-accent");
-      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full));
-    }
-    // Regenerate the last reply (only on the most recent assistant message).
-    const tail = this.messages[this.messages.length - 1];
-    const isLast = tail?.role === "assistant";
-    if (isLast && this.lastUserText) {
-      this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.regenerate());
-    }
-  }
-
-  /**
-   * Execute the plan in-app: feed its build tasks back through agent mode so
-   * Claude actually does the vault work (create/edit notes, canvases, bases) —
-   * each write still confirms. Needs agent mode + Claude; otherwise points the
-   * user at the Build (Claude Code) handoff instead.
-   */
-  private async implementFromReply(full: string): Promise<void> {
-    if (this.streaming) return;
-    if (!this.plugin.settings.agentModeEnabled || !this.plugin.router().chatCapabilities().agentActions) {
-      new Notice("Turn on agent mode (and use Claude or Claude Code) to implement in-app, or use Build to hand off to Claude Code.");
-      return;
-    }
-    if (!this.plugin.settings.agentAllowWrites) {
-      new Notice("Turn on “Act on vault” to let me make the changes, then hit Implement again.");
-      return;
-    }
-    const tasks = extractTasks(full);
-    const list = tasks.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-    const prompt =
-      "Implement the plan above by actually doing the work in my vault. Go through these build tasks in order, " +
-      "using your vault tools to create and edit the notes/canvases/bases each one calls for — don't just re-describe the plan. " +
-      "Note briefly what you changed after each. If a task requires code changes outside the vault, say so and skip it.\n\n" +
-      `Tasks:\n${list}`;
-    await this.submitPrompt(prompt, "Implement plan");
-  }
-
-  /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
-  private async buildFromReply(full: string): Promise<void> {
-    const artifact = extractArtifact(full);
-    const { tags, summary, title } = await this.maybeIndex(full);
-    const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
-    const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
-      extraTags: tags,
-      ...(summary !== undefined ? { summary } : {}),
-    });
-    await this.plugin.handoffToBuild(file);
-  }
-
-  /** Add a hover "copy" button to each <pre><code> block in a rendered reply. */
-  private decorateCodeBlocks(bubble: HTMLElement): void {
-    bubble.querySelectorAll("pre").forEach((pre) => {
-      if (pre.querySelector(".cc-code-copy")) return; // already decorated
-      const el = pre as HTMLElement;
-      el.addClass("cc-has-copy");
-      const btn = el.createEl("button", { cls: "cc-code-copy", text: "Copy", attr: { "aria-label": "Copy code" } });
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const code = pre.querySelector("code")?.textContent ?? pre.textContent ?? "";
-        void navigator.clipboard.writeText(code);
-        btn.setText("Copied!");
-        window.setTimeout(() => btn.setText("Copy"), 1200);
-      });
-    });
-  }
-
   /** Drop the last assistant reply and re-run the previous user turn. */
   private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
     if (this.streaming || !this.lastUserText) return;
@@ -1872,122 +1421,4 @@ export class ChatView extends ItemView {
     await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens);
   }
 
-  /**
-   * Index a document for durable storage: tags + a one-line summary, generated
-   * by the utility provider (local Ollama when available, else Claude — heavy
-   * lifting offloads automatically). Best-effort: never blocks a save.
-   */
-  private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string; title?: string }> {
-    if (!this.plugin.settings.autoTagOnSave) return { tags: [] };
-    try {
-      const { summarizeAndTag, existingVaultTags } = await import("../indexing/autoTagger");
-      const res = await summarizeAndTag(this.plugin.router(), content, existingVaultTags(this.app));
-      return {
-        tags: res.tags,
-        ...(res.summary ? { summary: res.summary } : {}),
-        ...(res.title ? { title: res.title } : {}),
-      };
-    } catch (e) {
-      console.debug("Claude Companion: auto-tag failed", e);
-      return { tags: [] };
-    }
-  }
-
-  /**
-   * A title derived from the *answer*, never the prompt. Used as a fallback when
-   * the indexer (which produces a better title) is disabled or fails.
-   */
-  private fallbackTitle(): string {
-    const firstAssistant = this.messages.find((m) => m.role === "assistant")?.content ?? "";
-    const line = firstAssistant
-      .split("\n")
-      .map((l) => l.replace(/^#+\s*/, "").replace(/[*_`]/g, "").trim())
-      .find((l) => l.length > 0) ?? "";
-    // Match the first sentence with a lookahead (lookbehind is unsupported on iOS < 16.4).
-    const sentence = line.match(/^.*?[.?!](?=\s)/)?.[0] || line;
-    return (sentence || "Claude chat").slice(0, 60);
-  }
-
-  /**
-   * Save a reply as a durable, indexed note. If the reply contains a
-   * `claude-html` artifact, it's saved as an artifact note (renders inline) —
-   * not a raw fenced dump. Either way it gets auto-tags + a summary in
-   * frontmatter so semantic/query search and Dataview index it correctly.
-   */
-  private async saveReplyAsNote(full: string): Promise<void> {
-    const artifact = extractArtifact(full);
-    new Notice("Indexing & saving…");
-
-    // A plan reply carries a `## Build tasks` checklist. Save it as a canonical
-    // `type: plan` note (artifact renders inline + checklist drives Build).
-    if (extractTasks(full).length > 0) {
-      const { tags, summary, title } = await this.maybeIndex(full);
-      const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
-      const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
-        extraTags: tags,
-        ...(summary !== undefined ? { summary } : {}),
-      });
-      await this.app.workspace.getLeaf(true).openFile(file);
-      return;
-    }
-
-    if (artifact) {
-      const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
-      const file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
-        height: this.plugin.settings.artifactHeight,
-        baseTags: this.plugin.settings.artifactBaseTags,
-        extraTags: tags,
-        ...(summary !== undefined ? { summary } : {}),
-      });
-      await this.app.workspace.getLeaf(true).openFile(file);
-      return;
-    }
-    const { tags, summary, title } = await this.maybeIndex(full);
-    const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
-      baseTags: this.plugin.settings.chatBaseTags,
-      extraTags: tags,
-      ...(summary !== undefined ? { summary } : {}),
-    });
-  }
-
-  private actionBtn(bar: HTMLElement, label: string, icon: string, onClick: () => void): HTMLButtonElement {
-    const btn = bar.createEl("button", { cls: "cc-action clickable-icon", attr: { "aria-label": label, title: label } });
-    setIcon(btn, icon);
-    btn.addEventListener("click", onClick);
-    return btn;
-  }
-
-  private insertIntoNote(text: string): void {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view) {
-      new Notice("Open a note to insert into.");
-      return;
-    }
-    view.editor.replaceSelection(text);
-    quickNotice("Inserted into note");
-  }
-
-  private async saveChat(): Promise<void> {
-    if (this.messages.length === 0) {
-      new Notice("Nothing to save yet.");
-      return;
-    }
-    const md = this.messages.map((m) => `**${m.role === "user" ? "You" : "Claude"}:**\n\n${m.content}`).join("\n\n---\n\n");
-    new Notice("Indexing & saving…");
-    const { tags, summary, title } = await this.maybeIndex(md);
-    const finalTitle = title ?? this.fallbackTitle();
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, finalTitle, md, {
-      baseTags: this.plugin.settings.chatBaseTags,
-      extraTags: tags,
-      ...(summary !== undefined ? { summary } : {}),
-    });
-    if (this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
-      await this.plugin.captureConversation(this.messages); // also file this chat into memory
-    }
-  }
-
-  private scrollToBottom(): void {
-    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
-  }
 }
