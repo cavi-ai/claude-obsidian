@@ -15,7 +15,7 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import { ModeControl, type ChatMode } from "./ModeControl";
+import type { ChatMode } from "./ModeControl";
 import { skillSlashCommands, workflowSlashCommands, SLASH_COMMANDS, type SlashCommand, runNativeSlashCommand, templateSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { type AttachedPage } from "../context/urlContext";
@@ -25,7 +25,6 @@ import { composeSkillPrompt, parseSkillInvocation, skillDisplay } from "../skill
 import { splitStreamingArtifact } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { type MediaAttachment } from "../context/attachments";
-import { AtMenu } from "./AtMenu";
 import { type AtItem, type ClaimAtSource } from "../context/atMention";
 import { type ErrorHintProvider } from "../providers/errorHints";
 import { needsCredentialSetup } from "../providers/setupState";
@@ -89,15 +88,6 @@ export class ChatView extends ItemView {
   private header: HeaderControls;
   private get modelLabelEl(): HTMLElement { return this.header.modelLabelEl; }
   private set modelLabelEl(v: HTMLElement) { this.header.modelLabelEl = v; }
-  /** Desktop only: the text span nested inside the cc-model chip (dot + text + chevron). */
-  private get modelTextEl(): HTMLElement | null { return this.header.modelTextEl; }
-  private set modelTextEl(v: HTMLElement | null) { this.header.modelTextEl = v; }
-  private get backendPillEl(): HTMLElement { return this.header.backendPillEl; }
-  private set backendPillEl(v: HTMLElement) { this.header.backendPillEl = v; }
-  private get writeGrantPillEl(): HTMLElement { return this.header.writeGrantPillEl; }
-  private set writeGrantPillEl(v: HTMLElement) { this.header.writeGrantPillEl = v; }
-  private get mcpStatusEl(): HTMLButtonElement { return this.header.mcpStatusEl; }
-  private set mcpStatusEl(v: HTMLButtonElement) { this.header.mcpStatusEl = v; }
   private composer: Composer;
   private messages: ChatMessage[] = [];
   private transcript: Transcript;
@@ -107,8 +97,6 @@ export class ChatView extends ItemView {
   private set inputEl(v: HTMLTextAreaElement) { this.composer.inputEl = v; }
   private get sendBtn(): HTMLButtonElement { return this.composer.sendBtn; }
   private set sendBtn(v: HTMLButtonElement) { this.composer.sendBtn = v; }
-  get modeControl(): ModeControl | null { return this.composer.modeControl; }
-  set modeControl(v: ModeControl | null) { this.composer.modeControl = v; }
   private get usageEl(): HTMLElement { return this.header.usageEl; }
   private set usageEl(v: HTMLElement) { this.header.usageEl = v; }
   private get gaugeFillEl(): HTMLElement { return this.header.gaugeFillEl; }
@@ -127,10 +115,6 @@ export class ChatView extends ItemView {
   private controls!: ChatControls;
   private get controlsEl(): HTMLElement { return this.composer.controlsEl; }
   private set controlsEl(v: HTMLElement) { this.composer.controlsEl = v; }
-  private get knobsEl(): HTMLElement { return this.composer.knobsEl; }
-  private set knobsEl(v: HTMLElement) { this.composer.knobsEl = v; }
-  private get atMenu(): AtMenu { return this.composer.atMenu; }
-  private set atMenu(v: AtMenu) { this.composer.atMenu = v; }
   private get contextManager(): ComposerContextManager { return this.composer.contextManager; }
   private set contextManager(v: ComposerContextManager) { this.composer.contextManager = v; }
   /** Notes/folders explicitly attached via "@" (session-scoped). */
@@ -171,12 +155,6 @@ export class ChatView extends ItemView {
   /** Web pages attached via "Attach page content" (captured markdown). */
   private get attachedPages(): AttachedPage[] { return this.composer.attachedPages; }
   private set attachedPages(v: AttachedPage[]) { this.composer.attachedPages = v; }
-  /** The "attach this page?" offer chip; one at a time. */
-  private get pageOfferEl(): HTMLElement { return this.composer.pageOfferEl; }
-  private set pageOfferEl(v: HTMLElement) { this.composer.pageOfferEl = v; }
-  /** URL the user declined to attach — don't re-offer while it stays in the input. */
-  private get dismissedPageUrl(): string | null { return this.composer.dismissedPageUrl; }
-  private set dismissedPageUrl(v: string | null) { this.composer.dismissedPageUrl = v; }
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private _lastBuffer = "";
   /** "Allow for this session" on agent write confirmations (cleared with the view). */
@@ -185,8 +163,6 @@ export class ChatView extends ItemView {
   private planMode = false;
   /** Whether the current chat backend can run tool-driven agent turns (refreshed per turn + backend change). */
   private agentCapable = false;
-  private get reasoningEl(): HTMLButtonElement | null { return this.composer.reasoningEl; }
-  private set reasoningEl(v: HTMLButtonElement | null) { this.composer.reasoningEl = v; }
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
   private cliSetupProbeInFlight = new Set<string>();
 
@@ -658,8 +634,8 @@ export class ChatView extends ItemView {
     void this.plugin.startNewConversation();
     this.attachedPaths = [];
     this.attachedPages = [];
-    this.dismissedPageUrl = null;
-    this.pageOfferEl?.setCssStyles({ display: "none" });
+    this.composer.dismissedPageUrl = null;
+    this.composer.pageOfferEl?.setCssStyles({ display: "none" });
     this.renderContextManager();
     this.messagesEl.empty();
     this.renderEmptyState();
@@ -1263,8 +1239,8 @@ export class ChatView extends ItemView {
 
   /** Reflect the mode control: hidden when the session can't act, state from currentMode(). */
   private updateModeControl(): void {
-    this.modeControl?.setVisible(this.agentCapable);
-    this.modeControl?.set(this.currentMode());
+    this.composer.modeControl?.setVisible(this.agentCapable);
+    this.composer.modeControl?.set(this.currentMode());
   }
 
   /** Apply an Ask / Plan / Act switch: writes setting + Plan Mode, the matching notice, then persist if writes changed. */
