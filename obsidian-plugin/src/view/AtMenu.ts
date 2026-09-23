@@ -12,6 +12,7 @@ const ICON: Record<AtKind, string> = {
   "base-path": "table",
   claim: "quote",
   recent: "clock",
+  project: "folder-kanban",
 };
 
 /** Short kind badge shown on rows for the newer, less self-explanatory kinds. */
@@ -19,6 +20,7 @@ const BADGE: Partial<Record<AtKind, string>> = {
   "base-path": "Base",
   claim: "Claim",
   recent: "Recent",
+  project: "Project",
 };
 
 /**

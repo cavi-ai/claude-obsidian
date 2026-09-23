@@ -2,7 +2,7 @@
 // list, filtering it, and detecting the active @-token at the cursor. The view
 // (AtMenu) and ChatView wire these to the editor + context-gathering.
 
-export type AtKind = "note" | "selection" | "linked" | "vault" | "note-path" | "folder-path" | "media-path" | "base-path" | "claim" | "recent";
+export type AtKind = "note" | "selection" | "linked" | "vault" | "note-path" | "folder-path" | "media-path" | "base-path" | "claim" | "recent" | "project";
 
 export interface AtItem {
   /** Stable id (kind, or kind:path). */
@@ -21,6 +21,12 @@ export interface ClaimAtSource {
   path: string;
   label: string;
   project: string;
+}
+
+/** A chat project as offered to the "@" picker. */
+export interface ProjectAtSource {
+  id: string;
+  name: string;
 }
 
 /** The four "special" context sources, always offered first. */
@@ -64,7 +70,18 @@ export function buildClaimItems(claims: ClaimAtSource[]): AtItem[] {
   }));
 }
 
-/** Build the full candidate list: specials, recents, notes, folders, bases, claims, media. */
+/** Chat-project items, badged "project", offered right after the specials. */
+function buildProjectItems(projects: ProjectAtSource[]): AtItem[] {
+  return projects.map((p) => ({
+    id: `project:${p.id}`,
+    kind: "project",
+    label: p.name,
+    sublabel: "project",
+    path: p.id,
+  }));
+}
+
+/** Build the full candidate list: specials, projects, recents, notes, folders, bases, claims, media. */
 export function buildAtItems(
   notePaths: string[],
   folderPaths: string[],
@@ -72,6 +89,7 @@ export function buildAtItems(
   basePaths: string[] = [],
   claims: ClaimAtSource[] = [],
   recentPaths: string[] = [],
+  projects: ProjectAtSource[] = [],
 ): AtItem[] {
   const notes: AtItem[] = notePaths.map((p) => ({
     id: `note-path:${p}`,
@@ -94,7 +112,7 @@ export function buildAtItems(
     sublabel: p,
     path: p,
   }));
-  return [...AT_SPECIALS, ...buildRecentItems(recentPaths), ...notes, ...folders, ...buildBaseItems(basePaths), ...buildClaimItems(claims), ...media];
+  return [...AT_SPECIALS, ...buildProjectItems(projects), ...buildRecentItems(recentPaths), ...notes, ...folders, ...buildBaseItems(basePaths), ...buildClaimItems(claims), ...media];
 }
 
 /**
