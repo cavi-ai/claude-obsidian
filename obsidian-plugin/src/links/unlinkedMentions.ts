@@ -128,6 +128,11 @@ function maskNonProse(content: string): string {
   out = out.replace(/!?\[\[[^\]]*\]\]/g, blank);
   // Markdown links: mask the whole [text](target).
   out = out.replace(/\[[^\]\n]*\]\([^)\n]*\)/g, blank);
+  // Autolinks and bare URLs — a note title can appear inside a path segment.
+  out = out.replace(/<https?:\/\/[^>\s]+>/g, blank);
+  out = out.replace(/\bhttps?:\/\/[^\s<>()]+/g, blank);
+  // Obsidian tags (#tag, #nested/tag) — never prose, so never link-worthy.
+  out = out.replace(/(^|\s)#[\p{L}\p{N}_/-]+/gmu, (m, lead: string) => lead + blank(m.slice(lead.length)));
   return out;
 }
 

@@ -8,6 +8,8 @@ const candidates: LinkCandidate[] = [
   { path: "Ok.md", basename: "Ok", aliases: [] }, // <3 chars — never suggested
 ];
 
+const reactCandidates: LinkCandidate[] = [{ path: "react.md", basename: "react", aliases: [] }];
+
 describe("findUnlinkedMentions", () => {
   it("finds a whole-word title mention with position and line", () => {
     const content = "Plans\n\nThe Weekly Review went well.\n";
@@ -65,6 +67,33 @@ And \`Weekly Review\` inline. But GTD in prose.`;
     const many: LinkCandidate[] = Array.from({ length: 40 }, (_, i) => ({ path: `N${i}.md`, basename: `Topic${i}xyz`, aliases: [] }));
     const bigContent = many.map((c) => c.basename).join(" ");
     expect(findUnlinkedMentions(bigContent, many, "X.md").length).toBeLessThanOrEqual(20);
+  });
+
+  it("does not match inside a bare URL", () => {
+    const content = "See https://github.com/remix-run/react-router for routing.";
+    expect(findUnlinkedMentions(content, reactCandidates, "X.md")).toEqual([]);
+  });
+
+  it("does not match inside an autolink", () => {
+    const content = "See <https://example.com/react> for details.";
+    expect(findUnlinkedMentions(content, reactCandidates, "X.md")).toEqual([]);
+  });
+
+  it("still finds the mention in plain prose", () => {
+    const content = "react is a UI library";
+    const paths = findUnlinkedMentions(content, reactCandidates, "X.md").map((m) => m.path);
+    expect(paths).toEqual(["react.md"]);
+  });
+
+  it("does not match inside a tag", () => {
+    expect(findUnlinkedMentions("Tagged #react today", reactCandidates, "X.md")).toEqual([]);
+    expect(findUnlinkedMentions("#ai/react", reactCandidates, "X.md")).toEqual([]);
+  });
+
+  it("still finds a mention after a heading hash", () => {
+    const content = "# React\n\nSome intro.";
+    const paths = findUnlinkedMentions(content, reactCandidates, "X.md").map((m) => m.path);
+    expect(paths).toEqual(["react.md"]);
   });
 
   it("normalizes a note once regardless of candidate count", () => {
