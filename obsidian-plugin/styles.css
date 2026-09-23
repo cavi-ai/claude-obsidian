@@ -1600,6 +1600,24 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+.cc-inbox-organize {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 4px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--cc-clay);
+  background: transparent;
+  color: var(--cc-clay);
+  font-weight: 600;
+  cursor: pointer;
+}
+.cc-inbox-organize:active {
+  transform: scale(0.97);
+}
+.cc-inbox-organize:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .cc-inbox-wireup {
   margin-top: 18px;
 }
