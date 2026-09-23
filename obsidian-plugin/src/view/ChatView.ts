@@ -1,7 +1,8 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Menu, Modal, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { ChatMessage, ContextToggles, ToolTraceEntry } from "../types";
-import { providerTurnRunner, type AgentTurnDeps, type AgentTurnRunner } from "../agent/loop";
+import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
+import type { ChatTurnService, TurnEvent } from "../chat/turnService";
 import { executeTool, toAnthropicTools, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
@@ -54,6 +55,18 @@ function previewText(text: string): string {
   return text.length > 400 ? `${text.slice(0, 400)}…` : text;
 }
 
+/** The message list a turn should persist as: `base` plus the assistant reply, when one was produced. */
+function appendAssistantMessage(base: ChatMessage[], result: AgentTurnResult): ChatMessage[] {
+  const full = result.text.trim();
+  if (!full) return base;
+  return [...base, { role: "assistant", content: result.text, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) }];
+}
+
+/** Tag which provider a fallback-ineligible error actually failed on, for renderError's hint. */
+function tagProvider(error: Error | undefined, provider: ErrorHintProvider): void {
+  if (error) (error as Error & { ccProvider?: ErrorHintProvider }).ccProvider = provider;
+}
+
 /** Defensive shape-check of a propose_note_edit `edits` argument. */
 function parseProposedEdits(v: unknown): ProposedEdit[] {
   if (!Array.isArray(v) || v.length === 0) throw new Error("propose_note_edit requires a non-empty 'edits' array.");
@@ -92,6 +105,8 @@ export class ChatView extends ItemView {
   private abort: AbortController | null = null;
   private currentTurn: { conversationId: string; turnId: string } | null = null;
   private unregisterCurrentTurn: (() => void) | null = null;
+  /** Detaches this view from the live turn's event stream (does not stop the turn). */
+  private turnRenderUnsubscribe: (() => void) | null = null;
   private resumeCliSessionId: string | null = null;
   private session: SessionUsage = { ...EMPTY_SESSION };
   /** Usage for the in-flight turn; folded into the session once on completion. */
@@ -414,9 +429,7 @@ export class ChatView extends ItemView {
 
   /** Replace the panel contents with a stored conversation and render it. */
   loadConversation(conversation: Conversation): void {
-    void this.stopCurrentTurn();
-    this.streaming = false;
-    this.setSending(false);
+    this.detachTurnRendering();
     this.session = { ...EMPTY_SESSION };
     this.messages = compactMessages(conversation.messages);
     this.messagesEl.empty();
@@ -424,10 +437,33 @@ export class ChatView extends ItemView {
       this.renderEmptyState();
     } else {
       for (const m of this.messages) this.renderStoredMessage(m);
-      if (conversation.activeTurn) this.renderInterruptedTurn(conversation);
+      const live = this.plugin.turnService().live(conversation.id);
+      if (live) this.attachLiveTurn(conversation.id, live.turnId);
+      else if (conversation.activeTurn) this.renderInterruptedTurn(conversation);
     }
     this.updateUsageBar();
     this.scrollToBottom();
+  }
+
+  /** Reattach to a turn already running elsewhere: replay its buffer, then stream live. */
+  private attachLiveTurn(conversationId: string, turnId: string): void {
+    this.currentTurn = { conversationId, turnId };
+    this.setSending(true);
+    this._turnUsage = null;
+    const { bubble, body } = this.createAssistantBubble();
+    const wantThinking = !!(this.controls?.thinking && this.controls?.showThinking);
+    this.turnRenderUnsubscribe = this.startTurnRendering(conversationId, bubble, body, wantThinking, this.plugin.turnService());
+  }
+
+  /** Unsubscribe from the live turn's events without stopping it, and reset this view's send-state. */
+  private detachTurnRendering(): void {
+    this.turnRenderUnsubscribe?.();
+    this.turnRenderUnsubscribe = null;
+    this.unregisterCurrentTurn = null;
+    this.currentTurn = null;
+    this.abort = null;
+    this.streaming = false;
+    this.setSending(false);
   }
 
   /** Render one persisted message, including assistant action buttons. */
@@ -455,9 +491,7 @@ export class ChatView extends ItemView {
 
   /** Clear the panel to its empty state without altering stored history. */
   resetToEmpty(): void {
-    void this.stopCurrentTurn();
-    this.streaming = false;
-    this.setSending(false);
+    this.detachTurnRendering();
     this.messages = [];
     this.session = { ...EMPTY_SESSION };
     this.messagesEl.empty();
@@ -547,7 +581,9 @@ export class ChatView extends ItemView {
     this.templateReloadGeneration++;
     this.disposeChrome?.(false);
     this.disposeChrome = null;
-    await this.stopCurrentTurn();
+    // A live turn keeps running (and persisting) after the pane closes — only
+    // detach this view from its event stream (P5, ChatTurnService).
+    this.detachTurnRendering();
     this.clearThinkingStatus();
     if (this.contextStatusInterval !== null) {
       window.clearInterval(this.contextStatusInterval);
@@ -1220,8 +1256,7 @@ export class ChatView extends ItemView {
   }
 
   clearChat(): void {
-    this.abort?.abort();
-    this.streaming = false;
+    this.detachTurnRendering();
     this.messages = [];
     this.session = { ...EMPTY_SESSION };
     // Plan Mode is per-conversation — a fresh chat starts with it off.
@@ -1472,6 +1507,9 @@ export class ChatView extends ItemView {
     }
 
     this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
+    // Snapshot now (not read from `this.messages` at completion) — the view may
+    // switch conversations while this turn is still in flight (P5).
+    const turnMessages = [...this.messages];
     let turn: { conversationId: string; turnId: string };
     try {
       turn = await this.plugin.beginActiveConversationTurn(this.messages, {
@@ -1560,47 +1598,56 @@ export class ChatView extends ItemView {
     }
 
     const { bubble, body } = this.createAssistantBubble();
-
-    // Attempt #1 on the primary backend (Claude unless backend is "local"/"custom").
     const startedOnLocal = caps.local;
-    const err1 = agentActive || caps.cli
-      ? await this.agentTurn(apiMessages, bubble, body)
-      : startedOnLocal
-        ? await this.streamTurn("local", apiMessages, bubble, body)
-        : await this.streamTurn("claude", apiMessages, bubble, body);
+    const wantThinking = agentActive || caps.cli
+      ? !!(this.controls.thinking && this.controls.showThinking)
+      : !startedOnLocal && !!(this.controls.thinking && this.controls.showThinking);
+    // The primary-backend/local-fallback decision (P5): runs inside
+    // ChatTurnService.start() so it keeps going — and still persists — even if
+    // this view closes mid-turn. Mirrors the fallback policy run() used to
+    // apply itself: an agent turn that already produced text/trace despite an
+    // error is a completed answer with a notice, never a fallback trigger.
+    const fallbackProviderId: ErrorHintProvider = caps.cli ? "claude-cli" : startedOnLocal ? "ollama" : "anthropic";
+    const coreRun = async (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => {
+      const primary = agentActive || caps.cli
+        ? await this.agentTurn(apiMessages, handlers, signal)
+        : startedOnLocal
+          ? await this.streamTurn("local", apiMessages, handlers, signal)
+          : await this.streamTurn("claude", apiMessages, handlers, signal);
+      if (!primary.error) return primary;
 
-    // Fallback: if Claude failed with an offline/usage error and a local model is
-    // available, retry transparently so you keep working with no internet/tokens.
-    if (err1) {
+      const isAgent = agentActive || caps.cli;
+      if (isAgent && (primary.text.trim().length > 0 || primary.trace.length > 0)) {
+        handlers.onNotice?.(`Turn ended early: ${primary.error.message}`);
+        return { text: primary.text, trace: primary.trace, ...(primary.aborted !== undefined ? { aborted: primary.aborted } : {}), ...(primary.capped !== undefined ? { capped: primary.capped } : {}) };
+      }
+
       const fb = await router.localFallback();
-      const doFallback = shouldFallbackToLocal({ backend, localAvailable: fb !== null, error: err1 });
-      if (doFallback && fb) {
-        this.annotateFallback(bubble, fallbackReason(err1), fb.model);
-        const err2 = await this.streamTurn("local", apiMessages, bubble, body, fb);
-        if (err2) {
-          // Keep whatever streamed before the failure — persist it like an
-          // abort, then append the error below it.
-          await this.finishAssistant(this._lastBuffer || null, bubble, undefined, "interrupted");
-          this.renderError(body, err2.message ?? "Request failed", fb.provider.id);
-          this.restoreMediaAfterFailure();
-        }
-      } else {
-        await this.finishAssistant(this._lastBuffer || null, bubble, undefined, "interrupted");
-        this.renderError(body, err1.message ?? "Request failed", caps.cli ? "claude-cli" : startedOnLocal ? "ollama" : "anthropic");
-        this.restoreMediaAfterFailure();
+      const doFallback = shouldFallbackToLocal({ backend, localAvailable: fb !== null, error: primary.error });
+      if (!doFallback || !fb) {
+        tagProvider(primary.error, fallbackProviderId);
+        return primary;
       }
-    }
+      handlers.onNotice?.(`${fallbackReason(primary.error)} — answered locally with ${fb.model}.`);
+      const fallback = await this.streamTurn("local", apiMessages, handlers, signal, fb);
+      if (fallback.error) tagProvider(fallback.error, fb.provider.id);
+      return fallback;
+    };
 
-    // If a stream ended without onDone (usually an abort), keep ordinary text
-    // recoverable but never persist a half-generated HTML artifact fence.
-    if (this.streaming) {
-      if (this._lastBuffer && hasIncompleteHtmlArtifactFence(this._lastBuffer)) {
-        this.renderInterruptedArtifact(body);
-        await this.finishAssistant(null, bubble, undefined, "interrupted");
-      } else {
-        await this.finishAssistant(this._lastBuffer || null, bubble, undefined, "interrupted");
-      }
-    }
+    // Cache one instance for this turn's whole lifecycle — start() and the
+    // subscribe() below must land on the same ChatTurnService (plugin.turnService()
+    // is a memoized singleton in production, but nothing here should rely on that).
+    const turnService = this.plugin.turnService();
+    const handle = turnService.start(turn.conversationId, {
+      turnId: turn.turnId,
+      title: display ?? userText,
+      run: coreRun,
+      completeTurn: (result) => this.plugin.completeActiveConversationTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result)),
+      interruptTurn: (result, error) => this.plugin.interruptActiveConversationTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), error?.message ?? "Interrupted"),
+      registerTurn: (stop) => this.plugin.registerActiveChatTurn(turn.conversationId, turn.turnId, stop),
+    });
+    this.turnRenderUnsubscribe = this.startTurnRendering(turn.conversationId, bubble, body, wantThinking, turnService);
+    await handle.result.catch(() => undefined);
   }
 
   /** Adapt this view to the TurnRenderer host contract (one per turn). */
@@ -1622,17 +1669,17 @@ export class ChatView extends ItemView {
   }
 
   /**
-   * Run one streaming attempt on a backend. Resolves to the error if it failed
-   * (for the fallback decision), or null on success (onDone fired). The answer
-   * and reasoning render into the passed bubble/body.
+   * Run one streaming attempt on a backend, emitting through `handlers` instead
+   * of touching the DOM directly — the view (attached or not) renders from the
+   * ChatTurnService event stream (P5). Always resolves; never rejects.
    */
   private streamTurn(
     target: "claude" | "local",
     apiMessages: ApiMessage[],
-    bubble: HTMLElement,
-    body: HTMLElement,
+    handlers: AgentTurnHandlers,
+    signal: AbortSignal,
     localOverride?: { provider: Provider; model: string },
-  ): Promise<{ message?: string; status?: number } | null> {
+  ): Promise<AgentTurnResult> {
     const router = this.plugin.router();
     const onClaude = target === "claude";
     // "local" = the configured non-Claude chat backend (Ollama, or the custom
@@ -1644,74 +1691,70 @@ export class ChatView extends ItemView {
       ? (this.turnModelOverride ?? this.controls.model)
       : localOverride?.model ?? (useCustom ? this.plugin.settings.openaiCompatModel : this.plugin.settings.ollamaModel);
     const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
-    const renderer = new TurnRenderer(this.turnHost(), bubble, body, onClaude && this.controls.thinking && this.controls.showThinking);
 
     return new Promise((resolve) => {
       let settled = false;
+      let buffer = "";
+      const fail = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        const status = (error as { status?: number } | null)?.status;
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (status !== undefined) (err as Error & { status?: number }).status = status;
+        resolve({ text: buffer, trace: [], error: err });
+      };
       const request: CompletionRequest = {
         system: this.plugin.composeSystemPrompt(),
         messages: apiMessages,
         model,
         maxTokens: shape.maxTokens,
+        signal,
       };
       if (onClaude && shape.temperature !== undefined) request.temperature = shape.temperature;
       if (onClaude && shape.thinking !== undefined) request.thinking = shape.thinking;
       if (onClaude && shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
       if (onClaude && shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
-      if (this.abort?.signal) request.signal = this.abort.signal;
       void provider.stream(
         request,
         {
-          onThinking: (delta) => renderer.onThinking(delta),
-          onText: (delta) => renderer.onText(delta),
-          onError: (err) => {
-            if (settled) return;
-            settled = true;
-            const status = (err as { status?: number }).status;
-            resolve(status !== undefined ? { message: err.message, status } : { message: err.message });
+          onThinking: (delta) => handlers.onThinking?.(delta),
+          onText: (delta) => {
+            buffer += delta;
+            handlers.onText(delta);
           },
-          onUsage: (usage) => renderer.onUsage(usage),
-          onTruncated: () => renderer.onTruncated(),
+          onError: (err) => fail(err),
+          onUsage: (usage) => handlers.onUsage?.(usage),
+          onTruncated: () => handlers.onTruncated?.(),
           onDone: (full) => {
             if (settled) return;
             settled = true;
-            void renderer.finalize(full).then(async () => {
-              await this.finishAssistant(full, bubble);
-              resolve(null);
-            }).catch((error: unknown) => {
-              resolve({ message: error instanceof Error ? error.message : String(error) });
-            });
+            resolve({ text: full, trace: [] });
           },
         },
       ).then(() => {
-        // stream() resolved without onError/onDone (e.g. aborted) — not an error.
+        // stream() resolved without onError/onDone (e.g. aborted) — keep the
+        // partial buffer, no error.
         if (!settled) {
           settled = true;
-          resolve(null);
+          resolve({ text: buffer, trace: [], aborted: true });
         }
-      }).catch((error: unknown) => {
-        if (settled) return;
-        settled = true;
-        const status = (error as { status?: number } | null)?.status;
-        const message = error instanceof Error ? error.message : String(error);
-        resolve(status !== undefined ? { message, status } : { message });
-      });
+      }).catch((error: unknown) => fail(error));
     });
   }
 
   /**
    * Run one agent-mode turn: Claude may call vault tools between streaming
-   * passes (spec 2026-07-05). Resolves like streamTurn — error info when the
-   * turn produced nothing (so run() can fall back to local), null when handled.
+   * passes (spec 2026-07-05). Always resolves; the caller (coreRun in run())
+   * decides whether an error means fallback, a completed-with-notice answer,
+   * or a hard failure.
    */
   private async agentTurn(
     apiMessages: ApiMessage[],
-    bubble: HTMLElement,
-    body: HTMLElement,
-  ): Promise<{ message?: string; status?: number } | null> {
+    handlers: AgentTurnHandlers,
+    signal: AbortSignal,
+  ): Promise<AgentTurnResult> {
     const { provider, model: providerModel } = this.plugin.router().chatProvider();
     const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
-    const renderer = new TurnRenderer(this.turnHost(), bubble, body, this.controls.thinking && this.controls.showThinking);
     const externalTools = this.planMode ? [] : await this.plugin.externalMcpTools().catch(() => []);
 
     const request: CompletionRequest = {
@@ -1719,6 +1762,7 @@ export class ChatView extends ItemView {
       messages: apiMessages,
       model: this.turnModelOverride ?? providerModel,
       maxTokens: shape.maxTokens,
+      signal,
       // Plan Mode forces the read-only set regardless of agentAllowWrites, and
       // drops propose_note_edit — the turn should end in a plan, not an edit.
       // Otherwise propose_note_edit rides along regardless of agentAllowWrites —
@@ -1731,14 +1775,12 @@ export class ChatView extends ItemView {
     if (shape.thinking !== undefined) request.thinking = shape.thinking;
     if (shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
     if (shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
-    if (this.abort?.signal) request.signal = this.abort.signal;
 
-    const chips = this.createToolChips(bubble, body);
     const deps: AgentTurnDeps = {
-      stream: (req, handlers) => provider.stream(req, handlers),
-      execute: (block, signal) =>
+      stream: (req, h) => provider.stream(req, h),
+      execute: (block, sig) =>
         parseExternalToolName(block.name)
-          ? this.executeExternalMcp(block, signal)
+          ? this.executeExternalMcp(block, sig)
           : executeTool(
               {
                 call: (name, args) => this.plugin.agentTools().call(name, args),
@@ -1748,58 +1790,25 @@ export class ChatView extends ItemView {
               block,
             ),
       maxIterations: this.plugin.settings.agentMaxIterations,
-      ...(this.abort?.signal ? { signal: this.abort.signal } : {}),
+      signal,
     };
 
     let runner: AgentTurnRunner;
     try {
-      runner = await this.turnRunnerFor(deps, request);
+      runner = await this.turnRunnerFor(deps, request, signal);
     } catch (error) {
-      return { message: error instanceof Error ? error.message : String(error) };
+      return { text: "", trace: [], error: error instanceof Error ? error : new Error(String(error)) };
     }
-    const result = await runner.run(request, {
-      onText: (delta) => renderer.onText(delta),
-      onThinking: (delta) => renderer.onThinking(delta),
-      onUsage: (usage) => renderer.onUsage(usage),
-      onTruncated: () => renderer.onTruncated(),
-      onToolStart: (block) => chips.start(block),
-      onToolResult: (block, res) => {
-        chips.finish(block, res);
-        renderer.markToolBoundary();
-      },
-      onNotice: (text) => this.annotateAgentNotice(bubble, text),
-    });
-
-    // Nothing rendered and nothing ran → let run() decide on the local fallback.
-    if (result.error && result.trace.length === 0 && result.text.trim().length === 0) {
-      const status = (result.error as { status?: number }).status;
-      return { message: result.error.message, ...(status !== undefined ? { status } : {}) };
-    }
-
-    if (result.error) this.annotateAgentNotice(bubble, `Turn ended early: ${result.error.message}`);
-    try {
-      await renderer.finalize(result.text);
-    } catch (error) {
-      const status = (error as { status?: number } | null)?.status;
-      const message = error instanceof Error ? error.message : String(error);
-      return { message, ...(status !== undefined ? { status } : {}) };
-    }
-    await this.finishAssistant(
-      result.text.trim().length > 0 ? result.text : null,
-      bubble,
-      result.trace,
-      result.aborted ? "interrupted" : "completed",
-    );
-    return null;
+    return runner.run(request, handlers);
   }
 
   /** The CLI runs the turn when the backend is Claude Code; otherwise today's provider loop does. */
-  private async turnRunnerFor(deps: AgentTurnDeps, request: CompletionRequest): Promise<AgentTurnRunner> {
+  private async turnRunnerFor(deps: AgentTurnDeps, request: CompletionRequest, signal?: AbortSignal): Promise<AgentTurnRunner> {
     const caps = this.plugin.router().chatCapabilities();
     if (!caps.cli) return providerTurnRunner(deps);
     if (!this.agentCapable) request.tools = [];
     const conversationId = this.currentTurn?.conversationId ?? this.plugin.activeConversationId();
-    this.abort?.signal.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
+    signal?.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
     return this.plugin.cliTurnRunner({
       conversationId,
       planMode: this.planMode,
@@ -1809,6 +1818,94 @@ export class ChatView extends ItemView {
       transcript: this.resumeCliSessionId ? "" : transcriptText(this.messages.slice(0, -1)),
       ...(this.resumeCliSessionId ? { resumeSessionId: this.resumeCliSessionId } : {}),
     });
+  }
+
+  /**
+   * Subscribe this view's bubble/body to a conversation's live turn (P5): the
+   * replay buffer renders first, then live events, through the same
+   * TurnRenderer/tool-chips pipeline a same-view run() used to drive directly.
+   * Returns the unsubscribe — self-invoked once the turn settles.
+   */
+  private startTurnRendering(conversationId: string, bubble: HTMLElement, body: HTMLElement, wantThinking: boolean, turnService: ChatTurnService): () => void {
+    const renderer = new TurnRenderer(this.turnHost(), bubble, body, wantThinking);
+    const chips = this.createToolChips(bubble, body);
+    let unsubscribe: () => void = () => undefined;
+    const settle = (result: AgentTurnResult): void => {
+      void this.settleTurnRendering(conversationId, bubble, body, renderer, result).finally(() => {
+        unsubscribe();
+        if (this.turnRenderUnsubscribe === unsubscribe) this.turnRenderUnsubscribe = null;
+      });
+    };
+    const apply = (event: TurnEvent): void => {
+      switch (event.kind) {
+        case "text": renderer.onText(event.delta); break;
+        case "thinking": renderer.onThinking(event.delta); break;
+        case "toolStart": chips.start(event.block); break;
+        case "toolResult": chips.finish(event.block, event.result); renderer.markToolBoundary(); break;
+        case "notice": this.annotateAgentNotice(bubble, event.text); break;
+        case "usage": renderer.onUsage(event.usage); break;
+        case "truncated": renderer.onTruncated(); break;
+        case "done": settle(event.result); break;
+        case "error": settle({ text: renderer.buffer, trace: [], error: event.error }); break;
+      }
+    };
+    unsubscribe = turnService.subscribe(conversationId, (message) => {
+      if (message.kind === "replay") { for (const e of message.events) apply(e); return; }
+      apply(message);
+    });
+    return unsubscribe;
+  }
+
+  /** The DOM-only half of finishing a turn: final render, persisted-message push (view-local), error box. Persistence itself runs through ChatTurnService's completeTurn/interruptTurn regardless of whether this fires. */
+  private async settleTurnRendering(
+    conversationId: string,
+    bubble: HTMLElement,
+    body: HTMLElement,
+    renderer: TurnRenderer,
+    result: AgentTurnResult,
+  ): Promise<void> {
+    // Idempotent per bubble: "done"/"error" and a stale replay can both reach
+    // here for the same turn — only the first call commits the message + actions.
+    if (bubble.dataset.ccFinished === "1") return;
+    bubble.dataset.ccFinished = "1";
+    this.clearThinkingStatus();
+
+    // Never persist a half-generated HTML artifact fence left by an abort.
+    const incompleteArtifact = !!result.aborted && hasIncompleteHtmlArtifactFence(result.text);
+    if (incompleteArtifact) {
+      this.renderInterruptedArtifact(body);
+    } else {
+      try {
+        await renderer.finalize(result.text);
+      } catch {
+        body.setText(result.text);
+      }
+    }
+    const full = !incompleteArtifact && result.text.trim().length > 0 ? result.text : null;
+    if (full) {
+      this.messages.push({ role: "assistant", content: full, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) });
+      this.addAssistantActions(bubble, full);
+    }
+    if (result.error && !full) {
+      const providerId = (result.error as Error & { ccProvider?: ErrorHintProvider }).ccProvider ?? "anthropic";
+      this.renderError(body, result.error.message || "Request failed", providerId);
+      this.restoreMediaAfterFailure();
+    }
+    if (this.currentTurn?.conversationId === conversationId) {
+      this.unregisterCurrentTurn = null;
+      this.currentTurn = null;
+      this.setSending(false);
+      this.abort = null;
+    }
+    // Fold this turn's usage into the session exactly once. The API emits usage
+    // on both message_start and message_delta; counting each event would double
+    // the request count and inflate output tokens.
+    if (this._turnUsage) {
+      this.session = addUsage(this.session, this._turnUsage);
+      this._turnUsage = null;
+    }
+    this.updateUsageBar();
+    this.scrollToBottom();
   }
 
   /**
@@ -1978,51 +2075,6 @@ export class ChatView extends ItemView {
   /** Muted status line under an agent turn (iteration cap, early end). */
   private annotateAgentNotice(bubble: HTMLElement, text: string): void {
     bubble.createDiv({ cls: "cc-agent-notice", text });
-  }
-
-  private async finishAssistant(
-    full: string | null,
-    bubble: HTMLElement,
-    trace?: ToolTraceEntry[],
-    outcome: "completed" | "interrupted" = "completed",
-  ): Promise<void> {
-    // Idempotent per bubble: onDone and the abort-safety net can both reach here
-    // for the same turn — only the first call commits the message + action bar.
-    if (bubble.dataset.ccFinished === "1") return;
-    bubble.dataset.ccFinished = "1";
-    this.clearThinkingStatus(); // covers no-text / error / abort turns
-    if (full && full.trim().length > 0) {
-      this.messages.push({ role: "assistant", content: full, ...(trace && trace.length > 0 ? { toolTrace: trace } : {}) });
-      this.addAssistantActions(bubble, full);
-    }
-    const turn = this.currentTurn;
-    try {
-      if (turn) {
-        if (outcome === "completed") await this.plugin.completeActiveConversationTurn(turn.conversationId, turn.turnId, this.messages);
-        else await this.plugin.interruptActiveConversationTurn(turn.conversationId, turn.turnId, this.messages);
-      } else {
-        await this.plugin.saveActiveConversation(this.messages);
-      }
-    } catch (error) {
-      new Notice(`The response is visible, but it could not be saved: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      if (turn && this.currentTurn?.turnId === turn.turnId) {
-        this.unregisterCurrentTurn?.();
-        this.unregisterCurrentTurn = null;
-        this.currentTurn = null;
-      }
-      this.setSending(false);
-      this.abort = null;
-    }
-    // Fold this turn's usage into the session exactly once. The API emits usage
-    // on both message_start and message_delta; counting each event would double
-    // the request count and inflate output tokens.
-    if (this._turnUsage) {
-      this.session = addUsage(this.session, this._turnUsage);
-      this._turnUsage = null;
-    }
-    this.updateUsageBar();
-    this.scrollToBottom();
   }
 
   private async stopCurrentTurn(): Promise<void> {
@@ -2370,14 +2422,6 @@ export class ChatView extends ItemView {
       run: () => void this.onModelSelect(choice.value),
     }));
     new ActionModal(this.app, "Choose model", items).open();
-  }
-
-  /** Note in the assistant bubble that we fell back to the local model. */
-  private annotateFallback(bubble: HTMLElement, reason: string, model?: string): void {
-    bubble.createDiv({
-      cls: "cc-fallback-note",
-      text: `${reason} — answered locally with ${model ?? this.plugin.settings.ollamaModel}.`,
-    });
   }
 
   private async renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void> {

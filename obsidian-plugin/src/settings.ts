@@ -533,6 +533,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       },
       { name: "Let Claude use vault tools", desc: "Claude can search and read your notes on its own while answering (read-only). Turn off for plain chat with pre-attached context.", control: { type: "toggle", key: "agentModeEnabled" } },
       { name: "Allow write tools", desc: "Also let Claude create, edit, and move notes from chat. Every write asks for your confirmation first.", control: { type: "toggle", key: "agentAllowWrites" } },
+      { name: "Notify when a turn finishes in the background", desc: "Show a system notice and a status-bar item if a turn completes while its chat pane is closed.", control: { type: "toggle", key: "notifyOnTurnComplete" } },
       { name: "Review edits in the editor", desc: "When the note is open, show proposed changes inline with word-level highlights and per-change Accept/Reject instead of a dialog.", control: { type: "toggle", key: "inlineDiffEnabled" } },
       { name: "Rewrite button on selection", desc: "Show a small “Rewrite with Claude” action above selected text. Desktop only.", control: { type: "toggle", key: "selectionActionEnabled" } },
       { name: "Max tool iterations per turn", desc: "How many search/read/write rounds Claude may take before it must answer.", control: { type: "slider", key: "agentMaxIterations", min: 1, max: 20, step: 1 } },
