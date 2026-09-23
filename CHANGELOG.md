@@ -4,7 +4,7 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.32.0] — 2026-09-23
 
 ### Added
 - **Chat projects.** Scope a conversation to a `chat-project` note or a
@@ -20,19 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chat on Codex or OpenCode, on your subscription (desktop).** The Chat
   backend dropdown gains "Codex" and "OpenCode" alongside Claude Code, each
   with its own status row, model field, and setup-card sign-in button.
-  `CliSession` (`src/cli/session.ts`, generalized from the former
-  `ClaudeCliSession`) runs Claude Code's persistent one-process-per-conversation
-  model unchanged, and adds a per-turn model for Codex/OpenCode: one process
-  per `run()`, the prompt passed as the CLI's positional argument with the
-  system prompt prepended only on the first turn, the CLI's own session id
-  captured from its events and threaded into the next turn's `resume`.
-  `CliProvider` (`src/providers/cliProvider.ts`, generalizing the former
-  `ClaudeCliProvider`) and `ProviderRouter` (`claudeCli`/`codexCli`/
-  `opencodeCli`) treat all three CLI backends alike for sign-in, fallback, and
-  capability reporting. The chat-scoped MCP bridge for Codex/OpenCode gates
-  every write tool call behind confirmation via `gatedWriteTools`/
-  `perTurnTools` (`src/cli/bridgeTools.ts`), since neither CLI has a
-  `--permission-prompt-tool` equivalent.
+  Conversations resume across turns, vault tools reach both CLIs, and every
+  vault write asks for confirmation.
 
 ### Changed
 - Internal restructure: `ChatView`'s header row, composer (input, @/slash
