@@ -17,12 +17,32 @@ export interface WizardState {
   ontologySeedPrompted: boolean;
 }
 
-/** Which wizard steps still have something to decide, in display order. */
-export function wizardPlan(state: WizardState): WizardStep[] {
+/** Steps 2 and 3 — never gated on a credential, in display order. */
+function postConnectSteps(state: WizardState): WizardStep[] {
   const steps: WizardStep[] = [];
-  if (state.needsCredential) steps.push("connect");
   if (state.isDesktop && !state.desktopIntegrationsOffered) steps.push("vault-tools");
   if (!state.semanticModelPrompted || !state.ontologySeedPrompted) steps.push("index");
+  return steps;
+}
+
+/**
+ * Which wizard steps may open on their own (layout-ready, or once a credential
+ * is saved), in display order. Empty while a credential is missing, mirroring
+ * `pendingFirstRunPrompts` — the chat setup card is the only step 1 until then.
+ */
+export function wizardPlan(state: WizardState): WizardStep[] {
+  return state.needsCredential ? [] : postConnectSteps(state);
+}
+
+/**
+ * Full plan for the explicit "Open setup wizard" command, which the user
+ * asked for directly — unlike `wizardPlan`, it includes the connect step
+ * when a credential is still missing.
+ */
+export function wizardPlanExplicit(state: WizardState): WizardStep[] {
+  const steps: WizardStep[] = [];
+  if (state.needsCredential) steps.push("connect");
+  steps.push(...postConnectSteps(state));
   return steps;
 }
 

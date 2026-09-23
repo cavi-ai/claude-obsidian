@@ -182,6 +182,19 @@ const BASIC_ACTION_NAMES: ReadonlySet<string> = new Set([
   "Step 1 — connect to Claude", // the one mandatory step, called out while it's missing
 ]);
 
+/** A page with zero basic items still shows with the toggle off when it configures the live setup. */
+const PAGE_RELEVANCE: Record<string, (s: PluginSettings) => boolean> = {
+  "Local models (Ollama & endpoints)": (s) =>
+    s.chatBackend === "local" || s.chatBackend === "auto" || s.chatBackend === "custom" ||
+    s.utilityBackend === "ollama" || s.utilityBackend === "custom",
+  "Agent bridge — MCP server (desktop)": (s) => s.mcpEnabled,
+  "External tools — MCP client": (s) => s.mcpClientServers.length > 0,
+  "Agent in the cloud (mobile-friendly)": (s) => s.cloudDispatchEnabled,
+  "Cloud replies (pull from repo)": (s) => s.cloudDispatchEnabled,
+  "Session memory": (s) => s.memoryEnabled,
+  "Scholarly discovery": (s) => s.discoveryEnabled,
+};
+
 /** Only groups/lists/pages carry a `type` at all — leaf definitions (control/action/render/empty) don't. */
 function isContainer(item: SettingDefinitionItem): item is Extract<SettingDefinitionItem, { type: "group" | "list" }> {
   return "type" in item && (item.type === "group" || item.type === "list");
@@ -215,16 +228,16 @@ function asItem(value: object): SettingDefinitionItem { return value as SettingD
  * gates advanced items' visibility behind `showAdvanced`, and hides a page
  * entirely (until `showAdvanced`) when none of its items are basic.
  */
-function applyTiers(items: SettingDefinitionItem[], showAdvanced: () => boolean): SettingDefinitionItem[] {
+function applyTiers(items: SettingDefinitionItem[], showAdvanced: () => boolean, settings: PluginSettings): SettingDefinitionItem[] {
   return items.map((item): SettingDefinitionItem => {
     if (isContainer(item)) {
-      const inner = item.items ? (applyTiers(item.items, showAdvanced) as unknown as SettingGroupItem[]) : item.items;
+      const inner = item.items ? (applyTiers(item.items, showAdvanced, settings) as unknown as SettingGroupItem[]) : item.items;
       return asItem({ ...item, items: inner });
     }
     if (isPage(item)) {
-      const pageHasBasic = hasBasicItem(item.items);
-      const gated = pageHasBasic ? { ...item } : { ...item, visible: withExtraVisible(item.visible, showAdvanced) };
-      const inner = item.items ? applyTiers(item.items, showAdvanced) : item.items;
+      const pageRelevant = hasBasicItem(item.items) || (PAGE_RELEVANCE[item.name]?.(settings) ?? false);
+      const gated = pageRelevant ? { ...item } : { ...item, visible: withExtraVisible(item.visible, showAdvanced) };
+      const inner = item.items ? applyTiers(item.items, showAdvanced, settings) : item.items;
       return asItem({ ...gated, items: inner });
     }
     const tier = leafTier(item);
@@ -331,7 +344,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   }
 
   override getSettingDefinitions(): SettingDefinitionItem[] {
-    return applyTiers(this.rawSettingDefinitions(), () => this.plugin.settings.settingsShowAdvanced);
+    return applyTiers(this.rawSettingDefinitions(), () => this.plugin.settings.settingsShowAdvanced, this.plugin.settings);
   }
 
   private rawSettingDefinitions(): SettingDefinitionItem[] {
