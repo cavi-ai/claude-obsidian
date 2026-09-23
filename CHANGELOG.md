@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--permission-prompt-tool` equivalent.
 
 ### Changed
+- Internal restructure: `ChatView`'s header row and composer (input, @/slash
+  menus, context manager) moved into dedicated `HeaderControls`/`Composer`
+  collaborators. No user-facing change.
 - **"@" picker adds bases, research claims, and recent notes.** The chat
   composer's "@" menu now also offers `.base` files, a recently opened note
   (max 5), and your active research projects' claims; a new "#" trigger lists
