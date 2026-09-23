@@ -227,7 +227,7 @@ export class ChatView extends ItemView {
       // desktop-only chrome (MCP, session capture) stays omitted.
       this.modelLabelEl.addClass("cc-model-tappable");
       this.modelLabelEl.addEventListener("click", () => this.openModelMenu());
-      const more = actions.createEl("button", { cls: "cc-icon-btn", attr: { "aria-label": "More actions" } });
+      const more = actions.createEl("button", { cls: "cc-icon-btn clickable-icon", attr: { "aria-label": "More actions" } });
       setIcon(more, "more-vertical");
       more.addEventListener("click", () => this.openOverflowMenu());
       // Quick options reaches mobile through that one ⋯ menu; a second control on
@@ -578,7 +578,7 @@ export class ChatView extends ItemView {
   // ---------- UI helpers ----------
 
   private iconButton(parent: HTMLElement, icon: string, tip: string, onClick: () => void): void {
-    const btn = parent.createEl("button", { cls: "cc-icon-btn", attr: { "aria-label": tip } });
+    const btn = parent.createEl("button", { cls: "cc-icon-btn clickable-icon", attr: { "aria-label": tip } });
     setIcon(btn, icon);
     btn.addEventListener("click", onClick);
   }
@@ -842,7 +842,7 @@ export class ChatView extends ItemView {
     // "tune" button, so the footer stays clean and Send is never buried.
     const tuneWrap = this.controlsEl.createDiv({ cls: "cc-tune" });
     const tuneBtn = tuneWrap.createEl("button", {
-      cls: "cc-icon-btn cc-tune-btn",
+      cls: "cc-icon-btn clickable-icon cc-tune-btn",
       attr: { "aria-label": "Model controls — thinking, temperature, max tokens", "aria-expanded": "false" },
     });
     setIcon(tuneBtn, "sliders-horizontal");
@@ -2609,7 +2609,7 @@ export class ChatView extends ItemView {
   }
 
   private actionBtn(bar: HTMLElement, label: string, icon: string, onClick: () => void): HTMLButtonElement {
-    const btn = bar.createEl("button", { cls: "cc-action", attr: { "aria-label": label, title: label } });
+    const btn = bar.createEl("button", { cls: "cc-action clickable-icon", attr: { "aria-label": label, title: label } });
     setIcon(btn, icon);
     btn.addEventListener("click", onClick);
     return btn;

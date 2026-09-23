@@ -88,7 +88,7 @@ body.theme-light {
   line-height: 1.2;
 }
 .cc-eyebrow {
-  /* Kept in the DOM for screen readers; the model chip carries the header visually on every platform. */
+  /* Screen-reader only; the model chip carries the header visually. */
   font-family: var(--cc-mono);
   font-size: var(--cc-text-2xs);
   letter-spacing: 0.1em;
@@ -175,8 +175,7 @@ body:not(.is-mobile) .cc-model.cc-model-tappable:hover {
 .cc-assistant + .cc-assistant {
   display: none;
 }
-/* Screen-reader-only on every platform: bubble side/the spark mark carry the
-   speaker visually, but "You"/"Claude" must still announce. */
+/* Screen-reader only: bubble shape and the spark mark show the speaker. */
 .cc-role { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .cc-body {
   /* Independent of Obsidian's editor font (--font-text-size), which is often
@@ -184,15 +183,14 @@ body:not(.is-mobile) .cc-model.cc-model-tappable:hover {
   font-size: var(--cc-chat-font, 14px);
   line-height: 1.55;
 }
-/* Desktop: a soft borderless card, indented from the left like a reply. */
+/* Desktop: soft borderless bubble; the hover overlay stays visible on sidebar backgrounds. */
 body:not(.is-mobile) .cc-user {
-  background: var(--cc-surface-raised);
+  background: var(--background-modifier-hover);
   border-radius: var(--cc-radius-lg);
   padding: var(--cc-space-2) var(--cc-space-3);
   margin-left: var(--cc-space-6);
 }
-/* The round spark mark before an assistant bubble's content, pinned top-left
-   of the bubble now that .cc-role no longer takes visual space. */
+/* Spark mark pinned top-left of an assistant bubble. */
 .cc-assistant {
   position: relative;
   padding-left: 28px;
@@ -235,7 +233,7 @@ body:not(.is-mobile) .cc-user {
 .cc-command-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-assistant .cc-body {
   padding: 2px 0;
-  /* Resolves through Obsidian's theme; serif only if the theme sets one — no hard-coded font. */
+  /* Theme text font; serif only when the theme sets one. */
   font-family: var(--font-text);
 }
 /* Placeholder shown in the chat while a `claude-html` artifact is still
@@ -377,14 +375,14 @@ body:not(.is-mobile) .cc-user {
   justify-content: center;
   padding: 2px;
   border-radius: 6px;
-  border: 1px solid var(--background-modifier-border);
+  border: none;
   background: transparent;
   color: var(--text-faint);
   opacity: 0.55;
   cursor: pointer;
   box-shadow: none;
 }
-/* Ghost: revealed on hover/focus of the whole message, not just the action itself. */
+/* Ghost actions surface on message hover or focus. */
 .cc-msg:hover .cc-action,
 .cc-msg:focus-within .cc-action {
   opacity: 1;

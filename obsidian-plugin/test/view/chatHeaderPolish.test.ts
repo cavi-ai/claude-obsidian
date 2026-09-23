@@ -74,6 +74,13 @@ describe("Desktop chat header polish", () => {
     expect(headerActions?.querySelectorAll(".cc-mcp-btn").length).toBe(0);
   });
 
+  it("renders every header action as an Obsidian ghost icon button", async () => {
+    const view = await openHeader();
+    const buttons = (view.contentEl as unknown as FakeElement).querySelector(".cc-header-actions")?.querySelectorAll("button") ?? [];
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const b of buttons) expect(b.classList.has("clickable-icon")).toBe(true);
+  });
+
   it("clicking cc-model opens the model menu", async () => {
     const view = await openHeader();
     const openModelMenu = vi.fn();
