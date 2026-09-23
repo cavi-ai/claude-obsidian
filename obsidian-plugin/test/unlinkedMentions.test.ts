@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findUnlinkedMentions, linkMention, type LinkCandidate } from "../src/links/unlinkedMentions";
+import { findUnlinkedMentions, linkMention, withLinktext, type LinkCandidate } from "../src/links/unlinkedMentions";
 
 const candidates: LinkCandidate[] = [
   { path: "Projects/Companion Agent Mode.md", basename: "Companion Agent Mode", aliases: ["agent mode"] },
@@ -144,5 +144,32 @@ describe("linkMention", () => {
     const content = "The Weekly Review went well.";
     const [m] = findUnlinkedMentions(content, candidates, "X.md");
     expect(() => linkMention("something else entirely", m!)).toThrow(/changed/i);
+  });
+
+  it("links a duplicate basename by its full path", () => {
+    const dupCandidates = withLinktext([
+      { path: "Research/A/Project.md", basename: "Project", aliases: [] },
+      { path: "Research/B/Project.md", basename: "Project", aliases: [] },
+    ]);
+    const content = "The Project plan needs review.";
+    const [m] = findUnlinkedMentions(content, dupCandidates, "Other.md");
+    const linked = linkMention(content, m!);
+    expect(linked).toContain("|Project]]");
+    expect(linked).toMatch(/\[\[Research\/[AB]\/Project\|Project]]/);
+  });
+});
+
+describe("withLinktext", () => {
+  it("leaves a unique basename as-is", () => {
+    const [c] = withLinktext([{ path: "Notes/Name.md", basename: "Name", aliases: [] }]);
+    expect(c!.linktext).toBe("Name");
+  });
+
+  it("uses the full path (sans .md) for duplicate basenames, case-insensitively", () => {
+    const out = withLinktext([
+      { path: "Research/A/Project.md", basename: "Project", aliases: [] },
+      { path: "Research/B/project.md", basename: "project", aliases: [] },
+    ]);
+    expect(out.map((c) => c.linktext)).toEqual(["Research/A/Project", "Research/B/project"]);
   });
 });

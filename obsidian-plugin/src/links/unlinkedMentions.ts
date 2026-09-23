@@ -6,6 +6,8 @@ export interface LinkCandidate {
   path: string;
   basename: string;
   aliases: string[];
+  /** What to write as the [[link]] target — the full path (sans .md) when the basename is ambiguous, else the basename. */
+  linktext?: string;
 }
 
 export interface Mention {
@@ -13,6 +15,8 @@ export interface Mention {
   path: string;
   /** The candidate name that matched (basename or alias). */
   name: string;
+  /** What linkMention writes as the [[link]] target (candidate.linktext ?? basename). */
+  target: string;
   /** Whether the match was an alias (always linked in pipe form). */
   viaAlias: boolean;
   /** The exact text as it appears in the note. */
@@ -54,6 +58,7 @@ export function findUnlinkedMentions(content: string, candidates: LinkCandidate[
         best = {
           path: c.path,
           name: c.basename,
+          target: c.linktext ?? c.basename,
           viaAlias,
           surface,
           start: idx,
@@ -83,8 +88,25 @@ export function linkMention(content: string, m: Mention): string {
     if (first === -1) throw new Error("The note changed — the mention no longer applies.");
     start = first;
   }
-  const link = !m.viaAlias && m.surface === m.name ? `[[${m.name}]]` : `[[${m.name}|${m.surface}]]`;
+  const link = !m.viaAlias && m.surface === m.target ? `[[${m.target}]]` : `[[${m.target}|${m.surface}]]`;
   return content.slice(0, start) + link + content.slice(start + m.surface.length);
+}
+
+/**
+ * Set `linktext` on every candidate: the path (sans .md) when 2+ candidates
+ * share a basename (case-insensitive), else the basename — so `[[Project]]`
+ * never resolves ambiguously when duplicate note names exist in the vault.
+ */
+export function withLinktext(candidates: LinkCandidate[]): LinkCandidate[] {
+  const counts = new Map<string, number>();
+  for (const c of candidates) {
+    const key = c.basename.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return candidates.map((c) => {
+    const ambiguous = (counts.get(c.basename.toLowerCase()) ?? 0) > 1;
+    return { ...c, linktext: ambiguous ? c.path.replace(/\.md$/, "") : c.basename };
+  });
 }
 
 // ---- internals ----

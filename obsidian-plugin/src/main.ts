@@ -36,7 +36,7 @@ import { ANTHROPIC_DEFAULT_BASE_URL } from "./providers/auth";
 import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
-import { findUnlinkedMentions, linkMention, type LinkCandidate } from "./links/unlinkedMentions";
+import { findUnlinkedMentions, linkMention, withLinktext, type LinkCandidate } from "./links/unlinkedMentions";
 import { mentionEdits } from "./links/suggest";
 import { planEdits, applyPlan, diffToEdits, type EditPlan } from "./edit/diff";
 import { inlineDiffExtension, reviewInline } from "./editor/inlineDiffExtension";
@@ -2225,12 +2225,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Every markdown note as a link-candidate (basename + frontmatter aliases). */
   linkCandidates(): LinkCandidate[] {
-    return this.app.vault.getMarkdownFiles().map((f) => {
-      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
-      const raw = fm?.aliases;
-      const aliases = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" && raw.trim() ? [raw] : [];
-      return { path: f.path, basename: f.basename, aliases };
-    });
+    return withLinktext(
+      this.app.vault.getMarkdownFiles().map((f) => {
+        const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
+        const raw = fm?.aliases;
+        const aliases = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" && raw.trim() ? [raw] : [];
+        return { path: f.path, basename: f.basename, aliases };
+      }),
+    );
   }
 
   /** Paths the given note already links to (its outgoing resolved links). */
