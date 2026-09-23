@@ -98,7 +98,7 @@ import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type Sec
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
 import { needsCredentialSetup } from "./providers/setupState";
 import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
-import { wizardPlan, WIZARD_DISMISSED_SETTINGS, type WizardState, type WizardStep } from "./onboarding/wizard";
+import { wizardPlan, wizardPlanExplicit, WIZARD_DISMISSED_SETTINGS, type WizardState, type WizardStep } from "./onboarding/wizard";
 import { SetupWizardModal, type SetupWizardDependencies } from "./view/SetupWizardModal";
 import type { TransformersEmbedder } from "./semantic/transformers/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
@@ -2226,11 +2226,22 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /**
    * Layout-ready first run: load the ontology, then the wizard (or the legacy
    * one-shot prompts). Awaits the in-flight Claude Code probe first — the
-   * wizard's "connect" step must never be planned off a stale credential read.
+   * wizard's plan must never be computed off a stale credential read.
    */
   private async runFirstRun(cliProbe?: Promise<unknown>): Promise<void> {
     await cliProbe;
     if (this.settings.ontologyEnabled) await this.loadOntologyOnStart();
+    await this.continueOnboarding();
+  }
+
+  /**
+   * Open the wizard for whatever auto-eligible steps remain (never the
+   * connect step — while a credential is missing, `wizardPlan` is empty and
+   * the chat setup card is the only step 1), else fall back to the legacy
+   * one-shot prompts. Shared by layout-ready and by the chat setup card once
+   * it has just saved a credential.
+   */
+  async continueOnboarding(): Promise<void> {
     if (!this.settings.setupWizardDone) {
       const steps = wizardPlan(this.wizardState());
       if (steps.length > 0) {
@@ -2258,9 +2269,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
-  /** Command entry point: reopens the wizard for whatever is still pending. */
+  /**
+   * Command entry point: reopens the wizard for whatever is still pending,
+   * including the connect step when a credential is missing — unlike the
+   * auto path, the user asked for this directly.
+   */
   openSetupWizard(): void {
-    const steps = wizardPlan(this.wizardState());
+    const steps = wizardPlanExplicit(this.wizardState());
     if (steps.length === 0) {
       new Notice("Nothing left to set up.");
       return;
@@ -2268,7 +2283,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.openSetupWizardWithSteps(steps);
   }
 
+  /**
+   * The vault-tools step's own offer is spent the moment it is shown, same as
+   * the legacy one-shot `offerDesktopIntegrations()` prompt it replaces —
+   * regardless of which button the user ends up clicking.
+   */
   private openSetupWizardWithSteps(steps: WizardStep[]): void {
+    if (steps.includes("vault-tools") && !this.settings.desktopIntegrationsOffered) {
+      this.settings.desktopIntegrationsOffered = true;
+      void this.saveSettings();
+    }
     new SetupWizardModal(this.app, this.buildWizardDependencies(steps)).open();
   }
 

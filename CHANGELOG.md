@@ -31,10 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reclassified from scratch, and a truncated or unparseable model reply no
   longer defaults every clip to misc — unresolved clips keep their current
   folder or are left out of the plan, never silently moved to misc.
-- **The setup wizard no longer opens over chat on a signed-in Claude Code
-  backend.** Layout-ready now awaits the Claude Code probe before planning the
-  wizard's steps, instead of reading credentials while the probe is still in
-  flight.
+- **The setup wizard no longer opens over chat before a credential exists.**
+  Layout-ready now awaits the Claude Code probe before planning the wizard's
+  steps, instead of reading credentials while the probe is still in flight;
+  and the wizard's auto-open plan is empty while no credential is set, so the
+  chat setup card stays the only step 1 — the wizard's remaining steps open
+  once a credential is saved, and the "Open setup wizard" command still opens
+  on Connect when asked for directly.
 
 ## [0.31.0] — 2026-09-23
 

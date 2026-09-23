@@ -1148,7 +1148,7 @@ export class ChatView extends ItemView {
       useCli.addEventListener("click", () => void (async () => {
         this.plugin.settings.chatBackend = "claude-cli";
         await this.plugin.saveSettings();
-        await this.plugin.runFirstRunPrompts();
+        await this.plugin.continueOnboarding();
         this.renderEmptyState();
         this.refreshModelLabel();
       })());
@@ -1199,8 +1199,8 @@ export class ChatView extends ItemView {
       } else {
         card.remove();
       }
-      // Prompts held back while there was no credential can run now.
-      await this.plugin.runFirstRunPrompts();
+      // Setup held back while there was no credential can run now.
+      await this.plugin.continueOnboarding();
     })());
     const settingsBtn = card.createEl("button", { cls: "cc-setup-settings", text: "Other options (OAuth, environment)…" });
     settingsBtn.addEventListener("click", () => this.openSettings());
