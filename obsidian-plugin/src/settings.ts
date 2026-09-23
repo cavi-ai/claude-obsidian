@@ -1,4 +1,4 @@
-import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinitionItem, type SettingGroupItem } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinition, type SettingDefinitionItem, type SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
 import type { ProviderStatus } from "./providers/types";
@@ -64,6 +64,171 @@ for (const key of ["discoveryMaxResults", "discoveryExpansionLimit", "discoveryC
     read: (s) => s[key],
     write: (s, v) => { Object.assign(s, normalizeDiscoverySettings({ ...s, [key]: Number(v) })); },
   };
+}
+
+// ---------- settings diet: basic vs advanced ----------
+
+export type SettingsTier = "basic" | "advanced";
+
+/**
+ * One tier per settings key. `Record<keyof PluginSettings, ...>` makes the
+ * compiler refuse a build the moment a key is added to PluginSettings and
+ * left out here — the actual coverage guarantee, independent of whether
+ * every key happens to have a settings-tab row.
+ */
+const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
+  apiKey: "basic",
+  authMode: "basic",
+  oauthToken: "advanced",
+  baseUrl: "advanced",
+  model: "basic",
+  customModel: "advanced",
+  maxTokens: "advanced",
+  systemPrompt: "advanced",
+  artifactOpenTarget: "advanced",
+  artifactFolder: "advanced",
+  chatFolder: "advanced",
+  planFolder: "advanced",
+  templatesFolder: "advanced",
+  context: "advanced",
+  contextCharBudget: "advanced",
+  maxContextNotes: "advanced",
+  artifactHeight: "advanced",
+  chatFontSize: "advanced",
+  maxConversations: "advanced",
+  ollamaHost: "advanced",
+  ollamaModel: "advanced",
+  ollamaUtilityModel: "advanced",
+  utilityBackend: "advanced",
+  chatBackend: "basic",
+  intelligenceNarrator: "advanced",
+  openaiCompatHost: "advanced",
+  openaiCompatModel: "advanced",
+  openaiCompatKey: "advanced",
+  openaiCompatEmbeddingModel: "advanced",
+  discoveryEnabled: "advanced",
+  openAlexContactEmail: "advanced",
+  zoteroUserId: "advanced",
+  zoteroApiKey: "advanced",
+  discoveryReranker: "advanced",
+  discoveryMaxResults: "advanced",
+  discoveryExpansionLimit: "advanced",
+  discoveryCacheHours: "advanced",
+  semanticEnabled: "basic",
+  embeddingModel: "advanced",
+  embeddingEngine: "advanced",
+  builtinEmbeddingModel: "advanced",
+  semanticModelPrompted: "advanced",
+  semanticIndexPdfs: "advanced",
+  autoTagOnSave: "advanced",
+  artifactBaseTags: "advanced",
+  chatBaseTags: "advanced",
+  agentModeEnabled: "basic",
+  agentAllowWrites: "basic",
+  inlineDiffEnabled: "advanced",
+  selectionActionEnabled: "advanced",
+  agentMaxIterations: "advanced",
+  webSearchEnabled: "advanced",
+  webSearchEngine: "advanced",
+  braveSearchApiKey: "advanced",
+  webFetchEnabled: "advanced",
+  // The bridge's own page calls it an "optional advanced bridge" — "vault
+  // tools connect" for a first-week user means the desktop-integrations flow.
+  mcpEnabled: "advanced",
+  mcpPort: "advanced",
+  mcpToken: "advanced",
+  mcpAllowWrites: "advanced",
+  mcpWriteFolder: "advanced",
+  mcpClientServers: "advanced",
+  cloudDispatchEnabled: "advanced",
+  cloudRoutineFireUrl: "advanced",
+  cloudRoutineToken: "advanced",
+  cloudRoutineBetaHeader: "advanced",
+  cloudReplyRepo: "advanced",
+  cloudReplyBranch: "advanced",
+  cloudReplyFolder: "advanced",
+  cloudReplyToken: "advanced",
+  memoryEnabled: "advanced",
+  memoryFolder: "advanced",
+  memoryIngestOnSave: "advanced",
+  memoryBaseTags: "advanced",
+  memoryAutoConsolidate: "advanced",
+  sourceCaptureEnabled: "basic",
+  sourceEnrichOnCreate: "advanced",
+  enrichmentDiagnostics: "advanced",
+  sourceCaptureConsent: "advanced",
+  sourceInboxFolder: "advanced",
+  clipOrganizedFolder: "advanced",
+  sourceBaseTags: "advanced",
+  sourceSchemaOverrides: "advanced",
+  clipperTemplateFingerprint: "advanced",
+  clipperVerification: "advanced",
+  ontologyEnabled: "basic",
+  ontologyFolder: "advanced",
+  ontologySeedPrompted: "advanced",
+  desktopIntegrationsOffered: "advanced",
+  setupWizardDone: "advanced",
+  // Always basic: the toggle that reveals the rest must itself stay visible.
+  settingsShowAdvanced: "basic",
+};
+
+/** Custom `render` rows with no `control.key`, promoted to basic by name. */
+const BASIC_ACTION_NAMES: ReadonlySet<string> = new Set([
+  "Desktop integrations", // "vault tools connect"
+  "Embedding model", // "semantic on/off + download"
+  "Anthropic API key", // "credential" — the apiKey field itself is a custom render
+  "Save & test connection", // what actually persists + verifies the credential
+]);
+
+/** Only groups/lists/pages carry a `type` at all — leaf definitions (control/action/render/empty) don't. */
+function isContainer(item: SettingDefinitionItem): item is Extract<SettingDefinitionItem, { type: "group" | "list" }> {
+  return "type" in item && (item.type === "group" || item.type === "list");
+}
+
+function isPage(item: SettingDefinitionItem): item is Extract<SettingDefinitionItem, { type: "page" }> {
+  return "type" in item && item.type === "page";
+}
+
+function leafTier(item: SettingDefinition): SettingsTier {
+  const key = (item as unknown as { control?: { key?: string } }).control?.key;
+  if (key && key in SETTING_TIERS) return SETTING_TIERS[key as keyof PluginSettings];
+  return BASIC_ACTION_NAMES.has(item.name) ? "basic" : "advanced";
+}
+
+/** True if any leaf under `items` (through nested groups/pages) is basic-tier. */
+function hasBasicItem(items: SettingDefinitionItem[] | undefined): boolean {
+  if (!items) return false;
+  return items.some((item) => (isContainer(item) || isPage(item) ? hasBasicItem(item.items) : leafTier(item) === "basic"));
+}
+
+function withExtraVisible(existing: boolean | (() => boolean) | undefined, extra: () => boolean): () => boolean {
+  return () => extra() && (typeof existing === "function" ? existing() : existing ?? true);
+}
+
+/** One cast choke point for the rebuilt tier-tagged objects below. */
+function asItem(value: object): SettingDefinitionItem { return value as SettingDefinitionItem; }
+
+/**
+ * Walks the declared tree and, per basic item 4/5: leaves basic items alone,
+ * gates advanced items' visibility behind `showAdvanced`, and hides a page
+ * entirely (until `showAdvanced`) when none of its items are basic.
+ */
+function applyTiers(items: SettingDefinitionItem[], showAdvanced: () => boolean): SettingDefinitionItem[] {
+  return items.map((item): SettingDefinitionItem => {
+    if (isContainer(item)) {
+      const inner = item.items ? (applyTiers(item.items, showAdvanced) as unknown as SettingGroupItem[]) : item.items;
+      return asItem({ ...item, items: inner });
+    }
+    if (isPage(item)) {
+      const pageHasBasic = hasBasicItem(item.items);
+      const gated = pageHasBasic ? { ...item } : { ...item, visible: withExtraVisible(item.visible, showAdvanced) };
+      const inner = item.items ? applyTiers(item.items, showAdvanced) : item.items;
+      return asItem({ ...gated, items: inner });
+    }
+    const tier = leafTier(item);
+    const out = tier === "basic" ? { ...item, tier } : { ...item, tier, visible: withExtraVisible(item.visible, showAdvanced) };
+    return asItem(out);
+  });
 }
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
@@ -164,6 +329,10 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   }
 
   override getSettingDefinitions(): SettingDefinitionItem[] {
+    return applyTiers(this.rawSettingDefinitions(), () => this.plugin.settings.settingsShowAdvanced);
+  }
+
+  private rawSettingDefinitions(): SettingDefinitionItem[] {
     return [
       { type: "group", items: this.introItems() },
       { type: "group", heading: "Connection", items: this.connectionItems() },
@@ -204,9 +373,14 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     ];
   }
 
-  /** Callouts and the desktop-integrations entry point, above the first heading. */
+  /** Callouts, the advanced-settings reveal, and the desktop-integrations entry point, above the first heading. */
   private introItems(): SettingGroupItem[] {
     return [
+      {
+        name: "Show advanced settings",
+        desc: "Basic settings are what a first-week user touches. Turn this on to see everything.",
+        control: { type: "toggle", key: "settingsShowAdvanced" },
+      },
       {
         name: "Credentials are stored in this vault",
         // Credentials fall back to this vault's data.json two ways: no secret-store
