@@ -22,6 +22,17 @@ function previewText(text: string): string {
   return text.length > 400 ? `${text.slice(0, 400)}…` : text;
 }
 
+/** The mutable slice of turn/session state shared between ChatView and Transcript. */
+export interface TurnState {
+  lastBuffer: string;
+  turnUsage: TokenUsage | null;
+  abort: AbortController | null;
+  currentTurn: { conversationId: string; turnId: string } | null;
+  session: SessionUsage;
+  turnRenderUnsubscribe: (() => void) | null;
+  unregisterCurrentTurn: (() => void) | null;
+}
+
 export interface TranscriptDeps {
   autosizeInput(): void;
   onSend(): Promise<void>;
@@ -36,25 +47,11 @@ export interface TranscriptDeps {
   setupRequired(): boolean;
   submitPrompt(text: string, display?: string): Promise<void>;
   updateUsageBar(): void;
-  _lastBuffer(): string;
-  set_lastBuffer(v: string): void;
-  _turnUsage(): TokenUsage | null;
-  set_turnUsage(v: TokenUsage | null): void;
-  abort(): AbortController | null;
-  setAbort(v: AbortController | null): void;
   controls(): ChatControls;
-  currentTurn(): { conversationId: string; turnId: string } | null;
-  setCurrentTurn(v: { conversationId: string; turnId: string } | null): void;
   inputEl(): HTMLTextAreaElement;
   lastUserText(): string;
   messages(): ChatMessage[];
-  session(): SessionUsage;
-  setSession(v: SessionUsage): void;
   streaming(): boolean;
-  turnRenderUnsubscribe(): (() => void) | null;
-  setTurnRenderUnsubscribe(v: (() => void) | null): void;
-  unregisterCurrentTurn(): (() => void) | null;
-  setUnregisterCurrentTurn(v: (() => void) | null): void;
 }
 
 /** The message list: stored/live bubbles, turn rendering, tool chips, reply actions, empty-state and setup-card hosting. */
@@ -64,27 +61,13 @@ export class Transcript {
   private thinkingTimer: number | null = null;
   private claudianSeq = 0;
 
-  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private deps: TranscriptDeps) {}
+  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private turn: TurnState, private deps: TranscriptDeps) {}
 
-  private get _lastBuffer(): string { return this.deps._lastBuffer(); }
-  private set _lastBuffer(v: string) { this.deps.set_lastBuffer(v); }
-  private get _turnUsage(): TokenUsage | null { return this.deps._turnUsage(); }
-  private set _turnUsage(v: TokenUsage | null) { this.deps.set_turnUsage(v); }
-  private get abort(): AbortController | null { return this.deps.abort(); }
-  private set abort(v: AbortController | null) { this.deps.setAbort(v); }
   private get controls(): ChatControls { return this.deps.controls(); }
-  private get currentTurn(): { conversationId: string; turnId: string } | null { return this.deps.currentTurn(); }
-  private set currentTurn(v: { conversationId: string; turnId: string } | null) { this.deps.setCurrentTurn(v); }
   private get inputEl(): HTMLTextAreaElement { return this.deps.inputEl(); }
   private get lastUserText(): string { return this.deps.lastUserText(); }
   private get messages(): ChatMessage[] { return this.deps.messages(); }
-  private get session(): SessionUsage { return this.deps.session(); }
-  private set session(v: SessionUsage) { this.deps.setSession(v); }
   private get streaming(): boolean { return this.deps.streaming(); }
-  private get turnRenderUnsubscribe(): (() => void) | null { return this.deps.turnRenderUnsubscribe(); }
-  private set turnRenderUnsubscribe(v: (() => void) | null) { this.deps.setTurnRenderUnsubscribe(v); }
-  private get unregisterCurrentTurn(): (() => void) | null { return this.deps.unregisterCurrentTurn(); }
-  private set unregisterCurrentTurn(v: (() => void) | null) { this.deps.setUnregisterCurrentTurn(v); }
 
   /** Render one persisted message, including assistant action buttons. */
   renderStoredMessage(m: ChatMessage): void {
@@ -195,10 +178,10 @@ export class Transcript {
       createThinkingPanel: (bubble) => this.createThinkingPanel(bubble),
       annotateTruncated: (bubble) => this.annotateTruncated(bubble),
       mergeTurnUsage: (usage) => {
-        this._turnUsage = mergeUsage(this._turnUsage ?? undefined, usage);
+        this.turn.turnUsage = mergeUsage(this.turn.turnUsage ?? undefined, usage);
       },
       syncBuffer: (buffer) => {
-        this._lastBuffer = buffer;
+        this.turn.lastBuffer = buffer;
       },
     };
   }
@@ -216,7 +199,7 @@ export class Transcript {
     const settle = (result: AgentTurnResult): void => {
       void this.settleTurnRendering(conversationId, bubble, body, renderer, result).finally(() => {
         unsubscribe();
-        if (this.turnRenderUnsubscribe === unsubscribe) this.turnRenderUnsubscribe = null;
+        if (this.turn.turnRenderUnsubscribe === unsubscribe) this.turn.turnRenderUnsubscribe = null;
       });
     };
     const apply = (event: TurnEvent): void => {
@@ -274,18 +257,18 @@ export class Transcript {
       this.renderError(body, result.error.message || "Request failed", providerId);
       this.deps.restoreMediaAfterFailure();
     }
-    if (this.currentTurn?.conversationId === conversationId) {
-      this.unregisterCurrentTurn = null;
-      this.currentTurn = null;
+    if (this.turn.currentTurn?.conversationId === conversationId) {
+      this.turn.unregisterCurrentTurn = null;
+      this.turn.currentTurn = null;
       this.deps.setSending(false);
-      this.abort = null;
+      this.turn.abort = null;
     }
     // Fold this turn's usage into the session exactly once. The API emits usage
     // on both message_start and message_delta; counting each event would double
     // the request count and inflate output tokens.
-    if (this._turnUsage) {
-      this.session = addUsage(this.session, this._turnUsage);
-      this._turnUsage = null;
+    if (this.turn.turnUsage) {
+      this.turn.session = addUsage(this.turn.session, this.turn.turnUsage);
+      this.turn.turnUsage = null;
     }
     this.deps.updateUsageBar();
     this.scrollToBottom();

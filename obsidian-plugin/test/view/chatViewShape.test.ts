@@ -8,4 +8,8 @@ describe("ChatView carve shape", () => {
   it.each(["chat/Composer.ts", "chat/HeaderControls.ts", "chat/Transcript.ts"])("%s stays at or under 700 lines", (rel) => {
     expect(lines(rel)).toBeLessThanOrEqual(700);
   });
+
+  it("ChatView.ts stays at or under 1500 lines", () => {
+    expect(lines("ChatView.ts")).toBeLessThanOrEqual(1500);
+  });
 });

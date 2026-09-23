@@ -8,6 +8,13 @@ export interface CliAuthStatus {
   method: string;
 }
 
+/** Duck-typed CLI sign-in surface — real routers always have all three; a partial test stub is skipped, not crashed on. */
+export interface CliSignInProvider {
+  hasCredentials(): boolean;
+  available(): boolean;
+  refresh(): Promise<unknown>;
+}
+
 export interface CliArgvInput {
   model: string;
   systemPromptFile: string;

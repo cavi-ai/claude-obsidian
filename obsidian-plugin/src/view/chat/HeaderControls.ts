@@ -8,13 +8,12 @@ import { modelLabel } from "../../claude/models";
 import { isMobileModelChoiceActive, mobileModelChoices } from "../mobileModelChoices";
 import type { ChatControls } from "../../claude/chatControls";
 import type { ChatMode } from "../ModeControl";
-import type { CliBackend } from "../../cli/backends/types";
+import type { CliBackend, CliSignInProvider } from "../../cli/backends/types";
 import type { ProviderRouter } from "../../providers/router";
 import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../../usage/tokens";
 import { ActionModal, type ActionModalItem } from "../ActionModal";
 import { QuickOptionsModal } from "../QuickOptionsModal";
 import { quickNotice } from "../../notice";
-import type { CliSignInProvider } from "../ChatView";
 
 export interface HeaderControlsCallbacks {
   onModelClick: () => void;
@@ -66,7 +65,7 @@ export class HeaderControls {
     this.disposeChrome = null;
   }
 
-  mount(root: HTMLElement, plugin: ClaudeCompanionPlugin, cb: HeaderControlsCallbacks): void {
+  mount(root: HTMLElement, cb: HeaderControlsCallbacks): void {
     const header = root.createDiv({ cls: "cc-header" });
     const title = header.createDiv({ cls: "cc-title" });
     title.createSpan({ cls: "cc-eyebrow", text: "COMPANION FOR CLAUDE" });
@@ -91,7 +90,7 @@ export class HeaderControls {
       more.addEventListener("click", () => cb.onOverflow());
       // Quick options reaches mobile through that one ⋯ menu; a second control on
       // a phone-width header is the crowding this row exists to avoid.
-      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", plugin.companionChrome(), {
+      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
         host: actions,
         compact: true,
         omitOptionsButton: true,
@@ -116,11 +115,19 @@ export class HeaderControls {
       this.iconButton(primary, "more-horizontal", "More actions", () => cb.onOverflow());
       // Quick options joins this row rather than owning a header of its own, and
       // replaces the gear: its own sheet already offers "Open all settings".
-      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", plugin.companionChrome(), {
+      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
         host: primary,
         compact: true,
       });
     }
+  }
+
+  /** Mount the context-window gauge + usage text into the composer's send group. */
+  mountUsage(parent: HTMLElement): void {
+    const usageRow = parent.createDiv({ cls: "cc-usage" });
+    const gauge = usageRow.createDiv({ cls: "cc-gauge", attr: { "aria-label": "Estimated context window used" } });
+    this.gaugeFillEl = gauge.createDiv({ cls: "cc-gauge-fill" });
+    this.usageEl = usageRow.createDiv({ cls: "cc-usage-text" });
   }
 
   private iconButton(parent: HTMLElement, icon: string, tip: string, onClick: () => void): void {

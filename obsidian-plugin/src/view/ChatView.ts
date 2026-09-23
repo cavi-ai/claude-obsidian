@@ -31,15 +31,8 @@ import { needsCredentialSetup } from "../providers/setupState";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
 import { opencodeBackend } from "../cli/backends/opencode";
-import type { CliBackend } from "../cli/backends/types";
+import type { CliBackend, CliSignInProvider } from "../cli/backends/types";
 import type { ProviderRouter } from "../providers/router";
-
-/** Duck-typed CLI sign-in surface — real routers always have all three; a partial test stub is skipped, not crashed on. */
-export interface CliSignInProvider {
-  hasCredentials(): boolean;
-  available(): boolean;
-  refresh(): Promise<unknown>;
-}
 import { EMPTY_SESSION, type SessionUsage } from "../usage/tokens";
 import { type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
@@ -48,7 +41,7 @@ import { ComposerContextManager } from "./ComposerContextManager";
 import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
-import { Transcript } from "./chat/Transcript";
+import { Transcript, type TurnState } from "./chat/Transcript";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
@@ -102,15 +95,23 @@ export class ChatView extends ItemView {
   private get gaugeFillEl(): HTMLElement { return this.header.gaugeFillEl; }
   private set gaugeFillEl(v: HTMLElement) { this.header.gaugeFillEl = v; }
   private streaming = false;
-  private abort: AbortController | null = null;
-  private currentTurn: { conversationId: string; turnId: string } | null = null;
-  private unregisterCurrentTurn: (() => void) | null = null;
+  /** Turn/session state shared with Transcript. */
+  private readonly turn: TurnState = { lastBuffer: "", turnUsage: null, abort: null, currentTurn: null, session: { ...EMPTY_SESSION }, turnRenderUnsubscribe: null, unregisterCurrentTurn: null };
+  private get abort(): AbortController | null { return this.turn.abort; }
+  private set abort(v: AbortController | null) { this.turn.abort = v; }
+  private get currentTurn(): { conversationId: string; turnId: string } | null { return this.turn.currentTurn; }
+  private set currentTurn(v: { conversationId: string; turnId: string } | null) { this.turn.currentTurn = v; }
+  private get unregisterCurrentTurn(): (() => void) | null { return this.turn.unregisterCurrentTurn; }
+  private set unregisterCurrentTurn(v: (() => void) | null) { this.turn.unregisterCurrentTurn = v; }
   /** Detaches this view from the live turn's event stream (does not stop the turn). */
-  private turnRenderUnsubscribe: (() => void) | null = null;
+  private get turnRenderUnsubscribe(): (() => void) | null { return this.turn.turnRenderUnsubscribe; }
+  private set turnRenderUnsubscribe(v: (() => void) | null) { this.turn.turnRenderUnsubscribe = v; }
   private resumeCliSessionId: string | null = null;
-  private session: SessionUsage = { ...EMPTY_SESSION };
+  private get session(): SessionUsage { return this.turn.session; }
+  private set session(v: SessionUsage) { this.turn.session = v; }
   /** Usage for the in-flight turn; folded into the session once on completion. */
-  private _turnUsage: TokenUsage | null = null;
+  private get _turnUsage(): TokenUsage | null { return this.turn.turnUsage; }
+  private set _turnUsage(v: TokenUsage | null) { this.turn.turnUsage = v; }
   /** Per-session chat controls (model, thinking, effort, temp, max). */
   private controls!: ChatControls;
   private get controlsEl(): HTMLElement { return this.composer.controlsEl; }
@@ -156,7 +157,8 @@ export class ChatView extends ItemView {
   private get attachedPages(): AttachedPage[] { return this.composer.attachedPages; }
   private set attachedPages(v: AttachedPage[]) { this.composer.attachedPages = v; }
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
-  private _lastBuffer = "";
+  private get _lastBuffer(): string { return this.turn.lastBuffer; }
+  private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
   /** "Allow for this session" on agent write confirmations (cleared with the view). */
   private agentWriteAlways = false;
   /** Plan Mode: read-only agent turn that ends in a plan (per conversation). */
@@ -173,7 +175,7 @@ export class ChatView extends ItemView {
     private plugin: ClaudeCompanionPlugin,
   ) {
     super(leaf);
-    this.transcript = new Transcript(this.app, plugin, {
+    this.transcript = new Transcript(this.app, plugin, this.turn, {
       autosizeInput: () => this.composer.autosizeInput(),
       onSend: (...args) => this.onSend(...args),
       prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
@@ -187,25 +189,11 @@ export class ChatView extends ItemView {
       setupRequired: (...args) => this.setupRequired(...args),
       submitPrompt: (text, display) => this.submitPrompt(text, display),
       updateUsageBar: (...args) => this.updateUsageBar(...args),
-      _lastBuffer: () => this._lastBuffer,
-      set_lastBuffer: (v) => { this._lastBuffer = v; },
-      _turnUsage: () => this._turnUsage,
-      set_turnUsage: (v) => { this._turnUsage = v; },
-      abort: () => this.abort,
-      setAbort: (v) => { this.abort = v; },
       controls: () => this.controls,
-      currentTurn: () => this.currentTurn,
-      setCurrentTurn: (v) => { this.currentTurn = v; },
       inputEl: () => this.composer.inputEl,
       lastUserText: () => this.lastUserText,
       messages: () => this.messages,
-      session: () => this.session,
-      setSession: (v) => { this.session = v; },
       streaming: () => this.streaming,
-      turnRenderUnsubscribe: () => this.turnRenderUnsubscribe,
-      setTurnRenderUnsubscribe: (v) => { this.turnRenderUnsubscribe = v; },
-      unregisterCurrentTurn: () => this.unregisterCurrentTurn,
-      setUnregisterCurrentTurn: (v) => { this.unregisterCurrentTurn = v; },
     });
     this.header = new HeaderControls(this.app, plugin, {
       anyContextEnabled: () => this.composer.anyContextEnabled(),
@@ -242,6 +230,16 @@ export class ChatView extends ItemView {
       cachedClaims: () => this.cachedClaims,
       controls: () => this.controls,
       streaming: () => this.streaming,
+      mountUsage: (parent) => this.header.mountUsage(parent),
+      onSlashCommand: (cmd) => void this.runSlashCommand(cmd),
+      pickAtItems: () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()),
+      onAtChoose: (item) => void this.onAtChoose(item),
+      toggleAutomatic: (key, enabled) => this.toggleAutomaticContext(key, enabled),
+      removeSource: (id) => this.removeContextSource(id),
+      retrySource: (id) => this.retryContextSource(id),
+      addContext: () => this.openContextPicker(),
+      onSend: () => void this.onSend(),
+      syncSlashMenu: () => this.syncSlashMenu(),
     });
   }
 
@@ -268,7 +266,7 @@ export class ChatView extends ItemView {
     }
 
     // ---- header ----
-    this.header.mount(root, this.plugin, {
+    this.header.mount(root, {
       onModelClick: () => this.openModelMenu(),
       onMcpClick: (evt) => this.openMcpMenu(evt),
       onWriteGrantRevoke: () => {
@@ -290,25 +288,7 @@ export class ChatView extends ItemView {
     // ---- composer ----
     this.composer.mount(
       root,
-      this.header,
       [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS)],
-      {
-        onSlashCommand: (cmd) => void this.runSlashCommand(cmd),
-        pickAtItems: () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()),
-        onAtChoose: (item) => void this.onAtChoose(item),
-        toggleAutomatic: (key, enabled) => this.toggleAutomaticContext(key, enabled),
-        removeSource: (id) => this.removeContextSource(id),
-        retrySource: (id) => this.retryContextSource(id),
-        addContext: () => this.openContextPicker(),
-        onSend: () => void this.onSend(),
-        autosizeInput: () => this.composer.autosizeInput(),
-        updateUsageBar: () => this.updateUsageBar(),
-        syncSlashMenu: () => this.syncSlashMenu(),
-        syncAtMenu: () => this.composer.syncAtMenu(),
-        syncPageOffer: () => this.composer.syncPageOffer(),
-        attachPastedImage: (file) => void this.composer.attachPastedImage(file),
-        renderControls: () => this.renderControls(),
-      },
     );
     this.renderContextManager();
 
@@ -1214,7 +1194,8 @@ export class ChatView extends ItemView {
     }
   }
 
-  /** Ask the user before an agent write tool runs; honors "allow for this session". */  private confirmAgentWrite(block: ToolUseBlock): Promise<boolean> {
+  /** Ask the user before an agent write tool runs; honors "allow for this session". */
+  private confirmAgentWrite(block: ToolUseBlock): Promise<boolean> {
     if (this.agentWriteAlways) return Promise.resolve(true);
     return new Promise((resolve) => {
       new WriteConfirmModal(this.app, block, (choice) => {

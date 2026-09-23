@@ -9,7 +9,6 @@ import { ModeControl, type ChatMode } from "../ModeControl";
 import type { AttachedPath } from "../../context/vaultContext";
 import { type MediaAttachment, arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime } from "../../context/attachments";
 import { type AttachedPage, detectPageUrl, pageLabel } from "../../context/urlContext";
-import type { HeaderControls } from "./HeaderControls";
 import type { ContentBlock } from "../../providers/types";
 import { CLAUDE_MODELS } from "../../claude/models";
 import { capabilitiesFor, effortLevels } from "../../claude/capabilities";
@@ -17,24 +16,6 @@ import { type ChatControls, knobVisibility } from "../../claude/chatControls";
 import { mergeDetectedModels } from "../../providers/localModels";
 import { quickNotice } from "../../notice";
 import type ClaudeCompanionPlugin from "../../main";
-
-export interface ComposerCallbacks {
-  onSlashCommand: (cmd: SlashCommand) => void;
-  pickAtItems: () => AtItem[];
-  onAtChoose: (item: AtItem) => void;
-  toggleAutomatic: (key: AutomaticContextKey, enabled: boolean) => void;
-  removeSource: (id: string) => void;
-  retrySource: (id: string) => void;
-  addContext: () => void;
-  onSend: () => void;
-  autosizeInput: () => void;
-  updateUsageBar: () => void;
-  syncSlashMenu: () => void;
-  syncAtMenu: () => void;
-  syncPageOffer: () => void;
-  attachPastedImage: (file: File) => void;
-  renderControls: () => void;
-}
 
 export interface ComposerDeps {
   applyChatFontSize(): void;
@@ -49,6 +30,16 @@ export interface ComposerDeps {
   cachedClaims(): ClaimAtSource[];
   controls(): ChatControls;
   streaming(): boolean;
+  mountUsage(parent: HTMLElement): void;
+  onSlashCommand(cmd: SlashCommand): void;
+  pickAtItems(): AtItem[];
+  onAtChoose(item: AtItem): void;
+  toggleAutomatic(key: AutomaticContextKey, enabled: boolean): void;
+  removeSource(id: string): void;
+  retrySource(id: string): void;
+  addContext(): void;
+  onSend(): void;
+  syncSlashMenu(): void;
 }
 
 /** The composer: input, @/slash menus, attachments/context manager, quick options, submit. */
@@ -79,18 +70,16 @@ export class Composer {
 
   mount(
     root: HTMLElement,
-    header: HeaderControls,
     slashCommands: SlashCommand[],
-    cb: ComposerCallbacks,
   ): void {
     const composer = root.createDiv({ cls: "cc-composer" });
     this.el = composer;
 
     this.contextManager = new ComposerContextManager(composer, {
-      toggleAutomatic: (key, enabled) => cb.toggleAutomatic(key, enabled),
-      removeSource: (id) => cb.removeSource(id),
-      retrySource: (id) => cb.retrySource(id),
-      addContext: () => cb.addContext(),
+      toggleAutomatic: (key, enabled) => this.deps.toggleAutomatic(key, enabled),
+      removeSource: (id) => this.deps.removeSource(id),
+      retrySource: (id) => this.deps.retrySource(id),
+      addContext: () => this.deps.addContext(),
     });
     // The "attach this page?" offer for URLs in the composer.
     this.pageOfferEl = composer.createDiv({ cls: "cc-page-offer" });
@@ -100,8 +89,8 @@ export class Composer {
     // above it in flow; CSS positions them absolutely).
     // Slash is the single command surface: the built-in commands plus every vault
     // workflow (the browsable picker stays reachable via /workflows).
-    this.slashMenu = new SlashMenu(composer, slashCommands, (cmd) => cb.onSlashCommand(cmd));
-    this.atMenu = new AtMenu(composer, () => cb.pickAtItems(), (item) => cb.onAtChoose(item));
+    this.slashMenu = new SlashMenu(composer, slashCommands, (cmd) => this.deps.onSlashCommand(cmd));
+    this.atMenu = new AtMenu(composer, () => this.deps.pickAtItems(), (item) => this.deps.onAtChoose(item));
 
     // Mobile keeps the compact input row; the context manager above is the one
     // button-driven source entry point on every platform.
@@ -139,15 +128,15 @@ export class Composer {
       // have no Shift — Enter inserts a newline and only the send button sends.
       if (e.key === "Enter" && !e.shiftKey && !Platform.isMobile) {
         e.preventDefault();
-        cb.onSend();
+        this.deps.onSend();
       }
     });
     this.inputEl.addEventListener("input", () => {
-      cb.autosizeInput();
-      cb.updateUsageBar();
-      cb.syncSlashMenu();
-      cb.syncAtMenu();
-      cb.syncPageOffer();
+      this.autosizeInput();
+      this.deps.updateUsageBar();
+      this.deps.syncSlashMenu();
+      this.syncAtMenu();
+      this.syncPageOffer();
     });
     // Close the menus when focus leaves the composer.
     this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hide(); this.atMenu.hide(); }, 120));
@@ -160,7 +149,7 @@ export class Composer {
           const file = item.getAsFile();
           if (file) {
             evt.preventDefault();
-            cb.attachPastedImage(file);
+            void this.attachPastedImage(file);
           }
           return;
         }
@@ -172,13 +161,10 @@ export class Composer {
     // ([+] · input · ↑); the bar keeps only the thin usage gauge (see styles).
     const bar = composer.createDiv({ cls: "cc-composer-bar" });
     this.controlsEl = bar.createDiv({ cls: "cc-controls" });
-    cb.renderControls();
+    this.renderControls();
 
     const sendGroup = bar.createDiv({ cls: "cc-send-group" });
-    const usageRow = sendGroup.createDiv({ cls: "cc-usage" });
-    const gauge = usageRow.createDiv({ cls: "cc-gauge", attr: { "aria-label": "Estimated context window used" } });
-    header.gaugeFillEl = gauge.createDiv({ cls: "cc-gauge-fill" });
-    header.usageEl = usageRow.createDiv({ cls: "cc-usage-text" });
+    this.deps.mountUsage(sendGroup);
     const sendParent = Platform.isMobile ? inputRow : sendGroup;
     this.sendBtn = sendParent.createEl("button", {
       cls: Platform.isMobile ? "cc-send cc-send-icon" : "cc-send",
@@ -187,7 +173,7 @@ export class Composer {
         : { text: "Send" }),
     });
     if (Platform.isMobile) setIcon(this.sendBtn, "arrow-up");
-    this.sendBtn.addEventListener("click", () => cb.onSend());
+    this.sendBtn.addEventListener("click", () => this.deps.onSend());
   }
 
   destroy(): void {
@@ -543,7 +529,6 @@ export class Composer {
     if (this.plugin.settings.chatBackend === "custom" && active) select.value = `custom:${active}`;
   }
 
-  /** Rebuild only the capability-dependent knobs (keeps the model select stable). */
   /** Rebuild only the capability-dependent knobs into the given container. */
   renderKnobsInto(parent: HTMLElement): void {
     parent.empty();
@@ -641,6 +626,7 @@ export class Composer {
     });
   }
 
+  /** Rebuild only the capability-dependent knobs (keeps the model select stable). */
   renderKnobs(): void {
     if (this.knobsEl) this.renderKnobsInto(this.knobsEl);
   }
