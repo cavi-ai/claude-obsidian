@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Chat projects.** Scope a conversation to a `chat-project` note or a
+  Research Desk project via "@" or the "Chat: choose project" command.
 - **New chat tab.** Open several chat leaves side by side, each with its own
   conversation.
 - **First-run setup wizard.** A single 3-step modal (Connect, Vault tools,

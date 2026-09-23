@@ -20,6 +20,8 @@ export interface Conversation {
   cliSessionHistory?: string[];
   /** Durable receipt for the one turn that has not reached a persisted success. */
   activeTurn?: ChatTurnReceipt;
+  /** The chat project (note path or research Project.md path) this conversation is scoped to. */
+  projectId?: string;
 }
 
 export type ChatTurnState = "running" | "interrupted" | "failed";
@@ -219,11 +221,13 @@ export function fromPersisted(raw: unknown): ConversationState {
   const o = raw as { conversations?: unknown; activeId?: unknown };
   const conversations = Array.isArray(o.conversations)
     ? o.conversations.filter(isConversation).map((c) => {
-        const { activeTurn: rawTurn, ...conversation } = c;
+        const { activeTurn: rawTurn, projectId: rawProjectId, ...conversation } = c;
         const activeTurn = normalizeTurnReceipt(rawTurn);
+        const projectId = typeof rawProjectId === "string" && rawProjectId.length > 0 ? rawProjectId : undefined;
         return {
           ...conversation,
           messages: compactMessages(c.messages),
+          ...(projectId !== undefined ? { projectId } : {}),
           ...(activeTurn ? { activeTurn: activeTurn.state === "running"
             ? { ...activeTurn, state: "interrupted" as const }
             : activeTurn } : {}),

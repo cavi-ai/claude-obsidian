@@ -204,6 +204,18 @@ export class ConversationsController {
     return getActive(state.get());
   }
 
+  /** Set (or clear) the chat project a conversation is scoped to. */
+  async setProject(conversationId: string, projectId: string | null): Promise<void> {
+    const { state, persist } = this.deps;
+    const conversation = state.get().conversations.find((c) => c.id === conversationId);
+    if (!conversation) return;
+    const updated = { ...conversation };
+    if (projectId) updated.projectId = projectId;
+    else delete updated.projectId;
+    state.set(saveConversation(state.get(), updated, 0));
+    await persist();
+  }
+
   /** Start a fresh conversation (the current one is already auto-saved). */
   async startNew(): Promise<void> {
     const { state, persist } = this.deps;

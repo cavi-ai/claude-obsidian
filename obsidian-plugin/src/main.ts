@@ -10,7 +10,10 @@ import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesVi
 import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
-import { ensureVaultFolder, writeOrReplaceFile } from "./vault/vaultFiles";
+import { ensureVaultFolder, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
+import { listChatProjects } from "./projects/registry";
+import { ProjectPicker } from "./projects/ProjectPicker";
+import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
 import { DraftCoordinator } from "./research/draftCoordinator";
@@ -547,6 +550,32 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     this.registerContextMenus();
     for (const command of companionCommands(this.commandActions())) this.addCommand(command);
+    this.addCommand({
+      id: "set-chat-project",
+      name: "Chat: choose project",
+      callback: () => void (async () => {
+        const view = await this.activateView();
+        if (!view) return;
+        const projects = await this.listChatProjects();
+        if (projects.length === 0) {
+          new Notice("No chat projects yet — create one with “Chat: new project note”.");
+          return;
+        }
+        new ProjectPicker(this.app, projects, (project) => void view.applyChosenProject(project)).open();
+      })(),
+    });
+    this.addCommand({
+      id: "new-chat-project",
+      name: "Chat: new project note",
+      callback: () => void (async () => {
+        const folder = "Claude/Projects";
+        await ensureVaultFolder(this.app, folder);
+        const activeFolder = this.app.workspace.getActiveFile()?.parent?.path ?? null;
+        const path = await uniqueNotePath(this.app, folder, "New project", "md");
+        const file = await this.app.vault.create(path, projectNoteBody(activeFolder));
+        await this.app.workspace.getLeaf(true).openFile(file);
+      })(),
+    });
 
     this.addSettingTab(new ClaudeCompanionSettingTab(this.app, this));
 
@@ -2033,6 +2062,25 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.conversations().startNew();
   }
 
+  /** Set (or clear, with `null`) the chat project a conversation is scoped to. */
+  async setChatProject(conversationId: string, projectId: string | null): Promise<void> {
+    await this.conversations().setProject(conversationId, projectId);
+  }
+
+  /** Every chat project available in this vault (chat-project notes + Research Desk projects). */
+  async listChatProjects(): Promise<ChatProject[]> {
+    return listChatProjects(this.app, this.researchRepository());
+  }
+
+  /** The chat project a conversation is scoped to, or null when it has none. */
+  async chatProjectFor(conversationId: string | null): Promise<ChatProject | null> {
+    if (!conversationId) return null;
+    const projectId = this.listConversations().find((c) => c.id === conversationId)?.projectId ?? null;
+    if (!projectId) return null;
+    const projects = await this.listChatProjects();
+    return projects.find((p) => p.id === projectId) ?? null;
+  }
+
   async deleteConversation(id: string): Promise<void> {
     return this.conversations().delete(id);
   }
@@ -2505,10 +2553,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }, 500);
   }
 
-  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean }): string {
+  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null }): string {
     let base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
     const digest = this.ontology()?.digest();
     if (digest) base = `${base}\n\n${digest}`;
+    if (opts?.project) base = `${base}\n\n${projectSystemPrompt(opts.project)}`;
     if (opts?.agent) base = `${base}\n\n${AGENT_INSTRUCTION}`;
     if (opts?.agent && opts?.plan) base = `${base}\n\n${PLAN_MODE_INSTRUCTION}`;
     return base;
@@ -2916,7 +2965,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (!oldest) break;
       await this.closeCliSession(oldest[0]);
     }
-    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.planMode });
+    const project = await this.chatProjectFor(opts.conversationId);
+    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.planMode, project });
     const promptFile = backend.processModel === "persistent" ? await runtime.writeSystemPromptFile(systemPrompt) : "";
     if (promptFile) this.cliPromptFiles.add(promptFile);
     let bridge: McpHttpServer | null = null;

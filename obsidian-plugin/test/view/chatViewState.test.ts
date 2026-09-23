@@ -1,12 +1,41 @@
 import { App, FakeElement, WorkspaceLeaf } from "obsidian";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ChatTurnService } from "../../src/chat/turnService";
 import { defaultChatControls } from "../../src/claude/chatControls";
 import type { Conversation } from "../../src/conversations/store";
+import type { ChatProject } from "../../src/projects/model";
 import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { ChatView } from "../../src/view/ChatView";
 
 const fakeElement = (): HTMLElement => new FakeElement() as unknown as HTMLElement;
+
+// The shared FakeElement has no `.dataset` (real DOM elements do); ChatView's
+// settleTurnRendering() uses it as an idempotency flag. Shim it (see
+// chatRenderLifecycle.test.ts) so run() can complete a turn in this file too.
+const datasets = new WeakMap<object, Record<string, string>>();
+Object.defineProperty(FakeElement.prototype, "dataset", {
+  configurable: true,
+  get(this: object) {
+    let d = datasets.get(this);
+    if (!d) {
+      d = {};
+      datasets.set(this, d);
+    }
+    return d;
+  },
+});
+
+let rafQueue: Array<() => void>;
+
+beforeEach(() => {
+  rafQueue = [];
+  window.requestAnimationFrame = ((cb: () => void) => (rafQueue.push(cb), rafQueue.length)) as typeof window.requestAnimationFrame;
+});
+
+afterEach(() => {
+  delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+});
 
 /** A minimal plugin stub, shaped like chatRenderLifecycle.test.ts's, plus the
  * conversation-store surface getState/setState/clearChat touch. */
@@ -103,5 +132,55 @@ describe("ChatView per-leaf conversation state", () => {
     (seam as unknown as { loadConversation(c: Conversation): void }).loadConversation(conversation);
 
     expect(updateHeader).toHaveBeenCalledOnce();
+  });
+
+  it("picking a project on an unstarted tab creates no conversation; the first turn persists the projectId", async () => {
+    const project: ChatProject = { id: "Claude/Projects/Launch.md", name: "Launch", folder: null, pinned: [], instructions: "Ship it.", source: "note" };
+    const stream = vi.fn(async (_request: unknown, handlers: { onDone(text: string): void }) => { handlers.onDone("answer"); });
+    const provider = { id: "anthropic", hasCredentials: () => true, stream };
+    const setChatProject = vi.fn(async () => undefined);
+    const beginActiveConversationTurn = vi.fn(async () => ({ conversationId: "conversation-1", turnId: "turn-1" }));
+    const plugin = statePlugin({
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        agentModeEnabled: false,
+        context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false },
+      },
+      router: () => ({
+        chatProvider: () => ({ provider, model: DEFAULT_SETTINGS.model }),
+        chatBackend: "claude",
+        chatCapabilities: () => ({ agentActions: false, claudeControls: true, metered: true, local: false, cli: false }),
+        chatToolCapable: async () => false,
+        anthropic: provider,
+        claudeCli: { hasCredentials: () => false, available: () => false },
+        localFallback: async () => null,
+      }),
+      beginActiveConversationTurn,
+      registerActiveChatTurn: vi.fn(() => () => undefined),
+      completeActiveConversationTurn: vi.fn(async () => undefined),
+      interruptActiveConversationTurn: vi.fn(async () => undefined),
+      semanticSearch: async () => [],
+      turnService: () => new ChatTurnService(),
+      setChatProject,
+      chatProjectFor: async () => project,
+    });
+    const seam = buildView(plugin) as unknown as Seam & {
+      applyChosenProject(p: ChatProject): Promise<void>;
+      run(userText: string): Promise<void>;
+      pendingProjectId: string | null;
+    };
+
+    await seam.applyChosenProject(project);
+
+    expect(setChatProject).not.toHaveBeenCalled();
+    expect(seam.pendingProjectId).toBe(project.id);
+    expect(seam.conversationId).toBeNull();
+
+    await seam.run("Hello");
+
+    expect(beginActiveConversationTurn).toHaveBeenCalledOnce();
+    expect(setChatProject).toHaveBeenCalledOnce();
+    expect(setChatProject).toHaveBeenCalledWith("conversation-1", project.id);
+    expect(seam.pendingProjectId).toBeNull();
   });
 });

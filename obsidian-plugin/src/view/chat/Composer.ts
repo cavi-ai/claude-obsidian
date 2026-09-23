@@ -2,7 +2,8 @@ import { Platform, setIcon, MarkdownView, Notice, TFile, type App } from "obsidi
 import { type SlashCommand, parseSlashQuery } from "../slashCommands";
 import { SlashMenu } from "../SlashMenu";
 import { AtMenu } from "../AtMenu";
-import { type AtItem, type ClaimAtSource, buildAtItems, buildClaimItems, activeAtQuery, activeHashQuery } from "../../context/atMention";
+import { type AtItem, type ClaimAtSource, type ProjectAtSource, buildAtItems, buildClaimItems, activeAtQuery, activeHashQuery } from "../../context/atMention";
+import type { ChatProject } from "../../projects/model";
 import { ComposerContextManager } from "../ComposerContextManager";
 import { type AutomaticContextKey, buildContextManagerModel } from "../contextManagerModel";
 import { ModeControl, type ChatMode } from "../ModeControl";
@@ -28,6 +29,7 @@ export interface ComposerDeps {
   updateModeControl(): void;
   updateUsageBar(): void;
   cachedClaims(): ClaimAtSource[];
+  cachedProjects(): ProjectAtSource[];
   controls(): ChatControls;
   streaming(): boolean;
   mountUsage(parent: HTMLElement): void;
@@ -40,6 +42,8 @@ export interface ComposerDeps {
   addContext(): void;
   onSend(): void;
   syncSlashMenu(): void;
+  /** Choose a chat project from the "@" menu, or clear it (the pill's remove ×) when `id` is null. */
+  chooseProject(id: string | null): void;
 }
 
 /** The composer: input, @/slash menus, attachments/context manager, quick options, submit. */
@@ -67,6 +71,8 @@ export class Composer {
   activeMenuTrigger: "@" | "#" = "@";
   /** Last visible context-manager state; skip DOM rebuilds when nothing changed. */
   lastContextManagerSignature = "";
+  /** The active chat project's pill, next to the context-manager trigger; hidden when there's none. */
+  projectPillEl!: HTMLElement;
 
   mount(
     root: HTMLElement,
@@ -81,6 +87,9 @@ export class Composer {
       retrySource: (id) => this.deps.retrySource(id),
       addContext: () => this.deps.addContext(),
     });
+    // The active chat project's pill (same pill style as a folder attachment).
+    this.projectPillEl = composer.createDiv({ cls: "cc-ctx-pill cc-ctx-project" });
+    this.projectPillEl.setCssStyles({ display: "none" });
     // The "attach this page?" offer for URLs in the composer.
     this.pageOfferEl = composer.createDiv({ cls: "cc-page-offer" });
     this.pageOfferEl.setCssStyles({ display: "none" });
@@ -208,7 +217,25 @@ export class Composer {
       .getLastOpenFiles()
       .filter((p) => p.toLowerCase().endsWith(".md") && this.app.vault.getAbstractFileByPath(p) instanceof TFile)
       .slice(0, 5);
-    return buildAtItems(notes, [...folders].sort(), media, bases, this.cachedClaims, recents);
+    return buildAtItems(notes, [...folders].sort(), media, bases, this.cachedClaims, recents, this.deps.cachedProjects());
+  }
+
+  /** Show/hide/update the active chat project's pill; `null` hides it. */
+  setProjectPill(project: ChatProject | null): void {
+    if (!this.projectPillEl) return;
+    if (!project) {
+      this.projectPillEl.setCssStyles({ display: "none" });
+      return;
+    }
+    this.projectPillEl.empty();
+    this.projectPillEl.createSpan({ cls: "cc-ctx-pill-label", text: project.name });
+    const remove = this.projectPillEl.createEl("button", {
+      cls: "cc-ctx-pill-remove",
+      text: "×",
+      attr: { type: "button", "aria-label": `Remove project ${project.name}` },
+    });
+    remove.addEventListener("click", () => this.deps.chooseProject(null));
+    this.projectPillEl.setCssStyles({ display: "" });
   }
 
   /** Candidate sources for the "#" menu: research claims only. */
@@ -346,6 +373,10 @@ export class Composer {
     else if (item.kind === "selection") this.plugin.settings.context.selection = true;
     else if (item.kind === "linked") this.plugin.settings.context.linkedNotes = true;
     else if (item.kind === "vault") this.plugin.settings.context.searchVault = true;
+    else if (item.kind === "project" && item.path) {
+      this.deps.chooseProject(item.path);
+      return; // chooseProject persists + re-renders the context row asynchronously
+    }
     // note-path/folder-path (explicit attach), recent (a recently opened note), base-path
     // (.base file) and claim (a research claim's note) all resolve to the same attach:
     // a note by path, deduped against anything already attached at that path.

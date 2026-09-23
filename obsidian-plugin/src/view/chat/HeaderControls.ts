@@ -11,6 +11,7 @@ import type { ChatMode } from "../ModeControl";
 import type { CliBackend, CliSignInProvider } from "../../cli/backends/types";
 import type { ProviderRouter } from "../../providers/router";
 import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../../usage/tokens";
+import type { ChatProject } from "../../projects/model";
 import { ActionModal, type ActionModalItem } from "../ActionModal";
 import { QuickOptionsModal } from "../QuickOptionsModal";
 import { quickNotice } from "../../notice";
@@ -45,11 +46,14 @@ export interface HeaderControlsDeps {
   planMode(): boolean;
   reasoningEl(): HTMLButtonElement | null;
   session(): SessionUsage;
+  currentProject(): ChatProject | null;
 }
 
 /** The chat panel's header row: eyebrow/title, model chip, backend/write-grant pills, chrome-hosted actions. */
 export class HeaderControls {
   modelLabelEl!: HTMLElement;
+  /** The active chat project's name, next to the conversation title; empty (hidden via CSS) when there's none. */
+  projectLabelEl!: HTMLElement;
   /** Desktop only: the text span nested inside the cc-model chip (dot + text + chevron). */
   modelTextEl: HTMLElement | null = null;
   backendPillEl!: HTMLElement;
@@ -69,6 +73,7 @@ export class HeaderControls {
     const header = root.createDiv({ cls: "cc-header" });
     const title = header.createDiv({ cls: "cc-title" });
     title.createSpan({ cls: "cc-eyebrow", text: "COMPANION FOR CLAUDE" });
+    this.projectLabelEl = title.createSpan({ cls: "cc-project-label" });
     this.modelLabelEl = title.createSpan({ cls: "cc-model" });
     this.backendPillEl = title.createSpan({ cls: "cc-backend-pill", attr: { "aria-label": "Chat backend / connectivity" } });
     this.writeGrantPillEl = title.createEl("button", {
@@ -165,7 +170,8 @@ export class HeaderControls {
     const convo = this.messages.map((m) => m.content).join("\n");
     const draft = this.inputEl?.value ?? "";
     const ctxAllowance = this.deps.anyContextEnabled() ? this.plugin.settings.contextCharBudget : 0;
-    const estIn = estimateTokens(this.plugin.composeSystemPrompt()) + estimateTokens(convo) + estimateTokens(draft) + estimateTokensForChars(ctxAllowance);
+    const project = this.deps.currentProject();
+    const estIn = estimateTokens(this.plugin.composeSystemPrompt({ ...(project ? { project } : {}) })) + estimateTokens(convo) + estimateTokens(draft) + estimateTokensForChars(ctxAllowance);
 
     const g = contextGauge(estIn, model, reserved);
     this.gaugeFillEl.setCssStyles({ width: `${Math.round(g.fraction * 100)}%` });
@@ -191,6 +197,11 @@ export class HeaderControls {
       }
     }
     this.usageEl.setText(parts.join("  ·  "));
+  }
+
+  /** Text only, next to the title; `null` hides it (empty text, CSS-collapsed). */
+  setProjectLabel(name: string | null): void {
+    this.projectLabelEl?.setText(name ?? "");
   }
 
   refreshModelLabel(): void {
