@@ -65,7 +65,8 @@ import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type Enrich
 import { sanitizeFileName } from "./artifacts/parse";
 import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
 import { stripFrontmatter } from "./semantic/chunk";
-import { generateToken } from "./mcp/clientConfig";
+import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
+import type { BridgeSetupInput } from "./integrations/desktopRuntime";
 import type { AgentTurnRunner } from "./agent/loop";
 import { ClaudeCliSession } from "./cli/session";
 import { buildClaudeArgv, mcpConfigJson } from "./cli/argv";
@@ -250,7 +251,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _cliRuntime: ClaudeCliRuntime | null | undefined;
   private _desktopIntegrationModals?: Set<DesktopIntegrationsModal>;
   private _desktopRuntimeLoader: () => Promise<{
-    createNodeDesktopRuntime(platform: DesktopPlatform, homeDir: string, env: Record<string, string | undefined>): Promise<DesktopIntegrationRuntime>;
+    createNodeDesktopRuntime(platform: DesktopPlatform, homeDir: string, env: Record<string, string | undefined>, bridge?: BridgeSetupInput): Promise<DesktopIntegrationRuntime>;
     createNodeManagedProcessPort(): import("./build/desktopExecutor").ManagedProcessPort;
   }> = () => import("./integrations/desktopRuntime");
   private _externalMcp: ExternalMcpManager | null = null;
@@ -1654,6 +1655,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return { port: this.settings.mcpPort, token };
   }
 
+  /** enabled=false, never a partial bridge: no working step without a resolvable token. */
+  private claudeCodeBridgeInput(env: Record<string, string | undefined>): BridgeSetupInput {
+    const resolved = resolveMcpToken(env, this.settings.mcpToken);
+    if (!this.settings.mcpEnabled || !resolved.token) return { enabled: false, url: "", headerValue: "" };
+    return { enabled: true, url: bridgeUrl(this.settings.mcpPort), headerValue: bridgeHeaderValue(resolved) };
+  }
+
   private async createDesktopIntegrationController(): Promise<DesktopIntegrationCoordinator> {
     const adapter = this.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter)) throw new Error("This vault does not expose a desktop filesystem path.");
@@ -1665,7 +1673,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const homeDir = env.HOME || env.USERPROFILE || "";
     if (!homeDir) throw new Error("The desktop home directory is unavailable.");
     const module = await this._desktopRuntimeLoader();
-    const runtime = await module.createNodeDesktopRuntime(platform, homeDir, { APPDATA: env.APPDATA });
+    const runtime = await module.createNodeDesktopRuntime(platform, homeDir, { APPDATA: env.APPDATA }, this.claudeCodeBridgeInput(env));
     return new DesktopIntegrationCoordinator({
       runtime,
       providerReady: () => this.router().anthropic.hasCredentials() || this.settings.chatBackend !== "claude",
