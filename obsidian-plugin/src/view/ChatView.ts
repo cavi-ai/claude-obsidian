@@ -14,7 +14,7 @@ import { ConversationPicker } from "./ConversationPicker";
 import { modelLabel, CLAUDE_MODELS, resolveModelId } from "../claude/models";
 import { isMobileModelChoiceActive, mobileModelChoices } from "./mobileModelChoices";
 import { capabilitiesFor, effortLevels } from "../claude/capabilities";
-import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
+import { type ChatControls, defaultChatControls, knobVisibility, shapeRequest } from "../claude/chatControls";
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
@@ -960,8 +960,9 @@ export class ChatView extends ItemView {
     }
 
     const caps = capabilitiesFor(this.controls.model);
+    const knobs = knobVisibility(caps, this.controls);
 
-    if (caps.thinking !== "none") {
+    if (knobs.think) {
       const think = parent.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Think", attr: { "aria-label": "Extended thinking" } });
       think.toggleClass("is-active", this.controls.thinking);
       think.addEventListener("click", () => {
@@ -971,7 +972,7 @@ export class ChatView extends ItemView {
         this.refreshCapabilityIndicators();
       });
 
-      if (caps.effort && this.controls.thinking) {
+      if (knobs.effort) {
         const eff = parent.createEl("select", { cls: "cc-ctl cc-ctl-select", attr: { "aria-label": "Effort" } });
         for (const level of effortLevels(caps)) eff.createEl("option", { value: level, text: `effort: ${level}` });
         if (!effortLevels(caps).includes(this.controls.effort)) this.controls.effort = "high";
@@ -981,7 +982,7 @@ export class ChatView extends ItemView {
         });
       }
 
-      if (caps.thinking === "adaptive" && this.controls.thinking) {
+      if (knobs.showReasoning) {
         const show = parent.createEl("button", { cls: "cc-ctl cc-ctl-toggle", text: "Show reasoning" });
         show.toggleClass("is-active", this.controls.showThinking);
         show.addEventListener("click", () => {
