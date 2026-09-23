@@ -1,7 +1,6 @@
-import { Platform, setIcon } from "obsidian";
+import { Platform, setIcon, Menu, Modal, Notice, type App } from "obsidian";
 import type ClaudeCompanionPlugin from "../../main";
 import { renderCompanionChrome } from "../companionChrome";
-import { Menu, Modal, Notice } from "obsidian";
 import type { ChatMessage } from "../../types";
 import type { Conversation } from "../../conversations/store";
 import { ConversationPicker } from "../ConversationPicker";
@@ -15,7 +14,6 @@ import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, forma
 import { ActionModal, type ActionModalItem } from "../ActionModal";
 import { QuickOptionsModal } from "../QuickOptionsModal";
 import { quickNotice } from "../../notice";
-import type { App } from "obsidian";
 import type { CliSignInProvider } from "../ChatView";
 
 export interface HeaderControlsCallbacks {

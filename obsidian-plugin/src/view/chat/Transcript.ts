@@ -1,6 +1,5 @@
-import type { App } from "obsidian";
+import { type App, MarkdownView, Notice, setIcon } from "obsidian";
 import type ClaudeCompanionPlugin from "../../main";
-import { MarkdownView, Notice, setIcon } from "obsidian";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
 import type { AgentTurnResult } from "../../agent/loop";
 import type { ChatTurnService, TurnEvent } from "../../chat/turnService";

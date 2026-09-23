@@ -1,30 +1,22 @@
-import { Platform, setIcon } from "obsidian";
-import type { SlashCommand } from "../slashCommands";
+import { Platform, setIcon, MarkdownView, Notice, TFile, type App } from "obsidian";
+import { type SlashCommand, parseSlashQuery } from "../slashCommands";
 import { SlashMenu } from "../SlashMenu";
 import { AtMenu } from "../AtMenu";
-import type { AtItem } from "../../context/atMention";
+import { type AtItem, type ClaimAtSource, buildAtItems, buildClaimItems, activeAtQuery, activeHashQuery } from "../../context/atMention";
 import { ComposerContextManager } from "../ComposerContextManager";
-import type { AutomaticContextKey } from "../contextManagerModel";
-import { ModeControl } from "../ModeControl";
+import { type AutomaticContextKey, buildContextManagerModel } from "../contextManagerModel";
+import { ModeControl, type ChatMode } from "../ModeControl";
 import type { AttachedPath } from "../../context/vaultContext";
-import type { MediaAttachment } from "../../context/attachments";
-import type { AttachedPage } from "../../context/urlContext";
+import { type MediaAttachment, arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime } from "../../context/attachments";
+import { type AttachedPage, detectPageUrl, pageLabel } from "../../context/urlContext";
 import type { HeaderControls } from "./HeaderControls";
-import { MarkdownView, Notice, TFile } from "obsidian";
 import type { ContentBlock } from "../../providers/types";
 import { CLAUDE_MODELS } from "../../claude/models";
 import { capabilitiesFor, effortLevels } from "../../claude/capabilities";
 import { type ChatControls, knobVisibility } from "../../claude/chatControls";
-import { parseSlashQuery } from "../slashCommands";
-import { detectPageUrl, pageLabel } from "../../context/urlContext";
-import { arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime } from "../../context/attachments";
-import { type ClaimAtSource, buildAtItems, buildClaimItems, activeAtQuery, activeHashQuery } from "../../context/atMention";
 import { mergeDetectedModels } from "../../providers/localModels";
 import { quickNotice } from "../../notice";
-import { buildContextManagerModel } from "../contextManagerModel";
-import type { App } from "obsidian";
 import type ClaudeCompanionPlugin from "../../main";
-import type { ChatMode } from "../ModeControl";
 
 export interface ComposerCallbacks {
   onSlashCommand: (cmd: SlashCommand) => void;
