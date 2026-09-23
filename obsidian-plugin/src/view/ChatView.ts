@@ -54,11 +54,11 @@ import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, estimateTokensFo
 import { mergeUsage, type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
 import { ActionModal, type ActionModalItem } from "./ActionModal";
-import { renderCompanionChrome } from "./companionChrome";
 import { QuickOptionsModal } from "./QuickOptionsModal";
 import { quickNotice } from "../notice";
 import { ComposerContextManager } from "./ComposerContextManager";
 import { buildContextManagerModel, type AutomaticContextKey } from "./contextManagerModel";
+import { HeaderControls } from "./chat/HeaderControls";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
@@ -100,16 +100,22 @@ interface ObsidianAppWithSettings {
 }
 
 export class ChatView extends ItemView {
-  private disposeChrome: ((remove?: boolean) => void) | null = null;
+  private header = new HeaderControls();
+  private get modelLabelEl(): HTMLElement { return this.header.modelLabelEl; }
+  private set modelLabelEl(v: HTMLElement) { this.header.modelLabelEl = v; }
+  /** Desktop only: the text span nested inside the cc-model chip (dot + text + chevron). */
+  private get modelTextEl(): HTMLElement | null { return this.header.modelTextEl; }
+  private set modelTextEl(v: HTMLElement | null) { this.header.modelTextEl = v; }
+  private get backendPillEl(): HTMLElement { return this.header.backendPillEl; }
+  private set backendPillEl(v: HTMLElement) { this.header.backendPillEl = v; }
+  private get writeGrantPillEl(): HTMLElement { return this.header.writeGrantPillEl; }
+  private set writeGrantPillEl(v: HTMLElement) { this.header.writeGrantPillEl = v; }
+  private get mcpStatusEl(): HTMLButtonElement { return this.header.mcpStatusEl; }
+  private set mcpStatusEl(v: HTMLButtonElement) { this.header.mcpStatusEl = v; }
   private messages: ChatMessage[] = [];
   private messagesEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
-  private modelLabelEl!: HTMLElement;
-  /** Desktop only: the text span nested inside the cc-model chip (dot + text + chevron). */
-  private modelTextEl: HTMLElement | null = null;
-  private backendPillEl!: HTMLElement;
-  private writeGrantPillEl!: HTMLElement;
   modeControl: ModeControl | null = null;
   private usageEl!: HTMLElement;
   private gaugeFillEl!: HTMLElement;
@@ -127,7 +133,6 @@ export class ChatView extends ItemView {
   private controls!: ChatControls;
   private controlsEl!: HTMLElement;
   private knobsEl!: HTMLElement;
-  private mcpStatusEl!: HTMLButtonElement;
   private atMenu!: AtMenu;
   private contextManager!: ComposerContextManager;
   /** Notes/folders explicitly attached via "@" (session-scoped). */
@@ -224,8 +229,7 @@ export class ChatView extends ItemView {
 
   override async onOpen(): Promise<void> {
     const root = this.contentEl;
-    this.disposeChrome?.();
-    this.disposeChrome = null;
+    this.header.teardown();
     root.empty();
     root.addClass("cc-chat-root"); // scroll/layout root the mobile CSS keys on (see styles.css)
     root.addClass("cc-root");
@@ -236,65 +240,19 @@ export class ChatView extends ItemView {
     }
 
     // ---- header ----
-    const header = root.createDiv({ cls: "cc-header" });
-    const title = header.createDiv({ cls: "cc-title" });
-    title.createSpan({ cls: "cc-eyebrow", text: "COMPANION FOR CLAUDE" });
-    this.modelLabelEl = title.createSpan({ cls: "cc-model" });
-    this.backendPillEl = title.createSpan({ cls: "cc-backend-pill", attr: { "aria-label": "Chat backend / connectivity" } });
-    this.writeGrantPillEl = title.createEl("button", {
-      cls: "cc-write-grant-pill",
-      text: "✎ writes auto-allowed",
-      attr: { "aria-label": "Agent writes are auto-allowed for this session — click to revoke" },
-    });
-    this.writeGrantPillEl.addEventListener("click", () => {
-      this.agentWriteAlways = false;
-      this.updateWriteGrantPill();
-      quickNotice("Session write grant revoked — writes will ask again.");
+    this.header.mount(root, this.plugin, {
+      onModelClick: () => this.openModelMenu(),
+      onMcpClick: (evt) => this.openMcpMenu(evt),
+      onWriteGrantRevoke: () => {
+        this.agentWriteAlways = false;
+        this.updateWriteGrantPill();
+        quickNotice("Session write grant revoked — writes will ask again.");
+      },
+      onNewChat: () => this.clearChat(),
+      onHistory: () => this.openHistory(),
+      onOverflow: () => this.openOverflowMenu(),
     });
     this.updateWriteGrantPill();
-    const actions = header.createDiv({ cls: "cc-header-actions" });
-    if (Platform.isMobile) {
-      // Mobile: the model name is the model picker, and one ⋯ menu carries the
-      // actions the desktop icon row holds, plus the session toggles from the
-      // hidden controls bar (Act on vault, Plan mode, memory ingest). Truly
-      // desktop-only chrome (MCP, session capture) stays omitted.
-      this.modelLabelEl.addClass("cc-model-tappable");
-      this.modelLabelEl.addEventListener("click", () => this.openModelMenu());
-      const more = actions.createEl("button", { cls: "cc-icon-btn clickable-icon", attr: { "aria-label": "More actions" } });
-      setIcon(more, "more-vertical");
-      more.addEventListener("click", () => this.openOverflowMenu());
-      // Quick options reaches mobile through that one ⋯ menu; a second control on
-      // a phone-width header is the crowding this row exists to avoid.
-      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
-        host: actions,
-        compact: true,
-        omitOptionsButton: true,
-      });
-    } else {
-      // Desktop: same pattern as mobile — the model name opens the model picker,
-      // and one "More" button carries the rest (Save, capture, MCP bridge) so the
-      // header stays a calm 3-icon row plus quick options.
-      this.modelLabelEl.addClass("cc-model-tappable");
-      this.modelLabelEl.addEventListener("click", () => this.openModelMenu());
-      this.mcpStatusEl = this.modelLabelEl.createEl("button", { cls: "cc-mcp-dot", attr: { "aria-label": "MCP bridge controls" } });
-      this.mcpStatusEl.addEventListener("click", (evt) => {
-        evt.stopPropagation();
-        this.openMcpMenu(evt);
-      });
-      this.modelTextEl = this.modelLabelEl.createSpan({ cls: "cc-model-text" });
-      setIcon(this.modelLabelEl.createSpan({ cls: "cc-model-chevron" }), "chevron-down");
-
-      const primary = actions.createDiv({ cls: "cc-header-actions-primary" });
-      this.iconButton(primary, "plus", "New chat", () => this.clearChat());
-      this.iconButton(primary, "history", "Resume a past conversation", () => this.openHistory());
-      this.iconButton(primary, "more-horizontal", "More actions", () => this.openOverflowMenu());
-      // Quick options joins this row rather than owning a header of its own, and
-      // replaces the gear: its own sheet already offers "Open all settings".
-      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
-        host: primary,
-        compact: true,
-      });
-    }
 
     // ---- messages ----
     // Chat controls now live at the bottom (in the composer), so the top stays
@@ -610,8 +568,7 @@ export class ChatView extends ItemView {
       window.clearTimeout(this.claimReloadTimer);
       this.claimReloadTimer = null;
     }
-    this.disposeChrome?.(false);
-    this.disposeChrome = null;
+    this.header.teardown(false);
     // A live turn keeps running (and persisting) after the pane closes — only
     // detach this view from its event stream (ChatTurnService).
     this.detachTurnRendering();
@@ -640,14 +597,6 @@ export class ChatView extends ItemView {
     if (!text.trim() || this.streaming) return;
     this.inputEl.value = "";
     await this.run(text.trim(), display, maxTokens, opts);
-  }
-
-  // ---------- UI helpers ----------
-
-  private iconButton(parent: HTMLElement, icon: string, tip: string, onClick: () => void): void {
-    const btn = parent.createEl("button", { cls: "cc-icon-btn clickable-icon", attr: { "aria-label": tip } });
-    setIcon(btn, icon);
-    btn.addEventListener("click", onClick);
   }
 
   // ---------- "@" context picker ----------
