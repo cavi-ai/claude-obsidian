@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Chunked folder inference.** Organize batches candidates (16 per call) so a
+  large inbox no longer overruns the reply token budget in one shot; the
+  review modal groups proposed moves under a heading per destination folder.
+
+### Fixed
+- **Organize no longer flattens an already-organized inbox into misc.** Clips
+  filed into `Clippings/<topic>/` subfolders keep that folder instead of being
+  reclassified from scratch, and a truncated or unparseable model reply no
+  longer defaults every clip to misc — unresolved clips keep their current
+  folder or are left out of the plan, never silently moved to misc.
+
 ## [0.31.0] — 2026-09-23
 
 ### Added
