@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chunked folder inference.** Organize batches candidates (16 per call) so a
   large inbox no longer overruns the reply token budget in one shot; the
   review modal groups proposed moves under a heading per destination folder.
+- **A chat turn keeps running after you close or switch away from its pane.**
+  Closing the chat view (or switching conversations) no longer aborts an
+  in-flight turn — it keeps streaming and persists on completion. Reopening
+  the same conversation replays what you missed, then streams live. A turn
+  that finishes with no chat view open shows a Notice and a status-bar item
+  (toggle: "Notify when a turn finishes in the background").
 
 ### Fixed
 - **Organize no longer flattens an already-organized inbox into misc.** Clips

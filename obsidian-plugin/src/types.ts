@@ -176,6 +176,8 @@ export interface PluginSettings {
   selectionActionEnabled: boolean;
   /** Max stream→tools→stream iterations per turn. */
   agentMaxIterations: number;
+  /** Show a Notice + status-bar item when a turn finishes while its chat view is closed. */
+  notifyOnTurnComplete: boolean;
   /** Offer the web_search agent tool (explicit calls only). */
   webSearchEnabled: boolean;
   /** Engine behind web_search: keyless DuckDuckGo HTML or the keyed Brave API. */
@@ -343,6 +345,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   inlineDiffEnabled: true,
   selectionActionEnabled: true,
   agentMaxIterations: 10,
+  notifyOnTurnComplete: true,
   webSearchEnabled: false,
   webSearchEngine: "duckduckgo",
   braveSearchApiKey: "",
