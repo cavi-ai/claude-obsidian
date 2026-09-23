@@ -4,6 +4,34 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] — 2026-09-23
+
+### Added
+- **Claude Opus 5.5 and Claude Fable 5.1.** Both appear in the model picker.
+  Their thinking is always on, so the effort control stays available and
+  Companion never asks to turn thinking off.
+- **Connect Companion's vault tools to Claude Code.** Desktop integrations
+  registers the `obsidian-vault` MCP bridge with Claude Code when the bridge is
+  on, including when obsidian-agent is already installed.
+- **Organize from the Inbox.** Enriched clips still in the inbox list under
+  "Enriched" with an "Organize into folders" action.
+
+### Changed
+- **Calmer desktop chat panel.** The header has four icon buttons, the model
+  name is a chip that opens the model picker and shows bridge status, and
+  message actions appear on hover.
+
+### Fixed
+- **Clippings that mention credentials now enrich.** Secret-shaped text in a
+  clip's summary is masked instead of failing the whole enrichment, and phrases
+  like "password: required" are no longer treated as secrets.
+- **Organize reuses existing folders.** Proposed folders match existing ones by
+  name segment by segment, never nest the organized folder inside itself, and a
+  failed move is reported while the rest still move.
+- **Link suggestions skip URLs and tags**, and notes that share a name are
+  linked by path.
+- **Usage cost for Claude Sonnet 5** uses current pricing.
+
 ## [0.30.1] — 2026-09-22
 
 ### Fixed
