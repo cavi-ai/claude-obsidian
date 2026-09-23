@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reclassified from scratch, and a truncated or unparseable model reply no
   longer defaults every clip to misc — unresolved clips keep their current
   folder or are left out of the plan, never silently moved to misc.
+- **The setup wizard no longer opens over chat on a signed-in Claude Code
+  backend.** Layout-ready now awaits the Claude Code probe before planning the
+  wizard's steps, instead of reading credentials while the probe is still in
+  flight.
 
 ## [0.31.0] — 2026-09-23
 

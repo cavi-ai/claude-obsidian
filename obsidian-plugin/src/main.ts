@@ -646,10 +646,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * initial scan does not fire create/modify for every note and stampede them.
    */
   private startAfterLayout(): void {
-    if (!Platform.isMobile) void this.router().claudeCli.refresh().then(() => this.refreshViews());
+    const cliProbe = Platform.isMobile ? undefined : this.router().claudeCli.refresh().then(() => this.refreshViews());
       void this.syncMcpServer();
       this.syncPlanBuildActions();
-      void this.runFirstRun();
+      void this.runFirstRun(cliProbe);
       // Schemas/inbox changed since the clipper templates were exported →
       // the clipper is clipping against a stale schema. Offer once per session.
       if (this.settings.sourceCaptureEnabled && this.clipperTemplatesStale()) {
@@ -2223,8 +2223,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
-  /** Layout-ready first run: load the ontology, then the wizard (or the legacy one-shot prompts). */
-  private async runFirstRun(): Promise<void> {
+  /**
+   * Layout-ready first run: load the ontology, then the wizard (or the legacy
+   * one-shot prompts). Awaits the in-flight Claude Code probe first — the
+   * wizard's "connect" step must never be planned off a stale credential read.
+   */
+  private async runFirstRun(cliProbe?: Promise<unknown>): Promise<void> {
+    await cliProbe;
     if (this.settings.ontologyEnabled) await this.loadOntologyOnStart();
     if (!this.settings.setupWizardDone) {
       const steps = wizardPlan(this.wizardState());
