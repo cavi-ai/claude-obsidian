@@ -204,16 +204,6 @@ export class ConversationsController {
     return getActive(state.get());
   }
 
-  /** The given conversation id, or a fresh empty one persisted under a new id when null. */
-  async ensureConversation(conversationId: string | null): Promise<string> {
-    if (conversationId) return conversationId;
-    const { state, persist } = this.deps;
-    const fresh = newConversation(this.nextId(), Date.now());
-    state.set(saveConversation(state.get(), fresh, this.maxConversations()));
-    await persist();
-    return fresh.id;
-  }
-
   /** Set (or clear) the chat project a conversation is scoped to. */
   async setProject(conversationId: string, projectId: string | null): Promise<void> {
     const { state, persist } = this.deps;

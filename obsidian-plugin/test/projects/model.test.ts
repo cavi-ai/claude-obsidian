@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseProjectNote, fromResearchProject, projectSystemPrompt, projectSearchScope } from "../../src/projects/model";
+import { parseProjectNote, fromResearchProject, projectSystemPrompt, projectSearchScope, projectNoteBody, isProjectChange } from "../../src/projects/model";
 import type { ResearchProjectRecord } from "../../src/research/types";
 
 describe("parseProjectNote", () => {
@@ -77,5 +77,34 @@ describe("projectSearchScope", () => {
   it("accepts everything when the project has no folder", () => {
     const scope = projectSearchScope({ id: "p.md", name: "P", folder: null, pinned: [], instructions: "", source: "note" });
     expect(scope("anything/x.md")).toBe(true);
+  });
+});
+
+describe("projectNoteBody", () => {
+  it("omits folder when null", () => {
+    expect(projectNoteBody(null)).toBe("---\ntype: chat-project\n---\n\n");
+  });
+
+  it("omits folder when root ('/')", () => {
+    expect(projectNoteBody("/")).toBe("---\ntype: chat-project\n---\n\n");
+  });
+
+  it("writes a JSON-quoted folder when a folder contains ': '", () => {
+    expect(projectNoteBody("Work: Launch")).toBe('---\ntype: chat-project\nfolder: "Work: Launch"\n---\n\n');
+  });
+});
+
+describe("isProjectChange", () => {
+  it("is true for a chat-project note's frontmatter", () => {
+    expect(isProjectChange("Notes/Launch.md", { type: "chat-project" })).toBe(true);
+  });
+
+  it("is true for a research project's Project.md path, regardless of frontmatter", () => {
+    expect(isProjectChange("Research/Proj/Project.md", undefined)).toBe(true);
+  });
+
+  it("is false for an unrelated note", () => {
+    expect(isProjectChange("Notes/Alpha.md", { type: "daily" })).toBe(false);
+    expect(isProjectChange("Notes/Alpha.md", undefined)).toBe(false);
   });
 });

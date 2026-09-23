@@ -39,16 +39,3 @@ describe("ConversationsController.setProject", () => {
     expect(persisted).toHaveLength(0);
   });
 });
-
-describe("ConversationsController.ensureConversation", () => {
-  it("returns the given id unchanged", async () => {
-    const { controller } = harness();
-    expect(await controller.ensureConversation("existing")).toBe("existing");
-  });
-
-  it("creates and persists a fresh conversation when null", async () => {
-    const { controller, state } = harness();
-    const id = await controller.ensureConversation(null);
-    expect(state().conversations.map((c) => c.id)).toEqual([id]);
-  });
-});

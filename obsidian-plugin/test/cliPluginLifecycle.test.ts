@@ -69,6 +69,26 @@ describe("plugin Claude CLI lifecycle", () => {
     expect(rt.removeFile).toHaveBeenCalledTimes(3);
   });
 
+  it("passes the conversation's chat project into the CLI system prompt", async () => {
+    vi.spyOn(McpHttpServer.prototype, "start").mockResolvedValue(undefined);
+    vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });
+    vi.spyOn(McpHttpServer.prototype, "stop").mockResolvedValue(undefined);
+    const rt = runtime();
+    const seenPrompts: string[] = [];
+    rt.writeSystemPromptFile = async (text: string) => { seenPrompts.push(text); return "/tmp/p.md"; };
+    const p = plugin(rt);
+    (p as unknown as { convState: { conversations: { id: string; projectId?: string }[] } }).convState.conversations[0]!.projectId = "Claude/Projects/Widgets.md";
+    Object.assign(p as unknown as Record<string, unknown>, {
+      composeSystemPrompt: ClaudeCompanionPlugin.prototype.composeSystemPrompt,
+      listChatProjects: async () => [{ id: "Claude/Projects/Widgets.md", name: "Widgets", folder: null, pinned: [], instructions: "Ship widgets on time.", source: "note" as const }],
+    });
+    await p.router().claudeCli.refresh();
+    const deps = { confirmWrite: async () => true, proposeEdit: async () => "" };
+    await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" });
+    expect(seenPrompts[0]).toContain("Chat project: Widgets");
+    expect(seenPrompts[0]).toContain("Ship widgets on time.");
+  });
+
   it("keeps write confirmation bound to the conversation whose CLI called it", async () => {
     vi.spyOn(McpHttpServer.prototype, "start").mockResolvedValue(undefined);
     vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });

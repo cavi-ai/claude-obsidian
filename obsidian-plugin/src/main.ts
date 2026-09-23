@@ -13,7 +13,7 @@ import { createResearchRepository } from "./research/repositoryFactory";
 import { ensureVaultFolder, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
-import { projectSystemPrompt, type ChatProject } from "./projects/model";
+import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
 import { DraftCoordinator } from "./research/draftCoordinator";
@@ -570,10 +570,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       callback: () => void (async () => {
         const folder = "Claude/Projects";
         await ensureVaultFolder(this.app, folder);
-        const activeFolder = this.app.workspace.getActiveFile()?.parent?.path;
+        const activeFolder = this.app.workspace.getActiveFile()?.parent?.path ?? null;
         const path = await uniqueNotePath(this.app, folder, "New project", "md");
-        const frontmatter = `type: chat-project${activeFolder ? `\nfolder: ${activeFolder}` : ""}`;
-        const file = await this.app.vault.create(path, `---\n${frontmatter}\n---\n\n`);
+        const file = await this.app.vault.create(path, projectNoteBody(activeFolder));
         await this.app.workspace.getLeaf(true).openFile(file);
       })(),
     });
@@ -2063,11 +2062,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.conversations().startNew();
   }
 
-  /** The given conversation id, or a fresh empty one when null (e.g. picking a project before the first send). */
-  async ensureConversationId(conversationId: string | null): Promise<string> {
-    return this.conversations().ensureConversation(conversationId);
-  }
-
   /** Set (or clear, with `null`) the chat project a conversation is scoped to. */
   async setChatProject(conversationId: string, projectId: string | null): Promise<void> {
     await this.conversations().setProject(conversationId, projectId);
@@ -2076,6 +2070,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Every chat project available in this vault (chat-project notes + Research Desk projects). */
   async listChatProjects(): Promise<ChatProject[]> {
     return listChatProjects(this.app, this.researchRepository());
+  }
+
+  /** The chat project a conversation is scoped to, or null when it has none. */
+  async chatProjectFor(conversationId: string | null): Promise<ChatProject | null> {
+    if (!conversationId) return null;
+    const projectId = this.listConversations().find((c) => c.id === conversationId)?.projectId ?? null;
+    if (!projectId) return null;
+    const projects = await this.listChatProjects();
+    return projects.find((p) => p.id === projectId) ?? null;
   }
 
   async deleteConversation(id: string): Promise<void> {
@@ -2550,7 +2553,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }, 500);
   }
 
-  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject }): string {
+  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null }): string {
     let base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
     const digest = this.ontology()?.digest();
     if (digest) base = `${base}\n\n${digest}`;
@@ -2962,7 +2965,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (!oldest) break;
       await this.closeCliSession(oldest[0]);
     }
-    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.planMode });
+    const project = await this.chatProjectFor(opts.conversationId);
+    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.planMode, project });
     const promptFile = backend.processModel === "persistent" ? await runtime.writeSystemPromptFile(systemPrompt) : "";
     if (promptFile) this.cliPromptFiles.add(promptFile);
     let bridge: McpHttpServer | null = null;

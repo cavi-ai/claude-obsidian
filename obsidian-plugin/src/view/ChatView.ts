@@ -26,7 +26,7 @@ import { splitStreamingArtifact } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { type MediaAttachment } from "../context/attachments";
 import { type AtItem, type ClaimAtSource } from "../context/atMention";
-import { projectSearchScope, type ChatProject } from "../projects/model";
+import { isProjectChange, projectSearchScope, type ChatProject } from "../projects/model";
 import { type ErrorHintProvider } from "../providers/errorHints";
 import { needsCredentialSetup } from "../providers/setupState";
 import { claudeBackend } from "../cli/backends/claude";
@@ -152,6 +152,8 @@ export class ChatView extends ItemView {
   private cachedProjects: ChatProject[] = [];
   /** The chat project this.conversationId is scoped to (null = none), kept in sync with the conversation. */
   private currentChatProject: ChatProject | null = null;
+  /** A project chosen before the first send (no conversation yet); applied once `run()` creates one. */
+  private pendingProjectId: string | null = null;
   /** Which trigger ("@" or "#") the open at-menu is currently showing matches for. */
   private get activeMenuTrigger(): "@" | "#" { return this.composer.activeMenuTrigger; }
   private set activeMenuTrigger(v: "@" | "#") { this.composer.activeMenuTrigger = v; }
@@ -340,13 +342,14 @@ export class ChatView extends ItemView {
     }));
 
     // Research claims for the "@"/"#" pickers: load now, refresh on the same
-    // signal the research views use to know a research note changed.
+    // signal the research views use to know a research note changed. Chat
+    // projects reload alongside, but only for a chat-project note or a research Project.md.
     void this.reloadClaims();
     void this.reloadProjects();
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleReloadClaims()));
-    this.registerEvent(this.app.vault.on("create", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); }));
-    this.registerEvent(this.app.vault.on("delete", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); }));
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => { if (file.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleReloadClaims(); }));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => { this.scheduleReloadClaims(); if (isProjectChange(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter)) void this.reloadProjects(); }));
+    this.registerEvent(this.app.vault.on("create", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); if (isProjectChange(file.path)) void this.reloadProjects(); }));
+    this.registerEvent(this.app.vault.on("delete", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); if (isProjectChange(file.path)) void this.reloadProjects(); }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => { if (file.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleReloadClaims(); if (isProjectChange(file.path) || isProjectChange(oldPath)) void this.reloadProjects(); }));
 
     this.applyChatFontSize();
     this.refreshModelLabel();
@@ -375,6 +378,7 @@ export class ChatView extends ItemView {
   loadConversation(conversation: Conversation): void {
     this.detachTurnRendering();
     this.conversationId = conversation.id;
+    this.pendingProjectId = null;
     void this.refreshCurrentProject();
     this.session = { ...EMPTY_SESSION };
     this.messages = compactMessages(conversation.messages);
@@ -424,6 +428,7 @@ export class ChatView extends ItemView {
   resetToEmpty(): void {
     this.detachTurnRendering();
     this.conversationId = null;
+    this.pendingProjectId = null;
     this.messages = [];
     this.session = { ...EMPTY_SESSION };
     this.messagesEl.empty();
@@ -477,7 +482,6 @@ export class ChatView extends ItemView {
     this.claimReloadTimer = window.setTimeout(() => {
       this.claimReloadTimer = null;
       void this.reloadClaims();
-      void this.reloadProjects();
     }, 500);
   }
 
@@ -508,31 +512,33 @@ export class ChatView extends ItemView {
     }
   }
 
-  /** Sync `currentChatProject` (and the pill/header label) to `this.conversationId`'s persisted projectId. */
-  private async refreshCurrentProject(): Promise<void> {
-    let project: ChatProject | null = null;
-    try {
-      const conversation = this.conversationId ? this.plugin.listConversations().find((c) => c.id === this.conversationId) : null;
-      const projectId = conversation?.projectId ?? null;
-      project = projectId ? this.cachedProjects.find((p) => p.id === projectId) ?? null : null;
-      if (projectId && !project) {
-        await this.reloadProjects();
-        project = this.cachedProjects.find((p) => p.id === projectId) ?? null;
-      }
-    } catch {
-      // Conversation/registry lookup unavailable — no project for this turn.
-    }
+  /** Set `currentChatProject` and its pill/header label, without touching persisted storage. */
+  private setLocalProject(project: ChatProject | null): void {
     this.currentChatProject = project;
     this.composer.setProjectPill(project);
     this.header.setProjectLabel(project?.name ?? null);
   }
 
+  /** Sync `currentChatProject` (and the pill/header label) to `this.conversationId`'s persisted projectId. */
+  private async refreshCurrentProject(): Promise<void> {
+    let project: ChatProject | null = null;
+    try {
+      project = await this.plugin.chatProjectFor(this.conversationId);
+    } catch {
+      // Conversation/registry lookup unavailable — no project for this turn.
+    }
+    this.setLocalProject(project);
+  }
+
   /** Apply a project chosen from the "@" menu or the "Chat: choose project" command. */
   async applyChosenProject(project: ChatProject): Promise<void> {
-    const id = await this.plugin.ensureConversationId(this.conversationId);
-    this.conversationId = id;
-    this.refreshTabTitle();
-    await this.plugin.setChatProject(id, project.id);
+    if (this.conversationId === null) {
+      // No conversation yet — hold the choice until run() creates one.
+      this.pendingProjectId = project.id;
+      this.setLocalProject(project);
+      return;
+    }
+    await this.plugin.setChatProject(this.conversationId, project.id);
     await this.refreshCurrentProject();
     this.updateUsageBar();
   }
@@ -541,8 +547,10 @@ export class ChatView extends ItemView {
   private chooseProjectById(id: string | null): void {
     if (id === null) {
       void (async () => {
-        if (this.conversationId) await this.plugin.setChatProject(this.conversationId, null);
-        await this.refreshCurrentProject();
+        if (this.conversationId) {
+          await this.plugin.setChatProject(this.conversationId, null);
+          await this.refreshCurrentProject();
+        } else { this.pendingProjectId = null; this.setLocalProject(null); }
         this.updateUsageBar();
       })();
       return;
@@ -709,9 +717,8 @@ export class ChatView extends ItemView {
     // The previous conversation is already auto-saved; detach so the next turn
     // begins a fresh one instead of continuing it.
     this.conversationId = null;
-    this.currentChatProject = null;
-    this.composer.setProjectPill(null);
-    this.header.setProjectLabel(null);
+    this.pendingProjectId = null;
+    this.setLocalProject(null);
     this.attachedPaths = [];
     this.attachedPages = [];
     this.composer.dismissedPageUrl = null;
@@ -961,6 +968,7 @@ export class ChatView extends ItemView {
     }
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
+    if (this.pendingProjectId !== null) { await this.plugin.setChatProject(turn.conversationId, this.pendingProjectId); this.pendingProjectId = null; }
     await this.refreshCurrentProject(); // memoized for the rest of this turn
     this.currentTurn = turn;
     this.abort = new AbortController();
@@ -1129,7 +1137,7 @@ export class ChatView extends ItemView {
         resolve({ text: buffer, trace: [], error: err });
       };
       const request: CompletionRequest = {
-        system: this.plugin.composeSystemPrompt({ ...(this.currentChatProject ? { project: this.currentChatProject } : {}) }),
+        system: this.plugin.composeSystemPrompt({ project: this.currentChatProject }),
         messages: apiMessages,
         model,
         maxTokens: shape.maxTokens,
@@ -1183,7 +1191,7 @@ export class ChatView extends ItemView {
     const externalTools = this.planMode ? [] : await this.plugin.externalMcpTools().catch(() => []);
 
     const request: CompletionRequest = {
-      system: this.plugin.composeSystemPrompt({ agent: true, plan: this.planMode, ...(this.currentChatProject ? { project: this.currentChatProject } : {}) }),
+      system: this.plugin.composeSystemPrompt({ agent: true, plan: this.planMode, project: this.currentChatProject }),
       messages: apiMessages,
       model: this.turnModelOverride ?? providerModel,
       maxTokens: shape.maxTokens,
