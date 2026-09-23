@@ -167,7 +167,7 @@ describe("plugin Claude CLI lifecycle", () => {
     expect(p.router().claudeCli.hasCredentials()).toBe(true);
   });
 
-  it("opens the wizard on the connect step when the probe settles not signed in and no API key is set", async () => {
+  it("still opens no wizard when the probe settles not signed in and no API key is set — the chat setup card covers it", async () => {
     const rt = runtime();
     rt.authStatus = async () => ({ loggedIn: false, method: "" });
     const p = plugin(rt);
@@ -175,8 +175,17 @@ describe("plugin Claude CLI lifecycle", () => {
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
     const cliProbe = p.router().claudeCli.refresh();
     await (p as unknown as RunFirstRun).runFirstRun(cliProbe);
-    expect(openSpy).toHaveBeenCalledOnce();
-    const modal = openSpy.mock.instances[0] as unknown as { deps: { steps: string[] } };
-    expect(modal.deps.steps).toEqual(["connect"]);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(p.router().claudeCli.hasCredentials()).toBe(false);
+  });
+
+  it("no credential → layout-ready opens no wizard", async () => {
+    const rt = runtime();
+    rt.authStatus = async () => ({ loggedIn: false, method: "" });
+    const p = plugin(rt);
+    forWizardRace(p);
+    const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
+    await (p as unknown as RunFirstRun).runFirstRun();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 });
