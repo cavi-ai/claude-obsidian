@@ -32,6 +32,10 @@ describe("buildCodexArgv", () => {
     expect(argv).toContain(`mcp_servers.obsidian-vault.bearer_token_env_var="${CODEX_MCP_TOKEN_ENV}"`);
   });
 
+  it("auto-approves bridge tool calls, since codex exec cancels any call that needs approval and the bridge gates writes itself", () => {
+    expect(buildCodexArgv(input)).toContain('mcp_servers.obsidian-vault.default_tools_approval_mode="approve"');
+  });
+
   it("passes -m only when a model is set, and resume instead of a fresh session id", () => {
     expect(buildCodexArgv({ ...input, model: "" })).not.toContain("-m");
     expect(buildCodexArgv(input)).toContain("-m");
