@@ -113,6 +113,36 @@ describe("DesktopIntegrationsModal", () => {
     expect(visibleText(modal)).not.toContain("Turn on the MCP bridge");
   });
 
+  it("offers Connect vault tools when obsidian-agent is installed but the bridge is not registered", () => {
+    const controller = new Controller({
+      status: "ready",
+      providerReady: true,
+      inspection: {
+        claude: { available: true, state: "available", version: "2.1.226" },
+        obsidian: { available: true, state: "available", version: "1.12.7" },
+        marketplaceInstalled: true,
+        pluginInstalled: true,
+        pluginEnabled: true,
+        bridge: { enabled: true, url: "http://127.0.0.1:22360/mcp", registered: false, headerValue: "secret" },
+      },
+    });
+    const confirm = vi.fn(async () => true);
+    const modal = new DesktopIntegrationsModal(new App(), {
+      controller,
+      mobile: false,
+      platform: "darwin",
+      openConnectionSettings: vi.fn(),
+      openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
+      confirm,
+    });
+    modal.onOpen();
+    expect(button(modal, "Set up Claude Code")).toBeUndefined();
+    button(modal, "Connect vault tools to Claude Code")?.dispatchEvent({ type: "click" });
+    expect(controller.setupClaudeCode).toHaveBeenCalledTimes(1);
+    expect(visibleText(modal)).not.toContain("secret");
+  });
+
   it("passes explicit confirmation into Claude Code and Claude Desktop actions", () => {
     const controller = new Controller({ status: "ready", providerReady: true });
     controller.connectClaudeDesktop = vi.fn(async (confirmAction) => { await confirmAction(); });

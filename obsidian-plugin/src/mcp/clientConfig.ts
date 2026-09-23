@@ -56,14 +56,7 @@ export function bridgeUrl(port: number): string {
   return `http://127.0.0.1:${port}/mcp`;
 }
 
-/**
- * The header value Claude Code should send. When the token comes from the
- * environment, the `${VAR}` reference (Claude Code expands it at connect
- * time, verified live: the header it sends carries the resolved secret, but
- * `claude mcp get` and `~/.claude.json` only ever show the reference) so the
- * secret is never written to disk. Otherwise the literal resolved token, the
- * same value `claudeCodeCommand` already prints for hand-paste.
- */
+/** Env-sourced tokens stay a `${VAR}` reference Claude Code expands at connect time; stored tokens go literal, as the paste snippet does. */
 export function bridgeHeaderValue(resolved: ResolvedToken): string {
   return resolved.source === "env" ? mcpTokenEnvRef() : resolved.token;
 }
