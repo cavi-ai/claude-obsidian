@@ -58,7 +58,15 @@ import type { AnthropicToolDef, ProviderId } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
-import { buildOrganizePrompt, buildFolderOrganizePrompt, parseOrganizeResponse, planOrganizeMoves, relativeFolders, type OrganizeCandidate } from "./sources/organize";
+import {
+  buildFolderOrganizePrompt,
+  currentDomainOf,
+  inferDomains,
+  planOrganizeMoves,
+  relativeFolders,
+  resolveUnresolvedWithCurrentFolder,
+  type OrganizeCandidate,
+} from "./sources/organize";
 import { applyOrganizeMoves } from "./sources/organizeApply";
 import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./enrich/noteEnrich";
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "./view/EnrichModal";
@@ -101,7 +109,7 @@ import {
 import { ConversationsController } from "./conversations/controller";
 import type { ChatMessage } from "./types";
 import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
-import { inboxItems } from "./sources/inbox";
+import { inboxItems, typedInboxItems, type InboxFileEntry } from "./sources/inbox";
 import { parseClipUrl } from "./sources/detect";
 import { SourceEnrichmentController, sourceActivityDetail, type EnrichRunOutcome } from "./sources/controller";
 import { getSchema } from "./sources/registry";
@@ -1136,41 +1144,81 @@ export default class ClaudeCompanionPlugin extends Plugin {
         }
       }
 
-      // 2) Titles + summaries from the (now enriched) frontmatter.
+      // 2) Candidates are the clips the Inbox view lists as enriched — the
+      // same selection recurses into inbox subfolders, so a clip already
+      // filed under Clippings/<topic>/ carries that folder as currentDomain
+      // instead of being reclassified from scratch.
+      const entries: InboxFileEntry[] = this.app.vault.getMarkdownFiles().map((f) => ({
+        path: f.path,
+        basename: f.basename,
+        ext: f.extension,
+        frontmatter: this.app.metadataCache.getFileCache(f)?.frontmatter,
+        mtime: f.stat?.mtime,
+      }));
+      const typedPaths = new Set(typedInboxItems(entries, inbox, base).map((i) => i.path));
+      const candidateFiles = files.filter((f) => typedPaths.has(f.path));
       const candidates: OrganizeCandidate[] = [];
       const titles = new Map<string, string>();
-      for (const file of files) {
+      const currentDomains = new Map<string, string>();
+      for (const file of candidateFiles) {
         const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
         const title = typeof fm?.title === "string" && fm.title.trim() ? fm.title.trim() : file.basename;
         const summary = typeof fm?.summary === "string" ? fm.summary.trim() : "";
+        const currentDomain = currentDomainOf(file.path, inbox);
         titles.set(file.path, title);
-        candidates.push({ path: file.path, title, summary });
+        if (currentDomain) currentDomains.set(file.path, currentDomain);
+        candidates.push({ path: file.path, title, summary, ...(currentDomain ? { currentDomain } : {}) });
       }
 
-      // 3) One batch call infers the domain folder for the whole set.
-      const existingFolders = relativeFolders(this.app.vault.getMarkdownFiles().map((f) => f.parent?.path ?? ""), base);
-      const { system, user } = buildOrganizePrompt(candidates, existingFolders);
-      let proposals = candidates.map((c) => ({ path: c.path, domain: "misc" }));
-      try {
-        const raw = (
-          await this.router().complete("utility", {
-            system,
-            user,
-            maxTokens: 2048,
-            responseFormat: "json",
-            thinking: { type: "disabled" },
-          })
-        ).text;
-        proposals = parseOrganizeResponse(raw, candidates);
-      } catch (e) {
-        if (e instanceof UtilityUnavailableError) {
-          new Notice(`Organizing stopped — ${e.message}`);
-          return;
-        }
-        // Folder inference failed — the review modal still offers the misc move.
+      // 3) Chunked batch inference for the whole set; Clippings/* subfolders
+      // count as existing folders too so the model can keep clips in place.
+      const parentPaths = this.app.vault.getMarkdownFiles().map((f) => f.parent?.path ?? "");
+      const existingFolders = [...new Set([...relativeFolders(parentPaths, base), ...relativeFolders(parentPaths, inbox)])];
+      let utilityError: UtilityUnavailableError | undefined;
+      const inferResult = await inferDomains(candidates, {
+        existingFolders,
+        complete: async (system, user, maxTokens) => {
+          try {
+            return (
+              await this.router().complete("utility", {
+                system,
+                user,
+                maxTokens,
+                responseFormat: "json",
+                thinking: { type: "disabled" },
+              })
+            ).text;
+          } catch (e) {
+            if (e instanceof UtilityUnavailableError) utilityError = e;
+            throw e;
+          }
+        },
+      });
+      if (utilityError) {
+        new Notice(`Organizing stopped — ${utilityError.message}`);
+        return;
+      }
+      this.enrichDiagnostics.log("organize-batch", {
+        chunks: inferResult.chunks,
+        resolved: inferResult.proposals.length,
+        unresolved: inferResult.unresolved.length,
+        truncated: inferResult.truncated ? "true" : "false",
+      });
+
+      // 4) A candidate already filed in a subfolder keeps that folder when
+      // inference leaves it unresolved; a root-level unresolved candidate is
+      // skipped from the plan.
+      const fallback = resolveUnresolvedWithCurrentFolder(inferResult.unresolved, currentDomains);
+      const proposals = [...inferResult.proposals, ...fallback.proposals];
+      const skipped = fallback.skipped;
+
+      if (candidates.length > 0 && skipped.length === candidates.length) {
+        const detail = inferResult.truncated ? "reply truncated" : (inferResult.lastError ?? "reply did not match the clips");
+        new Notice(`Organizing stopped — ${detail}`);
+        return;
       }
 
-      // 4) Review, then apply the accepted subset.
+      // 5) Review, then apply the accepted subset.
       const moves = planOrganizeMoves(proposals, titles, {
         baseFolder: base,
         taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null,
@@ -1181,7 +1229,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         new Notice("Everything is already named and filed.");
         return;
       }
-      new OrganizeReviewModal(this.app, moves, (accepted) => {
+      new OrganizeReviewModal(this.app, moves, skipped.length, (accepted) => {
         if (!accepted || accepted.length === 0) return;
         void (async () => {
           const { moved, failed } = await applyOrganizeMoves(this.app, accepted);
@@ -2473,25 +2521,42 @@ export default class ClaudeCompanionPlugin extends Plugin {
         .filter((c): c is TFolder => c instanceof TFolder)
         .map((c) => c.name)
         .sort();
-      let proposals = candidates.map((c) => ({ path: c.path, domain: "misc" }));
-      try {
-        const { system, user } = buildFolderOrganizePrompt(candidates, existingFolders);
-        const raw = (
-          await this.router().complete("utility", {
-            system,
-            user,
-            maxTokens: 2048,
-            responseFormat: "json",
-            thinking: { type: "disabled" },
-          })
-        ).text;
-        proposals = parseOrganizeResponse(raw, candidates);
-      } catch (e) {
-        if (e instanceof UtilityUnavailableError) throw e;
-        // Inference failed — the review modal still offers the misc move.
+      let utilityError: UtilityUnavailableError | undefined;
+      const inferResult = await inferDomains(candidates, {
+        existingFolders,
+        promptBuilder: buildFolderOrganizePrompt,
+        complete: async (system, user, maxTokens) => {
+          try {
+            return (
+              await this.router().complete("utility", {
+                system,
+                user,
+                maxTokens,
+                responseFormat: "json",
+                thinking: { type: "disabled" },
+              })
+            ).text;
+          } catch (e) {
+            if (e instanceof UtilityUnavailableError) utilityError = e;
+            throw e;
+          }
+        },
+      });
+      if (utilityError) throw utilityError;
+      this.enrichDiagnostics.log("organize-batch", {
+        chunks: inferResult.chunks,
+        resolved: inferResult.proposals.length,
+        unresolved: inferResult.unresolved.length,
+        truncated: inferResult.truncated ? "true" : "false",
+      });
+
+      if (candidates.length > 0 && inferResult.unresolved.length === candidates.length) {
+        const detail = inferResult.truncated ? "reply truncated" : (inferResult.lastError ?? "reply did not match the notes");
+        new Notice(`Organize stopped — ${detail}`);
+        return;
       }
 
-      const moves = planOrganizeMoves(proposals, titles, {
+      const moves = planOrganizeMoves(inferResult.proposals, titles, {
         baseFolder: folder.path,
         taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null,
         existingFolders,
@@ -2500,7 +2565,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         new Notice("Everything is already named and filed.");
         return;
       }
-      new OrganizeReviewModal(this.app, moves, (accepted) => {
+      new OrganizeReviewModal(this.app, moves, inferResult.unresolved.length, (accepted) => {
         if (!accepted || accepted.length === 0) return;
         void (async () => {
           const { moved, failed } = await applyOrganizeMoves(this.app, accepted);
@@ -2509,6 +2574,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         })();
       }).open();
     } catch (e) {
+      if (e instanceof UtilityUnavailableError) {
+        new Notice(`Organize failed — ${e.message}`);
+        return;
+      }
       new Notice(`Organize failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       progress.hide();
