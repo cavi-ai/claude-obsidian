@@ -81,6 +81,8 @@ export class ChatView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private modelLabelEl!: HTMLElement;
+  /** Desktop only: the text span nested inside the cc-model chip (dot + text + chevron). */
+  private modelTextEl: HTMLElement | null = null;
   private backendPillEl!: HTMLElement;
   private writeGrantPillEl!: HTMLElement;
   modeControl: ModeControl | null = null;
@@ -236,31 +238,27 @@ export class ChatView extends ItemView {
         omitOptionsButton: true,
       });
     } else {
-      // One-shot actions (left group). These DO something on click.
+      // Desktop: same pattern as mobile — the model name opens the model picker,
+      // and one "More" button carries the rest (Save, capture, MCP bridge) so the
+      // header stays a calm 3-icon row plus quick options.
+      this.modelLabelEl.addClass("cc-model-tappable");
+      this.modelLabelEl.addEventListener("click", () => this.openModelMenu());
+      this.mcpStatusEl = this.modelLabelEl.createEl("button", { cls: "cc-mcp-dot", attr: { "aria-label": "MCP bridge controls" } });
+      this.mcpStatusEl.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        this.openMcpMenu(evt);
+      });
+      this.modelTextEl = this.modelLabelEl.createSpan({ cls: "cc-model-text" });
+      setIcon(this.modelLabelEl.createSpan({ cls: "cc-model-chevron" }), "chevron-down");
+
       const primary = actions.createDiv({ cls: "cc-header-actions-primary" });
       this.iconButton(primary, "plus", "New chat", () => this.clearChat());
       this.iconButton(primary, "history", "Resume a past conversation", () => this.openHistory());
-      // Workflows moved into the single slash surface: "/workflows" opens the
-      // browsable picker, and each workflow is also its own "/" command.
-      this.iconButton(primary, "save", "Save chat to vault", () => void this.saveChat());
-      if (this.plugin.settings.memoryEnabled) {
-        // "import" reads as a one-shot pull-in, not a toggle — capture brings a
-        // Claude Code session's transcript into the vault.
-        this.iconButton(primary, "import", "Capture a Claude Code session into memory", () => void this.plugin.openSessionPicker());
-      }
-      // State group: stateful toggle/status controls (clay = on), so engage/
-      // disengage reads apart from the one-shot actions above.
-      const state = actions.createDiv({ cls: "cc-header-actions-state" });
-      this.renderIngestToggle(state);
-      // MCP bridge status + menu now lives in the header (the old chip/status row
-      // is gone — context is attached with "@" in the composer instead).
-      this.mcpStatusEl = state.createEl("button", { cls: "cc-icon-btn cc-mcp-btn", attr: { "aria-label": "MCP bridge controls" } });
-      setIcon(this.mcpStatusEl, "plug-zap");
-      this.mcpStatusEl.addEventListener("click", (evt) => this.openMcpMenu(evt));
+      this.iconButton(primary, "more-horizontal", "More actions", () => this.openOverflowMenu());
       // Quick options joins this row rather than owning a header of its own, and
       // replaces the gear: its own sheet already offers "Open all settings".
       this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
-        host: state,
+        host: primary,
         compact: true,
       });
     }
@@ -562,7 +560,9 @@ export class ChatView extends ItemView {
     const caps = this.plugin.router().chatCapabilities();
     const chosen = modelLabel(this.controls?.model ?? this.plugin.settings.model);
     const label = caps.local ? `${modelLabel(resolvedModel)} · local` : chosen;
-    this.modelLabelEl.setText(label);
+    // Desktop nests the dot + chevron inside cc-model, so the name text goes into
+    // its own child span; mobile has no such child and keeps setting cc-model directly.
+    (this.modelTextEl ?? this.modelLabelEl).setText(label);
     if (this.usageEl) this.updateUsageBar();
   }
 
@@ -580,30 +580,6 @@ export class ChatView extends ItemView {
     const btn = parent.createEl("button", { cls: "cc-icon-btn", attr: { "aria-label": tip } });
     setIcon(btn, icon);
     btn.addEventListener("click", onClick);
-  }
-
-  /**
-   * An icon toggle (matches the other header icon buttons) that mirrors the
-   * persisted "ingest on save" setting. Active = clay highlight.
-   */
-  private renderIngestToggle(parent: HTMLElement): void {
-    if (!this.plugin.settings.memoryEnabled || Platform.isMobile) return;
-    const btn = parent.createEl("button", {
-      cls: "cc-icon-btn cc-icon-toggle",
-      attr: { "aria-label": "Also file this conversation into session memory when saving" },
-    });
-    setIcon(btn, "archive");
-    const sync = () => {
-      const on = this.plugin.settings.memoryIngestOnSave;
-      btn.toggleClass("is-active", on);
-      btn.setAttr("aria-pressed", String(on));
-    };
-    sync();
-    btn.addEventListener("click", () => {
-      this.plugin.settings.memoryIngestOnSave = !this.plugin.settings.memoryIngestOnSave;
-      sync();
-      void this.plugin.saveSettings();
-    });
   }
 
   // ---------- "@" context picker ----------
@@ -2283,7 +2259,8 @@ export class ChatView extends ItemView {
     return null;
   }
 
-  private openMcpMenu(evt: MouseEvent): void {
+  /** `anchor` is a real MouseEvent from the header dot, or the dot element itself when opened from the overflow menu (which has already closed and lost the click event). */
+  private openMcpMenu(anchor: MouseEvent | HTMLElement): void {
     const stats = this.plugin.mcpStats();
     const menu = new Menu();
     menu.addItem((item) => {
@@ -2301,7 +2278,12 @@ export class ChatView extends ItemView {
         .setIcon("settings")
         .onClick(() => this.openSettings());
     });
-    menu.showAtMouseEvent(evt);
+    if (anchor instanceof HTMLElement) {
+      const rect = anchor.getBoundingClientRect();
+      menu.showAtPosition({ x: rect.left, y: rect.bottom });
+    } else {
+      menu.showAtMouseEvent(anchor);
+    }
   }
 
   /** Mobile: the tune knobs (thinking / effort / temp / max) in a modal. */
@@ -2313,7 +2295,7 @@ export class ChatView extends ItemView {
     modal.open();
   }
 
-  /** Mobile: the single ⋯ menu that replaces the desktop header icon row. */
+  /** The single ⋯ menu: on mobile it replaces the header icon row entirely; on desktop it carries the actions the 3-icon row + model chip don't. */
   private openOverflowMenu(): void {
     const items: ActionModalItem[] = [
       { title: "Source inbox", icon: "inbox", run: () => void this.plugin.activateInboxView() },
@@ -2322,9 +2304,17 @@ export class ChatView extends ItemView {
       { title: "New chat", icon: "plus", run: () => this.clearChat() },
       { title: "History", icon: "history", run: () => this.openHistory() },
       { title: "Save chat to vault", icon: "save", run: () => void this.saveChat() },
+    ];
+    if (!Platform.isMobile) {
+      if (this.plugin.settings.memoryEnabled) {
+        items.push({ title: "Capture a Claude Code session…", icon: "import", run: () => void this.plugin.openSessionPicker() });
+      }
+      items.push({ title: "MCP bridge…", icon: "plug-zap", run: () => this.openMcpMenu(this.mcpStatusEl) });
+    }
+    items.push(
       { title: "Model controls…", icon: "sliders-horizontal", run: () => this.openTuneModal() },
       { title: "Options…", icon: "settings-2", run: () => new QuickOptionsModal(this.app, "chat", this.plugin.companionChrome()).open() },
-    ];
+    );
     // Session toggles that live in the hidden desktop controls bar — without
     // these, phone users can't reach agent writes, Plan Mode, or memory ingest.
     const canAct = this.plugin.settings.agentModeEnabled && this.plugin.router().chatCapabilities().agentActions;
@@ -2354,7 +2344,7 @@ export class ChatView extends ItemView {
     new ActionModal(this.app, "Companion actions", items).open();
   }
 
-  /** Mobile: model picker opened by tapping the model name in the header. */
+  /** Model picker opened by tapping the model name in the header. */
   private openModelMenu(): void {
     const resolved = this.plugin.router().chatProvider();
     const activeModel = resolved.provider.id === "anthropic" ? this.controls.model : resolved.model;

@@ -88,23 +88,57 @@ body.theme-light {
   line-height: 1.2;
 }
 .cc-eyebrow {
+  /* Kept in the DOM for screen readers; the model chip carries the header visually on every platform. */
   font-family: var(--cc-mono);
   font-size: var(--cc-text-2xs);
   letter-spacing: 0.1em;
   color: var(--cc-accent-text);
+  display: none;
 }
 .cc-model {
   font-family: var(--cc-serif);
   font-size: var(--cc-text-base);
   color: var(--text-normal);
 }
+/* Desktop: the model name is a tappable chip (dot + name + chevron), same pattern as mobile. */
+body:not(.is-mobile) .cc-model.cc-model-tappable {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-space-2);
+  padding: var(--cc-space-1) var(--cc-space-2);
+  border-radius: var(--cc-radius-pill);
+  cursor: pointer;
+  background: var(--cc-surface-raised);
+  border: 1px solid transparent;
+}
+body:not(.is-mobile) .cc-model.cc-model-tappable:hover {
+  border-color: var(--cc-border-hover);
+}
+.cc-mcp-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: var(--cc-radius-pill);
+  background: var(--text-faint);
+  cursor: pointer;
+  box-shadow: none;
+}
+.cc-mcp-dot.is-on { background: var(--cc-olive); }
+.cc-mcp-dot.is-warn { background: var(--cc-clay); }
+.cc-model-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+.cc-model-chevron svg { width: 14px; height: 14px; }
 .cc-header-actions {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 .cc-header-actions-primary { display: inline-flex; gap: var(--cc-space-1); }
-.cc-header-actions-state { display: inline-flex; gap: var(--cc-space-1); padding: 2px; border-radius: var(--cc-radius-md); background: var(--cc-surface-sunken); }
 .cc-icon-btn {
   background: transparent;
   border: none;
