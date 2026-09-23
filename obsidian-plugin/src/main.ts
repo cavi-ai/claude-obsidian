@@ -18,6 +18,8 @@ import { RevisionCoordinator } from "./research/revisionCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
 import { CrossrefAdapter } from "./discovery/adapters/crossref";
 import { ArxivAdapter } from "./discovery/adapters/arxiv";
+import { ChatTurnService } from "./chat/turnService";
+import { shouldNotifyTurnComplete } from "./chat/turnNotice";
 import { createObsidianDiscoveryHttp } from "./discovery/adapters/obsidianHttp";
 import type { ZoteroLibrary } from "./discovery/adapters/zotero";
 import { resolveModelId } from "./claude/models";
@@ -207,6 +209,43 @@ export default class ClaudeCompanionPlugin extends Plugin {
       settings: () => this.settings,
     }));
   }
+  private _turnService?: ChatTurnService;
+  private turnCompleteStatusBarEl: HTMLElement | null = null;
+  /** Owns in-flight chat turns independent of any ChatView instance (P5). */
+  turnService(): ChatTurnService {
+    if (this._turnService) return this._turnService;
+    const service = new ChatTurnService();
+    service.onUnattachedDone(({ conversationId, title, result }) => {
+      if (!shouldNotifyTurnComplete(this.settings.notifyOnTurnComplete, result)) return;
+      new Notice(`Claude finished: ${title}`);
+      this.showTurnCompleteStatusBar(conversationId, title);
+    });
+    this._turnService = service;
+    return service;
+  }
+
+  /** Desktop status-bar item pointing at a turn that finished unattended; clears itself once clicked. */
+  private showTurnCompleteStatusBar(conversationId: string, title: string): void {
+    if (Platform.isMobile) return;
+    this.turnCompleteStatusBarEl?.remove();
+    const el = this.addStatusBarItem();
+    el.addClass("cc-turn-complete-status");
+    el.setText(`✓ ${title}`);
+    el.setAttr("aria-label", "Claude finished — click to open");
+    el.addEventListener("click", () => {
+      el.remove();
+      if (this.turnCompleteStatusBarEl === el) this.turnCompleteStatusBarEl = null;
+      void this.openConversationFromNotice(conversationId);
+    });
+    this.turnCompleteStatusBarEl = el;
+  }
+
+  private async openConversationFromNotice(conversationId: string): Promise<void> {
+    const conversation = await this.setActiveConversation(conversationId);
+    const view = await this.activateView();
+    if (view && conversation) view.loadConversation(conversation);
+  }
+
   private researchDeskPreferences: ResearchDeskPreferenceMap = {};
   private _build: BuildController | null = null;
   private build(): BuildController {
