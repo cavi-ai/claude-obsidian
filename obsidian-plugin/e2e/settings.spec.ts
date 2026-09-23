@@ -69,12 +69,12 @@ test("the advanced toggle hides irrelevant pages and reveals them on", async () 
 
     // Semantic search has a basic leaf (the enable toggle), so it stays visible.
     await expect(tab.locator(".setting-item:visible", { hasText: "Semantic search (local embeddings)" })).toBeVisible();
-    // Session memory has no basic leaves and memoryEnabled is off, so it's hidden.
-    await expect(tab.locator(".setting-item:visible", { hasText: "Session memory" })).toHaveCount(0);
+    // Cloud replies has no basic leaves and cloudDispatchEnabled is off by default, so it's hidden.
+    await expect(tab.locator(".setting-item:visible", { hasText: "Cloud replies (pull from repo)" })).toHaveCount(0);
 
     await tab.locator(".setting-item", { hasText: "Show advanced settings" }).locator("input[type='checkbox']").click();
 
-    await expect(tab.locator(".setting-item:visible", { hasText: "Session memory" })).toBeVisible();
+    await expect(tab.locator(".setting-item:visible", { hasText: "Cloud replies (pull from repo)" })).toBeVisible();
   } finally {
     await harness.close();
   }
