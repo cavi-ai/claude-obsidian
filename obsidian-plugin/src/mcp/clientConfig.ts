@@ -56,6 +56,18 @@ export function bridgeUrl(port: number): string {
   return `http://127.0.0.1:${port}/mcp`;
 }
 
+/**
+ * The header value Claude Code should send. When the token comes from the
+ * environment, the `${VAR}` reference (Claude Code expands it at connect
+ * time, verified live: the header it sends carries the resolved secret, but
+ * `claude mcp get` and `~/.claude.json` only ever show the reference) so the
+ * secret is never written to disk. Otherwise the literal resolved token, the
+ * same value `claudeCodeCommand` already prints for hand-paste.
+ */
+export function bridgeHeaderValue(resolved: ResolvedToken): string {
+  return resolved.source === "env" ? mcpTokenEnvRef() : resolved.token;
+}
+
 function requireToken(token: string): string {
   const trimmed = token.trim();
   if (!trimmed) throw new Error("MCP bridge snippets require a non-empty bearer token.");

@@ -68,6 +68,7 @@ describe("DesktopIntegrationsModal", () => {
         marketplaceInstalled: true,
         pluginInstalled: true,
         pluginEnabled: true,
+        bridge: { enabled: false, url: "", registered: false, headerValue: "" },
       },
     });
     const modal = new DesktopIntegrationsModal(new App(), {
@@ -83,6 +84,33 @@ describe("DesktopIntegrationsModal", () => {
     expect(visibleText(modal)).toContain("obsidian-agent@cavi-ai");
     expect(visibleText(modal)).toContain("user scope");
     expect(button(modal, "Open terminal at vault")).toBeDefined();
+    expect(visibleText(modal)).toContain("Turn on the MCP bridge to give Claude Code Companion's vault tools.");
+  });
+
+  it("hides the bridge prompt once Companion's vault tools are connected", () => {
+    const controller = new Controller({
+      status: "ready",
+      providerReady: true,
+      inspection: {
+        claude: { available: true, state: "available", version: "2.1.226" },
+        obsidian: { available: true, state: "available", version: "1.12.7" },
+        marketplaceInstalled: true,
+        pluginInstalled: true,
+        pluginEnabled: true,
+        bridge: { enabled: true, url: "http://127.0.0.1:22360/mcp", registered: true, headerValue: "secret" },
+      },
+    });
+    const modal = new DesktopIntegrationsModal(new App(), {
+      controller,
+      mobile: false,
+      platform: "darwin",
+      openConnectionSettings: vi.fn(),
+      openBridgeSettings: vi.fn(),
+      openObsidianCliSettings: vi.fn(),
+      confirm: vi.fn(async () => true),
+    });
+    modal.onOpen();
+    expect(visibleText(modal)).not.toContain("Turn on the MCP bridge");
   });
 
   it("passes explicit confirmation into Claude Code and Claude Desktop actions", () => {
@@ -186,6 +214,7 @@ describe("DesktopIntegrationsModal CLI status", () => {
         marketplaceInstalled: true,
         pluginInstalled: true,
         pluginEnabled: true,
+        bridge: { enabled: false, url: "", registered: false, headerValue: "" },
       },
     });
     const modal = new DesktopIntegrationsModal(new App(), {
@@ -240,6 +269,7 @@ describe("DesktopIntegrationsModal CLI setup shortcut", () => {
         marketplaceInstalled: true,
         pluginInstalled: true,
         pluginEnabled: true,
+        bridge: { enabled: false, url: "", registered: false, headerValue: "" },
       },
     });
     const modal = new DesktopIntegrationsModal(new App(), {

@@ -111,6 +111,12 @@ export class DesktopIntegrationsModal extends Modal {
       if (!inspection.obsidian.available && !this.deps.mobile) {
         this.action(claudeCode, "Open Obsidian CLI settings", false, () => this.deps.openObsidianCliSettings());
       }
+      if (!inspection.bridge.enabled) {
+        claudeCode.createEl("p", {
+          cls: "cc-desktop-integration-disclosure",
+          text: "Turn on the MCP bridge to give Claude Code Companion's vault tools.",
+        });
+      }
     }
     const codeBusy = state.status === "loading" && state.operation === "claude-code";
     if (!inspection?.pluginInstalled || !inspection.pluginEnabled) {
