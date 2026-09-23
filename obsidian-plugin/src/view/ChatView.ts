@@ -117,8 +117,10 @@ export class ChatView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   modeControl: ModeControl | null = null;
-  private usageEl!: HTMLElement;
-  private gaugeFillEl!: HTMLElement;
+  private get usageEl(): HTMLElement { return this.header.usageEl; }
+  private set usageEl(v: HTMLElement) { this.header.usageEl = v; }
+  private get gaugeFillEl(): HTMLElement { return this.header.gaugeFillEl; }
+  private set gaugeFillEl(v: HTMLElement) { this.header.gaugeFillEl = v; }
   private streaming = false;
   private abort: AbortController | null = null;
   private currentTurn: { conversationId: string; turnId: string } | null = null;

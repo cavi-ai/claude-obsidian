@@ -19,6 +19,8 @@ export class HeaderControls {
   backendPillEl!: HTMLElement;
   writeGrantPillEl!: HTMLElement;
   mcpStatusEl!: HTMLButtonElement;
+  usageEl!: HTMLElement;
+  gaugeFillEl!: HTMLElement;
   private disposeChrome: ((remove?: boolean) => void) | null = null;
 
   /** Detach any chrome mounted by a previous mount() call. */
