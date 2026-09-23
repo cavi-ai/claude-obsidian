@@ -71,6 +71,16 @@ export function parseOrganizeResponse(raw: string, candidates: OrganizeCandidate
   return candidates.map((c) => ({ path: c.path, domain: byPath.get(c.path) ?? FALLBACK_DOMAIN }));
 }
 
+/** Parent paths under `${base}/`, made relative to base, sorted and deduped. */
+export function relativeFolders(parentPaths: string[], base: string): string[] {
+  const prefix = `${base}/`;
+  const out = new Set<string>();
+  for (const p of parentPaths) {
+    if (p.startsWith(prefix) && p.length > prefix.length) out.add(p.slice(prefix.length));
+  }
+  return [...out].sort();
+}
+
 /** Lowercase dash-separated folder path, at most 2 segments; garbage → misc. */
 export function sanitizeDomain(value: string): string {
   const segments = value
@@ -92,25 +102,34 @@ export interface OrganizeMove {
 /**
  * Plan renames + moves: each clip lands at <base>/<domain>/<Title>.md with a
  * collision-safe name (suffix " 2", " 3", …). Clips whose basename already
- * matches the proposed title keep their name; only the folder changes.
+ * matches the proposed title keep their name; only the folder changes. When
+ * `existingFolders` has one whose sanitized form matches the proposed domain,
+ * the existing folder's own casing/spelling is used instead (avoids a
+ * case-only sibling directory).
  */
 export function planOrganizeMoves(
   proposals: OrganizeProposal[],
   titles: Map<string, string>,
-  opts: { baseFolder: string; taken(path: string): boolean },
+  opts: { baseFolder: string; taken(path: string): boolean; existingFolders?: string[] },
 ): OrganizeMove[] {
   const base = opts.baseFolder.replace(/\/+$/, "");
+  const existingByDomain = new Map<string, string>();
+  for (const folder of [...(opts.existingFolders ?? [])].sort()) {
+    const key = sanitizeDomain(folder);
+    if (!existingByDomain.has(key)) existingByDomain.set(key, folder);
+  }
   const reserved = new Set<string>();
   const isTaken = (path: string): boolean => reserved.has(path) || opts.taken(path);
   const out: OrganizeMove[] = [];
   for (const p of proposals) {
     const title = titles.get(p.path) ?? "";
-    const dir = `${base}/${p.domain}`;
+    const domain = existingByDomain.get(p.domain) ?? p.domain;
+    const dir = `${base}/${domain}`;
     const stem = sanitizeFileName(title || p.path.split("/").pop()?.replace(/\.md$/, "") || "Untitled");
     let name = stem;
     for (let n = 2; isTaken(`${dir}/${name}.md`) && `${dir}/${name}.md` !== p.path; n++) name = `${stem} ${n}`;
     const to = `${dir}/${name}.md`;
-    if (to !== p.path) out.push({ from: p.path, to, title: title || stem, domain: p.domain });
+    if (to !== p.path) out.push({ from: p.path, to, title: title || stem, domain });
     reserved.add(to);
   }
   return out;

@@ -58,7 +58,7 @@ import type { AnthropicToolDef, ProviderId } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
-import { buildOrganizePrompt, buildFolderOrganizePrompt, parseOrganizeResponse, planOrganizeMoves, type OrganizeCandidate } from "./sources/organize";
+import { buildOrganizePrompt, buildFolderOrganizePrompt, parseOrganizeResponse, planOrganizeMoves, relativeFolders, type OrganizeCandidate } from "./sources/organize";
 import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./enrich/noteEnrich";
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "./view/EnrichModal";
 import { sanitizeFileName } from "./artifacts/parse";
@@ -1146,7 +1146,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
 
       // 3) One batch call infers the domain folder for the whole set.
-      const existingFolders = [...new Set(this.app.vault.getMarkdownFiles().map((f) => f.parent?.path ?? "").filter((p) => p.startsWith(`${base}/`)))].sort();
+      const existingFolders = relativeFolders(this.app.vault.getMarkdownFiles().map((f) => f.parent?.path ?? ""), base);
       const { system, user } = buildOrganizePrompt(candidates, existingFolders);
       let proposals = candidates.map((c) => ({ path: c.path, domain: "misc" }));
       try {
@@ -1169,7 +1169,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
 
       // 4) Review, then apply the accepted subset.
-      const moves = planOrganizeMoves(proposals, titles, { baseFolder: base, taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null });
+      const moves = planOrganizeMoves(proposals, titles, {
+        baseFolder: base,
+        taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null,
+        existingFolders,
+      });
       pending.hide();
       if (moves.length === 0) {
         new Notice("Everything is already named and filed.");
@@ -2486,6 +2490,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const moves = planOrganizeMoves(proposals, titles, {
         baseFolder: folder.path,
         taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null,
+        existingFolders,
       });
       if (moves.length === 0) {
         new Notice("Everything is already named and filed.");
