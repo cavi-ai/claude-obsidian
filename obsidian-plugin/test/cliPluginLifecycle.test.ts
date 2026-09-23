@@ -2,15 +2,15 @@ import { App, FileSystemAdapter } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ClaudeCompanionPlugin from "../src/main";
 import { McpHttpServer } from "../src/mcp/server";
-import { ClaudeCliSession } from "../src/cli/session";
+import { CliSession } from "../src/cli/session";
 import { DEFAULT_SETTINGS } from "../src/types";
 import { SetupWizardModal } from "../src/view/SetupWizardModal";
 
 afterEach(() => vi.restoreAllMocks());
 
 const runtime = () => ({
-  findClaude: async () => ({ executable: "claude", version: "2.1.257" }),
-  authStatus: async () => ({ loggedIn: true, method: "claude.ai" }),
+  find: async () => ({ executable: "claude", version: "2.1.257" }),
+  probe: async () => ({ loggedIn: true, method: "claude.ai" }),
   writeSystemPromptFile: async () => "/tmp/p.md",
   removeFile: vi.fn(async () => undefined),
   spawn: vi.fn(() => { throw new Error("spawn is stubbed at the session level"); }),
@@ -46,8 +46,8 @@ describe("plugin Claude CLI lifecycle", () => {
     vi.spyOn(McpHttpServer.prototype, "isRunning").mockReturnValue(true);
     vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });
     const stop = vi.spyOn(McpHttpServer.prototype, "stop").mockResolvedValue(undefined);
-    const run = vi.spyOn(ClaudeCliSession.prototype, "run").mockResolvedValue({ text: "", trace: [] });
-    const close = vi.spyOn(ClaudeCliSession.prototype, "close").mockResolvedValue(undefined);
+    const run = vi.spyOn(CliSession.prototype, "run").mockResolvedValue({ text: "", trace: [] });
+    const close = vi.spyOn(CliSession.prototype, "close").mockResolvedValue(undefined);
     const rt = runtime();
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
@@ -105,8 +105,8 @@ describe("plugin Claude CLI lifecycle", () => {
     vi.spyOn(McpHttpServer.prototype, "isRunning").mockReturnValue(true);
     vi.spyOn(McpHttpServer.prototype, "address").mockReturnValue({ port: 4321 });
     vi.spyOn(McpHttpServer.prototype, "stop").mockResolvedValue(undefined);
-    vi.spyOn(ClaudeCliSession.prototype, "run").mockResolvedValue({ text: "", trace: [] });
-    vi.spyOn(ClaudeCliSession.prototype, "close").mockResolvedValue(undefined);
+    vi.spyOn(CliSession.prototype, "run").mockResolvedValue({ text: "", trace: [] });
+    vi.spyOn(CliSession.prototype, "close").mockResolvedValue(undefined);
     const rt = runtime();
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
@@ -118,7 +118,7 @@ describe("plugin Claude CLI lifecycle", () => {
     const firstId = firstConvo().cliSessionId;
     expect(typeof firstId).toBe("string");
     // The process is spent (interrupted or exited); run() is mocked so `child` stays null and interrupt() would no-op — spy isClosed directly instead.
-    vi.spyOn(ClaudeCliSession.prototype, "isClosed").mockReturnValue(true);
+    vi.spyOn(CliSession.prototype, "isClosed").mockReturnValue(true);
     const b = await p.cliTurnRunner(opts);
     expect(b).not.toBe(a);
     expect(firstConvo().cliSessionId).not.toBe(firstId);
@@ -127,7 +127,7 @@ describe("plugin Claude CLI lifecycle", () => {
 
   it("refuses to build a runner when the CLI is not signed in", async () => {
     const rt = runtime();
-    rt.authStatus = async () => ({ loggedIn: false, method: "" });
+    rt.probe = async () => ({ loggedIn: false, method: "" });
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
     await expect(p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "m", deps: { confirmWrite: async () => true, proposeEdit: async () => "" }, transcript: "" })).rejects.toThrow(/not signed in/);
@@ -154,7 +154,7 @@ describe("plugin Claude CLI lifecycle", () => {
 
   it("awaits the in-flight Claude Code probe before planning the wizard: signed-in resolves to no wizard", async () => {
     const rt = runtime();
-    rt.authStatus = async () => {
+    rt.probe = async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       return { loggedIn: true, method: "claude.ai" };
     };
@@ -169,7 +169,7 @@ describe("plugin Claude CLI lifecycle", () => {
 
   it("still opens no wizard when the probe settles not signed in and no API key is set — the chat setup card covers it", async () => {
     const rt = runtime();
-    rt.authStatus = async () => ({ loggedIn: false, method: "" });
+    rt.probe = async () => ({ loggedIn: false, method: "" });
     const p = plugin(rt);
     forWizardRace(p);
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
@@ -181,7 +181,7 @@ describe("plugin Claude CLI lifecycle", () => {
 
   it("no credential → layout-ready opens no wizard", async () => {
     const rt = runtime();
-    rt.authStatus = async () => ({ loggedIn: false, method: "" });
+    rt.probe = async () => ({ loggedIn: false, method: "" });
     const p = plugin(rt);
     forWizardRace(p);
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);

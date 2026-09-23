@@ -10,6 +10,15 @@ import { BUILTIN_EMBEDDING_MODELS, builtinModelById } from "./semantic/transform
 import { ChoiceModal } from "./view/ChoiceModal";
 import { normalizeDiscoverySettings, type McpServerConfig, type PluginSettings } from "./types";
 import { needsCredentialSetup } from "./providers/setupState";
+import { claudeBackend } from "./cli/backends/claude";
+import { codexBackend } from "./cli/backends/codex";
+import { opencodeBackend } from "./cli/backends/opencode";
+import type { CliBackend } from "./cli/backends/types";
+import type { CliProvider } from "./providers/cliProvider";
+
+function capitalize(s: string): string {
+  return s.length > 0 ? s[0]!.toUpperCase() + s.slice(1) : s;
+}
 
 /** Text controls hand back a string; anything else is an empty field. */
 function asText(v: unknown): string {
@@ -101,6 +110,8 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   ollamaUtilityModel: "advanced",
   utilityBackend: "advanced",
   chatBackend: "basic",
+  codexModel: "advanced",
+  opencodeModel: "advanced",
   intelligenceNarrator: "advanced",
   openaiCompatHost: "advanced",
   openaiCompatModel: "advanced",
@@ -296,7 +307,11 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       case "chatBackend":
       case "intelligenceNarrator":
       case "openaiCompatModel":
-        if (key === "chatBackend" && this.plugin.settings.chatBackend === "claude-cli") void this.plugin.router().claudeCli.refresh().then(() => this.plugin.refreshViews());
+        if (key === "chatBackend") {
+          const backend = this.plugin.settings.chatBackend;
+          const cli = backend === "claude-cli" ? this.plugin.router().claudeCli : backend === "codex-cli" ? this.plugin.router().codexCli : backend === "opencode-cli" ? this.plugin.router().opencodeCli : null;
+          if (cli) void cli.refresh().then(() => this.plugin.refreshViews());
+        }
         this.plugin.refreshViews();
         return;
       case "semanticIndexPdfs":
@@ -428,13 +443,18 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             backend: router.chatBackend,
             hasAnthropicCredential: router.anthropic.hasCredentials(),
             hasClaudeCli: router.claudeCli.hasCredentials(),
+            hasCodexCli: router.codexCli.hasCredentials(),
+            hasOpencodeCli: router.opencodeCli.hasCredentials(),
           });
         },
         render: (setting) => {
           const callout = setting.settingEl.createDiv({ cls: "cc-connect-callout" });
           const p = callout.createEl("p");
-          if (this.plugin.router().chatBackend === "claude-cli") {
-            p.appendText("Claude Code is not signed in on this computer. Run `claude auth login` in a terminal, or add an Anthropic API key below. ");
+          const backend = this.plugin.router().chatBackend;
+          const cliBackends: Record<string, CliBackend> = { "claude-cli": claudeBackend, "codex-cli": codexBackend, "opencode-cli": opencodeBackend };
+          const cli = cliBackends[backend];
+          if (cli) {
+            p.appendText(`${cli.label} is not signed in on this computer. ${capitalize(cli.signInHint)} in a terminal, or add an Anthropic API key below. `);
           } else {
             p.appendText("Add an Anthropic API key below to start chatting. Create one at ");
             p.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
@@ -448,6 +468,33 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         aliases: ["marketplace", "claude desktop", "obsidian-agent"],
         render: (setting) => {
           setting.addButton((btn) => btn.setButtonText("Set up").onClick(() => this.plugin.openDesktopIntegrations()));
+        },
+      },
+    ];
+  }
+
+  /** Status row + "Check <label>" button for one CLI backend, shared by Claude Code, Codex, and OpenCode. */
+  private cliStatusItems(backend: CliBackend, cliOf: (router: ReturnType<ClaudeCompanionPlugin["router"]>) => CliProvider): SettingGroupItem[] {
+    return [
+      {
+        name: backend.label,
+        desc: `Status of the ${backend.binary} command this backend runs. Companion never sees your credentials; ${backend.label} holds them.`,
+        render: (setting) => {
+          const status = setting.settingEl.createDiv({ cls: "cc-conn-status" });
+          const cli = cliOf(this.plugin.router());
+          const probe = cli.probe();
+          if (probe) this.renderStatus(status, { ok: probe.loggedIn, detail: probe.loggedIn ? `${backend.label} ${probe.version} · signed in via ${probe.method} · ${probe.executable}` : `Not signed in — ${backend.signInHint}.` });
+          setting.addButton((btn) =>
+            btn
+              .setButtonText(`Check ${backend.label}`)
+              .onClick(async () => {
+                this.renderStatus(status, { ok: true, detail: "Checking…" });
+                const result = await cliOf(this.plugin.router()).test();
+                this.renderStatus(status, result);
+                this.plugin.refreshViews();
+                if (result.ok) await this.plugin.runFirstRunPrompts();
+              }),
+          );
         },
       },
     ];
@@ -573,38 +620,33 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       },
       {
         name: "Chat backend",
-        desc: "Where chat runs. Auto keeps using Claude but transparently falls back to your local model when Claude is offline or out of usage — so you never lose chat on a plane or when tokens run out. Claude Code uses the claude command already signed in on this computer — no key needed; chat only.",
+        desc: "Where chat runs. Auto keeps using Claude but transparently falls back to your local model when Claude is offline or out of usage — so you never lose chat on a plane or when tokens run out. Claude Code, Codex, and OpenCode each use the CLI already signed in on this computer — no key needed; chat only.",
         control: {
           type: "dropdown",
           key: "chatBackend",
           options: {
             claude: "Claude only",
             "claude-cli": "Claude Code — your subscription (desktop)",
+            "codex-cli": "Codex — your subscription (desktop)",
+            "opencode-cli": "OpenCode — your subscription (desktop)",
             auto: "Auto (Claude, fall back to local)",
             local: "Local only — Ollama (offline)",
             custom: "Local only — OpenAI-compatible endpoint",
           },
         },
       },
+      ...this.cliStatusItems(claudeBackend, (r) => r.claudeCli),
+      ...this.cliStatusItems(codexBackend, (r) => r.codexCli),
       {
-        name: "Claude Code",
-        desc: "Status of the claude command this backend runs. Companion never sees your credentials; Claude Code holds them.",
-        render: (setting) => {
-          const status = setting.settingEl.createDiv({ cls: "cc-conn-status" });
-          const probe = this.plugin.router().claudeCli.probe();
-          if (probe) this.renderStatus(status, { ok: probe.loggedIn, detail: probe.loggedIn ? `Claude Code ${probe.version} · signed in via ${probe.method} · ${probe.executable}` : "Not signed in — run `claude auth login`." });
-          setting.addButton((btn) =>
-            btn
-              .setButtonText("Check Claude Code")
-              .onClick(async () => {
-                this.renderStatus(status, { ok: true, detail: "Checking…" });
-                const result = await this.plugin.router().claudeCli.test();
-                this.renderStatus(status, result);
-                this.plugin.refreshViews();
-                if (result.ok) await this.plugin.runFirstRunPrompts();
-              }),
-          );
-        },
+        name: "Codex model",
+        desc: "Optional model id passed as -m to codex exec. Leave blank to use Codex's own default.",
+        control: { type: "text", key: "codexModel", placeholder: "e.g. gpt-5.1-codex" },
+      },
+      ...this.cliStatusItems(opencodeBackend, (r) => r.opencodeCli),
+      {
+        name: "OpenCode model",
+        desc: "Optional model id passed as -m to opencode run (e.g. anthropic/claude-sonnet-5). Leave blank to use OpenCode's own default.",
+        control: { type: "text", key: "opencodeModel", placeholder: "e.g. anthropic/claude-sonnet-5" },
       },
       {
         name: "Max response tokens",

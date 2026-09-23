@@ -78,11 +78,15 @@ import { stripFrontmatter } from "./semantic/chunk";
 import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
 import type { AgentTurnRunner } from "./agent/loop";
-import { ClaudeCliSession } from "./cli/session";
-import { buildClaudeArgv, mcpConfigJson } from "./cli/argv";
-import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, type InteractiveToolDeps } from "./cli/bridgeTools";
-import { createNodeCliRuntime, type ClaudeCliRuntime } from "./cli/runtime";
-import { ClaudeCliProvider } from "./providers/claudeCli";
+import { CliSession } from "./cli/session";
+import { mcpConfigJson } from "./cli/argv";
+import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, perTurnTools, type InteractiveToolDeps } from "./cli/bridgeTools";
+import { createNodeCliRuntime, type CliRuntime } from "./cli/runtime";
+import { CliProvider } from "./providers/cliProvider";
+import { claudeBackend } from "./cli/backends/claude";
+import { codexBackend } from "./cli/backends/codex";
+import { opencodeBackend } from "./cli/backends/opencode";
+import type { CliBackend } from "./cli/backends/types";
 import { type BuildRun } from "./build/run";
 import { BuildController } from "./build/controller";
 import { CloudController } from "./cloud/controller";
@@ -289,15 +293,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Set by the last persist: credentials the store refused, still in data.json. */
   private unverifiedSecrets: SecretField[] = [];
   private _router: ProviderRouter | null = null;
-  /** Owns the sign-in probe across router rebuilds (settings saves null the router). */
-  private _cliProvider: ClaudeCliProvider | null = null;
+  /** Owns the sign-in probe across router rebuilds (settings saves null the router) — one per CLI backend. */
+  private _cliProvider: CliProvider | null = null;
+  private _codexProvider: CliProvider | null = null;
+  private _opencodeProvider: CliProvider | null = null;
   private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
   private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
   private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
-  private cliSessions = new Map<string, { session: ClaudeCliSession; bridge: McpHttpServer; signature: string; promptFile: string; lastUsed: number }>();
+  private cliSessions = new Map<string, { session: CliSession; bridge: McpHttpServer; signature: string; promptFile: string; lastUsed: number }>();
   private cliPromptFiles = new Set<string>();
-  private _cliRuntime: ClaudeCliRuntime | null | undefined;
+  private _cliRuntime: CliRuntime | null | undefined;
   private _desktopIntegrationModals?: Set<DesktopIntegrationsModal>;
   private _desktopRuntimeLoader: () => Promise<{
     createNodeDesktopRuntime(platform: DesktopPlatform, homeDir: string, env: Record<string, string | undefined>, bridge?: BridgeSetupInput): Promise<DesktopIntegrationRuntime>;
@@ -2062,8 +2068,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   router(): ProviderRouter {
     if (this._router && !this._router.hasCurrentAnthropicEnvironment()) this._router = null;
-    this._cliProvider ??= new ClaudeCliProvider(this.cliRuntime());
-    if (!this._router) this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), { cliRuntime: this.cliRuntime(), cliProvider: this._cliProvider });
+    const runtime = this.cliRuntime();
+    this._cliProvider ??= new CliProvider(claudeBackend, runtime);
+    this._codexProvider ??= new CliProvider(codexBackend, runtime);
+    this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime);
+    if (!this._router) {
+      this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), {
+        cliRuntime: runtime,
+        cliProvider: this._cliProvider,
+        codexProvider: this._codexProvider,
+        opencodeProvider: this._opencodeProvider,
+      });
+    }
     return this._router;
   }
 
@@ -2216,6 +2232,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
         backend: router.chatBackend,
         hasAnthropicCredential: router.anthropic.hasCredentials(),
         hasClaudeCli: router.claudeCli.hasCredentials(),
+        hasCodexCli: router.codexCli.hasCredentials(),
+        hasOpencodeCli: router.opencodeCli.hasCredentials(),
       }),
       ontologyPending: this.settings.ontologyEnabled && !this.settings.ontologySeedPrompted,
       semanticPending: this.settings.semanticEnabled && !this.settings.semanticModelPrompted,
@@ -2799,8 +2817,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.agentVaultTools;
   }
 
-  /** Desktop only: the Node ports for the Claude Code backend. Tests override this. */
-  cliRuntime(): ClaudeCliRuntime | null {
+  /** Desktop only: the Node ports shared by every CLI chat backend. Tests override this. */
+  cliRuntime(): CliRuntime | null {
     if (this._cliRuntime !== undefined) return this._cliRuntime;
     if (Platform.isMobile || !(this.app.vault.adapter instanceof FileSystemAdapter)) {
       this._cliRuntime = null;
@@ -2810,10 +2828,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._cliRuntime;
   }
 
-  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean }): Promise<{ server: McpHttpServer; port: number; token: string }> {
+  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
-    const registry = interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools);
+    const registry = binding.backend.supportsPermissionPrompt
+      ? interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools)
+      : perTurnTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools);
     const server = new McpHttpServer(
       {
         port: 0,
@@ -2838,15 +2858,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return { server, port: addr.port, token };
   }
 
+  /** The CLI backend the settings currently select for chat, defaulting to Claude Code for any non-CLI value. */
+  private cliBackendFor(chatBackend: PluginSettings["chatBackend"]): CliBackend {
+    if (chatBackend === "codex-cli") return codexBackend;
+    if (chatBackend === "opencode-cli") return opencodeBackend;
+    return claudeBackend;
+  }
+
   async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string }): Promise<AgentTurnRunner> {
-    const cli = this.router().claudeCli;
+    const backend = this.cliBackendFor(this.settings.chatBackend);
+    const cli = this.router().get(backend.id) as CliProvider;
     const executable = cli.executable();
-    if (!executable) throw new Error(cli.probe() ? "Claude Code is not signed in. Run `claude auth login` in a terminal." : "Claude Code not found.");
+    if (!executable) throw new Error(cli.probe() ? `${backend.label} is not signed in. ${backend.signInHint[0]!.toUpperCase()}${backend.signInHint.slice(1)} in a terminal.` : `${backend.label} not found.`);
     const runtime = this.cliRuntime();
     const cwd = this.vaultBasePath();
-    if (!runtime || !cwd) throw new Error("Claude Code runs on desktop only.");
+    if (!runtime || !cwd) throw new Error(`${backend.label} runs on desktop only.`);
     const allowedTools = opts.agentMode ? cliAllowedTools(this.agentTools().definitions(), opts.planMode) : [];
-    const signature = JSON.stringify({ model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
+    const signature = JSON.stringify({ backend: backend.id, model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
     if (!opts.resumeSessionId && existing && existing.signature === signature && !existing.session.isClosed()) {
       existing.lastUsed = Date.now();
@@ -2858,30 +2886,50 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (!oldest) break;
       await this.closeCliSession(oldest[0]);
     }
-    const promptFile = await runtime.writeSystemPromptFile(this.composeSystemPrompt({ agent: true, plan: opts.planMode }));
-    this.cliPromptFiles.add(promptFile);
+    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.planMode });
+    const promptFile = backend.processModel === "persistent" ? await runtime.writeSystemPromptFile(systemPrompt) : "";
+    if (promptFile) this.cliPromptFiles.add(promptFile);
     let bridge: McpHttpServer | null = null;
     try {
-      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode });
+      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode, backend });
       bridge = started.server;
-      const sessionId = opts.resumeSessionId ?? crypto.randomUUID();
-      const argv = buildClaudeArgv({
-        model: opts.model,
-        systemPromptFile: promptFile,
-        mcpConfigJson: mcpConfigJson(started.port, started.token),
-        allowedTools,
-        maxTurns: this.settings.agentMaxIterations,
-        ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : { sessionId }),
-      });
-      const session = new ClaudeCliSession({ spawn: () => runtime.spawn(executable, argv, cwd), ...(opts.transcript ? { transcript: opts.transcript } : {}) });
+      const mcpConfig = mcpConfigJson(started.port, started.token);
+      let session: CliSession;
+      let sessionIdToPersist: string | undefined;
+      if (backend.processModel === "persistent") {
+        const sessionId = opts.resumeSessionId ?? crypto.randomUUID();
+        const argv = backend.buildArgv({
+          model: opts.model,
+          systemPromptFile: promptFile,
+          mcpConfigJson: mcpConfig,
+          allowedTools,
+          maxTurns: this.settings.agentMaxIterations,
+          cwd,
+          ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : { sessionId }),
+        });
+        session = new CliSession({ backend, spawn: () => runtime.spawn(executable, argv, cwd), ...(opts.transcript ? { transcript: opts.transcript } : {}) });
+        sessionIdToPersist = sessionId;
+      } else {
+        session = new CliSession({
+          backend,
+          spawnTurn: (argv, env) => runtime.spawn(executable, argv, cwd, env),
+          argvTemplate: { model: opts.model, systemPromptFile: "", mcpConfigJson: mcpConfig, allowedTools, maxTurns: this.settings.agentMaxIterations, cwd },
+          systemPromptText: systemPrompt,
+          onSessionId: (id) => void this.setConversationCliSession(opts.conversationId, id),
+          ...(opts.transcript ? { transcript: opts.transcript } : {}),
+          ...(opts.resumeSessionId ? { initialSessionId: opts.resumeSessionId } : {}),
+        });
+      }
       this.cliSessions.set(opts.conversationId, { session, bridge, signature, promptFile, lastUsed: Date.now() });
-      await this.setConversationCliSession(opts.conversationId, sessionId);
+      if (sessionIdToPersist) await this.setConversationCliSession(opts.conversationId, sessionIdToPersist);
       return session;
     } catch (error) {
       this.cliSessions.delete(opts.conversationId);
       await bridge?.stop();
-      await runtime.removeFile(promptFile);
-      this.cliPromptFiles.delete(promptFile);
+      if (promptFile) {
+        await runtime.removeFile(promptFile);
+        this.cliPromptFiles.delete(promptFile);
+      }
       throw error;
     }
   }
@@ -2896,8 +2944,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.cliSessions.delete(conversationId);
     await entry.session.close();
     await entry.bridge.stop();
-    await this.cliRuntime()?.removeFile(entry.promptFile);
-    this.cliPromptFiles.delete(entry.promptFile);
+    if (entry.promptFile) {
+      await this.cliRuntime()?.removeFile(entry.promptFile);
+      this.cliPromptFiles.delete(entry.promptFile);
+    }
   }
 
   async closeCliSessions(): Promise<void> {
