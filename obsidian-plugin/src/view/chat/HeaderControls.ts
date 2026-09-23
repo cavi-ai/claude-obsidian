@@ -300,6 +300,7 @@ export class HeaderControls {
       { title: "Related notes", icon: "link", run: () => void this.plugin.activateRelatedView() },
       { title: "Research Desk", icon: "flask-conical", run: () => void this.plugin.activateResearchDesk() },
       { title: "New chat", icon: "plus", run: () => this.deps.clearChat() },
+      { title: "New chat tab", icon: "plus", run: () => void this.plugin.openNewChatTab() },
       { title: "History", icon: "history", run: () => this.openHistory() },
       { title: "Save chat to vault", icon: "save", run: () => void this.deps.saveChat() },
     ];
