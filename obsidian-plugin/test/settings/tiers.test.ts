@@ -7,9 +7,9 @@ import type ClaudeCompanionPlugin from "../../src/main";
 
 type Tiered = SettingDefinitionItem & { tier?: "basic" | "advanced" };
 
-function stubPlugin(showAdvanced = false): ClaudeCompanionPlugin & { settings: Record<string, unknown> } {
+function stubPlugin(showAdvanced = false, overrides: Record<string, unknown> = {}): ClaudeCompanionPlugin & { settings: Record<string, unknown> } {
   const plugin = {
-    settings: { ...structuredClone(DEFAULT_SETTINGS), settingsShowAdvanced: showAdvanced },
+    settings: { ...structuredClone(DEFAULT_SETTINGS), settingsShowAdvanced: showAdvanced, ...overrides },
     saveSettings: async () => {},
     router: () => ({
       anthropic: { hasCredentials: () => true, test: async () => ({ ok: true, detail: "" }) },
@@ -34,8 +34,8 @@ function stubPlugin(showAdvanced = false): ClaudeCompanionPlugin & { settings: R
   return plugin as unknown as ClaudeCompanionPlugin & { settings: Record<string, unknown> };
 }
 
-function definitionsOf(showAdvanced = false): Tiered[] {
-  const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin(showAdvanced));
+function definitionsOf(showAdvanced = false, overrides: Record<string, unknown> = {}): Tiered[] {
+  const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin(showAdvanced, overrides));
   return tab.getSettingDefinitions() as unknown as Tiered[];
 }
 
@@ -85,5 +85,15 @@ describe("settings tiers", () => {
   it("keeps a basic page visible regardless of the toggle", () => {
     const off = definitionsOf(false).flatMap((g) => g.items ?? []).find((p) => p.name === "Semantic search (local embeddings)");
     expect(evalVisible(off!)).toBe(true);
+  });
+
+  it("shows the Local models page with the toggle off when chat is routed to a local backend", () => {
+    const local = definitionsOf(false, { chatBackend: "local" }).flatMap((g) => g.items ?? []).find((p) => p.name === "Local models (Ollama & endpoints)");
+    expect(evalVisible(local!)).toBe(true);
+  });
+
+  it("hides the Local models page with the toggle off on default settings", () => {
+    const defaults = definitionsOf(false).flatMap((g) => g.items ?? []).find((p) => p.name === "Local models (Ollama & endpoints)");
+    expect(evalVisible(defaults!)).toBe(false);
   });
 });
