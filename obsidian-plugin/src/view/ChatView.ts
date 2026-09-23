@@ -59,6 +59,7 @@ import { quickNotice } from "../notice";
 import { ComposerContextManager } from "./ComposerContextManager";
 import { buildContextManagerModel, type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
+import { Composer } from "./chat/Composer";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
@@ -112,11 +113,15 @@ export class ChatView extends ItemView {
   private set writeGrantPillEl(v: HTMLElement) { this.header.writeGrantPillEl = v; }
   private get mcpStatusEl(): HTMLButtonElement { return this.header.mcpStatusEl; }
   private set mcpStatusEl(v: HTMLButtonElement) { this.header.mcpStatusEl = v; }
+  private composer = new Composer();
   private messages: ChatMessage[] = [];
   private messagesEl!: HTMLElement;
-  private inputEl!: HTMLTextAreaElement;
-  private sendBtn!: HTMLButtonElement;
-  modeControl: ModeControl | null = null;
+  private get inputEl(): HTMLTextAreaElement { return this.composer.inputEl; }
+  private set inputEl(v: HTMLTextAreaElement) { this.composer.inputEl = v; }
+  private get sendBtn(): HTMLButtonElement { return this.composer.sendBtn; }
+  private set sendBtn(v: HTMLButtonElement) { this.composer.sendBtn = v; }
+  get modeControl(): ModeControl | null { return this.composer.modeControl; }
+  set modeControl(v: ModeControl | null) { this.composer.modeControl = v; }
   private get usageEl(): HTMLElement { return this.header.usageEl; }
   private set usageEl(v: HTMLElement) { this.header.usageEl = v; }
   private get gaugeFillEl(): HTMLElement { return this.header.gaugeFillEl; }
@@ -133,14 +138,20 @@ export class ChatView extends ItemView {
   private _turnUsage: TokenUsage | null = null;
   /** Per-session chat controls (model, thinking, effort, temp, max). */
   private controls!: ChatControls;
-  private controlsEl!: HTMLElement;
-  private knobsEl!: HTMLElement;
-  private atMenu!: AtMenu;
-  private contextManager!: ComposerContextManager;
+  private get controlsEl(): HTMLElement { return this.composer.controlsEl; }
+  private set controlsEl(v: HTMLElement) { this.composer.controlsEl = v; }
+  private get knobsEl(): HTMLElement { return this.composer.knobsEl; }
+  private set knobsEl(v: HTMLElement) { this.composer.knobsEl = v; }
+  private get atMenu(): AtMenu { return this.composer.atMenu; }
+  private set atMenu(v: AtMenu) { this.composer.atMenu = v; }
+  private get contextManager(): ComposerContextManager { return this.composer.contextManager; }
+  private set contextManager(v: ComposerContextManager) { this.composer.contextManager = v; }
   /** Notes/folders explicitly attached via "@" (session-scoped). */
-  private attachedPaths: AttachedPath[] = [];
+  private get attachedPaths(): AttachedPath[] { return this.composer.attachedPaths; }
+  private set attachedPaths(v: AttachedPath[]) { this.composer.attachedPaths = v; }
   /** PDFs/images attached via "@" or paste — cleared after the next send. */
-  private attachedMedia: MediaAttachment[] = [];
+  private get attachedMedia(): MediaAttachment[] { return this.composer.attachedMedia; }
+  private set attachedMedia(v: MediaAttachment[]) { this.composer.attachedMedia = v; }
   /** Media consumed by the last send — restored on failure, re-sent on Regenerate. */
   private lastUserMedia: MediaAttachment[] = [];
   /** Rotating "thinking" status word timer + per-turn start offset. */
@@ -150,14 +161,16 @@ export class ChatView extends ItemView {
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
   /** Last visible context-manager state; skip DOM rebuilds when nothing changed. */
-  private lastContextManagerSignature = "";
+  private get lastContextManagerSignature(): string { return this.composer.lastContextManagerSignature; }
+  private set lastContextManagerSignature(v: string) { this.composer.lastContextManagerSignature = v; }
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
   private lastUserText = "";
   /** The last user-bubble display text, when it differs from lastUserText (skill turns). */
   private lastDisplay: string | undefined = undefined;
-  private slashMenu!: SlashMenu;
+  private get slashMenu(): SlashMenu { return this.composer.slashMenu; }
+  private set slashMenu(v: SlashMenu) { this.composer.slashMenu = v; }
   /** User-defined prompt templates (notes in the templates folder). */
   private templateCommands: SlashCommand[] = [];
   private templateReloadGeneration = 0;
@@ -166,16 +179,20 @@ export class ChatView extends ItemView {
   private claimReloadGeneration = 0;
   private claimReloadTimer: number | null = null;
   /** Which trigger ("@" or "#") the open at-menu is currently showing matches for. */
-  private activeMenuTrigger: "@" | "#" = "@";
+  private get activeMenuTrigger(): "@" | "#" { return this.composer.activeMenuTrigger; }
+  private set activeMenuTrigger(v: "@" | "#") { this.composer.activeMenuTrigger = v; }
   /** Per-turn overrides from a prompt template; reset at the start of each run. */
   private turnModelOverride: string | null = null;
   private turnContextOverride: Partial<ContextToggles> | null = null;
   /** Web pages attached via "Attach page content" (captured markdown). */
-  private attachedPages: AttachedPage[] = [];
+  private get attachedPages(): AttachedPage[] { return this.composer.attachedPages; }
+  private set attachedPages(v: AttachedPage[]) { this.composer.attachedPages = v; }
   /** The "attach this page?" offer chip; one at a time. */
-  private pageOfferEl!: HTMLElement;
+  private get pageOfferEl(): HTMLElement { return this.composer.pageOfferEl; }
+  private set pageOfferEl(v: HTMLElement) { this.composer.pageOfferEl = v; }
   /** URL the user declined to attach — don't re-offer while it stays in the input. */
-  private dismissedPageUrl: string | null = null;
+  private get dismissedPageUrl(): string | null { return this.composer.dismissedPageUrl; }
+  private set dismissedPageUrl(v: string | null) { this.composer.dismissedPageUrl = v; }
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private _lastBuffer = "";
   /** "Allow for this session" on agent write confirmations (cleared with the view). */
@@ -184,7 +201,8 @@ export class ChatView extends ItemView {
   private planMode = false;
   /** Whether the current chat backend can run tool-driven agent turns (refreshed per turn + backend change). */
   private agentCapable = false;
-  private reasoningEl: HTMLButtonElement | null = null;
+  private get reasoningEl(): HTMLButtonElement | null { return this.composer.reasoningEl; }
+  private set reasoningEl(v: HTMLButtonElement | null) { this.composer.reasoningEl = v; }
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
   private cliSetupProbeInFlight = new Set<string>();
 
@@ -262,25 +280,29 @@ export class ChatView extends ItemView {
     this.messagesEl = root.createDiv({ cls: "cc-messages" });
 
     // ---- composer ----
-    const composer = root.createDiv({ cls: "cc-composer" });
-
-    this.contextManager = new ComposerContextManager(composer, {
-      toggleAutomatic: (key, enabled) => this.toggleAutomaticContext(key, enabled),
-      removeSource: (id) => this.removeContextSource(id),
-      retrySource: (id) => this.retryContextSource(id),
-      addContext: () => this.openContextPicker(),
-    });
+    this.composer.mount(
+      root,
+      this.header,
+      [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS)],
+      {
+        onSlashCommand: (cmd) => void this.runSlashCommand(cmd),
+        pickAtItems: () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()),
+        onAtChoose: (item) => void this.onAtChoose(item),
+        toggleAutomatic: (key, enabled) => this.toggleAutomaticContext(key, enabled),
+        removeSource: (id) => this.removeContextSource(id),
+        retrySource: (id) => this.retryContextSource(id),
+        addContext: () => this.openContextPicker(),
+        onSend: () => void this.onSend(),
+        autosizeInput: () => this.autosizeInput(),
+        updateUsageBar: () => this.updateUsageBar(),
+        syncSlashMenu: () => this.syncSlashMenu(),
+        syncAtMenu: () => this.syncAtMenu(),
+        syncPageOffer: () => this.syncPageOffer(),
+        attachPastedImage: (file) => void this.attachPastedImage(file),
+        renderControls: () => this.renderControls(),
+      },
+    );
     this.renderContextManager();
-    // The "attach this page?" offer for URLs in the composer.
-    this.pageOfferEl = composer.createDiv({ cls: "cc-page-offer" });
-    this.pageOfferEl.setCssStyles({ display: "none" });
-
-    // Palettes anchored above the input (built before the textarea so they sit
-    // above it in flow; CSS positions them absolutely).
-    // Slash is the single command surface: the built-in commands plus every vault
-    // workflow (the browsable picker stays reachable via /workflows).
-    this.slashMenu = new SlashMenu(composer, [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS)], (cmd) => void this.runSlashCommand(cmd));
-    this.atMenu = new AtMenu(composer, () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()), (item) => void this.onAtChoose(item));
 
     // User templates: load now, refresh when a note in the folder changes.
     void this.reloadTemplates();
@@ -303,92 +325,6 @@ export class ChatView extends ItemView {
     this.registerEvent(this.app.vault.on("create", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); }));
     this.registerEvent(this.app.vault.on("delete", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); }));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => { if (file.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleReloadClaims(); }));
-
-    // Mobile keeps the compact input row; the context manager above is the one
-    // button-driven source entry point on every platform.
-    const inputRow = Platform.isMobile ? composer.createDiv({ cls: "cc-composer-input-row" }) : composer;
-    this.inputEl = inputRow.createEl("textarea", {
-      cls: "cc-input",
-      // Start compact on mobile (1 row, grows via autosizeInput) so the composer
-      // doesn't eat a big band of the phone screen; roomier default on desktop.
-      // The desktop placeholder spells out the /@ affordances, but that string
-      // wraps to two cramped lines inside a one-row phone pill — mobile gets a
-      // short placeholder (the "+" button already surfaces context on mobile).
-      attr: {
-        placeholder: Platform.isMobile
-          ? "Message Claude…"
-          : "Ask Claude…  ( / for commands · @ to add context · Enter to send )",
-        rows: Platform.isMobile ? "1" : "3",
-      },
-    });
-    this.inputEl.addEventListener("keydown", (e) => {
-      // The "@" picker intercepts navigation keys while open.
-      if (this.atMenu.isOpen()) {
-        if (e.key === "ArrowDown") { e.preventDefault(); this.atMenu.move(1); return; }
-        if (e.key === "ArrowUp") { e.preventDefault(); this.atMenu.move(-1); return; }
-        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.atMenu.choose(); return; }
-        if (e.key === "Escape") { e.preventDefault(); this.atMenu.hide(); return; }
-      }
-      // Slash menu intercepts navigation keys while open.
-      if (this.slashMenu.isOpen()) {
-        if (e.key === "ArrowDown") { e.preventDefault(); this.slashMenu.move(1); return; }
-        if (e.key === "ArrowUp") { e.preventDefault(); this.slashMenu.move(-1); return; }
-        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.slashMenu.choose(); return; }
-        if (e.key === "Escape") { e.preventDefault(); this.slashMenu.hide(); return; }
-      }
-      // Desktop: Enter sends, Shift+Enter breaks a line. Mobile soft keyboards
-      // have no Shift — Enter inserts a newline and only the send button sends.
-      if (e.key === "Enter" && !e.shiftKey && !Platform.isMobile) {
-        e.preventDefault();
-        void this.onSend();
-      }
-    });
-    this.inputEl.addEventListener("input", () => {
-      this.autosizeInput();
-      this.updateUsageBar();
-      this.syncSlashMenu();
-      this.syncAtMenu();
-      this.syncPageOffer();
-    });
-    // Close the menus when focus leaves the composer.
-    this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hide(); this.atMenu.hide(); }, 120));
-    // Paste a screenshot/image straight into the composer to attach it.
-    this.inputEl.addEventListener("paste", (evt: ClipboardEvent) => {
-      const items = evt.clipboardData?.items;
-      if (!items) return;
-      for (const item of Array.from(items)) {
-        if (item.kind === "file" && item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) {
-            evt.preventDefault();
-            void this.attachPastedImage(file);
-          }
-          return;
-        }
-      }
-    });
-
-    // ---- composer bar: model + tune (left group) · usage + Send (right) ----
-    // Desktop: one row under the input. Mobile: Send joins the thumb input row
-    // ([+] · input · ↑); the bar keeps only the thin usage gauge (see styles).
-    const bar = composer.createDiv({ cls: "cc-composer-bar" });
-    this.controlsEl = bar.createDiv({ cls: "cc-controls" });
-    this.renderControls();
-
-    const sendGroup = bar.createDiv({ cls: "cc-send-group" });
-    const usageRow = sendGroup.createDiv({ cls: "cc-usage" });
-    const gauge = usageRow.createDiv({ cls: "cc-gauge", attr: { "aria-label": "Estimated context window used" } });
-    this.gaugeFillEl = gauge.createDiv({ cls: "cc-gauge-fill" });
-    this.usageEl = usageRow.createDiv({ cls: "cc-usage-text" });
-    const sendParent = Platform.isMobile ? inputRow : sendGroup;
-    this.sendBtn = sendParent.createEl("button", {
-      cls: Platform.isMobile ? "cc-send cc-send-icon" : "cc-send",
-      ...(Platform.isMobile
-        ? { attr: { "aria-label": "Send message" } }
-        : { text: "Send" }),
-    });
-    if (Platform.isMobile) setIcon(this.sendBtn, "arrow-up");
-    this.sendBtn.addEventListener("click", () => void this.onSend());
 
     this.applyChatFontSize();
     this.refreshModelLabel();
@@ -579,7 +515,7 @@ export class ChatView extends ItemView {
       window.clearInterval(this.contextStatusInterval);
       this.contextStatusInterval = null;
     }
-    this.contextManager?.destroy();
+    this.composer.destroy();
   }
 
   refreshModelLabel(): void {
