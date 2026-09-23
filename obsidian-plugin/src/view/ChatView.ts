@@ -37,6 +37,18 @@ import { extractTasks } from "../build/spec";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
 import { chipLabel } from "./toolChipLabel";
 import { needsCredentialSetup } from "../providers/setupState";
+import { claudeBackend } from "../cli/backends/claude";
+import { codexBackend } from "../cli/backends/codex";
+import { opencodeBackend } from "../cli/backends/opencode";
+import type { CliBackend } from "../cli/backends/types";
+import type { ProviderRouter } from "../providers/router";
+
+/** Duck-typed CLI sign-in surface — real routers always have all three; a partial test stub is skipped, not crashed on. */
+interface CliSignInProvider {
+  hasCredentials(): boolean;
+  available(): boolean;
+  refresh(): Promise<unknown>;
+}
 import { mergeDetectedModels } from "../providers/localModels";
 import { addUsage, contextGauge, EMPTY_SESSION, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../usage/tokens";
 import { mergeUsage, type TokenUsage } from "../claude/sse";
@@ -166,8 +178,8 @@ export class ChatView extends ItemView {
   /** Whether the current chat backend can run tool-driven agent turns (refreshed per turn + backend change). */
   private agentCapable = false;
   private reasoningEl: HTMLButtonElement | null = null;
-  /** Guards the setup card's background sign-in probe against stacking on re-render. */
-  private cliSetupProbeInFlight = false;
+  /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
+  private cliSetupProbeInFlight = new Set<string>();
 
   /** Re-derive agent capability + reasoning state for the controls row (async, backend-aware). */
   private refreshCapabilityIndicators(): void {
@@ -1181,13 +1193,27 @@ export class ChatView extends ItemView {
     }
   }
 
+  /** Every CLI backend the router actually exposes, paired with its module (label, sign-in hint) — skips a partial test stub instead of crashing on it. */
+  private cliEntries(router: ProviderRouter): { backend: CliBackend; provider: CliSignInProvider }[] {
+    const candidates: [CliBackend, CliSignInProvider | undefined][] = [
+      [claudeBackend, router.claudeCli],
+      [codexBackend, (router as { codexCli?: CliSignInProvider }).codexCli],
+      [opencodeBackend, (router as { opencodeCli?: CliSignInProvider }).opencodeCli],
+    ];
+    return candidates.filter((e): e is [CliBackend, CliSignInProvider] => e[1] != null).map(([backend, provider]) => ({ backend, provider }));
+  }
+
   /** True when chatting requires configuration the user hasn't done yet. */
   private setupRequired(): boolean {
     const router = this.plugin.router();
+    const entries = this.cliEntries(router);
+    const signedIn = (id: string) => entries.find((e) => e.backend.id === id)?.provider.hasCredentials() ?? false;
     return needsCredentialSetup({
       backend: router.chatBackend,
       hasAnthropicCredential: router.anthropic.hasCredentials(),
-      hasClaudeCli: router.claudeCli.hasCredentials(),
+      hasClaudeCli: signedIn("claude-cli"),
+      hasCodexCli: signedIn("codex-cli"),
+      hasOpencodeCli: signedIn("opencode-cli"),
     });
   }
 
@@ -1195,34 +1221,40 @@ export class ChatView extends ItemView {
   private renderSetupCard(parent: HTMLElement): void {
     const card = parent.createDiv({ cls: "cc-setup-card" });
     const router = this.plugin.router();
-    const cliSignedIn = router.claudeCli.hasCredentials();
-    if (!cliSignedIn && router.claudeCli.available() && !this.cliSetupProbeInFlight) {
-      this.cliSetupProbeInFlight = true;
-      void router.claudeCli.refresh().finally(() => {
-        this.cliSetupProbeInFlight = false;
-        if (router.claudeCli.hasCredentials() && this.messagesEl.querySelector(".cc-setup-card")) this.renderEmptyState();
-      });
+    const entries = this.cliEntries(router);
+    for (const { backend, provider } of entries) {
+      if (!provider.hasCredentials() && provider.available() && !this.cliSetupProbeInFlight.has(backend.id)) {
+        this.cliSetupProbeInFlight.add(backend.id);
+        void provider.refresh().finally(() => {
+          this.cliSetupProbeInFlight.delete(backend.id);
+          if (provider.hasCredentials() && this.messagesEl.querySelector(".cc-setup-card")) this.renderEmptyState();
+        });
+      }
     }
+    const signedIn = entries.filter((e) => e.provider.hasCredentials());
+    const lead = signedIn[0]?.backend;
     const storage = this.plugin.secrets().available()
       ? "It’s kept in your device’s secret storage, not in this vault — nothing else leaves your machine."
       : "It’s stored in this vault’s plugin data — nothing else leaves your machine.";
     card.createDiv({ cls: "cc-setup-title", text: "Connect to Claude" });
     card.createDiv({
       cls: "cc-setup-sub",
-      text: cliSignedIn
-        ? `Claude Code is signed in on this computer. Use it for chat on your subscription, or add an Anthropic API key. ${storage}`
+      text: lead
+        ? `${lead.label} is signed in on this computer. Use it for chat on your subscription, or add an Anthropic API key. ${storage}`
         : `Add your Anthropic API key to start chatting. ${storage}`,
     });
-    if (cliSignedIn) {
+    if (signedIn.length > 0) {
       const cli = card.createDiv({ cls: "cc-setup-cli" });
-      const useCli = cli.createEl("button", { cls: "mod-cta cc-setup-cli-use", text: "Use Claude Code sign-in" });
-      useCli.addEventListener("click", () => void (async () => {
-        this.plugin.settings.chatBackend = "claude-cli";
-        await this.plugin.saveSettings();
-        await this.plugin.continueOnboarding();
-        this.renderEmptyState();
-        this.refreshModelLabel();
-      })());
+      for (const { backend } of signedIn) {
+        const useCli = cli.createEl("button", { cls: "mod-cta cc-setup-cli-use", text: `Use ${backend.label} sign-in` });
+        useCli.addEventListener("click", () => void (async () => {
+          this.plugin.settings.chatBackend = backend.id;
+          await this.plugin.saveSettings();
+          await this.plugin.continueOnboarding();
+          this.renderEmptyState();
+          this.refreshModelLabel();
+        })());
+      }
       card.createDiv({ cls: "cc-setup-or", text: "or" });
     }
     const link = card.createEl("a", {
@@ -1551,10 +1583,12 @@ export class ChatView extends ItemView {
     let { provider, model } = router.chatProvider();
     const backend = router.chatBackend;
     let caps = router.chatCapabilities();
-    if (backend === "claude-cli" && !caps.cli && !router.anthropic.hasCredentials()) {
-      // The cached sign-in probe can be stale (user just ran `claude auth login`); re-probe once before blocking.
-      if (router.claudeCli.available()) {
-        await router.claudeCli.refresh();
+    if ((backend === "claude-cli" || backend === "codex-cli" || backend === "opencode-cli") && !caps.cli && !router.anthropic.hasCredentials()) {
+      const entry = this.cliEntries(router).find((e) => e.backend.id === backend);
+      const label = entry?.backend.label ?? "This backend";
+      // The cached sign-in probe can be stale (user just ran the sign-in command); re-probe once before blocking.
+      if (entry?.provider.available()) {
+        await entry.provider.refresh();
         caps = router.chatCapabilities();
         if (caps.cli) {
           ({ provider, model } = router.chatProvider());
@@ -1562,7 +1596,7 @@ export class ChatView extends ItemView {
         }
       }
       if (!caps.cli) {
-        new Notice(router.claudeCli.available() ? "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings." : "Claude Code runs on desktop only. Add an API key to chat here.");
+        new Notice(entry?.provider.available() ? `${label} is not signed in — ${entry.backend.signInHint}, or add an API key in Companion settings.` : `${label} runs on desktop only. Add an API key to chat here.`);
         return;
       }
     }
@@ -1678,7 +1712,7 @@ export class ChatView extends ItemView {
     // this view closes mid-turn. Mirrors the fallback policy run() used to
     // apply itself: an agent turn that already produced text/trace despite an
     // error is a completed answer with a notice, never a fallback trigger.
-    const fallbackProviderId: ErrorHintProvider = caps.cli ? "claude-cli" : startedOnLocal ? "ollama" : "anthropic";
+    const fallbackProviderId: ErrorHintProvider = caps.cli ? (caps.cliBackend ?? "claude-cli") : startedOnLocal ? "ollama" : "anthropic";
     const coreRun = async (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => {
       const primary = agentActive || caps.cli
         ? await this.agentTurn(apiMessages, handlers, signal)
@@ -2329,9 +2363,11 @@ export class ChatView extends ItemView {
     const backend = router.chatBackend;
     const el = this.backendPillEl;
     el.removeClass("is-ok", "is-warn");
-    if (backend === "claude-cli") {
-      const ok = router.claudeCli.hasCredentials();
-      el.setText(ok ? "● Claude Code" : router.anthropic.hasCredentials() ? "● Claude Code offline · API key" : "● Claude Code not signed in");
+    if (backend === "claude-cli" || backend === "codex-cli" || backend === "opencode-cli") {
+      const entry = this.cliEntries(router).find((e) => e.backend.id === backend);
+      const label = entry?.backend.label ?? "CLI";
+      const ok = entry?.provider.hasCredentials() ?? false;
+      el.setText(ok ? `● ${label}` : router.anthropic.hasCredentials() ? `● ${label} offline · API key` : `● ${label} not signed in`);
       el.toggleClass("is-ok", ok);
       el.toggleClass("is-warn", !ok);
       return;

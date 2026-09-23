@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings diet.** Every settings item is tagged basic or advanced; a "Show
   advanced settings" toggle hides advanced items and pages with no basic
   items by default.
+- **Chat on Codex or OpenCode, on your subscription (desktop).** The Chat
+  backend dropdown gains "Codex" and "OpenCode" alongside Claude Code, each
+  with its own status row, model field, and setup-card sign-in button.
+  `CliSession` (`src/cli/session.ts`, generalized from the former
+  `ClaudeCliSession`) runs Claude Code's persistent one-process-per-conversation
+  model unchanged, and adds a per-turn model for Codex/OpenCode: one process
+  per `run()`, the prompt passed as the CLI's positional argument with the
+  system prompt prepended only on the first turn, the CLI's own session id
+  captured from its events and threaded into the next turn's `resume`.
+  `CliProvider` (`src/providers/cliProvider.ts`, generalizing the former
+  `ClaudeCliProvider`) and `ProviderRouter` (`claudeCli`/`codexCli`/
+  `opencodeCli`) treat all three CLI backends alike for sign-in, fallback, and
+  capability reporting. The chat-scoped MCP bridge for Codex/OpenCode gates
+  every write tool call behind confirmation via `gatedWriteTools`/
+  `perTurnTools` (`src/cli/bridgeTools.ts`), since neither CLI has a
+  `--permission-prompt-tool` equivalent.
 
 ### Changed
 - **"@" picker adds bases, research claims, and recent notes.** The chat

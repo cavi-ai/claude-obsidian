@@ -111,9 +111,13 @@ export interface PluginSettings {
   /** Route cheap "utility" work (summarize/tag/ingest) to this backend. */
   utilityBackend: "claude" | "ollama" | "custom";
   /** Chat backend: always Claude, always local, auto (Claude with local
-   *  fallback), custom (an OpenAI-compatible endpoint), or claude-cli (the
-   *  user's Claude Code sign-in, desktop). */
-  chatBackend: "claude" | "local" | "auto" | "custom" | "claude-cli";
+   *  fallback), custom (an OpenAI-compatible endpoint), or the user's
+   *  Claude Code / Codex / OpenCode CLI sign-in (desktop only). */
+  chatBackend: "claude" | "local" | "auto" | "custom" | "claude-cli" | "codex-cli" | "opencode-cli";
+  /** Codex CLI model id passed as `-m`; empty lets the CLI pick its own default. */
+  codexModel: string;
+  /** OpenCode CLI model id passed as `-m` (e.g. "anthropic/claude-sonnet-5"); empty lets the CLI pick its own default. */
+  opencodeModel: string;
   /** Provider policy for explicit Research Intelligence narrative analysis. */
   intelligenceNarrator: "current" | "claude" | "local" | "disabled";
 
@@ -308,6 +312,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaUtilityModel: "",
   utilityBackend: "claude",
   chatBackend: "claude",
+  codexModel: "",
+  opencodeModel: "",
   intelligenceNarrator: "current",
 
   openaiCompatHost: "",
