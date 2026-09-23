@@ -95,7 +95,9 @@ describe("settings definitions", () => {
 
 describe("settings tab render", () => {
   it("renders every row, including the imperative ones", () => {
-    const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin());
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const tab = new ClaudeCompanionSettingTab(new App() as never, plugin);
     expect(() => openSettingTab(tab)).not.toThrow();
     const container = tab.containerEl as unknown as FakeElement;
 

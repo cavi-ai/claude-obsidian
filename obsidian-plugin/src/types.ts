@@ -265,6 +265,12 @@ export interface PluginSettings {
   ontologySeedPrompted: boolean;
   /** One-time desktop-integrations offer already shown. */
   desktopIntegrationsOffered: boolean;
+
+  // ----- setup wizard & settings diet -----
+  /** Set once the first-run setup wizard has been finished or dismissed. */
+  setupWizardDone: boolean;
+  /** "Show advanced settings" toggle in the settings tab. */
+  settingsShowAdvanced: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -383,6 +389,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ontologyFolder: "Ontology",
   ontologySeedPrompted: false,
   desktopIntegrationsOffered: false,
+
+  setupWizardDone: false,
+  settingsShowAdvanced: false,
 };
 
 export type DiscoveryNumericSettings = Pick<PluginSettings,

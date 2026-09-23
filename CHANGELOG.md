@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **First-run setup wizard.** A single 3-step modal (Connect, Vault tools,
+  Index) replaces the chat setup card plus three separate one-shot modals;
+  the "Open setup wizard" command reopens it for whatever is still pending.
+- **Settings diet.** Every settings item is tagged basic or advanced; a "Show
+  advanced settings" toggle hides advanced items and pages with no basic
+  items by default.
+
 ### Changed
 - **Chunked folder inference.** Organize batches candidates (16 per call) so a
   large inbox no longer overruns the reply token budget in one shot; the

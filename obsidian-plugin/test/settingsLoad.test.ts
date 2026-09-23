@@ -79,7 +79,7 @@ describe("resolveSettings with legacy configs", () => {
       createDocumentFragment: () => new FakeElement("fragment"),
     };
     const plugin = {
-      settings: resolveSettings(LEGACY_FLAT),
+      settings: { ...resolveSettings(LEGACY_FLAT), settingsShowAdvanced: true },
       saveSettings: async () => {},
       secrets: () => unavailableStore(),
       router: () => ({
