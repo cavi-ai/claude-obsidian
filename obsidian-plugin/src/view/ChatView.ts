@@ -379,6 +379,12 @@ export class ChatView extends ItemView {
     }
     this.updateUsageBar();
     this.transcript.scrollToBottom();
+    this.refreshTabTitle();
+  }
+
+  /** Ask Obsidian to re-read getDisplayText() so the tab header follows the active conversation's title. */
+  private refreshTabTitle(): void {
+    (this.leaf as { updateHeader?: () => void }).updateHeader?.();
   }
 
   /** Reattach to a turn already running elsewhere: replay its buffer, then stream live. */
@@ -413,6 +419,7 @@ export class ChatView extends ItemView {
     this.messagesEl.empty();
     this.renderEmptyState();
     this.updateUsageBar();
+    this.refreshTabTitle();
   }
 
   openHistory(): void { return this.header.openHistory(); }
@@ -887,6 +894,7 @@ export class ChatView extends ItemView {
       return;
     }
     this.conversationId = turn.conversationId;
+    this.refreshTabTitle();
     this.currentTurn = turn;
     this.abort = new AbortController();
     const controller = this.abort;

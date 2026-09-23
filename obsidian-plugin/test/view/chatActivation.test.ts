@@ -73,6 +73,31 @@ describe("Chat view activation", () => {
     expect(sidebarChat.setViewState).toHaveBeenCalledWith({ type: CHAT_VIEW_TYPE, active: true });
   });
 
+  it("mobile prefers the most recently focused non-drawer chat leaf over the first one open", async () => {
+    Platform.isMobile = true;
+    const rightSidebar = {};
+    const firstTab = chatLeaf({});
+    const secondTab = chatLeaf({});
+    const sidebarChat = chatLeaf(rightSidebar);
+    const workspace = {
+      rightSplit: rightSidebar,
+      getLeavesOfType: vi.fn(() => [sidebarChat, firstTab, secondTab]),
+      getRightLeaf: vi.fn(),
+      getLeaf: vi.fn(),
+      revealLeaf: vi.fn(async () => undefined),
+    };
+    const plugin = pluginForWorkspace(workspace);
+
+    // Simulate the user having focused the second main tab last.
+    (plugin as unknown as { lastFocusedChatLeaf: unknown }).lastFocusedChatLeaf = secondTab;
+
+    const view = await plugin.activateView();
+
+    expect(view).toBe(secondTab.view);
+    expect(workspace.revealLeaf).toHaveBeenCalledWith(secondTab);
+    expect(workspace.getLeaf).not.toHaveBeenCalled();
+  });
+
   it("desktop prefers the most recently focused chat leaf over the first one open", async () => {
     const firstTab = chatLeaf({});
     const secondTab = chatLeaf({});

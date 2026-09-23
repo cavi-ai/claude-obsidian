@@ -44,7 +44,7 @@ describe("plugin durable Chat turn lifecycle", () => {
     });
   });
 
-  it("beginTurn(null, …) creates a conversation without disturbing an unrelated active one", async () => {
+  it("beginTurn(null, …) creates a conversation and makes it active — the leaf that starts a turn is the focused leaf", async () => {
     const { plugin } = harness();
     const first = await plugin.beginActiveConversationTurn(null, [user("First tab")], {
       backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
@@ -56,8 +56,47 @@ describe("plugin durable Chat turn lifecycle", () => {
     });
 
     expect(second.conversationId).not.toBe(first.conversationId);
-    // A background tab's fresh conversation must not steal the active slot.
-    expect(plugin.getActiveConversation()?.id).toBe(first.conversationId);
+    // Starting a turn makes ITS conversation active — the caller is the focused leaf.
+    expect(plugin.getActiveConversation()?.id).toBe(second.conversationId);
+  });
+
+  it("beginTurn(id, …) on an existing background conversation makes it active", async () => {
+    const { plugin } = harness();
+    const a = await plugin.beginActiveConversationTurn(null, [user("Tab a")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    const b = await plugin.beginActiveConversationTurn(null, [user("Tab b")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    expect(plugin.getActiveConversation()?.id).toBe(b.conversationId);
+
+    await plugin.beginActiveConversationTurn(a.conversationId, [user("Tab a"), user("Again")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+
+    expect(plugin.getActiveConversation()?.id).toBe(a.conversationId);
+  });
+
+  it("completeTurn/interruptTurn on a conversation that is not active leaves activeId unchanged", async () => {
+    const { plugin } = harness();
+    const a = await plugin.beginActiveConversationTurn(null, [user("Tab a")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    const b = await plugin.beginActiveConversationTurn(null, [user("Tab b")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    expect(plugin.getActiveConversation()?.id).toBe(b.conversationId);
+
+    await plugin.completeActiveConversationTurn(a.conversationId, a.turnId, [user("Tab a"), { role: "assistant", content: "Done" }]);
+    expect(plugin.getActiveConversation()?.id).toBe(b.conversationId);
+
+    const c = await plugin.beginActiveConversationTurn(null, [user("Tab c")], {
+      backend: "claude-cli", model: "claude-sonnet-5", mode: "act",
+    });
+    expect(plugin.getActiveConversation()?.id).toBe(c.conversationId);
+
+    await plugin.interruptActiveConversationTurn(b.conversationId, b.turnId, [user("Tab b")], "boom");
+    expect(plugin.getActiveConversation()?.id).toBe(c.conversationId);
   });
 
   it("beginTurn(id, …) on an existing id keeps that id and appends to it", async () => {

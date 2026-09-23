@@ -93,4 +93,15 @@ describe("ChatView per-leaf conversation state", () => {
     expect(seam.conversationId).toBeNull();
     expect(startNewConversation).not.toHaveBeenCalled();
   });
+
+  it("loadConversation calls the leaf's updateHeader when present, so the tab title follows the active conversation", () => {
+    const conversation: Conversation = { id: "b", title: "Release notes", createdAt: 1, updatedAt: 2, messages: [{ role: "user", content: "hi" }] };
+    const seam = buildView(statePlugin({ listConversations: () => [conversation] }));
+    const updateHeader = vi.fn();
+    (seam as unknown as { leaf: { updateHeader: () => void } }).leaf.updateHeader = updateHeader;
+
+    (seam as unknown as { loadConversation(c: Conversation): void }).loadConversation(conversation);
+
+    expect(updateHeader).toHaveBeenCalledOnce();
+  });
 });

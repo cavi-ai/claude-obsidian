@@ -727,7 +727,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (!(leaf?.view instanceof ChatView)) return;
       this.lastFocusedChatLeaf = leaf;
       const id = leaf.view.getState().conversationId;
-      if (typeof id === "string") void this.setActiveConversation(id);
+      if (typeof id === "string" && id !== this.convState.activeId) void this.setActiveConversation(id);
     }));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
@@ -1997,10 +1997,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.conversations().getActive();
   }
 
-  async saveActiveConversation(messages: ChatMessage[]): Promise<string | null> {
-    return this.conversations().saveActive(messages);
-  }
-
   async beginActiveConversationTurn(
     conversationId: string | null,
     messages: ChatMessage[],
@@ -3132,14 +3128,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
       // Reuse only a Chat leaf outside that drawer so repeated activation keeps
       // the same conversation without accumulating duplicate main tabs.
       const rightSplit = workspace.rightSplit;
-      leaf = workspace.getLeavesOfType(CHAT_VIEW_TYPE).find((candidate) => {
+      const candidates = workspace.getLeavesOfType(CHAT_VIEW_TYPE).filter((candidate) => {
         let parent: unknown = candidate.parent;
         while (parent) {
           if (parent === rightSplit) return false;
           parent = (parent as { parent?: unknown }).parent;
         }
         return true;
-      }) ?? null;
+      });
+      const preferred = this.lastFocusedChatLeaf && candidates.includes(this.lastFocusedChatLeaf) ? this.lastFocusedChatLeaf : null;
+      leaf = preferred ?? candidates[0] ?? null;
       if (!leaf) {
         leaf = workspace.getLeaf("tab");
         await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
