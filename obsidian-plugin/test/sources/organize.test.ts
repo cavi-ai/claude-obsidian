@@ -112,4 +112,18 @@ describe("planOrganizeMoves", () => {
     const moves = planOrganizeMoves(proposal, titles, { baseFolder: "Library", taken: () => false, existingFolders: ["Other"] });
     expect(moves[0]!.to).toBe(`Library/ai-tools/${candidates[0]!.title}.md`);
   });
+
+  it("canonicalizes a 2-segment domain segment by segment against existing folders", () => {
+    const existingFolders = ["AI", "AI/ML Papers"];
+    const cases: Array<[string, string]> = [
+      ["ai/ml-papers", "AI/ML Papers"],
+      ["ai/new-topic", "AI/new-topic"],
+      ["gardening", "gardening"],
+    ];
+    for (const [domain, expectedDir] of cases) {
+      const proposal = [{ path: candidates[0]!.path, domain }];
+      const moves = planOrganizeMoves(proposal, titles, { baseFolder: "Library", taken: () => false, existingFolders });
+      expect(moves[0]!.to).toBe(`Library/${expectedDir}/${candidates[0]!.title}.md`);
+    }
+  });
 });
