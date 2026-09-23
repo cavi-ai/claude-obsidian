@@ -510,12 +510,17 @@ export class ChatView extends ItemView {
 
   /** Sync `currentChatProject` (and the pill/header label) to `this.conversationId`'s persisted projectId. */
   private async refreshCurrentProject(): Promise<void> {
-    const conversation = this.conversationId ? this.plugin.listConversations().find((c) => c.id === this.conversationId) : null;
-    const projectId = conversation?.projectId ?? null;
-    let project = projectId ? this.cachedProjects.find((p) => p.id === projectId) ?? null : null;
-    if (projectId && !project) {
-      await this.reloadProjects();
-      project = this.cachedProjects.find((p) => p.id === projectId) ?? null;
+    let project: ChatProject | null = null;
+    try {
+      const conversation = this.conversationId ? this.plugin.listConversations().find((c) => c.id === this.conversationId) : null;
+      const projectId = conversation?.projectId ?? null;
+      project = projectId ? this.cachedProjects.find((p) => p.id === projectId) ?? null : null;
+      if (projectId && !project) {
+        await this.reloadProjects();
+        project = this.cachedProjects.find((p) => p.id === projectId) ?? null;
+      }
+    } catch {
+      // Conversation/registry lookup unavailable — no project for this turn.
     }
     this.currentChatProject = project;
     this.composer.setProjectPill(project);

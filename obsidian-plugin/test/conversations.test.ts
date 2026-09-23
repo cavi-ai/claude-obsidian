@@ -192,6 +192,16 @@ describe("fromPersisted", () => {
     const c: Conversation = { id: "a", title: "T", createdAt: 1, updatedAt: 1, messages: [] };
     expect(fromPersisted({ conversations: [c], activeId: "ghost" }).activeId).toBe("a");
   });
+  it("round-trips a well-formed projectId", () => {
+    const c: Conversation = { id: "a", title: "T", createdAt: 1, updatedAt: 1, messages: [], projectId: "Claude/Projects/Launch.md" };
+    expect(fromPersisted({ conversations: [c], activeId: "a" }).conversations[0]?.projectId).toBe("Claude/Projects/Launch.md");
+  });
+  it("drops an unknown-typed projectId, keeping the rest of the conversation", () => {
+    const c = { id: "a", title: "T", createdAt: 1, updatedAt: 1, messages: [], projectId: 42 };
+    const restored = fromPersisted({ conversations: [c], activeId: "a" }).conversations[0];
+    expect(restored?.projectId).toBeUndefined();
+    expect(restored?.id).toBe("a");
+  });
 });
 
 describe("relativeTime", () => {
