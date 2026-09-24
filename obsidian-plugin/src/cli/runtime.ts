@@ -97,8 +97,12 @@ export function createNodeCliRuntime(): CliRuntime {
     shellPath ??= new Promise((resolve) => {
       const shell = proc.env.SHELL || "/bin/zsh";
       execFile(shell, ["-ilc", `printf '%s%s%s' '${SHELL_PATH_MARKER}' "$PATH" '${SHELL_PATH_MARKER}'`], { timeout: SHELL_PATH_TIMEOUT_MS }, (error, stdout) => {
-        if (error) console.debug("Claude Companion: login shell PATH lookup failed", error);
-        resolve(parseShellPath(stdout ?? ""));
+        const found = parseShellPath(stdout ?? "");
+        if (found.length === 0) {
+          console.debug("Claude Companion: login shell PATH lookup failed", error);
+          shellPath = null;
+        }
+        resolve(found);
       });
     });
     return shellPath;
