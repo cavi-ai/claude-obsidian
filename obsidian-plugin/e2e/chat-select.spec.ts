@@ -16,15 +16,16 @@ test("an assistant reply's text can be selected with the mouse", async () => {
     const reply = chat.locator(".cc-msg.cc-assistant").last();
     await expect(reply).toContainText("pong from claude code", { timeout: 30_000 });
 
-    const box = await reply.getByText("pong from claude code").boundingBox();
-    if (!box) throw new Error("reply text has no box");
-    await page.mouse.move(box.x + 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 8 });
-    await page.mouse.up();
-
-    const selected = await page.evaluate(() => window.getSelection()?.toString() ?? "");
-    expect(selected).toContain("from claude code");
+    // The transcript re-renders when the turn settles; select once it is stable.
+    await expect(async () => {
+      const box = await reply.getByText("pong from claude code").boundingBox();
+      if (!box) throw new Error("reply text has no box");
+      await page.mouse.move(box.x + 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 8 });
+      await page.mouse.up();
+      expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toContain("from claude code");
+    }).toPass({ timeout: 10_000 });
   } finally {
     await harness.close();
   }
