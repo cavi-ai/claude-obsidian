@@ -26,6 +26,30 @@ export async function waitForCdp(port: number, timeoutMs = 30_000): Promise<void
 
 export interface RigConnection { browser: Browser; context: BrowserContext; page: Page }
 
+/**
+ * `open -a` never hands back the launched app's pid (LaunchServices spawns it,
+ * not us), so find the real Electron main process by the --user-data-dir it was
+ * launched with. Excludes Chromium's own renderer/GPU/utility helper processes,
+ * which all carry a --type= flag that the main process never does.
+ */
+export async function findObsidianPid(userDataDir: string, timeoutMs = 30_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { stdout } = await execFileAsync("ps", ["-axo", "pid=,command="]);
+    for (const line of stdout.split("\n")) {
+      const trimmed = line.trim();
+      const spaceIndex = trimmed.indexOf(" ");
+      if (spaceIndex === -1) continue;
+      const command = trimmed.slice(spaceIndex + 1);
+      if (command.includes(`--user-data-dir=${userDataDir}`) && !command.includes("--type=")) {
+        return Number(trimmed.slice(0, spaceIndex));
+      }
+    }
+    if (Date.now() > deadline) throw new Error(`Obsidian process with --user-data-dir=${userDataDir} did not appear`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 /** Connect to the running Obsidian instance and find its vault window. Never disconnects the app — just drop the reference when done. */
 export async function connectRig(cdpPort: number): Promise<RigConnection> {
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);

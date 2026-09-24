@@ -1,6 +1,8 @@
 // Runs once before the whole `playwright test` invocation. Local iteration
 // starts the rig by hand (`pnpm run e2e:rig start`) and reuses it across many
-// runs; CI has none yet, so this starts one and globalTeardown stops it.
+// runs; if none is running yet (e.g. CI), this starts one. Nothing ever stops
+// it — the rig opens once and stays open (`e2e:rig stop` is a manual command
+// nothing calls); CI's rig ends when the runner ends.
 
 import { spawn } from "node:child_process";
 import { DAEMON_PATH, PLUGIN_ROOT, liveState, readState, waitForHealth } from "./rig/client.ts";
@@ -19,7 +21,4 @@ export default async function globalSetup(): Promise<void> {
   }
   if (!state) throw new Error("rig did not write state.json within 60s");
   await waitForHealth(state);
-  // Told apart from a rig the developer started by hand: only a run that had to
-  // start one itself is responsible for stopping it again.
-  process.env.CC_E2E_RIG_OWNED_BY_RUN = "1";
 }

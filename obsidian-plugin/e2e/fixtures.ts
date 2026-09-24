@@ -32,7 +32,9 @@ async function buildRig(): Promise<Rig> {
   const ports = await control.ports();
   const { context, page } = await connectRig(state.cdpPort);
   const bin = `${state.root}/bin`;
-  const hermeticEnv: Record<string, string> = { HOME: `${state.root}/home`, SHELL: `${bin}/login-shell`, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` };
+  // Mirrors the daemon's own launch env: HOME is never overridden (inherits the
+  // real HOME), only PATH/SHELL stay hermetic. See rig/daemon.ts.
+  const hermeticEnv: Record<string, string> = { SHELL: `${bin}/login-shell`, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` };
   let lastTheme: "light" | "dark" = "light";
 
   const rig: Rig = {

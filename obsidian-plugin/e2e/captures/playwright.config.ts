@@ -12,7 +12,6 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: [["line"]],
   globalSetup: "../globalSetup.ts",
-  globalTeardown: "../globalTeardown.ts",
   outputDir: process.env.CC_E2E_OUTPUT_DIR ?? "/private/tmp/claude-companion-research-e2e-results",
   use: { trace: "retain-on-failure", screenshot: "only-on-failure" },
 });

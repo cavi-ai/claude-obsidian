@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { discoverCoreAsar } from "./coreAsarDiscovery.ts";
 import { installFakeCli } from "./fakeCli.ts";
-import { assertSupportedObsidian, connectRig, MANIFEST_PATH, settleObsidianPage, waitForCdp } from "./pageOps.ts";
+import { assertSupportedObsidian, connectRig, findObsidianPid, MANIFEST_PATH, settleObsidianPage, waitForCdp } from "./pageOps.ts";
 import { seedVault } from "./seed.ts";
 import { closeServer, freshStubState, startEmbedStub, startEndpointStub, startProviderStub } from "./stubs.ts";
 import type { FailRule, ReplyRule, RigState, ScenarioOptions } from "./types.ts";
@@ -39,6 +39,11 @@ async function isPidAlive(pid: number): Promise<boolean> {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+/** `open -a` wants the .app bundle, not the Mach-O binary inside it. */
+function bundlePath(executable: string): string {
+  return executable.replace(/\/Contents\/MacOS\/Obsidian$/, "");
+}
+
 async function readJson(request: IncomingMessage): Promise<unknown> {
   let body = "";
   for await (const chunk of request) body += String(chunk);
@@ -60,10 +65,8 @@ async function main(): Promise<void> {
   await rm(RIG_ROOT, { recursive: true, force: true }).catch(() => undefined);
   const vault = join(RIG_ROOT, "vault");
   const profile = join(RIG_ROOT, "profile");
-  const home = join(RIG_ROOT, "home");
   await mkdir(vault, { recursive: true });
   await mkdir(profile, { recursive: true });
-  await mkdir(home, { recursive: true });
   const { bin, argvLog } = await installFakeCli(RIG_ROOT);
 
   const provider = freshStubState();
@@ -88,23 +91,40 @@ async function main(): Promise<void> {
   const hiddenArgs = hidden ? ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--window-position=-4000,-4000"] : [];
   // Hermetic: only the rig's own fake CLIs and the OS's bare minimum are reachable —
   // no Homebrew, no nvm, no real claude/codex/opencode anywhere on this machine's PATH.
+  // HOME is never overridden: a fake HOME pops macOS "Keychain Not Found" on the
+  // operator's screen, so the real HOME flows through unmodified — `open` inherits
+  // this daemon's own environment for the app it launches (see `man open`), we only
+  // need to override SHELL/PATH explicitly.
   const hermeticPath = `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`;
-  const hermeticEnv: Record<string, string> = { HOME: home, SHELL: join(bin, "login-shell"), PATH: hermeticPath };
-  const obsidianProcess = spawn(executable, [vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, "--disable-gpu", "--no-sandbox", ...hiddenArgs], {
-    stdio: ["ignore", "pipe", "pipe"],
-    env: hermeticEnv,
+  const launchLog = join(RIG_ROOT, "obsidian-launch.log");
+  await writeFile(launchLog, "");
+  // `open -g -n` launches a fresh instance WITHOUT activating it — no Dock bounce,
+  // no Space switch, no focus steal. A direct spawn of the binary activates the app
+  // regardless of an off-screen --window-position, which is what stole the
+  // operator's screen before. `open` never hands back the app's own pid (it asks
+  // LaunchServices to spawn it), so it is recovered below via findObsidianPid.
+  const opener = spawn("open", [
+    "-g", "-n", "-a", bundlePath(executable),
+    "--env", `SHELL=${join(bin, "login-shell")}`,
+    "--env", `PATH=${hermeticPath}`,
+    "--stdout", launchLog,
+    "--stderr", launchLog,
+    "--args", vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, "--disable-gpu", "--no-sandbox", ...hiddenArgs,
+  ], { stdio: "ignore" });
+  await new Promise<void>((resolve, reject) => {
+    opener.once("error", reject);
+    opener.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`open exited with code ${code}`))));
   });
-  if (!obsidianProcess.pid) throw new Error("Obsidian process did not start");
-  let processOutput = "";
-  obsidianProcess.stdout?.on("data", (chunk) => { processOutput += String(chunk); });
-  obsidianProcess.stderr?.on("data", (chunk) => { processOutput += String(chunk); });
+  let obsidianPid: number;
   try {
+    obsidianPid = await findObsidianPid(profile);
     await waitForCdp(cdpPort);
   } catch (error) {
-    throw new Error(`${(error as Error).message}. ${processOutput.slice(-1000)}`);
+    const log = await readFile(launchLog, "utf8").catch(() => "");
+    throw new Error(`${(error as Error).message}. ${log.slice(-1000)}`);
   }
   const connection = await connectRig(cdpPort);
-  await settleObsidianPage(connection.context, connection.page, false, hidden, obsidianProcess.pid);
+  await settleObsidianPage(connection.context, connection.page, false, hidden, obsidianPid);
 
   const token = randomBytes(24).toString("hex");
   const controlPort = await freePort();
@@ -143,7 +163,7 @@ async function main(): Promise<void> {
 
   const state: RigState = {
     pid: process.pid,
-    obsidianPid: obsidianProcess.pid,
+    obsidianPid,
     cdpPort,
     controlPort,
     token,
@@ -155,27 +175,32 @@ async function main(): Promise<void> {
     pluginBuildHash: await buildHash(),
   };
   await writeFile(STATE_PATH, JSON.stringify(state, null, 2));
-  console.log(`rig ready: obsidian pid ${obsidianProcess.pid}, control :${controlPort}, cdp :${cdpPort}`);
+  console.log(`rig ready: obsidian pid ${obsidianPid}, control :${controlPort}, cdp :${cdpPort}`);
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
+    clearInterval(watchdog);
     await rm(STATE_PATH, { force: true }).catch(() => undefined);
     await closeServer(controlServer).catch(() => undefined);
     await closeServer(providerStub.server).catch(() => undefined);
     await closeServer(endpointStub.server).catch(() => undefined);
     await closeServer(embedStub.server).catch(() => undefined);
-    if (await isPidAlive(obsidianProcess.pid)) {
-      obsidianProcess.kill("SIGTERM");
+    if (await isPidAlive(obsidianPid)) {
+      process.kill(obsidianPid, "SIGTERM");
       await new Promise((resolve) => setTimeout(resolve, 2_000));
-      if (await isPidAlive(obsidianProcess.pid)) obsidianProcess.kill("SIGKILL");
+      if (await isPidAlive(obsidianPid)) process.kill(obsidianPid, "SIGKILL");
     }
     process.exit(0);
   };
   process.on("SIGTERM", () => { void shutdown(); });
   process.on("SIGINT", () => { void shutdown(); });
-  obsidianProcess.once("exit", () => { void shutdown(); });
+  // `open` detached the real Obsidian process from us (it is not our child), so
+  // there is no "exit" event to listen for — poll its liveness instead.
+  const watchdog = setInterval(() => {
+    void isPidAlive(obsidianPid).then((alive) => { if (!alive) void shutdown(); });
+  }, 3_000);
 }
 
 void main();

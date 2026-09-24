@@ -28,7 +28,10 @@ export async function seedVault(vault: string, ports: StubPorts, options: Scenar
   await installPluginBuild(vault, buildDir);
   const plugin = join(obsidian, "plugins", "claude-companion");
   await writeFile(join(obsidian, "community-plugins.json"), JSON.stringify(["claude-companion"]));
-  await writeFile(join(obsidian, "app.json"), JSON.stringify({ showUnsupportedFiles: true, alwaysUpdateLinks: true }));
+  // safeMode: false pre-answers "Trust author and enable plugins" — without it,
+  // a vault opened for the first time with community plugins listed always
+  // shows that dialog before the plugin can load.
+  await writeFile(join(obsidian, "app.json"), JSON.stringify({ showUnsupportedFiles: true, alwaysUpdateLinks: true, safeMode: false }));
   if (options.theme) {
     const appearancePath = join(obsidian, "appearance.json");
     const existing = await readFile(appearancePath, "utf8").then((raw) => JSON.parse(raw) as Record<string, unknown>).catch(() => ({}) as Record<string, unknown>);
