@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Chat text is selectable.** Message bodies, tool results, and thinking
   blocks accept mouse selection and copy.
+- **Codex and OpenCode are found when Obsidian starts from the Dock.** The
+  backend lookup searches the login shell's PATH and common install folders,
+  not only the app's minimal PATH.
+- **Codex sign-in is detected.** `codex login status` reports on stderr; the
+  status row no longer says "not signed in" for a signed-in Codex.
+- **Codex vault tool calls show as tool chips** in the chat.
+- **The setup wizard opens once.** Saving a credential while startup was still
+  probing Claude Code could open a second wizard on top of the first.
 
 ## [0.32.0] — 2026-09-23
 

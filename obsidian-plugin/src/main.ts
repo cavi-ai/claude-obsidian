@@ -307,6 +307,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private persistChain: Promise<void> = Promise.resolve();
   /** Credentials live here, not in data.json. Lazy so tests can construct the plugin. */
   private _secrets: SecretStore | null = null;
+  /** Layout-ready and the chat setup card can both continue onboarding; only one wizard may be open. */
+  private setupWizardOpen = false;
   /** Set by the last persist: credentials the store refused, still in data.json. */
   private unverifiedSecrets: SecretField[] = [];
   private _router: ProviderRouter | null = null;
@@ -2385,6 +2387,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * regardless of which button the user ends up clicking.
    */
   private openSetupWizardWithSteps(steps: WizardStep[]): void {
+    if (this.setupWizardOpen) return;
+    this.setupWizardOpen = true;
     if (steps.includes("vault-tools") && !this.settings.desktopIntegrationsOffered) {
       this.settings.desktopIntegrationsOffered = true;
       void this.saveSettings();
@@ -2418,6 +2422,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       downloadEmbeddings: () => this.wizardDownloadEmbeddings(),
       seedOntology: () => this.wizardSeedOntology(),
       finish: () => this.wizardFinish(),
+      onClosed: () => { this.setupWizardOpen = false; },
     };
   }
 

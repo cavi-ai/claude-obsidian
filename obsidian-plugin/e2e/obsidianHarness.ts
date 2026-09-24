@@ -68,6 +68,8 @@ export interface ObsidianHarnessOptions {
   theme?: "light" | "dark";
   /** Keep the Obsidian window unfocused and off-screen; default on unless CC_E2E_SHOW=1. */
   hidden?: boolean;
+  /** Environment overrides for the Obsidian process, applied last (e.g. a GUI-launch PATH); forces a standalone process. */
+  env?: Record<string, string>;
 }
 
 /** Where Obsidian keeps the cores it auto-updates into. */
@@ -338,7 +340,7 @@ export async function shutdownSharedObsidianHarness(): Promise<void> {
 function needsStandaloneProcess(options: ObsidianHarnessOptions): boolean {
   // These scenarios assert startup or process-death behavior. Reusing the
   // ordinary worker process would remove the lifecycle boundary under test.
-  return options.firstRun === true || options.liveClaude === true || options.reuse !== undefined;
+  return options.firstRun === true || options.liveClaude === true || options.reuse !== undefined || options.env !== undefined;
 }
 
 async function launchFreshObsidianHarness(options: ObsidianHarnessOptions = {}, pooled = false): Promise<PhysicalObsidianHarness> {
@@ -499,7 +501,7 @@ esac
   await assertSupportedObsidian(executable, coreAsarPath);
   if (coreAsarPath) await copyFile(coreAsarPath, join(profile, basename(coreAsarPath)));
   const hiddenArgs = hidden ? ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--window-position=-4000,-4000"] : [];
-  const processHandle = spawn(executable, [vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${debuggingPort}`, "--disable-gpu", "--no-sandbox", ...hiddenArgs], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: executablePath } });
+  const processHandle = spawn(executable, [vault, `--user-data-dir=${profile}`, `--remote-debugging-port=${debuggingPort}`, "--disable-gpu", "--no-sandbox", ...hiddenArgs], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: executablePath, ...options.env } });
   if (!processHandle.pid) throw new Error("Obsidian process did not start");
   let processOutput = ""; processHandle.stdout?.on("data", (chunk) => { processOutput += String(chunk); }); processHandle.stderr?.on("data", (chunk) => { processOutput += String(chunk); });
   await waitForCdp(debuggingPort);
