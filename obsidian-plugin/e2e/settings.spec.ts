@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { test, expect } from "./fixtures";
-import { launchObsidianHarness, type ObsidianHarness } from "./obsidianHarness";
+import type { Rig } from "./fixtures";
 
 // Settings-tab regression suite. Since 0.27.1 the tab is declarative
 // (getSettingDefinitions), so Obsidian owns the group/page chrome and this
@@ -8,7 +8,7 @@ import { launchObsidianHarness, type ObsidianHarness } from "./obsidianHarness";
 // controls respond, and a visibility predicate swaps a dependent row. The
 // shape of the definition tree itself is covered by test/settingsTabRender.
 
-async function openSettingsTab(harness: ObsidianHarness): Promise<Locator> {
+async function openSettingsTab(harness: Rig): Promise<Locator> {
   const settingsPage = await harness.openSettings();
   const tab = settingsPage.locator(".vertical-tab-content-container .vertical-tab-content").last();
   await expect(tab).toBeVisible();
@@ -18,8 +18,8 @@ async function openSettingsTab(harness: ObsidianHarness): Promise<Locator> {
   return tab;
 }
 
-test("settings tab renders, controls respond, dependent rows follow", async () => {
-  const harness = await launchObsidianHarness();
+test("settings tab renders, controls respond, dependent rows follow", async ({ rig }) => {
+  const harness = await rig.reset();
   const { page } = harness;
   const consoleErrors: string[] = [];
   page.on("console", (msg) => { if (msg.type() === "error") consoleErrors.push(msg.text()); });
@@ -61,8 +61,8 @@ test("settings tab renders, controls respond, dependent rows follow", async () =
   }
 });
 
-test("the advanced toggle hides irrelevant pages and reveals them on", async () => {
-  const harness = await launchObsidianHarness({ settingsOverride: { settingsShowAdvanced: false } });
+test("the advanced toggle hides irrelevant pages and reveals them on", async ({ rig }) => {
+  const harness = await rig.reset({ settingsOverride: { settingsShowAdvanced: false } });
   const { page } = harness;
   try {
     const tab = await openSettingsTab(harness);

@@ -1,5 +1,4 @@
 import { expect, test } from "./fixtures";
-import { launchObsidianHarness } from "./obsidianHarness";
 
 /** Switch the visible Chat tab to the leaf at `index` among all Chat leaves, in DOM/creation order. */
 async function focusChatLeaf(page: import("@playwright/test").Page, index: number): Promise<void> {
@@ -25,8 +24,8 @@ async function activeChatConversationId(page: import("@playwright/test").Page): 
   );
 }
 
-test("running New chat tab twice opens two leaves that stream independent conversations", async () => {
-  const harness = await launchObsidianHarness({ claudeCli: true });
+test("running New chat tab twice opens two leaves that stream independent conversations", async ({ rig }) => {
+  const harness = await rig.reset({ claudeCli: true });
   const { page } = harness;
   try {
     await page.evaluate(async () => {

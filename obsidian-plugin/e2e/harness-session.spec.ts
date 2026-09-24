@@ -1,23 +1,20 @@
 import { expect, test } from "./fixtures";
-import { launchObsidianHarness } from "./obsidianHarness";
 
-test("ordinary scenarios reuse one Obsidian process with isolated vault state", async () => {
-  const first = await launchObsidianHarness({
+test("ordinary scenarios reuse one Obsidian process with isolated vault state", async ({ rig }) => {
+  const first = await rig.reset({
     extraFiles: { "Transient.md": "# Must not leak\n" },
     settingsOverride: { customModel: "temporary-e2e-model" },
   });
   const processId = first.processId;
-  try {
+  {
     await expect.poll(() => first.page.evaluate(() => {
       const app = (window as unknown as { app: { vault: { getAbstractFileByPath(path: string): unknown } } }).app;
       return Boolean(app.vault.getAbstractFileByPath("Transient.md"));
     })).toBe(true);
-  } finally {
-    await first.close();
   }
 
-  const second = await launchObsidianHarness();
-  try {
+  const second = await rig.reset();
+  {
     expect(second.processId).toBe(processId);
     await expect.poll(() => second.page.evaluate(() => {
       const app = (window as unknown as {
@@ -31,7 +28,5 @@ test("ordinary scenarios reuse one Obsidian process with isolated vault state", 
         transientExists: Boolean(app.vault.getAbstractFileByPath("Transient.md")),
       };
     })).toEqual({ customModel: "", transientExists: false });
-  } finally {
-    await second.close();
   }
 });

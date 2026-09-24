@@ -1,6 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
-import { launchObsidianHarness } from "./obsidianHarness";
 
 const OUTPUT = process.env.CC_E2E_OUTPUT_DIR ?? "/private/tmp/claude-companion-research-e2e-results";
 
@@ -127,9 +126,9 @@ async function visualIssues(root: Locator): Promise<string[]> {
   });
 }
 
-test("primary Companion screens are visually contained at real pane breakpoints", async () => {
+test("primary Companion screens are visually contained at real pane breakpoints", async ({ rig }) => {
   test.setTimeout(120_000);
-  const harness = await launchObsidianHarness();
+  const harness = await rig.reset();
   const { page } = harness;
   const failures: string[] = [];
   try {

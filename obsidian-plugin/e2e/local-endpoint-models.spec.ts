@@ -1,6 +1,5 @@
 import { expect, test } from "./fixtures";
 import { modelLabel } from "../src/claude/models";
-import { launchObsidianHarness } from "./obsidianHarness";
 
 const MODELS = ["mlx-community/Qwen3-8B-4bit", "lmstudio/gemma-3-12b"];
 
@@ -13,8 +12,8 @@ const openChat = async (page: import("@playwright/test").Page): Promise<void> =>
 
 // The reported bug: an OpenAI-compatible endpoint (LM Studio et al.) is configured
 // with a host but no model id, so nothing appeared in the chat model picker.
-test("the chat picker lists every model the local endpoint serves", async () => {
-  const harness = await launchObsidianHarness({ endpointModels: MODELS });
+test("the chat picker lists every model the local endpoint serves", async ({ rig }) => {
+  const harness = await rig.reset({ endpointModels: MODELS });
   const { page } = harness;
   try {
     await openChat(page);
@@ -45,8 +44,8 @@ test("the chat picker lists every model the local endpoint serves", async () => 
   }
 });
 
-test("Detect fills the endpoint model dropdown in settings", async () => {
-  const harness = await launchObsidianHarness({ endpointModels: MODELS });
+test("Detect fills the endpoint model dropdown in settings", async ({ rig }) => {
+  const harness = await rig.reset({ endpointModels: MODELS });
   const { page } = harness;
   try {
     const settingsPage = await harness.openSettings();

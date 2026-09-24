@@ -1,8 +1,7 @@
 import { expect, test } from "./fixtures";
-import { launchObsidianHarness } from "./obsidianHarness";
 
-test("Desktop integrations opens through Obsidian's real Node runtime boundary", async () => {
-  const harness = await launchObsidianHarness();
+test("Desktop integrations opens through Obsidian's real Node runtime boundary", async ({ rig }) => {
+  const harness = await rig.reset();
   try {
     // Settings is its own window on Obsidian 1.13+, and the modal mounts in
     // whichever window owns the control that opened it.
