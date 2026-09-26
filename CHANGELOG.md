@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A half-typed API key survives the setup card refreshing.** Detecting a
+  signed-in Claude Code, Codex, or OpenCode no longer clears the key field.
 - **Web Clipper setup stops asking once it works.** The Inbox hides "Set up
   Web Clipper" when a template is verified, the setup dialog shows
   "Verified", and a stamped clip verifies its template even when the template
