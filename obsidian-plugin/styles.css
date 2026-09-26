@@ -1242,6 +1242,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-slash-item {
   display: flex;
   align-items: baseline;
+  justify-content: flex-start;
   gap: 8px;
   padding: 5px 8px;
   width: 100%;
@@ -1251,7 +1252,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   color: inherit;
   cursor: pointer;
   font: inherit;
-  text-align: start;
+  text-align: left;
 }
 .cc-slash-item.is-selected { background: var(--cc-surface-raised); }
 /* "@" picker rows: an icon + label + path. */
@@ -1461,6 +1462,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-slash-desc {
   font-size: var(--cc-text-sm);
   color: var(--text-muted);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

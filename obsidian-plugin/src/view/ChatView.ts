@@ -16,7 +16,7 @@ import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
 import type { ChatMode } from "./ModeControl";
-import { skillSlashCommands, workflowSlashCommands, SLASH_COMMANDS, type SlashCommand, runNativeSlashCommand, templateSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
+import { buildSlashCatalog, type SlashCommand, runNativeSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { type AttachedPage } from "../context/urlContext";
 import { WORKFLOWS } from "../workflows/catalog";
@@ -334,7 +334,7 @@ export class ChatView extends ItemView {
     // ---- composer ----
     this.composer.mount(
       root,
-      [...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS)],
+      buildSlashCatalog(WORKFLOWS, SKILLS, []),
     );
     this.renderContextManager();
 
@@ -707,8 +707,9 @@ export class ChatView extends ItemView {
     const generation = ++this.templateReloadGeneration;
     const templates = await this.plugin.promptTemplates();
     if (generation !== this.templateReloadGeneration) return;
-    this.templateCommands = templates.map(templateSlashCommand);
-    this.slashMenu.setCommands([...SLASH_COMMANDS, ...workflowSlashCommands(WORKFLOWS), ...skillSlashCommands(SKILLS, WORKFLOWS), ...this.templateCommands]);
+    const commands = buildSlashCatalog(WORKFLOWS, SKILLS, templates);
+    this.templateCommands = commands.filter((command) => command.template);
+    this.slashMenu.setCommands(commands);
     this.syncSlashMenu();
   }
 
