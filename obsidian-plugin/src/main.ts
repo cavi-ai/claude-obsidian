@@ -700,7 +700,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const cliProbe = Platform.isMobile ? undefined : this.router().claudeCli.refresh().then(() => this.refreshViews());
       void this.syncMcpServer();
       this.syncPlanBuildActions();
-      void this.runFirstRun(cliProbe);
+      void this.runFirstRun(cliProbe).then(() => this.semantic().catchUpIndex());
       // Schemas/inbox changed since the clipper templates were exported →
       // the clipper is clipping against a stale schema. Offer once per session.
       if (this.settings.sourceCaptureEnabled && this.clipperTemplatesStale()) {
@@ -709,8 +709,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
       // Keep the semantic index fresh as notes change (debounced; no-op when
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
-      // doesn't fire create/modify for every note and stampede the indexer —
-      // a full build only happens via the explicit "Rebuild" command.
+      // doesn't fire create/modify for every note and stampede the indexer;
+      // catchUpIndex covers notes that changed while Obsidian was closed.
       this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => {
@@ -720,7 +720,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (f instanceof TFile && f.extension === "md") this.queueClipperVerification(f);
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.indexer()?.removeNote(f.path); }));
-      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.indexer()?.renameNote(oldPath, f.path); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().renameNote(oldPath, f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleResearchRefresh(f.path, oldPath); }));

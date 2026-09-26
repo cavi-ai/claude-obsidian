@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codex vault tool calls show as tool chips** in the chat.
 - **The setup wizard opens once.** Saving a credential while startup was still
   probing Claude Code could open a second wizard on top of the first.
+- **Semantic index catches up on startup.** Notes added, changed, or deleted
+  while Obsidian was closed are indexed at startup, skipping notes whose
+  modified time is unchanged; the model is never downloaded by this pass.
+- **Moved notes get indexed.** A note moved before it was indexed (such as a
+  clip Organize files into a folder) is indexed at its new path.
+- **Notes queued while the embedding model loads are kept** and indexed once
+  it is ready.
 
 ## [0.32.0] — 2026-09-23
 
