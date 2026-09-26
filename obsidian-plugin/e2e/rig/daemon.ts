@@ -16,10 +16,9 @@ import { assertSupportedObsidian, connectRig, findObsidianPid, MANIFEST_PATH, se
 import { seedVault } from "./seed.ts";
 import { closeServer, freshStubState, startEmbedStub, startEndpointStub, startProviderStub } from "./stubs.ts";
 import type { FailRule, ReplyRule, RigState, ScenarioOptions } from "./types.ts";
+import { RIG_ROOT, STATE_PATH, liveState } from "./client.ts";
 
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const RIG_ROOT = join(PLUGIN_ROOT, ".tmp", "e2e-rig");
-const STATE_PATH = join(RIG_ROOT, "state.json");
 
 async function freePort(): Promise<number> {
   const { createServer } = await import("node:net");
@@ -56,9 +55,9 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
 }
 
 async function main(): Promise<void> {
-  const existing = await readFile(STATE_PATH, "utf8").then((raw) => JSON.parse(raw) as RigState).catch(() => null);
-  if (existing && await isPidAlive(existing.pid)) {
-    console.error(`rig already running: pid ${existing.pid}`);
+  const existing = await liveState();
+  if (existing) {
+    console.error(`rig already running: pid ${existing.pid} (${existing.root})`);
     process.exit(1);
   }
 
