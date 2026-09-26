@@ -1082,7 +1082,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
       inboxFolder: this.settings.sourceInboxFolder,
       baseTags: this.settings.sourceBaseTags,
       savedFingerprint: this.settings.clipperVerification[type]?.fingerprint ?? this.settings.clipperTemplateFingerprint,
+      ...(this.settings.clipperVerification[type] ? { verification: this.settings.clipperVerification[type] } : {}),
     }));
+  }
+
+  /** False once any Web Clipper template is verified against the current schemas. */
+  clipperSetupNeeded(): boolean {
+    return !this.clipperSetups().some((setup) => setup.status === "verified");
   }
 
   openClipperSetup(): void {
@@ -1119,7 +1125,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const waiting = Object.entries(this.settings.clipperVerification)
       .filter((entry): entry is [SourceType, NonNullable<typeof entry[1]>] => entry[1]?.state === "waiting")
       .sort((left, right) => right[1].startedAt - left[1].startedAt)[0];
-    if (!waiting) return;
+    const inbox = this.settings.sourceInboxFolder.replace(/\/+$/, "");
+    if (!waiting && !(inbox && file.path.startsWith(`${inbox}/`))) return;
     const previous = this.clipperVerificationTimers.get(file.path);
     if (previous !== undefined) window.clearTimeout(previous);
     const timer = window.setTimeout(() => {
@@ -1129,10 +1136,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
         this.queueClipperVerification(file, attempt + 1);
         return;
       }
+      if (!waiting) {
+        if (frontmatter) void this.verifyStampedClip(file, frontmatter);
+        return;
+      }
       // A clip that lands in the inbox carrying nothing is proof the template
       // never applied — report it instead of waiting for a note that can't come.
       if (!frontmatter) {
-        const inbox = this.settings.sourceInboxFolder.replace(/\/+$/, "");
         if (inbox && file.path.startsWith(`${inbox}/`)) void this.verifyArrivingClip(file, waiting[0], {});
         return;
       }
@@ -1147,6 +1157,25 @@ export default class ClaudeCompanionPlugin extends Plugin {
       void this.verifyArrivingClip(file, expectedType, frontmatter);
     }, 600);
     this.clipperVerificationTimers.set(file.path, timer);
+  }
+
+  /** Templates imported without the setup modal still verify from a matching stamped clip; mismatches stay silent. */
+  private async verifyStampedClip(file: TFile, frontmatter: Record<string, unknown>): Promise<void> {
+    const type = frontmatter.type;
+    if ((type !== "article" && type !== "video" && type !== "dataset") || frontmatter.schema_version === undefined) return;
+    const setup = this.clipperSetups().find((candidate) => candidate.type === type);
+    if (!setup || setup.status === "verified") return;
+    const result = verifyClipperNote({ path: file.path, frontmatter }, {
+      type,
+      schemaVersion: setup.schemaVersion,
+      destination: this.settings.sourceInboxFolder,
+      fingerprint: setup.fingerprint,
+      baseTags: this.settings.sourceBaseTags,
+    });
+    if (result.state !== "verified") return;
+    const now = Date.now();
+    this.settings.clipperVerification[type] = { fingerprint: setup.fingerprint, state: "verified", startedAt: now, verifiedAt: now, path: result.path, mismatches: [] };
+    await this.persist();
   }
 
   private async verifyArrivingClip(file: TFile, type: SourceType, frontmatter: Record<string, unknown>): Promise<void> {

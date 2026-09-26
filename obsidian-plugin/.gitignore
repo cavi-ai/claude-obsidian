@@ -5,3 +5,6 @@ node_modules/
 test-vault/
 .mobile-review/
 coverage/
+
+# e2e rig root: vault, profile, hermetic bin dir, state.json, logs
+.tmp/
