@@ -45,14 +45,15 @@ test("settings tab renders, controls respond, dependent rows follow", async ({ r
     await auth.selectOption("apiKey");
     await expect(tab.locator("input[type='password'][placeholder*='sk-ant-api']")).toBeVisible();
 
-    // A toggle round-trips and persists.
+    // A field round-trips and persists: it survives a plugin restart, not just the live DOM.
     const maxTokens = tab.locator(".setting-item", { hasText: "Max response tokens" }).locator("input");
     await expect(maxTokens).toBeVisible();
     await maxTokens.fill("2048");
     await maxTokens.blur();
-    expect(
-      await page.evaluate(() => (window as unknown as { app: { plugins: { plugins: Record<string, { settings: { maxTokens: number } }> } } }).app.plugins.plugins["claude-companion"].settings.maxTokens),
-    ).toBe(2048);
+    await harness.reloadPlugin();
+    const reopened = await harness.openSettings();
+    const reopenedTab = reopened.locator(".vertical-tab-content-container .vertical-tab-content").last();
+    await expect(reopenedTab.locator(".setting-item", { hasText: "Max response tokens" }).locator("input")).toHaveValue("2048");
 
     const fatal = consoleErrors.filter((e) => !e.includes("e2e-key") && !e.includes("127.0.0.1"));
     expect(fatal).toEqual([]);

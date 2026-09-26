@@ -30,15 +30,13 @@ test("the chat picker lists every model the local endpoint serves", async ({ rig
     // Picking one routes chat at the endpoint and records the id, so the header
     // label and the picker agree instead of only the header updating.
     await select.selectOption(`custom:${MODELS[1]}`);
-    await expect.poll(async () => await page.evaluate(() => {
-      const app = (window as unknown as {
-        app: { plugins: { plugins: Record<string, { settings: { openaiCompatModel: string; chatBackend: string } }> } };
-      }).app;
-      const settings = app.plugins.plugins["claude-companion"]!.settings;
-      return `${settings.chatBackend}|${settings.openaiCompatModel}`;
-    })).toBe(`custom|${MODELS[1]}`);
     // The header shows the formatted label; the picker keeps the raw id.
     await expect(page.locator(".cc-model").first()).toContainText(modelLabel(MODELS[1]!));
+    // It records the choice, not just the live DOM: survives a plugin restart.
+    await harness.reloadPlugin();
+    await openChat(page);
+    await expect(page.locator(".cc-model").first()).toContainText(modelLabel(MODELS[1]!));
+    await expect(page.locator(".cc-ctl-model .cc-ctl-select")).toHaveValue(`custom:${MODELS[1]}`);
   } finally {
     await harness.close();
   }

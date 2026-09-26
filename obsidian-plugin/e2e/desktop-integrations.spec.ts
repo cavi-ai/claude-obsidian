@@ -13,10 +13,7 @@ test("Desktop integrations opens through Obsidian's real Node runtime boundary",
     await open.click();
 
     const modal = settingsPage.locator(".cc-desktop-integrations-modal");
-    await settingsPage.waitForTimeout(250);
-    const notices = await settingsPage.locator(".notice").allTextContents();
-    expect(await modal.count(), `notices: ${notices.join(" | ")}`).toBeGreaterThan(0);
-    await expect(modal).toBeVisible();
+    await expect(modal).toBeVisible({ timeout: 5_000 });
     await expect(modal.getByRole("heading", { name: "Claude Code" })).toBeVisible();
   } finally {
     await harness.close();
