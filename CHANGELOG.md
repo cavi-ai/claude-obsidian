@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A half-typed API key survives the setup card refreshing.** Detecting a
+  signed-in Claude Code, Codex, or OpenCode no longer clears the key field.
 - **Chat text is selectable.** Message bodies, tool results, and thinking
   blocks accept mouse selection and copy.
 - **Codex and OpenCode are found when Obsidian starts from the Dock.** The
