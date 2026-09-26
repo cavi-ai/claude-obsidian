@@ -1,8 +1,7 @@
 import { expect, test } from "./fixtures";
-import { launchObsidianHarness } from "./obsidianHarness";
 
-test("an assistant reply's text can be selected with the mouse", async () => {
-  const harness = await launchObsidianHarness({ claudeCli: true });
+test("an assistant reply's text can be selected with the mouse", async ({ rig }) => {
+  const harness = await rig.reset({ claudeCli: true });
   const { page } = harness;
   try {
     await page.evaluate(async () => {
