@@ -189,6 +189,7 @@ body:not(.is-mobile) .cc-model.cc-model-tappable:hover {
   font-size: var(--cc-chat-font, 14px);
   line-height: 1.55;
 }
+.cc-turn-status { display: block; font-size: var(--font-smallest); color: var(--text-muted); margin: 0 0 4px; }
 /* Obsidian sets user-select: none on body. */
 .cc-body,
 .cc-tool-chip-result,
