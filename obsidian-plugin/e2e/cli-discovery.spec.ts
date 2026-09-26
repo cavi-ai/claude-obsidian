@@ -7,7 +7,8 @@ import { expect, test } from "./fixtures";
 const GUI_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 test("Codex and OpenCode installed on the login-shell PATH are found when Obsidian runs with the GUI PATH", async ({ rig }) => {
-  const harness = await rig.reset();
+  // The Codex/OpenCode status rows are advanced-tier and hidden by default.
+  const harness = await rig.reset({ settingsOverride: { settingsShowAdvanced: true } });
   try {
     const root = await mkdtemp(join(tmpdir(), "cc-cli-discovery-"));
     const bin = join(root, "shellbin");
@@ -39,8 +40,10 @@ esac
 
     const settingsPage = await harness.openSettings();
     const tab = settingsPage.locator(".vertical-tab-content-container .vertical-tab-content").last();
-    const codexRow = tab.locator(".setting-item").filter({ has: tab.getByRole("button", { name: "Check Codex", exact: true }) });
-    const opencodeRow = tab.locator(".setting-item").filter({ has: tab.getByRole("button", { name: "Check OpenCode", exact: true }) });
+    // The `has` locator must be page-relative, not re-prefixed with `tab`'s own
+    // ancestor chain, or it never matches inside each candidate's subtree.
+    const codexRow = tab.locator(".setting-item").filter({ has: settingsPage.getByRole("button", { name: "Check Codex", exact: true }) });
+    const opencodeRow = tab.locator(".setting-item").filter({ has: settingsPage.getByRole("button", { name: "Check OpenCode", exact: true }) });
 
     await codexRow.getByRole("button", { name: "Check Codex", exact: true }).click();
     await opencodeRow.getByRole("button", { name: "Check OpenCode", exact: true }).click();
