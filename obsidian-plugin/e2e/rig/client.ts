@@ -1,14 +1,37 @@
 // HTTP client for the rig's control API, plus state.json plumbing. Shared by
 // the CLI (start/stop/status/reload) and the Playwright `rig` fixture.
 
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RigState, ScenarioOptions } from "./types.ts";
 
 export const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const RIG_ROOT = join(PLUGIN_ROOT, ".tmp", "e2e-rig");
+
+/** One rig per machine: every checkout and worktree of the repo shares the main checkout's rig root. */
+export function rigRootFor(gitCommonDir: string | null, pluginPathInRepo: string | null, pluginRoot: string): string {
+  if (!gitCommonDir || pluginPathInRepo === null) return join(pluginRoot, ".tmp", "e2e-rig");
+  return join(dirname(gitCommonDir), pluginPathInRepo, ".tmp", "e2e-rig");
+}
+
+function git(args: string[]): string | null {
+  try { return execFileSync("git", args, { cwd: PLUGIN_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null; } catch { return null; }
+}
+
+const toplevel = git(["rev-parse", "--show-toplevel"]);
+export const RIG_ROOT = rigRootFor(git(["rev-parse", "--path-format=absolute", "--git-common-dir"]), toplevel ? relative(toplevel, PLUGIN_ROOT) : null, PLUGIN_ROOT);
 export const STATE_PATH = join(RIG_ROOT, "state.json");
+
+/** Roots of running rigs, read from each rig Obsidian main process's `--user-data-dir=<root>/profile`. */
+export function rigRootsFromPs(ps: string): string[] {
+  const roots = ps.split("\n").flatMap((line) => {
+    if (line.includes("--type=")) return [];
+    const match = /--user-data-dir=(\S+\/e2e-rig)\/profile(?:\s|$)/.exec(line);
+    return match?.[1] ? [match[1]] : [];
+  });
+  return [...new Set(roots)];
+}
 export const DAEMON_PATH = join(dirname(fileURLToPath(import.meta.url)), "daemon.ts");
 
 export async function readState(): Promise<RigState | null> {
@@ -19,11 +42,17 @@ export async function isPidAlive(pid: number): Promise<boolean> {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-/** A rig is "live" only when state.json names a pid that is still running. */
+/** A rig is "live" when a state.json names a running daemon: this machine's rig root first, then any rig Obsidian already running. */
 export async function liveState(): Promise<RigState | null> {
-  const state = await readState();
-  if (!state) return null;
-  return await isPidAlive(state.pid) ? state : null;
+  const own = await readState();
+  if (own && await isPidAlive(own.pid)) return own;
+  let ps = "";
+  try { ps = execFileSync("ps", ["-Ao", "command"], { encoding: "utf8" }); } catch { return null; }
+  for (const root of rigRootsFromPs(ps)) {
+    const state = await readFile(join(root, "state.json"), "utf8").then((raw) => JSON.parse(raw) as RigState).catch(() => null);
+    if (state && await isPidAlive(state.pid)) return state;
+  }
+  return null;
 }
 
 export class ControlClient {

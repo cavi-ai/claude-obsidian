@@ -67,4 +67,8 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+// Exit once the command is done: the CDP connection `reload` opens would otherwise keep the process alive.
+main().then(() => process.exit(process.exitCode ?? 0), (error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});
