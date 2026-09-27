@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.3] — 2026-09-27
+
+### Fixed
+- **Built-in semantic indexing uses bounded batches.** Large vaults no longer
+  pass the entire pending workload to the embedding worker at once.
+- **Index controls show immediate feedback.** Download and rebuild actions show
+  a visible active state and report progress or failure in settings.
+
 ## [0.32.2] — 2026-09-26
 
 ### Fixed
