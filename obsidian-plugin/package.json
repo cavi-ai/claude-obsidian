@@ -69,7 +69,7 @@
     "yaml": "^2.9.0"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "defuddle": "^0.19.3",
     "pdfjs-dist": "~6.2.108"
   }
