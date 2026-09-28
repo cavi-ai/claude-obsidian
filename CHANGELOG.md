@@ -4,6 +4,24 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] — 2026-09-28
+
+### Added
+- **Capped agent turns offer Continue.** A turn stopped by the tool-iteration
+  limit saves a handoff of the work already done and resumes in one click — or
+  automatically with the new auto-continue setting.
+- **Research sources enrich on import.** Sources imported from chat or
+  discovery get the same summary, key claims, topics, and tags as clipped
+  sources, so they index for search immediately.
+- **Triage works beyond the inbox.** The Research Desk and the command palette
+  can triage the clippings inbox, the organized library, or any other folder.
+- **Chat quick actions follow your research.** The empty state offers the
+  active project's next steps as one-click actions, plus a research starter.
+
+### Changed
+- The tool-iteration limit per turn now goes up to 50.
+- Dependency updates: defuddle 0.19.4, @huggingface/transformers 4.3.0.
+
 ## [0.32.3] — 2026-09-27
 
 ### Fixed
