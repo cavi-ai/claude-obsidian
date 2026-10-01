@@ -54,6 +54,12 @@ describe("resolveSettings research model migration", () => {
 });
 
 describe("resolveSettings with legacy configs", () => {
+  it("defaults to Sonnet 5.5 and moves a stored Sonnet 5 selection to it", () => {
+    expect(DEFAULT_SETTINGS.model).toBe("claude-sonnet-5-5");
+    expect(resolveSettings({ settings: { model: "claude-sonnet-5" } } as never).model).toBe("claude-sonnet-5-5");
+    expect(resolveSettings({ settings: { model: "claude-opus-4-8" } } as never).model).toBe("claude-opus-4-8");
+  });
+
   it("treats the flat shape as settings, not namespaced data", () => {
     expect(isNamespacedData(LEGACY_FLAT)).toBe(false);
     expect(isNamespacedData({ settings: { apiKey: "x" } })).toBe(true);

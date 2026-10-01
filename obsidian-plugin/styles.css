@@ -287,7 +287,7 @@ body:not(.is-mobile) .cc-user {
   margin-right: 6px;
 }
 /* The single indicator: a clay smiley on the left that "breathes" — expanding
-   from a small dot to a full smiley and back at 80 bpm (0.75s). Fixed position,
+   from a small dot to a full smiley and back at 40 bpm (1.5s). Fixed position,
    so the changing word beside it never shifts it. */
 .cc-thinking-dot {
   flex: 0 0 auto;
@@ -296,13 +296,13 @@ body:not(.is-mobile) .cc-user {
   justify-content: center;
   color: var(--cc-clay);
   transform-origin: center;
-  animation: cc-smiley-breathe 0.75s ease-in-out infinite;
+  animation: cc-smiley-breathe 1.5s ease-in-out infinite;
 }
 .cc-thinking-dot svg {
   width: 17px;
   height: 17px;
 }
-/* The cycling word — fades at 20 bpm (3.0s): 1/4 the smiley tempo, phase-aligned. */
+/* The cycling word — fades at 20 bpm (3.0s): 1/2 the smiley tempo, phase-aligned. */
 .cc-thinking-word {
   font-family: var(--cc-mono);
   font-size: var(--cc-text-sm);

@@ -31,6 +31,8 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
   const migratedUtility = migrateUtilityBackend(settingsData);
   const migratedPrompt = migrateSystemPrompt(settingsData?.systemPrompt);
   const migratedResearch = migrateResearchModel(settingsData);
+  // Sonnet 5 left the picker; its selection moves to Sonnet 5.5.
+  const migratedModel = settingsData?.model === "claude-sonnet-5" ? "claude-sonnet-5-5" : undefined;
   const resolved: PluginSettings & { intelligenceNarrator?: unknown; discoveryReranker?: unknown } = {
     ...DEFAULT_SETTINGS,
     ...settingsData,
@@ -39,6 +41,7 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
     ...(migratedUtility ? { utilityBackend: migratedUtility } : {}),
     ...(migratedPrompt ? { systemPrompt: migratedPrompt } : {}),
     ...(migratedResearch ? { researchModel: migratedResearch } : {}),
+    ...(migratedModel ? { model: migratedModel } : {}),
     context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
   };
   delete resolved.intelligenceNarrator;
