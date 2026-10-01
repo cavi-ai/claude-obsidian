@@ -1,5 +1,7 @@
 // Shared types for the Claude Companion plugin.
 
+import type { ResearchModel } from "./research/researchModel";
+
 export type ChatRole = "user" | "assistant";
 
 export interface ChatMessage {
@@ -118,8 +120,8 @@ export interface PluginSettings {
   codexModel: string;
   /** OpenCode CLI model id passed as `-m` (e.g. "anthropic/claude-sonnet-5"); empty lets the CLI pick its own default. */
   opencodeModel: string;
-  /** Provider policy for explicit Research Intelligence narrative analysis. */
-  intelligenceNarrator: "current" | "claude" | "local" | "disabled";
+  /** Model behind every explicit research action. */
+  researchModel: ResearchModel;
 
   // ----- OpenAI-compatible endpoint (LM Studio, mlx-lm, vLLM, …) -----
   /** Base URL, with or without the /v1 suffix (e.g. http://localhost:1234). */
@@ -140,8 +142,6 @@ export interface PluginSettings {
   zoteroUserId: string;
   /** Zotero Web API key; required for private libraries, optional for public ones. */
   zoteroApiKey: string;
-  /** Provider policy for explicit discovery reranking. */
-  discoveryReranker: "current" | "claude" | "local" | "disabled";
 
   // ----- semantic search (local embeddings) -----
   /** Build a local vector index so the vault is searchable by meaning. */
@@ -310,7 +310,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   chatBackend: "claude",
   codexModel: "",
   opencodeModel: "",
-  intelligenceNarrator: "current",
+  researchModel: "chat",
 
   openaiCompatHost: "",
   openaiCompatModel: "",
@@ -321,7 +321,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   openAlexContactEmail: "",
   zoteroUserId: "",
   zoteroApiKey: "",
-  discoveryReranker: "current",
 
   semanticEnabled: true,
   embeddingModel: "nomic-embed-text",

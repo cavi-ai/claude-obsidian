@@ -67,8 +67,8 @@ describe("embedding engine defaults", () => {
 });
 
 describe("research intelligence defaults", () => {
-  it("defaults research intelligence to the current chat backend", () => {
-    expect(DEFAULT_SETTINGS.intelligenceNarrator).toBe("current");
+  it("defaults the research model to the chat backend", () => {
+    expect(DEFAULT_SETTINGS.researchModel).toBe("chat");
   });
 });
 
@@ -77,7 +77,6 @@ describe("scholarly discovery settings", () => {
     expect(DEFAULT_SETTINGS).toEqual(expect.objectContaining({
       discoveryEnabled: true,
       openAlexContactEmail: "",
-      discoveryReranker: "current",
     }));
   });
 

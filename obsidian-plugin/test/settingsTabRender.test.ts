@@ -10,6 +10,7 @@ function stubPlugin(): ClaudeCompanionPlugin & { settings: Record<string, unknow
     settings: structuredClone(DEFAULT_SETTINGS),
     saveSettings: async () => {},
     router: () => ({
+      chatProvider: () => ({ provider: { id: "anthropic", label: "Claude (Anthropic API)" }, model: "claude-test" }), providerLabel: () => "Claude API", 
       anthropic: { hasCredentials: () => true, test: async () => ({ ok: true, detail: "" }) },
       ollama: { listModels: async () => [], capabilities: async () => [], test: async () => ({ ok: true, detail: "" }) },
       openaiCompat: { listModels: async () => [], test: async () => ({ ok: true, detail: "" }) },
@@ -121,7 +122,7 @@ describe("settings definitions", () => {
     const names = [
       "Agent (act on your vault)", "Agent bridge — MCP server (desktop)", "External tools — MCP client",
       "Cloud (experimental)", "Local models (Ollama & endpoints)",
-      "Source capture (typed clips)", "Scholarly discovery", "Session memory",
+      "Source capture (typed clips)", "Research Desk & discovery", "Session memory",
     ];
     for (const name of names) {
       const page = pages.find((p) => p.name === name);
@@ -171,6 +172,22 @@ describe("settings definitions", () => {
     plugin.settings.settingsShowAdvanced = true;
     const keys = flatten(definitionsOf(plugin)).flatMap((item) => (item.control ? [item.control.key] : []));
     expect(keys).toEqual(expect.arrayContaining(["context.activeNote", "context.selection", "context.linkedNotes", "context.searchVault"]));
+  });
+});
+
+describe("Research Desk & discovery page", () => {
+  it("lists the research model first with four options and no legacy controls", () => {
+    const all = flatten(definitionsOf());
+    const page = all.find((i) => i.name === "Research Desk & discovery");
+    expect(page?.items?.[0]?.name).toBe("Research model");
+    const control = page?.items?.[0]?.control as { key: string; options: Record<string, string> };
+    expect(control.key).toBe("researchModel");
+    expect(Object.keys(control.options)).toEqual(["chat", "claude", "local", "off"]);
+    expect(control.options.chat).toBe("Same as chat — Claude API · claude-test");
+    const names = all.map((i) => i.name);
+    expect(names).not.toContain("Research intelligence narrator");
+    expect(names).not.toContain("Discovery reranker");
+    expect(names).not.toContain("Scholarly discovery");
   });
 });
 
@@ -349,6 +366,7 @@ describe("Claude Code backend settings", () => {
   it("hides the connect callout on the Claude Code backend when the CLI is signed in", () => {
     const plugin = stubPlugin();
     plugin.router = () => ({
+      chatProvider: () => ({ provider: { id: "anthropic", label: "Claude (Anthropic API)" }, model: "claude-test" }), providerLabel: () => "Claude API", 
       chatBackend: "claude-cli",
       anthropic: { hasCredentials: () => false },
       claudeCli: { hasCredentials: () => true },
@@ -362,6 +380,7 @@ describe("Claude Code backend settings", () => {
   it("shows the connect callout on the Claude Code backend when the CLI is signed out", () => {
     const plugin = stubPlugin();
     plugin.router = () => ({
+      chatProvider: () => ({ provider: { id: "anthropic", label: "Claude (Anthropic API)" }, model: "claude-test" }), providerLabel: () => "Claude API", 
       chatBackend: "claude-cli",
       anthropic: { hasCredentials: () => false },
       claudeCli: { hasCredentials: () => false },

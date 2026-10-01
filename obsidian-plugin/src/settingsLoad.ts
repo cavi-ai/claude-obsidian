@@ -4,6 +4,7 @@
 
 import { DEFAULT_SETTINGS, migrateSystemPrompt, type PluginSettings } from "./types";
 import { migrateUtilityBackend } from "./providers/router";
+import { migrateResearchModel } from "./research/researchModel";
 import { migrateEmbeddingEngine } from "./semantic/embedder";
 
 export interface NamespacedData {
@@ -20,7 +21,7 @@ export function isNamespacedData(raw: unknown): raw is NamespacedData {
   return !!raw && typeof raw === "object" && ("settings" in raw || "conversations" in raw || "researchDeskPreferences" in raw || "buildRuns" in raw);
 }
 
-const REMOVED_SETTING_KEYS = ["artifactHeight", "discoveryMaxResults", "discoveryExpansionLimit", "discoveryCacheHours", "cloudRoutineBetaHeader"];
+const REMOVED_SETTING_KEYS = ["artifactHeight", "discoveryMaxResults", "discoveryExpansionLimit", "discoveryCacheHours", "cloudRoutineBetaHeader", "intelligenceNarrator", "discoveryReranker"];
 
 const withoutRemovedKeys = (data: Partial<PluginSettings>): Partial<PluginSettings> => {
   const kept: Record<string, unknown> = { ...data };
@@ -37,6 +38,7 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
   const migratedEngine = migrateEmbeddingEngine(settingsData);
   const migratedUtility = migrateUtilityBackend(settingsData);
   const migratedPrompt = migrateSystemPrompt(settingsData?.systemPrompt);
+  const migratedResearch = migrateResearchModel(settingsData);
   // Sonnet 5 left the picker; its selection moves to Sonnet 5.5.
   const migratedModel = settingsData?.model === "claude-sonnet-5" ? "claude-sonnet-5-5" : undefined;
   return {
@@ -45,6 +47,7 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
     ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
     ...(migratedUtility ? { utilityBackend: migratedUtility } : {}),
     ...(migratedPrompt ? { systemPrompt: migratedPrompt } : {}),
+    ...(migratedResearch ? { researchModel: migratedResearch } : {}),
     ...(migratedModel ? { model: migratedModel } : {}),
     context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
   };

@@ -31,7 +31,8 @@ function provider(id: "anthropic" | "ollama", credentials = true): Provider {
 function pluginHarness(anthropic = provider("anthropic"), ollama = provider("ollama"), localAvailable = async () => true): ClaudeCompanionPlugin {
   const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   plugin.settings = { ...DEFAULT_SETTINGS };
-  Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable }) });
+  const chatProvider = () => plugin.settings.chatBackend === "local" ? { provider: ollama, model: plugin.settings.ollamaModel } : { provider: anthropic, model: plugin.settings.model };
+  Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable, chatProvider }) });
   Object.defineProperty(plugin, "researchRepository", { value: () => ({ importSource: vi.fn() }) });
   return plugin;
 }
@@ -112,11 +113,11 @@ describe("scholarly discovery plugin wiring", () => {
 
     const coordinator = plugin.discoveryCoordinator();
     await coordinator.search(snapshot, "q");
-    plugin.settings.discoveryReranker = "claude";
+    plugin.settings.researchModel = "claude";
     expect(await coordinator.rerank(snapshot)).toEqual(expect.objectContaining({ providerId: "anthropic", model: "claude-sonnet-4-6", usedFallback: false }));
-    plugin.settings.discoveryReranker = "local";
+    plugin.settings.researchModel = "local";
     expect(await coordinator.rerank(snapshot)).toEqual(expect.objectContaining({ providerId: "ollama", model: "local-model", usedFallback: false }));
-    plugin.settings.discoveryReranker = "current";
+    plugin.settings.researchModel = "chat";
     plugin.settings.chatBackend = "local";
     await coordinator.rerank(snapshot);
     expect(ollama.complete).toHaveBeenCalled();
@@ -132,14 +133,14 @@ describe("scholarly discovery plugin wiring", () => {
     const coordinator = plugin.discoveryCoordinator();
     await coordinator.search(snapshot, "q");
     plugin.settings.chatBackend = "auto";
-    plugin.settings.discoveryReranker = "current";
+    plugin.settings.researchModel = "chat";
     expect(await coordinator.rerank(snapshot)).toEqual(expect.objectContaining({ status: "ready", providerId: "ollama", usedFallback: true }));
-    plugin.settings.discoveryReranker = "claude";
+    plugin.settings.researchModel = "claude";
     expect((await coordinator.rerank(snapshot)).status).toBe("failed");
 
     const noLocalProvider = provider("ollama");
     const noLocal = pluginHarness(provider("anthropic", false), noLocalProvider, async () => false);
-    noLocal.settings.discoveryReranker = "current";
+    noLocal.settings.researchModel = "chat";
     noLocal.settings.chatBackend = "auto";
     await noLocal.discoveryCoordinator().search(snapshot, "q");
     expect((await noLocal.discoveryCoordinator().rerank(snapshot)).status).toBe("failed");

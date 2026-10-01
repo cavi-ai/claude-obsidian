@@ -6,19 +6,24 @@ import { SystemView, SYSTEM_VIEW_TYPE, type SystemViewDeps } from "./view/System
 import { SafeFixModal } from "./view/SafeFixModal";
 import { HealthController } from "./health/controller";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
-import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, ProjectCreateModal, QUESTION_INSTRUCTION, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
+import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
+import { ResearchActions } from "./view/research/actions";
+import { ProjectCreateModal } from "./view/research/projectCreateModal";
+import { QUESTION_INSTRUCTION } from "./view/research/shared";
 import { ResearchDeskView, RESEARCH_DESK_VIEW_TYPE } from "./view/ResearchDeskView";
 import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
 import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesView";
 import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
+import { resolveSourceText } from "./research/evidenceExtraction";
 import { ensureVaultFolder, lookupRelationTargetType, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
+import { RESEARCH_MODELS, researchCoordinatorMode, researchModelChip, type ResearchModel } from "./research/researchModel";
 import { DISCOVERY_CACHE_HOURS, DISCOVERY_EXPANSION_LIMIT, DISCOVERY_MAX_RESULTS } from "./discovery/limits";
 import { DraftCoordinator } from "./research/draftCoordinator";
 import { RevisionCoordinator } from "./research/revisionCoordinator";
@@ -63,7 +68,7 @@ import { catalogPromptProvider, composeResourceProviders, substrateResourceProvi
 import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
-import type { AnthropicToolDef, ProviderId } from "./providers/types";
+import type { AnthropicToolDef, Provider, ProviderId } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
@@ -103,6 +108,7 @@ import { existingVaultTags } from "./indexing/autoTagger";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
 import { SemanticIndexer } from "./semantic/indexer";
+import { extractPdfPages } from "./semantic/pdf";
 import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
@@ -609,11 +615,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
       updatePreferences: async (projectPath, update) => { this.researchDeskPreferences[projectPath] = update(this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] }); await this.persist(); },
       openWorkbench: (projectPath, target, path) => this.activateResearchWorkbench(projectPath, target, path),
       askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
-      createProject: () => this.activateResearchWorkbench(undefined, "Overview"),
+      actions: this.createResearchActions(),
       triageClippings: (folder) => this.triageClippings(folder),
       triageFolderChoices: () => triageFolderChoices(this.settings),
       pickTriageFolder: () => this.pickTriageFolder(),
       startFromActiveNote: () => void this.startResearchFromActiveNote(),
+      researchStatus: () => this.router().researchStatus(),
+      openResearchSettings: () => this.openCompanionSettings(),
     }));
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
@@ -624,46 +632,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return {
           chrome: this.companionChrome(),
           coordinator,
-          narratorMode: () => this.settings.intelligenceNarrator,
+          narratorMode: () => researchCoordinatorMode(this.settings.researchModel),
+          researchStatus: () => this.router().researchStatus(),
+          openResearchSettings: () => this.openCompanionSettings(),
           retainIntelligenceCoordinator: () => this.retainIntelligenceCoordinator(coordinator),
           releaseIntelligenceCoordinator: () => this.releaseIntelligenceCoordinator(coordinator),
           discoveryCoordinator,
           retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
-          draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
-          revisionCoordinator: new RevisionCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
-          rewriteText: this.researchRewriteText(),
-          ...(typeof DOMParser === "undefined" ? {} : {
-            captureWeb: (url: string) => captureWebSource(url, {
-              fetchHtml: async (target) => {
-                const response = await requestUrl({ url: target, method: "GET", throw: false });
-                if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
-                return response.text;
-              },
-              parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
-            }),
-          }),
-          saveAsset: async (projectPath, name, data) => {
-            const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
-            await ensureVaultFolder(this.app, folder);
-            let path = normalizePath(`${folder}/${name}`);
-            if (this.app.vault.getAbstractFileByPath(path)) {
-              const base = name.replace(/\.[^.]+$/, "");
-              const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
-              path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
-            }
-            await this.app.vault.createBinary(path, data);
-            return path;
-          },
-          suggestTags: async (content) => {
-            try {
-              const { tags } = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
-              return tags;
-            } catch (e) {
-              console.warn("[companion] source tagging failed", e);
-              return [];
-            }
-          },
+          draftCoordinator: new DraftCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
+          revisionCoordinator: new RevisionCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
+          actions: this.createResearchActions(),
           openDesk: (projectPath) => this.activateResearchDesk(projectPath),
           askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
         };
@@ -706,7 +685,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * initial scan does not fire create/modify for every note and stampede them.
    */
   private startAfterLayout(): void {
-    const cliProbe = Platform.isMobile ? undefined : this.router().claudeCli.refresh().then(() => this.refreshViews());
+    const cliProbe = Platform.isMobile ? undefined : this.chatCliProvider().refresh().then(() => this.refreshViews());
       void this.syncMcpServer();
       this.syncPlanBuildActions();
       void this.runFirstRun(cliProbe).then(() => this.semantic().catchUpIndex());
@@ -1493,10 +1472,86 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
+  /** One step runner shared by the Research Desk and Workbench. */
+  private createResearchActions(): ResearchActions {
+    return new ResearchActions({
+      app: this.app,
+      repository: this.researchRepository(),
+      rewriteText: this.researchRewriteText(),
+      completeResearch: async ({ system, user, maxTokens }) => (await this.router().completeResolved(this.requireResearchSelection(), { system, user, maxTokens: maxTokens ?? 1024, temperature: 0.2 })).text,
+      researchLabel: () => researchModelChip(this.router().researchStatus()).text.replace(/^AI · /, ""),
+      sourceText: (source) => resolveSourceText(source, {
+        readPdfPages: async (assetPath) => {
+          const file = this.app.vault.getAbstractFileByPath(assetPath);
+          if (!(file instanceof TFile)) return null;
+          const { loadPdf } = await import("./semantic/pdfjs");
+          return extractPdfPages(loadPdf, await this.app.vault.readBinary(file));
+        },
+        readNote: async (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
+        },
+      }),
+      ...(typeof DOMParser === "undefined" ? {} : {
+        captureWeb: (url: string) => captureWebSource(url, {
+          fetchHtml: async (target) => {
+            const response = await requestUrl({ url: target, method: "GET", throw: false });
+            if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+            return response.text;
+          },
+          parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+        }),
+      }),
+      saveAsset: async (projectPath, name, data) => {
+        const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
+        await ensureVaultFolder(this.app, folder);
+        let path = normalizePath(`${folder}/${name}`);
+        if (this.app.vault.getAbstractFileByPath(path)) {
+          const base = name.replace(/\.[^.]+$/, "");
+          const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
+          path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
+        }
+        await this.app.vault.createBinary(path, data);
+        return path;
+      },
+      suggestTags: async (content) => {
+        try {
+          const { tags } = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
+          return tags;
+        } catch (e) {
+          console.warn("[companion] source tagging failed", e);
+          return [];
+        }
+      },
+      openPath: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
+        else new Notice(`Research note not found: ${path}`);
+      },
+      changed: () => this.refreshResearchViews(),
+      openWorkbench: (projectPath, tab, path) => this.activateResearchWorkbench(projectPath, tab, path),
+      selectProject: async (path) => {
+        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchDeskView) await leaf.view.setProjectPath(path);
+        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) if (leaf.view instanceof ResearchWorkbenchView) await leaf.view.setProjectPath(path);
+      },
+    });
+  }
+
+  private async refreshResearchViews(): Promise<void> {
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchDeskView) await leaf.view.render();
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) if (leaf.view instanceof ResearchWorkbenchView) await leaf.view.render();
+  }
+
+  private requireResearchSelection(): { provider: Provider; model: string } {
+    const selection = this.router().researchSelection();
+    if (!selection) throw new Error("Research AI is off. Turn it on in Settings → Research Desk & discovery.");
+    return selection;
+  }
+
   /** Shared chat-free rewrite helper for the research surfaces (claims, evidence, project questions). */
   private researchRewriteText(): (input: { text: string; instruction: string; context?: string }) => Promise<string> {
     return async ({ text, instruction, context }) => {
-      const { text: raw } = await this.router().complete("chat", {
+      const { text: raw } = await this.router().completeResolved(this.requireResearchSelection(), {
         system: REWRITE_SYSTEM,
         user: context ? buildGroundedRewriteUser(text, instruction, context) : buildRewriteUser(text, instruction),
         maxTokens: rewriteMaxTokens(text),
@@ -1680,6 +1735,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.disposables = [];
     this.settingsListeners?.clear();
     void this.closeCliSessions();
+    for (const cli of [this._cliProvider, this._codexProvider, this._opencodeProvider]) cli?.cancelAll();
     this._activity?.dispose();
     this.utilityLifecycleEnded = true;
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
@@ -1783,7 +1839,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       memoryFolder: this.settings.memoryFolder,
       memoryAutoConsolidate: this.settings.memoryAutoConsolidate,
       discoveryEnabled: this.settings.discoveryEnabled,
-      discoveryReranker: this.settings.discoveryReranker,
+      researchModel: this.settings.researchModel,
+      researchModelLabel: researchModelChip(this.router().researchStatus()).text,
     };
   }
 
@@ -1815,9 +1872,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       case "memory-enabled": this.settings.memoryEnabled = value === true; break;
       case "memory-folder": this.settings.memoryFolder = String(value).trim() || "Claude/Memory"; break;
       case "discovery-enabled": this.settings.discoveryEnabled = value === true; break;
-      case "discovery-reranker":
-        if (value === "current" || value === "claude" || value === "local" || value === "disabled") this.settings.discoveryReranker = value;
-        else throw new Error("Choose a valid discovery reranker.");
+      case "research-model":
+        if (RESEARCH_MODELS.includes(value as ResearchModel)) this.settings.researchModel = value as ResearchModel;
+        else throw new Error("Choose a valid research model.");
         break;
       default: throw new Error("That quick setting is not available.");
     }
@@ -2245,12 +2302,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- providers ----------
 
+  private chatCliProvider(): CliProvider {
+    const router = this.router();
+    switch (this.settings.chatBackend) {
+      case "codex-cli": return router.codexCli;
+      case "opencode-cli": return router.opencodeCli;
+      default: return router.claudeCli;
+    }
+  }
+
   router(): ProviderRouter {
     if (this._router && !this._router.hasCurrentAnthropicEnvironment()) this._router = null;
     const runtime = this.cliRuntime();
-    this._cliProvider ??= new CliProvider(claudeBackend, runtime);
-    this._codexProvider ??= new CliProvider(codexBackend, runtime);
-    this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime);
+    this._cliProvider ??= new CliProvider(claudeBackend, runtime, () => this.vaultBasePath());
+    this._codexProvider ??= new CliProvider(codexBackend, runtime, () => this.vaultBasePath());
+    this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime, () => this.vaultBasePath());
     if (!this._router) {
       this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), {
         cliRuntime: runtime,
@@ -2286,13 +2352,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private buildIntelligenceCoordinator(): IntelligenceCoordinator {
       return new IntelligenceCoordinator({
-        mode: () => this.settings.intelligenceNarrator,
+        mode: () => researchCoordinatorMode(this.settings.researchModel),
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({
           provider: this.router().anthropic,
           model: resolveModelId(this.settings.model, this.settings.customModel),
         }),
         local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
+        chat: () => this.router().chatProvider(),
         localAvailable: () => this.router().localAvailable(),
         maxTokens: () => this.settings.maxTokens,
       });
@@ -2343,10 +2410,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
         repository: this.researchRepository(),
         enabled: () => this.settings.discoveryEnabled,
         cacheHours: () => DISCOVERY_CACHE_HOURS,
-        rerankerMode: () => this.settings.discoveryReranker,
+        rerankerMode: () => researchCoordinatorMode(this.settings.researchModel),
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({ provider: this.router().anthropic, model: resolveModelId(this.settings.model, this.settings.customModel) }),
         local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
+        chat: () => this.router().chatProvider(),
         localAvailable: () => this.router().localAvailable(),
       });
   }

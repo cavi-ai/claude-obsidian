@@ -1,3 +1,4 @@
+import { researchModelOptions } from "./research/researchModel";
 import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinition, type SettingDefinitionItem, type SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
@@ -118,16 +119,15 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   chatBackend: "basic",
   codexModel: "advanced",
   opencodeModel: "advanced",
-  intelligenceNarrator: "advanced",
+  researchModel: "basic",
   openaiCompatHost: "advanced",
   openaiCompatModel: "advanced",
   openaiCompatKey: "advanced",
   openaiCompatEmbeddingModel: "advanced",
-  discoveryEnabled: "advanced",
+  discoveryEnabled: "basic",
   openAlexContactEmail: "advanced",
   zoteroUserId: "advanced",
   zoteroApiKey: "advanced",
-  discoveryReranker: "advanced",
   semanticEnabled: "basic",
   embeddingModel: "advanced",
   embeddingEngine: "advanced",
@@ -205,7 +205,6 @@ const PAGE_RELEVANCE: Record<string, (s: PluginSettings) => boolean> = {
   "External tools — MCP client": (s) => s.mcpClientServers.length > 0,
   "Cloud (experimental)": (s) => s.cloudDispatchEnabled,
   "Session memory": (s) => s.memoryEnabled,
-  "Scholarly discovery": (s) => s.discoveryEnabled,
 };
 
 const PAGE_DESC = {
@@ -226,7 +225,7 @@ const PAGE_DESC = {
   localModels: "Run cheap, bulk work — summarizing, tagging, ingestion — on a local model to save Anthropic tokens. Chat and plans still use Claude unless you route them here.",
   openaiCompat: "Point at LM Studio, mlx-lm, vLLM, Jan, or Ollama's /v1 mode — including Apple-silicon-optimized servers like `mlx_lm.server`. Select it as the chat backend or utility backend above, and as an embedding engine under Semantic search.",
   sourceCapture: "Point the Obsidian Web Clipper (and dropped CSVs) at an inbox folder; Companion types each new file into a schema-validated source note. Extraction uses your utility model (local if enabled).",
-  discovery: "Network requests happen only when you explicitly run a discovery action. Results are derived suggestions, and imported sources remain unreviewed until you review them.",
+  discovery: "Discover searches OpenAlex for works and citation links, fills DOI metadata from Crossref and preprint metadata from arXiv, and imports Zotero items by key. Requests run only when you press Search, Expand, or Import.",
   memory: "Capture Claude Code CLI sessions for this vault into sanitized digest notes. Desktop-only; sessions are matched by the directory you ran Claude Code in.",
 };
 
@@ -329,7 +328,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       case "model":
       case "customModel":
       case "chatBackend":
-      case "intelligenceNarrator":
+      case "researchModel":
       case "openaiCompatModel":
         if (key === "chatBackend") {
           const backend = this.plugin.settings.chatBackend;
@@ -408,7 +407,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           { type: "page", name: "Local models (Ollama & endpoints)", visible: () => !Platform.isMobile, desc: `${PAGE_DESC.localModels} ${PAGE_DESC.openaiCompat}`, items: this.localModelsItems() },
           { type: "page", name: "Source capture (typed clips)", desc: PAGE_DESC.sourceCapture, items: this.sourceCaptureItems() },
           { type: "page", name: "Vault ontology (typed notes & relations)", items: this.ontologyItems() },
-          { type: "page", name: "Scholarly discovery", desc: PAGE_DESC.discovery, items: this.discoveryItems() },
+          { type: "page", name: "Research Desk & discovery", desc: PAGE_DESC.discovery, items: this.discoveryItems() },
         ],
       },
       {
@@ -861,12 +860,18 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     ];
   }
 
+  private researchModelOptions(): Record<string, string> {
+    const router = this.plugin.router();
+    const chat = router.chatProvider();
+    return researchModelOptions({ providerLabel: router.providerLabel(chat.provider), modelId: chat.model }, { modelId: this.plugin.settings.ollamaModel });
+  }
+
   private discoveryItems(): SettingGroupItem[] {
     return [
       {
-        name: "Research intelligence narrator",
-        desc: "Choose the provider used only when you click Analyze in a Research Intelligence view. Deterministic findings stay local and always remain available.",
-        control: { type: "dropdown", key: "intelligenceNarrator", options: { current: "Current chat backend", claude: "Claude only", local: "Local only", disabled: "Disabled" } },
+        name: "Research model",
+        desc: "Runs only when you click a research action: drafting project questions and claim wording, proposing evidence passages, interpreting evidence, drafting and revising sections, the Intelligence briefing, and reranking Discover results.",
+        control: { type: "dropdown", key: "researchModel", options: this.researchModelOptions() },
       },
       { name: "Enable scholarly discovery", desc: "Show explicit search, citation expansion, and reranking actions in research projects.", control: { type: "toggle", key: "discoveryEnabled" } },
       { name: "OpenAlex contact email", desc: "Optional. Included as a trimmed mailto parameter in OpenAlex requests.", control: { type: "text", key: "openAlexContactEmail" } },
@@ -883,11 +888,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             });
           });
         },
-      },
-      {
-        name: "Discovery reranker",
-        desc: "Provider used only when you explicitly rerank derived discovery results.",
-        control: { type: "dropdown", key: "discoveryReranker", options: { current: "Current chat backend", claude: "Claude only", local: "Local only", disabled: "Disabled" } },
       },
       {
         name: "Clear discovery cache",
