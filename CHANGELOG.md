@@ -4,6 +4,21 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] — 2026-10-01
+
+### Added
+- **System status page.** "Open system status" (also in Quick Options) shows
+  what needs attention in one place: chat connection, background work with
+  its recovery actions, the semantic index, the MCP bridge, Web Clipper, and
+  vault checks for ontology conformance, broken links, research findings, and
+  clips waiting to be enriched. Checks run locally when the page opens or on
+  Refresh.
+- **Review safe ontology fixes.** The System page lists frontmatter fixes the
+  ontology can apply safely and writes only the ones you accept.
+
+### Changed
+- Development dependency overrides: fast-uri 3.1.8, moment 2.31.0.
+
 ## [0.34.0] — 2026-10-01
 
 ### Added
