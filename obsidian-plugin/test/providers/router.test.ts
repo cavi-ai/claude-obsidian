@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, it, expect, vi } from "vitest";
 import { ProviderRouter, migrateUtilityBackend } from "../../src/providers/router";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
@@ -345,6 +346,21 @@ describe("ProviderRouter — claude-cli backend", () => {
     expect(r.chatProvider().provider.id).toBe("claude-cli");
     expect(r.chatProvider().model).toBe(DEFAULT_SETTINGS.model);
     expect(r.get("claude-cli")).toBeInstanceOf(CliProvider);
+  });
+  it("complete(chat) returns the CLI text once signed in", async () => {
+    const children: EventEmitter[] = [];
+    const runtime = { ...cliRuntime(true), spawn: () => {
+      const c = Object.assign(new EventEmitter(), { stdin: { write: () => true, end: () => undefined }, stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true });
+      children.push(c);
+      return c;
+    } };
+    const cli = new CliProvider(claudeBackend, runtime as never, () => "/vault");
+    const r = new ProviderRouter(settings({ chatBackend: "claude-cli", apiKey: "" }), undefined, { cliRuntime: runtime as never, cliProvider: cli });
+    await cli.refresh();
+    const done = r.complete("chat", { system: "s", user: "hi", maxTokens: 10 });
+    await new Promise<void>((res) => setImmediate(res));
+    (children[0] as unknown as { stdout: EventEmitter }).stdout.emit("data", Buffer.from('{"type":"result","subtype":"success","result":"cli text","session_id":"s","is_error":false}\n'));
+    await expect(done).resolves.toMatchObject({ text: "cli text" });
   });
   it("falls back to the API key when the CLI is signed out or the runtime is absent (mobile)", async () => {
     const out = new ProviderRouter(settings({ chatBackend: "claude-cli" }), undefined, { cliRuntime: cliRuntime(false) });

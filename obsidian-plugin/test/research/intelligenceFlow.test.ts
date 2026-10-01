@@ -70,6 +70,7 @@ function intelligenceFlowHarness(input: {
     chatBackend: () => "auto",
     anthropic: () => ({ provider: anthropic, model: "claude-test" }),
     local: () => ({ provider: local, model: "qwen-test" }),
+    chat: () => ({ provider: anthropic, model: "claude-test" }),
     localAvailable: async () => true,
     maxTokens: () => 800,
   });

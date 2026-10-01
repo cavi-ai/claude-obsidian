@@ -705,7 +705,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * initial scan does not fire create/modify for every note and stampede them.
    */
   private startAfterLayout(): void {
-    const cliProbe = Platform.isMobile ? undefined : this.router().claudeCli.refresh().then(() => this.refreshViews());
+    const cliProbe = Platform.isMobile ? undefined : this.chatCliProvider().refresh().then(() => this.refreshViews());
       void this.syncMcpServer();
       this.syncPlanBuildActions();
       void this.runFirstRun(cliProbe).then(() => this.semantic().catchUpIndex());
@@ -1679,6 +1679,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.disposables = [];
     this.settingsListeners?.clear();
     void this.closeCliSessions();
+    for (const cli of [this._cliProvider, this._codexProvider, this._opencodeProvider]) cli?.cancelAll();
     this._activity?.dispose();
     this.utilityLifecycleEnded = true;
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
@@ -2244,12 +2245,21 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- providers ----------
 
+  private chatCliProvider(): CliProvider {
+    const router = this.router();
+    switch (this.settings.chatBackend) {
+      case "codex-cli": return router.codexCli;
+      case "opencode-cli": return router.opencodeCli;
+      default: return router.claudeCli;
+    }
+  }
+
   router(): ProviderRouter {
     if (this._router && !this._router.hasCurrentAnthropicEnvironment()) this._router = null;
     const runtime = this.cliRuntime();
-    this._cliProvider ??= new CliProvider(claudeBackend, runtime);
-    this._codexProvider ??= new CliProvider(codexBackend, runtime);
-    this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime);
+    this._cliProvider ??= new CliProvider(claudeBackend, runtime, () => this.vaultBasePath());
+    this._codexProvider ??= new CliProvider(codexBackend, runtime, () => this.vaultBasePath());
+    this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime, () => this.vaultBasePath());
     if (!this._router) {
       this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), {
         cliRuntime: runtime,
@@ -2292,6 +2302,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           model: resolveModelId(this.settings.model, this.settings.customModel),
         }),
         local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
+        chat: () => this.router().chatProvider(),
         localAvailable: () => this.router().localAvailable(),
         maxTokens: () => this.settings.maxTokens,
       });
@@ -2346,6 +2357,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({ provider: this.router().anthropic, model: resolveModelId(this.settings.model, this.settings.customModel) }),
         local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
+        chat: () => this.router().chatProvider(),
         localAvailable: () => this.router().localAvailable(),
       });
   }

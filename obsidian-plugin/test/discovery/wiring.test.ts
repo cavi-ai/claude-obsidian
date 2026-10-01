@@ -31,7 +31,8 @@ function provider(id: "anthropic" | "ollama", credentials = true): Provider {
 function pluginHarness(anthropic = provider("anthropic"), ollama = provider("ollama"), localAvailable = async () => true): ClaudeCompanionPlugin {
   const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   plugin.settings = { ...DEFAULT_SETTINGS };
-  Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable }) });
+  const chatProvider = () => plugin.settings.chatBackend === "local" ? { provider: ollama, model: plugin.settings.ollamaModel } : { provider: anthropic, model: plugin.settings.model };
+  Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable, chatProvider }) });
   Object.defineProperty(plugin, "researchRepository", { value: () => ({ importSource: vi.fn() }) });
   return plugin;
 }
