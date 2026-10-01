@@ -209,6 +209,28 @@ const PAGE_RELEVANCE: Record<string, (s: PluginSettings) => boolean> = {
   "Scholarly discovery": (s) => s.discoveryEnabled,
 };
 
+const PAGE_DESC = {
+  agent:
+    "One agent, three surfaces. In chat: Claude searches, reads, and — with writes on — edits your vault, asking before every write. "
+    + "On desktop, Claude Code uses the official Obsidian CLI by default; the optional bridge serves Claude Desktop and advanced live-vault clients. "
+    + "On mobile, a Cloud session works your vault's Git repo and writes replies back.",
+  mcpBridge: "Optional advanced bridge for Claude Desktop and live-vault API clients. Claude Code uses the official Obsidian CLI by default and does not need this server. Bound to 127.0.0.1 and protected by a token.",
+  mcpClient:
+    "Let the in-chat agent use tools from external MCP servers — Companion can serve its vault through the optional desktop bridge and consume other servers here. "
+    + "Every external tool call asks for your confirmation. HTTP servers work on mobile; stdio commands run on desktop only.",
+  cloudDispatch:
+    "Dispatch a Claude Code session in the cloud to work your vault's Git repo and report back — so you can cowork with Claude from a phone, where the local bridge can't run. "
+    + "In the Claude Code web UI, create a routine pointed at your vault's Git repo, then complete the checklist.",
+  cloudReplies:
+    "Pull notes a cloud session wrote back into your vault's GitHub repo — over HTTPS, so it works on a phone with no local git. "
+    + "Point this at the repo, branch, and folder the session writes replies to.",
+  localModels: "Run cheap, bulk work — summarizing, tagging, ingestion — on a local model to save Anthropic tokens. Chat and plans still use Claude unless you route them here.",
+  openaiCompat: "Point at LM Studio, mlx-lm, vLLM, Jan, or Ollama's /v1 mode — including Apple-silicon-optimized servers like `mlx_lm.server`. Select it as the chat backend or utility backend above, and as an embedding engine under Semantic search.",
+  sourceCapture: "Point the Obsidian Web Clipper (and dropped CSVs) at an inbox folder; Companion types each new file into a schema-validated source note. Extraction uses your utility model (local if enabled).",
+  discovery: "Network requests happen only when you explicitly run a discovery action. Results are derived suggestions, and imported sources remain unreviewed until you review them.",
+  memory: "Capture Claude Code CLI sessions for this vault into sanitized digest notes. Desktop-only; sessions are matched by the directory you ran Claude Code in.",
+};
+
 /** Only groups/lists/pages carry a `type` at all — leaf definitions (control/action/render/empty) don't. */
 function isContainer(item: SettingDefinitionItem): item is Extract<SettingDefinitionItem, { type: "group" | "list" }> {
   return "type" in item && (item.type === "group" || item.type === "list");
@@ -373,11 +395,11 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         type: "group",
         heading: "Agent",
         items: [
-          { type: "page", name: "Agent (act on your vault)", items: this.agentItems() },
-          { type: "page", name: "Agent bridge — MCP server (desktop)", visible: () => !Platform.isMobile, items: this.mcpItems() },
-          { type: "page", name: "External tools — MCP client", items: this.mcpClientItems() },
-          { type: "page", name: "Agent in the cloud (mobile-friendly)", items: this.cloudItems() },
-          { type: "page", name: "Cloud replies (pull from repo)", items: this.repliesItems() },
+          { type: "page", name: "Agent (act on your vault)", desc: PAGE_DESC.agent, items: this.agentItems() },
+          { type: "page", name: "Agent bridge — MCP server (desktop)", visible: () => !Platform.isMobile, desc: PAGE_DESC.mcpBridge, items: this.mcpItems() },
+          { type: "page", name: "External tools — MCP client", desc: PAGE_DESC.mcpClient, items: this.mcpClientItems() },
+          { type: "page", name: "Agent in the cloud (mobile-friendly)", desc: this.cloudDispatchDesc(), items: this.cloudItems() },
+          { type: "page", name: "Cloud replies (pull from repo)", desc: PAGE_DESC.cloudReplies, items: this.repliesItems() },
         ],
       },
       {
@@ -385,24 +407,28 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         heading: "Vault intelligence",
         items: [
           { type: "page", name: "Semantic search (local embeddings)", items: this.semanticItems() },
-          { type: "page", name: "Local models (Ollama & endpoints)", visible: () => !Platform.isMobile, items: this.localModelsItems() },
+          { type: "page", name: "Local models (Ollama & endpoints)", visible: () => !Platform.isMobile, desc: `${PAGE_DESC.localModels} ${PAGE_DESC.openaiCompat}`, items: this.localModelsItems() },
           { type: "page", name: "Indexing & tags", items: this.indexingItems() },
-          { type: "page", name: "Source capture (typed clips)", items: this.sourceCaptureItems() },
+          { type: "page", name: "Source capture (typed clips)", desc: PAGE_DESC.sourceCapture, items: this.sourceCaptureItems() },
           { type: "page", name: "Vault ontology (typed notes & relations)", items: this.ontologyItems() },
-          { type: "page", name: "Scholarly discovery", items: this.discoveryItems() },
+          { type: "page", name: "Scholarly discovery", desc: PAGE_DESC.discovery, items: this.discoveryItems() },
         ],
       },
       {
         type: "group",
         heading: "Files, memory & privacy",
         items: [
-          { type: "page", name: "Session memory", visible: () => !Platform.isMobile, items: this.memoryItems() },
+          { type: "page", name: "Session memory", visible: () => !Platform.isMobile, desc: PAGE_DESC.memory, items: this.memoryItems() },
           { type: "page", name: "Storage", items: this.storageItems() },
           { type: "page", name: "What this plugin accesses (privacy)", items: this.privacyItems() },
           { type: "page", name: "Desktop-only features", visible: () => Platform.isMobile, items: this.desktopOnlyItems() },
         ],
       },
     ];
+  }
+
+  private cloudDispatchDesc(): string {
+    return `${PAGE_DESC.cloudDispatch} ⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. ${this.storageBlurb()} Use a private repo.`;
   }
 
   /** Callouts, the advanced-settings reveal, and the desktop-integrations entry point, above the first heading. */
@@ -736,7 +762,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private memoryItems(): SettingGroupItem[] {
     return [
-      { name: "About session memory", desc: "Capture Claude Code CLI sessions for this vault into sanitized digest notes. Desktop-only; sessions are matched by the directory you ran Claude Code in." },
       { name: "Enable session memory", desc: "Show the capture command, the “ingest” checkbox, and the memory sidebar.", control: { type: "toggle", key: "memoryEnabled" } },
       { name: "Memory folder", desc: "Where session digest notes are written.", control: { type: "text", key: "memoryFolder", placeholder: "Claude/Sessions" } },
       { name: "Ingest on save (default)", desc: "Default state of the “ingest” checkbox next to Save in the chat view.", control: { type: "toggle", key: "memoryIngestOnSave" } },
@@ -776,13 +801,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private agentItems(): SettingGroupItem[] {
     return [
-      {
-        name: "About the agent",
-        desc:
-          "One agent, three surfaces. In chat: Claude searches, reads, and — with writes on — edits your vault, asking before every write. "
-          + "On desktop, Claude Code uses the official Obsidian CLI by default; the optional bridge serves Claude Desktop and advanced live-vault clients. "
-          + "On mobile, a Cloud session works your vault's Git repo and writes replies back.",
-      },
       { name: "Let Claude use vault tools", desc: "Claude can search and read your notes on its own while answering (read-only). Turn off for plain chat with pre-attached context.", control: { type: "toggle", key: "agentModeEnabled" } },
       { name: "Allow write tools", desc: "Also let Claude create, edit, and move notes from chat. Every write asks for your confirmation first.", control: { type: "toggle", key: "agentAllowWrites" } },
       { name: "Notify when a turn finishes in the background", desc: "Show a system notice and a status-bar item if a turn completes while its chat pane is closed.", control: { type: "toggle", key: "notifyOnTurnComplete" } },
@@ -817,7 +835,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private sourceCaptureItems(): SettingGroupItem[] {
     return [
-      { name: "About source capture", desc: "Point the Obsidian Web Clipper (and dropped CSVs) at an inbox folder; Companion types each new file into a schema-validated source note. Extraction uses your utility model (local if enabled)." },
       { name: "Enable source capture", desc: "Master switch for watching the inbox and the “Enrich note as source” command.", control: { type: "toggle", key: "sourceCaptureEnabled" } },
       { name: "Auto-enrich on create", desc: "Type files automatically as they appear in the inbox (otherwise use the command).", control: { type: "toggle", key: "sourceEnrichOnCreate" } },
       { name: "Enrichment diagnostics log", desc: "Append one line per enrichment phase to Claude/enrichment-diagnostics.log (paths and counts only, never note content). Turn on to diagnose a crash during Enrich all.", control: { type: "toggle", key: "enrichmentDiagnostics" } },
@@ -855,7 +872,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         desc: "Choose the provider used only when you click Analyze in a Research Intelligence view. Deterministic findings stay local and always remain available.",
         control: { type: "dropdown", key: "intelligenceNarrator", options: { current: "Current chat backend", claude: "Claude only", local: "Local only", disabled: "Disabled" } },
       },
-      { name: "When discovery reaches the network", desc: "Network requests happen only when you explicitly run a discovery action. Results are derived suggestions, and imported sources remain unreviewed until you review them." },
       { name: "Enable scholarly discovery", desc: "Show explicit search, citation expansion, and reranking actions in research projects.", control: { type: "toggle", key: "discoveryEnabled" } },
       { name: "OpenAlex contact email", desc: "Optional. Included as a trimmed mailto parameter in OpenAlex requests.", control: { type: "text", key: "openAlexContactEmail" } },
       { name: "Zotero user id", desc: "Optional. Numeric user id from zotero.org/settings/keys — lets research_source_import resolve a zotero_key into full metadata. Requests fire only on an explicit import.", control: { type: "text", key: "zoteroUserId" } },
@@ -894,7 +910,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private localModelsItems(): SettingGroupItem[] {
     return [
-      { name: "About local models", desc: "Run cheap, bulk work — summarizing, tagging, ingestion — on a local model to save Anthropic tokens. Chat and plans still use Claude unless you route them here." },
       {
         name: "Utility tasks backend",
         desc: "Summaries, auto-tagging, and ingestion go to this backend instead of Claude. Claude Code sign-in covers chat only. Background tasks (tagging, source enrichment, memory) need an API key or a local model.",
@@ -981,7 +996,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         },
       },
       { name: "Utility model (optional)", desc: "A smaller model for utility tasks (tagging, summaries, ingestion). Empty = use the chat model above. A 1–3B model is plenty and much faster.", control: { type: "text", key: "ollamaUtilityModel" } },
-      { name: "About the OpenAI-compatible endpoint", desc: "Point at LM Studio, mlx-lm, vLLM, Jan, or Ollama's /v1 mode — including Apple-silicon-optimized servers like `mlx_lm.server`. Select it as the chat backend or utility backend above, and as an embedding engine under Semantic search." },
       { name: "Endpoint host", desc: "Base URL, with or without /v1 (e.g. http://localhost:1234).", control: { type: "text", key: "openaiCompatHost", placeholder: "http://localhost:1234" } },
       {
         name: "Endpoint model",
@@ -1313,14 +1327,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
 
   private mcpClientItems(): SettingGroupItem[] {
     const s = this.plugin.settings;
-    const items: SettingGroupItem[] = [
-      {
-        name: "About external MCP servers",
-        desc:
-          "Let the in-chat agent use tools from external MCP servers — Companion can serve its vault through the optional desktop bridge and consume other servers here. "
-          + "Every external tool call asks for your confirmation. HTTP servers work on mobile; stdio commands run on desktop only.",
-      },
-    ];
+    const items: SettingGroupItem[] = [];
     s.mcpClientServers.forEach((server, index) => {
       items.push({
         name: server.name.trim() || `Server ${index + 1}`,
@@ -1431,12 +1438,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     const dispatchOn = (): boolean => s.cloudDispatchEnabled;
     return [
       {
-        name: "About cloud dispatch",
-        desc:
-          "Dispatch a Claude Code session in the cloud to work your vault's Git repo and report back — so you can cowork with Claude from a phone, where the local bridge can't run. "
-          + "In the Claude Code web UI, create a routine pointed at your vault's Git repo, then complete the checklist.",
-      },
-      {
         name: "Cloud dispatch setup",
         aliases: ["checklist", "routine"],
         render: (setting) => {
@@ -1478,30 +1479,12 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           });
         },
       },
-      {
-        name: "What cloud dispatch sends",
-        visible: dispatchOn,
-        render: (setting) => {
-          const warn = setting.settingEl.createEl("p", { cls: "setting-item-description" });
-          warn.setCssStyles({ color: "var(--text-warning)" });
-          warn.setText(
-            "⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. "
-              + `${this.storageBlurb()} Use a private repo.`,
-          );
-        },
-      },
     ];
   }
 
   private repliesItems(): SettingGroupItem[] {
     const s = this.plugin.settings;
     return [
-      {
-        name: "About cloud replies",
-        desc:
-          "Pull notes a cloud session wrote back into your vault's GitHub repo — over HTTPS, so it works on a phone with no local git. "
-          + "Point this at the repo, branch, and folder the session writes replies to.",
-      },
       {
         name: "Cloud replies setup",
         aliases: ["checklist", "github"],
@@ -1563,10 +1546,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     const env = (): Record<string, string | undefined> => (window as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
     const resolved = (): ReturnType<typeof resolveMcpToken> => resolveMcpToken(env(), s.mcpToken);
     return [
-      {
-        name: "About the MCP bridge",
-        desc: "Optional advanced bridge for Claude Desktop and live-vault API clients. Claude Code uses the official Obsidian CLI by default and does not need this server. Bound to 127.0.0.1 and protected by a token.",
-      },
       {
         name: "Enable MCP server",
         desc: "Runs a local server on the port below. Turn off to stop sharing your vault.",

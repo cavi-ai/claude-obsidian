@@ -25,7 +25,7 @@ const REMOVED_SETTING_KEYS = ["artifactHeight", "discoveryMaxResults", "discover
 const withoutRemovedKeys = (data: Partial<PluginSettings>): Partial<PluginSettings> => {
   const kept: Record<string, unknown> = { ...data };
   for (const key of REMOVED_SETTING_KEYS) delete kept[key];
-  return kept as Partial<PluginSettings>;
+  return kept;
 };
 
 /** Merge persisted data over defaults, applying the legacy migrations. */

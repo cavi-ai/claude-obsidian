@@ -104,6 +104,41 @@ describe("settings definitions", () => {
     expect(tab.getControlValue("context.activeNote")).toBe(false);
   });
 
+  it("has no prose-only rows", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const keptPages = ["What this plugin accesses (privacy)", "Desktop-only features"];
+    const scoped = definitionsOf(plugin).flatMap((g) => (g.items ?? []).filter((i) => !keptPages.includes(i.name ?? "")));
+    const rows = flatten(scoped).filter((i) => i.type !== "group" && i.type !== "page" && i.type !== "list");
+    const prose = rows.filter((r) => !r.control && !(r as { render?: unknown }).render && !(r as { action?: unknown }).action);
+    expect(prose.map((r) => r.name)).toEqual([]);
+  });
+
+  it("folds the prose into page descriptions", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const pages = flatten(definitionsOf(plugin)).filter((i) => i.type === "page");
+    const names = [
+      "Agent (act on your vault)", "Agent bridge — MCP server (desktop)", "External tools — MCP client",
+      "Agent in the cloud (mobile-friendly)", "Cloud replies (pull from repo)", "Local models (Ollama & endpoints)",
+      "Source capture (typed clips)", "Scholarly discovery", "Session memory",
+    ];
+    for (const name of names) {
+      const page = pages.find((p) => p.name === name);
+      expect(typeof (page as { desc?: unknown } | undefined)?.desc === "string" && ((page as { desc: string }).desc.length > 0), name).toBe(true);
+    }
+  });
+
+  it("keeps the cloud dispatch privacy wording on the page description", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const page = flatten(definitionsOf(plugin)).find((i) => i.type === "page" && i.name === "Agent in the cloud (mobile-friendly)") as { desc?: string };
+    expect(page.desc).toContain(
+      "⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. "
+        + "Stored locally in this vault's plugin data. Use a private repo.",
+    );
+  });
+
   it("declares the four new-chat context rows", () => {
     const plugin = stubPlugin();
     plugin.settings.settingsShowAdvanced = true;
