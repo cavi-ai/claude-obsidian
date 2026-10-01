@@ -133,7 +133,7 @@ import { OntologyRegistry } from "./ontology/registry";
 import { seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
 import { buildResearchDeskViewModel } from "./research/deskViewModel";
-import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, triageFolderChoices, type TriageNote, type TriageFolderChoice } from "./research/triage";
+import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, triageFolderChoices, partitionEnrichOutcomes, type EnrichOutcomeLike, type TriageNote, type TriageFolderChoice } from "./research/triage";
 import { captureWebSource } from "./research/webCapture";
 import type { WebCapture } from "./context/webCapture";
 import { summarizeAndTag } from "./indexing/autoTagger";
@@ -789,14 +789,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           menu.addItem((item) =>
             item
-              .setTitle("Enrich with Claude…")
+              .setTitle("Tidy with Claude…")
               .setIcon("sparkles")
               .onClick(() => void this.enrichNoteFlow(file)),
           );
         } else if (file instanceof TFolder) {
           menu.addItem((item) =>
             item
-              .setTitle("Enrich notes with Claude…")
+              .setTitle("Tidy notes with Claude…")
               .setIcon("sparkles")
               .onClick(() => void this.enrichFolderFlow(file)),
           );
@@ -1517,18 +1517,32 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice(`No clippings in ${folder}/ yet — clip something first.`);
       return;
     }
-    const progress = new Notice(`Triaging ${files.length} clipping${files.length === 1 ? "" : "s"}…`, 0);
+    const progress = new Notice(`Finding themes in ${files.length} clipping${files.length === 1 ? "" : "s"}…`, 0);
     try {
+      const results: Array<{ path: string; outcome: EnrichOutcomeLike | null }> = [];
       for (const file of files) {
         const content = await this.app.vault.cachedRead(file);
-        if (/^source_enriched:\s*true\s*$/m.test(content)) continue;
-        const outcome = await this.enrichment().runEnrich(file, false);
-        if (outcome.status === "failed") throw outcome.error;
-        if (outcome.status === "skipped") throw new Error(outcome.reason);
+        if (/^source_enriched:\s*true\s*$/m.test(content)) {
+          results.push({ path: file.path, outcome: null });
+          continue;
+        }
+        const raw = await this.enrichment().runEnrich(file, false);
+        // A denied or fail-closed utility is systemic: nothing may reach the chat model after it.
+        const outcome: EnrichOutcomeLike = raw.status === "failed" && raw.error instanceof UtilityUnavailableError
+          ? { status: "skipped", reason: raw.error.message }
+          : raw;
+        results.push({ path: file.path, outcome });
+        if (outcome.status === "skipped") break;
       }
+      const partition = partitionEnrichOutcomes(results);
+      if (partition.stopReason) {
+        new Notice(`Finding themes stopped — ${partition.stopReason}`);
+        return;
+      }
+      const included = new Set(partition.include);
 
       const notes: TriageNote[] = [];
-      for (const file of files) {
+      for (const file of files.filter((f) => included.has(f.path))) {
         const content = await this.app.vault.cachedRead(file);
         const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
         const tags = Array.isArray(fm?.tags) ? fm.tags.map(String) : typeof fm?.tags === "string" ? [fm.tags] : [];
@@ -1571,13 +1585,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const existing = this.app.vault.getAbstractFileByPath(triagePath);
       if (existing instanceof TFile) await this.app.vault.modify(existing, board);
       else await this.app.vault.create(triagePath, board);
-      new Notice(`Triage: ${groups.length} theme${groups.length === 1 ? "" : "s"} across ${files.length} clippings → ${triagePath}`);
+      const skippedNote = partition.failed > 0 ? ` (${partition.failed} skipped: could not enrich)` : "";
+      new Notice(`Themes: ${groups.length} theme${groups.length === 1 ? "" : "s"} across ${notes.length} clipping${notes.length === 1 ? "" : "s"} → ${triagePath}${skippedNote}`);
       const boardFile = this.app.vault.getAbstractFileByPath(triagePath);
       if (boardFile instanceof TFile) await this.app.workspace.getLeaf(false).openFile(boardFile);
     } catch (e) {
       const { provider } = this.router().resolve("chat");
       const hint = this.providerErrorHint(e instanceof Error ? e.message : String(e), provider.id);
-      new Notice(`Triage failed${hint ? ` — ${hint}` : ` — ${e instanceof Error ? e.message : String(e)}`}`);
+      new Notice(`Finding themes failed${hint ? ` — ${hint}` : ` — ${e instanceof Error ? e.message : String(e)}`}`);
     } finally {
       progress.hide();
     }
@@ -1608,7 +1623,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Command-palette entry: pick the folder first so moved/organized notes can be triaged too. */
-  private async triageClippingsWithPicker(): Promise<void> {
+  async triageClippingsWithPicker(): Promise<void> {
     const folder = await this.pickTriageFolder();
     if (folder) await this.triageClippings(folder);
   }
@@ -2729,7 +2744,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       presetOptions ?? (await new Promise<EnrichOptions | null>((resolve) => new EnrichOptionsModal(this.app, 1, resolve).open()));
     if (!options) return;
 
-    const progress = new Notice(`Enriching ${file.basename}…`, 0);
+    const progress = new Notice(`Tidying ${file.basename}…`, 0);
     try {
       const proposal = await this.buildEnrichProposal(file, options);
       if (!proposal.rename && !proposal.frontmatter && !proposal.plan) {
@@ -2741,9 +2756,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       );
       if (!decision) return;
       await this.applyEnrichDecision(file, proposal, decision);
-      new Notice(`Enriched ${file.basename}.`);
+      new Notice(`Tidied ${file.basename}.`);
     } catch (e) {
-      new Notice(`Enrich failed — ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(`Tidy failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       progress.hide();
     }
