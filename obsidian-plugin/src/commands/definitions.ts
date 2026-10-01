@@ -41,6 +41,8 @@ export interface CommandActions {
   reviewLinkSuggestions(): void;
   openWorkflowPicker(): void;
   createPromptTemplate(): void;
+  createStandingOrder(): void;
+  runStandingOrder(): void;
   openSessionPicker(): void;
   openMemoryView(): void;
   consolidateMemory(): void;
@@ -126,6 +128,8 @@ export function companionCommands(actions: CommandActions): Command[] {
     { id: "review-link-suggestions", name: "Review link suggestions for current note", callback: () => actions.reviewLinkSuggestions() },
     { id: "open-workflows", name: "Run a vault workflow… (manifests, rollup, MOC, digest)", callback: () => actions.openWorkflowPicker() },
     { id: "create-prompt-template", name: "Create prompt template", callback: () => actions.createPromptTemplate() },
+    { id: "new-standing-order", name: "New standing order", callback: () => actions.createStandingOrder() },
+    { id: "run-standing-order", name: "Run standing order now…", callback: () => actions.runStandingOrder() },
   ];
 
   if (actions.desktop) {

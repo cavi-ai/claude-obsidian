@@ -8,7 +8,7 @@ const ACTION_NAMES = [
   "openResearchWorkbench", "triageClippings", "startResearchFromActiveNote", "showSemanticIndexStatus",
   "browseConversations", "deleteActiveConversation", "handoffToBuild", "markNoteAsPlan", "organizeClippings",
   "dispatchCloudSession", "pullCloudReplies", "reviewLinkSuggestions", "openWorkflowPicker",
-  "createPromptTemplate", "openSessionPicker", "openMemoryView", "consolidateMemory", "enrichNoteAsSource",
+  "createPromptTemplate", "createStandingOrder", "runStandingOrder", "openSessionPicker", "openMemoryView", "consolidateMemory", "enrichNoteAsSource",
   "openSourceInbox", "openSystem", "exportClipperTemplates", "seedOntology",
 ] as const;
 
@@ -76,6 +76,12 @@ describe("command surface", () => {
     expect(byId(actions, "enrich-note").name).toBe("Tidy current note with Claude… (rename, tags, links, lint)");
     expect(byId(actions, "enrich-note-as-source").name).toBe("Enrich note as source (typed frontmatter)");
   });
+
+  it("names the standing-order commands", () => {
+    const { actions } = harness();
+    expect(byId(actions, "new-standing-order").name).toBe("New standing order");
+    expect(byId(actions, "run-standing-order").name).toBe("Run standing order now…");
+  });
 });
 
 describe("plain commands", () => {
@@ -98,6 +104,8 @@ describe("plain commands", () => {
     ["review-link-suggestions", "reviewLinkSuggestions"],
     ["open-workflows", "openWorkflowPicker"],
     ["create-prompt-template", "createPromptTemplate"],
+    ["new-standing-order", "createStandingOrder"],
+    ["run-standing-order", "runStandingOrder"],
     ["capture-session-memory", "openSessionPicker"],
     ["open-memory-view", "openMemoryView"],
     ["consolidate-memory", "consolidateMemory"],
