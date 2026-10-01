@@ -29,6 +29,8 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
   const migratedEngine = migrateEmbeddingEngine(settingsData);
   const migratedUtility = migrateUtilityBackend(settingsData);
   const migratedPrompt = migrateSystemPrompt(settingsData?.systemPrompt);
+  // Sonnet 5 left the picker; its selection moves to Sonnet 5.5.
+  const migratedModel = settingsData?.model === "claude-sonnet-5" ? "claude-sonnet-5-5" : undefined;
   return {
     ...DEFAULT_SETTINGS,
     ...settingsData,
@@ -36,6 +38,7 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
     ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
     ...(migratedUtility ? { utilityBackend: migratedUtility } : {}),
     ...(migratedPrompt ? { systemPrompt: migratedPrompt } : {}),
+    ...(migratedModel ? { model: migratedModel } : {}),
     context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
   };
 }
