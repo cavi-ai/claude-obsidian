@@ -46,6 +46,13 @@ function failStatus(state: StubState, body: string): number | null {
   return null;
 }
 
+/** A reply of `TOOL_USE:{"name":…,"input":{…}}` streams one tool_use block instead of text. */
+function toolUseReply(text: string): { name: string; input: Record<string, unknown> } | null {
+  if (!text.startsWith("TOOL_USE:")) return null;
+  const parsed = JSON.parse(text.slice("TOOL_USE:".length)) as { name: string; input: Record<string, unknown> };
+  return { name: parsed.name, input: parsed.input };
+}
+
 /** The Anthropic-shaped provider stub: chat completions + rewrite/utility prompts. */
 export function startProviderStub(state: StubState): Promise<{ server: Server; port: number }> {
   const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
@@ -62,6 +69,16 @@ export function startProviderStub(state: StubState): Promise<{ server: Server; p
       }
       const text = state.cursor.reply(state.replyRules, body) ?? defaultReply;
       const respond = () => {
+        const toolUse = toolUseReply(text);
+        if (toolUse && /"stream"\s*:\s*true/.test(body)) {
+          response.writeHead(200, { "content-type": "text/event-stream" });
+          response.write(`data: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: `toolu_stub_${state.requests}`, name: toolUse.name, input: {} } })}\n\n`);
+          response.write(`data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(toolUse.input) } })}\n\n`);
+          response.write(`data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`);
+          response.write(`data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 1 } })}\n\n`);
+          response.end(`data: ${JSON.stringify({ type: "message_stop" })}\n\n`);
+          return;
+        }
         if (/"stream"\s*:\s*true/.test(body)) {
           response.writeHead(200, { "content-type": "text/event-stream" });
           response.write(`data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })}\n\n`);
