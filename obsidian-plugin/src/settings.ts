@@ -6,9 +6,10 @@ import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { mergeDetectedModels } from "./providers/localModels";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "./mcp/clientConfig";
 import { dispatchSetupSteps, repliesSetupSteps } from "./cloud/setup";
+import { CLOUD_ROUTINE_BETA_HEADER } from "./cloud/routines";
 import { BUILTIN_EMBEDDING_MODELS, builtinModelById } from "./semantic/transformers/model";
 import { ChoiceModal } from "./view/ChoiceModal";
-import { normalizeDiscoverySettings, type McpServerConfig, type PluginSettings } from "./types";
+import { type McpServerConfig, type PluginSettings } from "./types";
 import { needsCredentialSetup } from "./providers/setupState";
 import { claudeBackend } from "./cli/backends/claude";
 import { codexBackend } from "./cli/backends/codex";
@@ -61,7 +62,7 @@ function tagList(key: "artifactBaseTags" | "chatBaseTags" | "sourceBaseTags"): v
 for (const key of [
   "apiKey", "oauthToken", "baseUrl", "customModel", "ollamaUtilityModel", "openaiCompatHost", "openaiCompatKey",
   "openAlexContactEmail", "zoteroUserId", "zoteroApiKey", "braveSearchApiKey", "cloudRoutineFireUrl",
-  "cloudRoutineToken", "cloudRoutineBetaHeader", "cloudReplyRepo", "cloudReplyToken", "mcpToken",
+  "cloudRoutineToken", "cloudReplyRepo", "cloudReplyToken", "mcpToken",
 ] as const) trimmed(key);
 
 for (const [key, fallback] of [
@@ -73,13 +74,6 @@ for (const [key, fallback] of [
 ] as const) trimmedOr(key, fallback);
 
 for (const key of ["artifactBaseTags", "chatBaseTags", "sourceBaseTags"] as const) tagList(key);
-
-for (const key of ["discoveryMaxResults", "discoveryExpansionLimit", "discoveryCacheHours"] as const) {
-  CODECS[key] = {
-    read: (s) => s[key],
-    write: (s, v) => { Object.assign(s, normalizeDiscoverySettings({ ...s, [key]: Number(v) })); },
-  };
-}
 
 for (const key of ["activeNote", "selection", "linkedNotes", "searchVault"] as const) {
   CODECS[`context.${key}`] = {
@@ -115,7 +109,6 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   context: "advanced",
   contextCharBudget: "advanced",
   maxContextNotes: "advanced",
-  artifactHeight: "advanced",
   chatFontSize: "advanced",
   maxConversations: "advanced",
   ollamaHost: "advanced",
@@ -135,9 +128,6 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   zoteroUserId: "advanced",
   zoteroApiKey: "advanced",
   discoveryReranker: "advanced",
-  discoveryMaxResults: "advanced",
-  discoveryExpansionLimit: "advanced",
-  discoveryCacheHours: "advanced",
   semanticEnabled: "basic",
   embeddingModel: "advanced",
   embeddingEngine: "advanced",
@@ -169,7 +159,6 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   cloudDispatchEnabled: "advanced",
   cloudRoutineFireUrl: "advanced",
   cloudRoutineToken: "advanced",
-  cloudRoutineBetaHeader: "advanced",
   cloudReplyRepo: "advanced",
   cloudReplyBranch: "advanced",
   cloudReplyFolder: "advanced",
@@ -360,7 +349,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       case "cloudDispatchEnabled":
       case "cloudRoutineFireUrl":
       case "cloudRoutineToken":
-      case "cloudRoutineBetaHeader":
       case "cloudReplyRepo":
       case "cloudReplyBranch":
       case "cloudReplyFolder":
@@ -734,7 +722,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       { name: "Chats folder", desc: "Where saved chat transcripts are written.", control: { type: "text", key: "chatFolder", placeholder: "Claude/Chats" } },
       { name: "Plans folder", desc: "Where saved plan notes (artifact + Build-task checklist) are written.", control: { type: "text", key: "planFolder", placeholder: "Claude/Plans" } },
       { name: "Templates folder", desc: "Markdown notes here become your own slash commands in chat (frontmatter: name, description, optional model/context).", control: { type: "text", key: "templatesFolder", placeholder: "Claude/Templates" } },
-      { name: "Inline artifact height", desc: "Default pixel height for artifacts rendered inside notes.", control: { type: "number", key: "artifactHeight", min: 1, step: 1 } },
       { name: "Conversation history limit", desc: "How many past chats to keep (oldest are pruned). Use 0 for unlimited.", control: { type: "number", key: "maxConversations", min: 0, step: 1 } },
     ];
   }
@@ -890,9 +877,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         desc: "Provider used only when you explicitly rerank derived discovery results.",
         control: { type: "dropdown", key: "discoveryReranker", options: { current: "Current chat backend", claude: "Claude only", local: "Local only", disabled: "Disabled" } },
       },
-      { name: "Maximum search results", desc: "Per request, from 5 to 100.", control: { type: "number", key: "discoveryMaxResults", min: 5, max: 100, step: 1 } },
-      { name: "Citation expansion limit", desc: "Per expansion request, from 5 to 50.", control: { type: "number", key: "discoveryExpansionLimit", min: 5, max: 50, step: 1 } },
-      { name: "Derived cache lifetime", desc: "Hours to retain derived discovery results, from 1 to 168.", control: { type: "number", key: "discoveryCacheHours", min: 1, max: 168, step: 1 } },
       {
         name: "Clear discovery cache",
         desc: "Deletes derived discovery state only. It does not write to or delete vault notes.",
@@ -1450,7 +1434,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         name: "About cloud dispatch",
         desc:
           "Dispatch a Claude Code session in the cloud to work your vault's Git repo and report back — so you can cowork with Claude from a phone, where the local bridge can't run. "
-          + "The Routines API is experimental; if Anthropic ships a newer beta revision, update the header below. "
           + "In the Claude Code web UI, create a routine pointed at your vault's Git repo, then complete the checklist.",
       },
       {
@@ -1458,7 +1441,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         aliases: ["checklist", "routine"],
         render: (setting) => {
           const el = setting.settingEl.createDiv({ cls: "cc-setup-checklist" });
-          const steps = dispatchSetupSteps({ fireUrl: s.cloudRoutineFireUrl, token: s.cloudRoutineToken, betaHeader: s.cloudRoutineBetaHeader });
+          const steps = dispatchSetupSteps({ fireUrl: s.cloudRoutineFireUrl, token: s.cloudRoutineToken, betaHeader: CLOUD_ROUTINE_BETA_HEADER });
           for (const item of steps) {
             const row = el.createDiv({ cls: `cc-setup-step ${item.ok ? "is-ok" : "is-err"}` });
             row.createSpan({ cls: "cc-setup-mark", text: item.ok ? "✓" : "✗" });
@@ -1494,12 +1477,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
               });
           });
         },
-      },
-      {
-        name: "API beta header",
-        desc: "anthropic-beta header gating the experimental Routines API. Update if Anthropic ships a newer dated version.",
-        visible: dispatchOn,
-        control: { type: "text", key: "cloudRoutineBetaHeader" },
       },
       {
         name: "What cloud dispatch sends",

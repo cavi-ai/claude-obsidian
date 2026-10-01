@@ -2,7 +2,7 @@
 // data.json shapes (flat pre-namespacing configs, pre-engine semantic users,
 // pre-utilityBackend installs) are unit-testable without an Obsidian app.
 
-import { DEFAULT_SETTINGS, migrateSystemPrompt, normalizeDiscoverySettings, type PluginSettings } from "./types";
+import { DEFAULT_SETTINGS, migrateSystemPrompt, type PluginSettings } from "./types";
 import { migrateUtilityBackend } from "./providers/router";
 import { migrateEmbeddingEngine } from "./semantic/embedder";
 
@@ -20,6 +20,14 @@ export function isNamespacedData(raw: unknown): raw is NamespacedData {
   return !!raw && typeof raw === "object" && ("settings" in raw || "conversations" in raw || "researchDeskPreferences" in raw || "buildRuns" in raw);
 }
 
+const REMOVED_SETTING_KEYS = ["artifactHeight", "discoveryMaxResults", "discoveryExpansionLimit", "discoveryCacheHours", "cloudRoutineBetaHeader"];
+
+const withoutRemovedKeys = (data: Partial<PluginSettings>): Partial<PluginSettings> => {
+  const kept: Record<string, unknown> = { ...data };
+  for (const key of REMOVED_SETTING_KEYS) delete kept[key];
+  return kept as Partial<PluginSettings>;
+};
+
 /** Merge persisted data over defaults, applying the legacy migrations. */
 export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | null): PluginSettings {
   const settingsData = isNamespacedData(raw) ? raw.settings : raw;
@@ -31,8 +39,7 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
   const migratedPrompt = migrateSystemPrompt(settingsData?.systemPrompt);
   return {
     ...DEFAULT_SETTINGS,
-    ...settingsData,
-    ...normalizeDiscoverySettings(settingsData ?? {}),
+    ...(settingsData ? withoutRemovedKeys(settingsData) : {}),
     ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
     ...(migratedUtility ? { utilityBackend: migratedUtility } : {}),
     ...(migratedPrompt ? { systemPrompt: migratedPrompt } : {}),

@@ -96,8 +96,6 @@ export interface PluginSettings {
   contextCharBudget: number;
   /** How many linked / search-matched notes to include. */
   maxContextNotes: number;
-  /** Default render height (px) for inline `claude-html` artifacts. */
-  artifactHeight: number;
   /** Chat message font size (px). Independent of Obsidian's editor font. */
   chatFontSize: number;
   /** Max chat conversations to retain in history (oldest pruned). 0 = unlimited. */
@@ -144,9 +142,6 @@ export interface PluginSettings {
   zoteroApiKey: string;
   /** Provider policy for explicit discovery reranking. */
   discoveryReranker: "current" | "claude" | "local" | "disabled";
-  discoveryMaxResults: number;
-  discoveryExpansionLimit: number;
-  discoveryCacheHours: number;
 
   // ----- semantic search (local embeddings) -----
   /** Build a local vector index so the vault is searchable by meaning. */
@@ -216,8 +211,6 @@ export interface PluginSettings {
   cloudRoutineFireUrl: string;
   /** Per-routine bearer token (sk-ant-oat…), scoped to firing this one routine. */
   cloudRoutineToken: string;
-  /** anthropic-beta header gating the experimental Routines API. */
-  cloudRoutineBetaHeader: string;
 
   // ----- cloud replies (read cloud-session output from the vault repo) -----
   /** "owner/name" of the vault's GitHub repo to pull replies from. */
@@ -307,7 +300,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   },
   contextCharBudget: 24000,
   maxContextNotes: 6,
-  artifactHeight: 640,
   chatFontSize: 14,
   maxConversations: 200,
 
@@ -330,9 +322,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   zoteroUserId: "",
   zoteroApiKey: "",
   discoveryReranker: "current",
-  discoveryMaxResults: 20,
-  discoveryExpansionLimit: 20,
-  discoveryCacheHours: 24,
 
   semanticEnabled: true,
   embeddingModel: "nomic-embed-text",
@@ -372,7 +361,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   cloudDispatchEnabled: false,
   cloudRoutineFireUrl: "",
   cloudRoutineToken: "",
-  cloudRoutineBetaHeader: "experimental-cc-routine-2026-04-01",
 
   cloudReplyRepo: "",
   cloudReplyBranch: "main",
@@ -404,21 +392,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   setupWizardDone: false,
   settingsShowAdvanced: false,
 };
-
-export type DiscoveryNumericSettings = Pick<PluginSettings,
-  "discoveryMaxResults" | "discoveryExpansionLimit" | "discoveryCacheHours">;
-
-const boundedInteger = (value: number | undefined, fallback: number, min: number, max: number): number =>
-  Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value!))) : fallback;
-
-/** Normalize persisted/user-entered discovery limits at every settings boundary. */
-export function normalizeDiscoverySettings(settings: Partial<DiscoveryNumericSettings>): DiscoveryNumericSettings {
-  return {
-    discoveryMaxResults: boundedInteger(settings.discoveryMaxResults, DEFAULT_SETTINGS.discoveryMaxResults, 5, 100),
-    discoveryExpansionLimit: boundedInteger(settings.discoveryExpansionLimit, DEFAULT_SETTINGS.discoveryExpansionLimit, 5, 50),
-    discoveryCacheHours: boundedInteger(settings.discoveryCacheHours, DEFAULT_SETTINGS.discoveryCacheHours, 1, 168),
-  };
-}
 
 /**
  * The pre-0.12.1 default system prompt told the model to PREFER artifacts;

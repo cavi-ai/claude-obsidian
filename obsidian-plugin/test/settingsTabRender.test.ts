@@ -89,10 +89,6 @@ describe("settings definitions", () => {
     await tab.setControlValue("artifactBaseTags", "one, two ,, three");
     expect(plugin.settings.artifactBaseTags).toEqual(["one", "two", "three"]);
     expect(tab.getControlValue("artifactBaseTags")).toBe("one, two, three");
-
-    // Discovery numbers are clamped by normalizeDiscoverySettings.
-    await tab.setControlValue("discoveryMaxResults", 9999);
-    expect(plugin.settings.discoveryMaxResults).toBe(100);
   });
 
   it("edits the new-chat context defaults through nested codec keys", async () => {
