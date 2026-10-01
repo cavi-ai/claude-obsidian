@@ -857,14 +857,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
-  /** Turn vault search on and tell the user which engine answers. */
+  /** Turn vault search on for the active chat tab and tell the user which engine answers. */
   private async enableVaultSearch(): Promise<void> {
-    this.settings.context.searchVault = true;
-    await this.saveSettings();
     const view = await this.activateView();
-    view?.refreshModelLabel();
+    if (!view) return;
+    view.enableVaultSearchForChat();
+    view.refreshModelLabel();
     const how = this.settings.semanticEnabled ? "semantic + keyword" : "keyword";
-    new Notice(`Vault search is on (${how}) — ask your question in the chat panel.`);
+    new Notice(`Vault search on for this chat (${how}) — ask your question in the chat panel.`);
   }
 
   /** Plugin-owned runtime/privacy hook used by every router utility completion. */
@@ -3359,13 +3359,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Run a vault workflow: ground it (active note + vault search), send its prompt. */
   async runWorkflow(wf: Workflow): Promise<void> {
-    this.settings.context.activeNote = true;
-    if (wf.vaultSearch) this.settings.context.searchVault = true;
-    await this.saveSettings();
     const view = await this.activateView();
     if (!view) return;
     // Workflows produce large artifacts — give them output-token headroom.
-    await view.submitPrompt(wf.prompt, wf.name, ARTIFACT_MAX_TOKENS);
+    await view.submitPrompt(wf.prompt, wf.name, ARTIFACT_MAX_TOKENS, {
+      context: { activeNote: true, ...(wf.vaultSearch ? { searchVault: true } : {}) },
+    });
   }
 
   async openSessionPicker(): Promise<void> {
@@ -3545,14 +3544,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
   // ---------- command helpers ----------
 
   async generatePlanFromNote(): Promise<void> {
-    this.settings.context.activeNote = true;
-    await this.saveSettings();
     const view = await this.activateView();
     if (!view) return;
     await view.submitPrompt(
       `${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`,
       "Generate an implementation plan from this note",
       ARTIFACT_MAX_TOKENS,
+      { context: { activeNote: true } },
     );
   }
 
@@ -3685,9 +3683,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async generateArtifactFromContext(): Promise<void> {
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
     const hasSelection = !!mdView?.editor.getSelection().trim();
-    this.settings.context.activeNote = true;
-    this.settings.context.selection = true;
-    await this.saveSettings();
     const view = await this.activateView();
     if (!view) return;
     const target = hasSelection ? "the selected text" : "my current note";
@@ -3695,6 +3690,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       `Turn ${target} into a single beautiful, self-contained interactive artifact (a \`\`\`claude-html block) using the design system. Choose the best format (plan, report, table, diagram, or dashboard) for the content.`,
       `Turn ${target} into an artifact`,
       ARTIFACT_MAX_TOKENS,
+      { context: { activeNote: true, selection: true } },
     );
   }
 }
