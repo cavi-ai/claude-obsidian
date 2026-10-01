@@ -1,3 +1,4 @@
+import { researchModelOptions } from "./research/researchModel";
 import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinition, type SettingDefinitionItem, type SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import { CLAUDE_MODELS } from "./claude/models";
@@ -125,16 +126,15 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   chatBackend: "basic",
   codexModel: "advanced",
   opencodeModel: "advanced",
-  intelligenceNarrator: "advanced",
+  researchModel: "basic",
   openaiCompatHost: "advanced",
   openaiCompatModel: "advanced",
   openaiCompatKey: "advanced",
   openaiCompatEmbeddingModel: "advanced",
-  discoveryEnabled: "advanced",
+  discoveryEnabled: "basic",
   openAlexContactEmail: "advanced",
   zoteroUserId: "advanced",
   zoteroApiKey: "advanced",
-  discoveryReranker: "advanced",
   discoveryMaxResults: "advanced",
   discoveryExpansionLimit: "advanced",
   discoveryCacheHours: "advanced",
@@ -217,7 +217,6 @@ const PAGE_RELEVANCE: Record<string, (s: PluginSettings) => boolean> = {
   "Agent in the cloud (mobile-friendly)": (s) => s.cloudDispatchEnabled,
   "Cloud replies (pull from repo)": (s) => s.cloudDispatchEnabled,
   "Session memory": (s) => s.memoryEnabled,
-  "Scholarly discovery": (s) => s.discoveryEnabled,
 };
 
 /** Only groups/lists/pages carry a `type` at all — leaf definitions (control/action/render/empty) don't. */
@@ -319,7 +318,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       case "model":
       case "customModel":
       case "chatBackend":
-      case "intelligenceNarrator":
+      case "researchModel":
       case "openaiCompatModel":
         if (key === "chatBackend") {
           const backend = this.plugin.settings.chatBackend;
@@ -401,7 +400,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           { type: "page", name: "Indexing & tags", items: this.indexingItems() },
           { type: "page", name: "Source capture (typed clips)", items: this.sourceCaptureItems() },
           { type: "page", name: "Vault ontology (typed notes & relations)", items: this.ontologyItems() },
-          { type: "page", name: "Scholarly discovery", items: this.discoveryItems() },
+          { type: "page", name: "Research Desk & discovery", items: this.discoveryItems() },
         ],
       },
       {
@@ -861,14 +860,20 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     ];
   }
 
+  private researchModelOptions(): Record<string, string> {
+    const router = this.plugin.router();
+    const chat = router.chatProvider();
+    return researchModelOptions({ providerLabel: router.providerLabel(chat.provider), modelId: chat.model }, { modelId: this.plugin.settings.ollamaModel });
+  }
+
   private discoveryItems(): SettingGroupItem[] {
     return [
       {
-        name: "Research intelligence narrator",
-        desc: "Choose the provider used only when you click Analyze in a Research Intelligence view. Deterministic findings stay local and always remain available.",
-        control: { type: "dropdown", key: "intelligenceNarrator", options: { current: "Current chat backend", claude: "Claude only", local: "Local only", disabled: "Disabled" } },
+        name: "Research model",
+        desc: "Runs only when you click a research action: drafting project questions and claim wording, proposing evidence passages, interpreting evidence, drafting and revising sections, the Intelligence briefing, and reranking Discover results.",
+        control: { type: "dropdown", key: "researchModel", options: this.researchModelOptions() },
       },
-      { name: "When discovery reaches the network", desc: "Network requests happen only when you explicitly run a discovery action. Results are derived suggestions, and imported sources remain unreviewed until you review them." },
+      { name: "Search sources", desc: "Discover searches OpenAlex for works and citation links, fills DOI metadata from Crossref and preprint metadata from arXiv, and imports Zotero items by key. Requests run only when you press Search, Expand, or Import." },
       { name: "Enable scholarly discovery", desc: "Show explicit search, citation expansion, and reranking actions in research projects.", control: { type: "toggle", key: "discoveryEnabled" } },
       { name: "OpenAlex contact email", desc: "Optional. Included as a trimmed mailto parameter in OpenAlex requests.", control: { type: "text", key: "openAlexContactEmail" } },
       { name: "Zotero user id", desc: "Optional. Numeric user id from zotero.org/settings/keys — lets research_source_import resolve a zotero_key into full metadata. Requests fire only on an explicit import.", control: { type: "text", key: "zoteroUserId" } },
@@ -884,11 +889,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             });
           });
         },
-      },
-      {
-        name: "Discovery reranker",
-        desc: "Provider used only when you explicitly rerank derived discovery results.",
-        control: { type: "dropdown", key: "discoveryReranker", options: { current: "Current chat backend", claude: "Claude only", local: "Local only", disabled: "Disabled" } },
       },
       { name: "Maximum search results", desc: "Per request, from 5 to 100.", control: { type: "number", key: "discoveryMaxResults", min: 5, max: 100, step: 1 } },
       { name: "Citation expansion limit", desc: "Per expansion request, from 5 to 50.", control: { type: "number", key: "discoveryExpansionLimit", min: 5, max: 50, step: 1 } },

@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, it, expect, vi } from "vitest";
 import { ProviderRouter, migrateUtilityBackend } from "../../src/providers/router";
+import { resolveModelId } from "../../src/claude/models";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import type { Provider } from "../../src/providers/types";
 
@@ -412,5 +413,31 @@ describe("ProviderRouter — codex-cli and opencode-cli backends", () => {
     const r = new ProviderRouter(settings({}));
     expect(r.claudeCli.label).toBe(claudeBackend.label);
     expect(r.codexCli.label).toBe(codexBackend.label);
+  });
+});
+
+describe("ProviderRouter research model", () => {
+  it("resolves each researchModel to its provider", () => {
+    const base = { chatBackend: "custom" as const, openaiCompatHost: "http://localhost:1234", openaiCompatModel: "oc", ollamaModel: "qwen", model: "claude-sonnet-4-6" };
+    const chat = new ProviderRouter(settings({ ...base, researchModel: "chat" })).researchSelection();
+    expect(chat?.provider.id).toBe("openai-compat");
+    expect(chat?.model).toBe("oc");
+    const claude = new ProviderRouter(settings({ ...base, researchModel: "claude" })).researchSelection();
+    expect(claude?.provider.id).toBe("anthropic");
+    expect(claude?.model).toBe(resolveModelId("claude-sonnet-4-6", ""));
+    const local = new ProviderRouter(settings({ ...base, researchModel: "local" })).researchSelection();
+    expect(local?.provider.id).toBe("ollama");
+    expect(local?.model).toBe("qwen");
+    expect(new ProviderRouter(settings({ ...base, researchModel: "off" })).researchSelection()).toBeNull();
+  });
+
+  it("labels status for Claude Code and the API", async () => {
+    const r = new ProviderRouter(settings({ chatBackend: "claude-cli", apiKey: "", researchModel: "chat" }), undefined, { cliRuntime: cliRuntime(true) });
+    expect(r.researchStatus()).toMatchObject({ providerLabel: "Claude API", available: false });
+    await r.claudeCli.refresh();
+    expect(r.researchStatus()).toEqual({ model: "chat", providerLabel: "Claude Code", modelId: DEFAULT_SETTINGS.model, available: true });
+    const api = new ProviderRouter(settings({ researchModel: "claude", model: "claude-sonnet-4-6" }));
+    expect(api.researchStatus()).toEqual({ model: "claude", providerLabel: "Claude API", modelId: resolveModelId("claude-sonnet-4-6", ""), available: true });
+    expect(new ProviderRouter(settings({ researchModel: "off" })).researchStatus().model).toBe("off");
   });
 });

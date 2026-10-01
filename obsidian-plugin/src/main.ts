@@ -19,6 +19,7 @@ import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
+import { RESEARCH_MODELS, researchCoordinatorMode, researchModelChip, type ResearchModel } from "./research/researchModel";
 import { DraftCoordinator } from "./research/draftCoordinator";
 import { RevisionCoordinator } from "./research/revisionCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
@@ -62,7 +63,7 @@ import { catalogPromptProvider, composeResourceProviders, substrateResourceProvi
 import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
-import type { AnthropicToolDef, ProviderId } from "./providers/types";
+import type { AnthropicToolDef, Provider, ProviderId } from "./providers/types";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
@@ -613,6 +614,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       triageFolderChoices: () => triageFolderChoices(this.settings),
       pickTriageFolder: () => this.pickTriageFolder(),
       startFromActiveNote: () => void this.startResearchFromActiveNote(),
+      researchStatus: () => this.router().researchStatus(),
+      openResearchSettings: () => this.openCompanionSettings(),
     }));
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
       leaf,
@@ -623,14 +626,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return {
           chrome: this.companionChrome(),
           coordinator,
-          narratorMode: () => this.settings.intelligenceNarrator,
+          narratorMode: () => researchCoordinatorMode(this.settings.researchModel),
+          researchStatus: () => this.router().researchStatus(),
+          openResearchSettings: () => this.openCompanionSettings(),
           retainIntelligenceCoordinator: () => this.retainIntelligenceCoordinator(coordinator),
           releaseIntelligenceCoordinator: () => this.releaseIntelligenceCoordinator(coordinator),
           discoveryCoordinator,
           retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
-          draftCoordinator: new DraftCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
-          revisionCoordinator: new RevisionCoordinator({ selection: () => this.router().chatProvider(), maxTokens: () => this.settings.maxTokens }),
+          draftCoordinator: new DraftCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
+          revisionCoordinator: new RevisionCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
           rewriteText: this.researchRewriteText(),
           ...(typeof DOMParser === "undefined" ? {} : {
             captureWeb: (url: string) => captureWebSource(url, {
@@ -1492,10 +1497,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
+  private requireResearchSelection(): { provider: Provider; model: string } {
+    const selection = this.router().researchSelection();
+    if (!selection) throw new Error("Research AI is off. Turn it on in Settings → Research Desk & discovery.");
+    return selection;
+  }
+
   /** Shared chat-free rewrite helper for the research surfaces (claims, evidence, project questions). */
   private researchRewriteText(): (input: { text: string; instruction: string; context?: string }) => Promise<string> {
     return async ({ text, instruction, context }) => {
-      const { text: raw } = await this.router().complete("chat", {
+      const { text: raw } = await this.router().completeResolved(this.requireResearchSelection(), {
         system: REWRITE_SYSTEM,
         user: context ? buildGroundedRewriteUser(text, instruction, context) : buildRewriteUser(text, instruction),
         maxTokens: rewriteMaxTokens(text),
@@ -1783,7 +1794,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       memoryFolder: this.settings.memoryFolder,
       memoryAutoConsolidate: this.settings.memoryAutoConsolidate,
       discoveryEnabled: this.settings.discoveryEnabled,
-      discoveryReranker: this.settings.discoveryReranker,
+      researchModel: this.settings.researchModel,
+      researchModelLabel: researchModelChip(this.router().researchStatus()).text,
     };
   }
 
@@ -1815,9 +1827,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       case "memory-enabled": this.settings.memoryEnabled = value === true; break;
       case "memory-folder": this.settings.memoryFolder = String(value).trim() || "Claude/Memory"; break;
       case "discovery-enabled": this.settings.discoveryEnabled = value === true; break;
-      case "discovery-reranker":
-        if (value === "current" || value === "claude" || value === "local" || value === "disabled") this.settings.discoveryReranker = value;
-        else throw new Error("Choose a valid discovery reranker.");
+      case "research-model":
+        if (RESEARCH_MODELS.includes(value as ResearchModel)) this.settings.researchModel = value as ResearchModel;
+        else throw new Error("Choose a valid research model.");
         break;
       default: throw new Error("That quick setting is not available.");
     }
@@ -2295,7 +2307,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private buildIntelligenceCoordinator(): IntelligenceCoordinator {
       return new IntelligenceCoordinator({
-        mode: () => this.settings.intelligenceNarrator,
+        mode: () => researchCoordinatorMode(this.settings.researchModel),
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({
           provider: this.router().anthropic,
@@ -2353,7 +2365,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         repository: this.researchRepository(),
         enabled: () => this.settings.discoveryEnabled,
         cacheHours: () => normalizeDiscoverySettings(this.settings).discoveryCacheHours,
-        rerankerMode: () => this.settings.discoveryReranker,
+        rerankerMode: () => researchCoordinatorMode(this.settings.researchModel),
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({ provider: this.router().anthropic, model: resolveModelId(this.settings.model, this.settings.customModel) }),
         local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),

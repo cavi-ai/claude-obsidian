@@ -103,6 +103,24 @@ describe("ResearchWorkbenchView", () => {
   it("redacts provider credentials from section drafting errors", () => {
     expect(safeDraftError(new Error("request failed\nBearer secret-token api_key=also-secret"))).toBe("request failed [redacted] [redacted]");
   });
+  it("shows the research model chip in the header navigation", async () => {
+    const openResearchSettings = vi.fn();
+    const mk = (available: boolean) => new ResearchWorkbenchView(new WorkspaceLeaf(), { loadProject: async () => snapshot } as never, {
+      ...intelligenceDependencies().dependencies,
+      researchStatus: () => ({ model: "chat", providerLabel: "Codex", modelId: "gpt", available }),
+      openResearchSettings,
+    });
+    const view = mk(true);
+    await view.setProjectPath(snapshot.project.path);
+    const chip = elements(view, ".cc-research-model-chip")[0];
+    expect(chip?.textContent).toBe("AI · Codex · gpt");
+    click(chip);
+    expect(openResearchSettings).toHaveBeenCalledOnce();
+    const down = mk(false);
+    await down.setProjectPath(snapshot.project.path);
+    expect(elements(down, ".cc-research-model-chip")[0]?.classList.has("is-unavailable")).toBe(true);
+  });
+
   it("registers stable accessible view metadata", () => {
     const repository = { loadProject: () => Promise.reject(new Error("unused")) } as ResearchRepository;
     const view = new ResearchWorkbenchView(new WorkspaceLeaf(), repository);

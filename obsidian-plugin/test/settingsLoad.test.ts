@@ -39,6 +39,20 @@ const LEGACY_FLAT = {
   embeddingModel: "nomic-embed-text",
 };
 
+describe("resolveSettings research model migration", () => {
+  it("moves the narrator choice to researchModel and drops both legacy keys", () => {
+    const out = resolveSettings({ settings: { intelligenceNarrator: "local", discoveryReranker: "claude" } as never });
+    expect(out.researchModel).toBe("local");
+    expect(out).not.toHaveProperty("intelligenceNarrator");
+    expect(out).not.toHaveProperty("discoveryReranker");
+  });
+  it("falls to the reranker when the narrator was current, and keeps an existing researchModel", () => {
+    expect(resolveSettings({ settings: { intelligenceNarrator: "current", discoveryReranker: "disabled" } as never }).researchModel).toBe("off");
+    expect(resolveSettings({ settings: { researchModel: "claude", intelligenceNarrator: "local" } as never }).researchModel).toBe("claude");
+    expect(resolveSettings(null).researchModel).toBe("chat");
+  });
+});
+
 describe("resolveSettings with legacy configs", () => {
   it("treats the flat shape as settings, not namespaced data", () => {
     expect(isNamespacedData(LEGACY_FLAT)).toBe(false);
@@ -83,6 +97,7 @@ describe("resolveSettings with legacy configs", () => {
       saveSettings: async () => {},
       secrets: () => unavailableStore(),
       router: () => ({
+      chatProvider: () => ({ provider: { id: "anthropic", label: "Claude (Anthropic API)" }, model: "claude-test" }), providerLabel: () => "Claude API", 
         anthropic: { hasCredentials: () => true },
         ollama: { listModels: async () => [], capabilities: async () => [], test: async () => ({ ok: true, detail: "" }) },
         openaiCompat: { test: async () => ({ ok: true, detail: "" }) },

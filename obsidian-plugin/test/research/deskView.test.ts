@@ -52,6 +52,24 @@ describe("ResearchDeskView", () => {
     expect(askCompanion).toHaveBeenCalledWith(project.path);
   });
 
+  it("shows the research model chip and opens settings from it", async () => {
+    const openResearchSettings = vi.fn();
+    const status = { model: "chat" as const, providerLabel: "Claude Code", modelId: "sonnet", available: true };
+    const make = (researchStatus: () => typeof status) => new ResearchDeskView(new WorkspaceLeaf(), { listProjects: async () => [project], loadProject: async () => snapshot } as never, { preferencesFor: () => ({ dismissedActionIds: [] }), updatePreferences: vi.fn(), openWorkbench: vi.fn(), researchStatus, openResearchSettings });
+    const view = make(() => status);
+    await view.setProjectPath(project.path);
+    const chip = elements(view, ".cc-research-model-chip")[0];
+    expect(chip?.textContent).toBe("AI · Claude Code · sonnet");
+    expect(chip?.getAttribute("aria-label")).toBe("Research model: AI · Claude Code · sonnet. Open settings");
+    click(chip);
+    expect(openResearchSettings).toHaveBeenCalledOnce();
+    const down = make(() => ({ ...status, available: false }));
+    await down.setProjectPath(project.path);
+    const unavailable = elements(down, ".cc-research-model-chip")[0];
+    expect(unavailable?.textContent).toBe("AI · set up Claude Code");
+    expect(unavailable?.classList.has("is-unavailable")).toBe(true);
+  });
+
   it("supports project switching plus dismiss and pin controls without implicit work", async () => {
     const other = { ...project, path: "Research/Other/Project.md", project: "Research/Other/Project.md", title: "Other" };
     let preferences = { dismissedActionIds: [] as string[], pinnedActionId: undefined as string | undefined };

@@ -4,6 +4,7 @@
 
 import { DEFAULT_SETTINGS, migrateSystemPrompt, normalizeDiscoverySettings, type PluginSettings } from "./types";
 import { migrateUtilityBackend } from "./providers/router";
+import { migrateResearchModel } from "./research/researchModel";
 import { migrateEmbeddingEngine } from "./semantic/embedder";
 
 export interface NamespacedData {
@@ -29,13 +30,18 @@ export function resolveSettings(raw: NamespacedData | Partial<PluginSettings> | 
   const migratedEngine = migrateEmbeddingEngine(settingsData);
   const migratedUtility = migrateUtilityBackend(settingsData);
   const migratedPrompt = migrateSystemPrompt(settingsData?.systemPrompt);
-  return {
+  const migratedResearch = migrateResearchModel(settingsData);
+  const resolved: PluginSettings & { intelligenceNarrator?: unknown; discoveryReranker?: unknown } = {
     ...DEFAULT_SETTINGS,
     ...settingsData,
     ...normalizeDiscoverySettings(settingsData ?? {}),
     ...(migratedEngine ? { embeddingEngine: migratedEngine } : {}),
     ...(migratedUtility ? { utilityBackend: migratedUtility } : {}),
     ...(migratedPrompt ? { systemPrompt: migratedPrompt } : {}),
+    ...(migratedResearch ? { researchModel: migratedResearch } : {}),
     context: { ...DEFAULT_SETTINGS.context, ...(settingsData?.context ?? {}) },
   };
+  delete resolved.intelligenceNarrator;
+  delete resolved.discoveryReranker;
+  return resolved;
 }

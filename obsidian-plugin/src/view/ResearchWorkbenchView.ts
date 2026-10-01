@@ -15,6 +15,8 @@ import type { RevisionCoordinator } from "../research/revisionCoordinator";
 import type { DraftSectionParseResult } from "../research/draftSections";
 import type { ClaimRecord, EvidenceRecord, ResearchDocumentRecord } from "../research/types";
 import { ResearchDraftPanel } from "./ResearchDraftPanel";
+import type { ResearchModelStatus } from "../research/researchModel";
+import { renderResearchModelChip } from "./researchModelChip";
 import { renderCompanionChrome, type CompanionChromeDependencies } from "./companionChrome";
 
 export const RESEARCH_WORKBENCH_VIEW_TYPE = "claude-research-workbench";
@@ -52,6 +54,8 @@ export interface ResearchWorkbenchDependencies {
   chrome?: CompanionChromeDependencies;
   coordinator: IntelligenceCoordinator;
   narratorMode: () => IntelligenceNarratorMode;
+  researchStatus?(): ResearchModelStatus;
+  openResearchSettings?(): void;
   retainIntelligenceCoordinator?: () => void;
   releaseIntelligenceCoordinator?: () => void;
   discoveryCoordinator?: DiscoveryCoordinator;
@@ -186,8 +190,9 @@ export class ResearchWorkbenchView extends ItemView {
     const header = root.createEl("header", { cls: "cc-research-header" });
     const headerTop = header.createDiv({ cls: "cc-research-header-top" });
     headerTop.createDiv({ cls: "cc-eyebrow", text: "RESEARCH WORKBENCH" });
-    if (this.projectPath && (this.dependencies?.openDesk || this.dependencies?.askCompanion)) {
+    if ((this.projectPath && (this.dependencies?.openDesk || this.dependencies?.askCompanion)) || this.dependencies?.researchStatus) {
       const navigation = headerTop.createDiv({ cls: "cc-workspace-navigation", attr: { "aria-label": "Research workspace navigation" } });
+      renderResearchModelChip(navigation, this.dependencies?.researchStatus?.(), () => this.dependencies?.openResearchSettings?.());
       if (this.dependencies.openDesk) {
         const desk = navigation.createEl("button", { text: "Research Desk" });
         desk.addEventListener("click", () => void this.dependencies?.openDesk?.(this.projectPath!));

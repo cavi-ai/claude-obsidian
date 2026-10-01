@@ -5,6 +5,8 @@ import { buildResearchDeskViewModel, type ResearchDeskPreferences, type Research
 import type { TriageFolderChoice } from "../research/triage";
 import type { ProjectSnapshot } from "../research/graph";
 import type { ResearchRepository } from "../research/repository";
+import type { ResearchModelStatus } from "../research/researchModel";
+import { renderResearchModelChip } from "./researchModelChip";
 import { renderCompanionChrome, type CompanionChromeDependencies } from "./companionChrome";
 
 export const RESEARCH_DESK_VIEW_TYPE = "claude-research-desk";
@@ -27,6 +29,8 @@ export interface ResearchDeskDependencies {
   pickTriageFolder?(): Promise<string | undefined>;
   /** Start a research project seeded from the most recently focused markdown note. */
   startFromActiveNote?(): void | Promise<void>;
+  researchStatus?(): ResearchModelStatus;
+  openResearchSettings?(): void;
 }
 
 function errorMessage(error: unknown): string {
@@ -100,6 +104,7 @@ export class ResearchDeskView extends ItemView {
     for (const project of projects) select.createEl("option", { text: project.title, value: project.path, attr: { selected: project.path === snapshot.project.path ? "selected" : null } });
     select.value = snapshot.project.path;
     select.addEventListener("change", () => void this.setProjectPath(select.value));
+    renderResearchModelChip(headerActions, this.deps.researchStatus?.(), () => this.deps.openResearchSettings?.());
     if (this.deps.triageClippings) this.renderTriageControls(headerActions);
     if (this.deps.startFromActiveNote) {
       const fromNote = headerActions.createEl("button", { text: "New project from active note", attr: { title: "Seed a research project from the note you have open" } });
