@@ -4,6 +4,33 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] — 2026-10-02
+
+### Added
+- **Research Desk steps run in place.** Every Desk button opens its step: add
+  a source, pull passages, check passages, write or check a claim, build the
+  outline, continue the draft, run the audit. Claude drafts claim fields,
+  passage readings, and project questions without overwriting typed text.
+- **Pull passages from a source.** Proposes exact quotes from text and PDF
+  sources, with the page or section they come from.
+- **Claude Sonnet 5.5** replaces Claude Sonnet 5 in the model picker; a saved
+  Sonnet 5 selection moves to Sonnet 5.5.
+
+### Changed
+- **Research actions work on Claude Code, Codex, and OpenCode**, along with
+  inline rewrite, Find themes, and Tidy.
+- **One "Research model" setting** replaces the intelligence narrator and
+  discovery reranker settings.
+- **Leaner settings.** Explanations moved into page descriptions; cloud
+  settings share one "Cloud (experimental)" page and storage and tags share
+  "Files & tags"; discovery limits, inline artifact height, and the routine
+  header are fixed.
+- The thinking indicator breathes at half its previous speed.
+
+### Fixed
+- Frontmatter edits to a research note's review state or locator are saved
+  through the research store instead of failing.
+
 ## [0.35.0] — 2026-10-01
 
 ### Added
