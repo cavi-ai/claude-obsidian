@@ -56,7 +56,7 @@ describe("quickOptionsFor", () => {
   });
 
   it("defines a focused menu for every Companion page", () => {
-    const pages: CompanionPage[] = ["chat", "inbox", "related", "memory", "research-desk", "research-workbench", "health"];
+    const pages: CompanionPage[] = ["chat", "inbox", "related", "memory", "research-desk", "research-workbench", "system"];
     for (const page of pages) {
       const options = quickOptionsFor(page, state());
       expect(options.length).toBeGreaterThan(1);
@@ -66,8 +66,8 @@ describe("quickOptionsFor", () => {
     }
   });
 
-  it("offers a refresh action on the health page", () => {
-    expect(quickOptionsFor("health", state()).map((item) => item.id)).toEqual(["refresh-health", "desktop-integrations", "all-settings"]);
+  it("offers a refresh action on the system page", () => {
+    expect(quickOptionsFor("system", state()).map((item) => item.id)).toEqual(["refresh-system", "desktop-integrations", "all-settings"]);
   });
 
   it("uses the active Workbench context rather than a stale generic value", () => {
