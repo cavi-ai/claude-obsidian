@@ -548,7 +548,7 @@ describe("source enrichment wiring", () => {
 
     expect(claudeComplete).not.toHaveBeenCalled();
     expect(app.vault.getAbstractFileByPath("Clippings/Triage.md")).toBeNull();
-    expect(getNoticeMessages().at(-1)).toMatch(/triage failed.*not approved/i);
+    expect(getNoticeMessages().at(-1)).toBe("Finding themes stopped — No clips could be enriched.");
   });
 
   it("propagates denied utility tagging so note enrichment cannot continue into chat lint or review", async () => {
