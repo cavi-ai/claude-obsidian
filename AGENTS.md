@@ -74,7 +74,7 @@ CI (`.github/workflows/obsidian-plugin-ci.yml`) runs `verify:version`, typecheck
 - **`onboarding/firstRun.ts`** — pure ordering for the one-time consent prompts a fresh install fires; the layout-ready path and the connect card both key off it.
 - **`secrets/`** — `store.ts` keeps credentials in Obsidian's OS-encrypted secret store instead of `data.json` (which lives in the vault and rides vault sync); `migrate.ts` is the one-way move of any plaintext credential out of `data.json`.
 - **`templates/promptTemplates.ts`** — user-defined prompt templates: a markdown note whose frontmatter carries name/description/optional defaults and whose body is the prompt, with `{selection}` and `{active_note}` substituted at run time.
-- **`enrich/noteEnrich.ts`** — right-click "Enrich with Claude": a model-driven lint of a note's markdown returned as a full cleaned copy, turned into reviewable edits by `diffToEdits`. Pure; the model call is injected.
+- **`enrich/noteEnrich.ts`** — right-click "Tidy with Claude": a model-driven lint of a note's markdown returned as a full cleaned copy, turned into reviewable edits by `diffToEdits`. Pure; the model call is injected.
 - **`vault/vaultFiles.ts`** — the shared vault-file helpers (folder creation, unique paths) used by `artifactStore`, memory notes, the MCP vault tools, and `main.ts`.
 - **`view/ChatView.ts`** — the side-panel chat UI (streaming, context pills, expandable tool chips in agent mode, per-message Copy/Insert/Save). `view/BatchDiffModal.ts` reviews many notes in one pass over the pure `view/batchDiffState.ts` selection model; `view/inboxRefresh.ts` coalesces Inbox rescans and drops superseded ones.
 - **`settings.ts` / `types.ts`** — settings tab and `PluginSettings` / `DEFAULT_SETTINGS`.

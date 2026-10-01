@@ -789,14 +789,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           menu.addItem((item) =>
             item
-              .setTitle("Enrich with Claude…")
+              .setTitle("Tidy with Claude…")
               .setIcon("sparkles")
               .onClick(() => void this.enrichNoteFlow(file)),
           );
         } else if (file instanceof TFolder) {
           menu.addItem((item) =>
             item
-              .setTitle("Enrich notes with Claude…")
+              .setTitle("Tidy notes with Claude…")
               .setIcon("sparkles")
               .onClick(() => void this.enrichFolderFlow(file)),
           );
@@ -2740,7 +2740,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       presetOptions ?? (await new Promise<EnrichOptions | null>((resolve) => new EnrichOptionsModal(this.app, 1, resolve).open()));
     if (!options) return;
 
-    const progress = new Notice(`Enriching ${file.basename}…`, 0);
+    const progress = new Notice(`Tidying ${file.basename}…`, 0);
     try {
       const proposal = await this.buildEnrichProposal(file, options);
       if (!proposal.rename && !proposal.frontmatter && !proposal.plan) {
@@ -2752,9 +2752,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       );
       if (!decision) return;
       await this.applyEnrichDecision(file, proposal, decision);
-      new Notice(`Enriched ${file.basename}.`);
+      new Notice(`Tidied ${file.basename}.`);
     } catch (e) {
-      new Notice(`Enrich failed — ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(`Tidy failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       progress.hide();
     }

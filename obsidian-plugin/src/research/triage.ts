@@ -149,7 +149,7 @@ export function renderTriageNote(groups: TriageGroup[], notesByPath: Map<string,
     "",
     "# Clippings triage",
     "",
-    `_${total} clippings grouped into ${groups.length} theme${groups.length === 1 ? "" : "s"}. Re-run Triage from the Research Desk after new clips arrive._`,
+    `_${total} clippings grouped into ${groups.length} theme${groups.length === 1 ? "" : "s"}. Re-run Find themes from the Inbox or Research Desk after new clips arrive._`,
     "",
   ];
   for (const group of groups) {
