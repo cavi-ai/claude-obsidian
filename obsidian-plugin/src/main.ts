@@ -2016,7 +2016,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     if (actionId === "copy-diagnostics") {
       const logPath = "Claude/enrichment-diagnostics.log";
-      if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — turn on the toggle in Settings → Source capture and run Enrich all again.");
+      if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — set enrichmentDiagnostics to true in the plugin data.json and run Enrich all again.");
       const text = await this.app.vault.adapter.read(logPath);
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable on this device.");
       await navigator.clipboard.writeText(text.slice(-8192));
