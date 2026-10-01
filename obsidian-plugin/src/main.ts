@@ -3761,6 +3761,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           .map((r) => ({ id: r.id, title: r.title, failed: r.failed, recovery: r.recovery.map(({ id, label }) => ({ id, label })) })),
         bridge: { applicable: !Platform.isMobile, enabled: this.settings.mcpEnabled, running: this.mcpRunning(), port: this.settings.mcpPort },
         clipper: { applicable: this.settings.sourceCaptureEnabled, status: this.clipperStatus() },
+        orders: { invalid: this.standingOrders().invalidOrders() },
       }),
       now: () => new Date().toISOString(),
     });

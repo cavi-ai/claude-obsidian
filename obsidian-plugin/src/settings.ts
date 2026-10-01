@@ -7,7 +7,6 @@ import { readAnthropicEnv, hasAnthropicEnvCredential } from "./providers/env";
 import { mergeDetectedModels } from "./providers/localModels";
 import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "./mcp/clientConfig";
 import { dispatchSetupSteps, repliesSetupSteps } from "./cloud/setup";
-import { CLOUD_ROUTINE_BETA_HEADER } from "./cloud/routines";
 import { BUILTIN_EMBEDDING_MODELS, builtinModelById } from "./semantic/transformers/model";
 import { ChoiceModal } from "./view/ChoiceModal";
 import { type McpServerConfig, type PluginSettings } from "./types";
@@ -1440,7 +1439,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         aliases: ["checklist", "routine"],
         render: (setting) => {
           const el = setting.settingEl.createDiv({ cls: "cc-setup-checklist" });
-          const steps = dispatchSetupSteps({ fireUrl: s.cloudRoutineFireUrl, token: s.cloudRoutineToken, betaHeader: CLOUD_ROUTINE_BETA_HEADER });
+          const steps = dispatchSetupSteps({ fireUrl: s.cloudRoutineFireUrl, token: s.cloudRoutineToken });
           for (const item of steps) {
             const row = el.createDiv({ cls: `cc-setup-step ${item.ok ? "is-ok" : "is-err"}` });
             row.createSpan({ cls: "cc-setup-mark", text: item.ok ? "✓" : "✗" });
