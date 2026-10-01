@@ -18,7 +18,7 @@ const SCHEMA_NOTE = [
   "",
 ].join("\n");
 
-test("vault health shows broken links and ontology issues", async ({ rig }) => {
+test("system status shows companion and vault problems", async ({ rig }) => {
   const { page } = await rig.reset({
     extraFiles: {
       "Notes/Linked.md": "# Linked\n\nSee [[Missing note]].\n",
@@ -29,12 +29,13 @@ test("vault health shows broken links and ontology issues", async ({ rig }) => {
   await page.evaluate(async () => {
     const app = (window as unknown as { app: { plugins: { plugins: Record<string, { ontology(): { load(): Promise<unknown> } | null }> }; commands: { executeCommandById(id: string): Promise<void> } } }).app;
     await app.plugins.plugins["claude-companion"]!.ontology()?.load();
-    await app.commands.executeCommandById("claude-companion:open-vault-health");
+    await app.commands.executeCommandById("claude-companion:open-system");
   });
-  const view = page.locator(".cc-health-view:visible").first();
+  const view = page.locator(".cc-system-view:visible").first();
+  await expect(view.locator(".cc-system-group").first()).toHaveText("COMPANION");
   await expect(async () => {
-    await view.locator(".cc-health-refresh").click();
-    await expect(view.locator(".cc-health-links")).toContainText("Broken links", { timeout: 1000 });
-    await expect(view.locator(".cc-health-ontology")).toContainText("Ontology", { timeout: 1000 });
+    await view.locator(".cc-system-refresh").click();
+    await expect(view.locator(".cc-system-links")).toContainText("Broken links", { timeout: 1000 });
+    await expect(view.locator(".cc-system-ontology")).toContainText("Ontology", { timeout: 1000 });
   }).toPass();
 });
