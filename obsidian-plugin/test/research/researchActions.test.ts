@@ -165,7 +165,93 @@ describe("desk actions", () => {
     await actions.run({ run: "audit" }, snapshot);
     await actions.run({ run: "open-record", path: "X.md" }, snapshot);
     await actions.run({ run: "extract-evidence", path: "R/P/Sources/S.md" }, snapshot);
-    expect(openWorkbench.mock.calls).toEqual([[project.path, "Draft", "D.md"], [project.path, "Audit"], [project.path, "Evidence", "R/P/Sources/S.md"]]);
+    expect(all("h2")[0].textContent).toBe("Pull passages from a source");
+    expect(openWorkbench.mock.calls).toEqual([[project.path, "Draft", "D.md"], [project.path, "Audit"]]);
     expect(openPath).toHaveBeenCalledWith("X.md");
+  });
+});
+
+describe("extract evidence modal", () => {
+  const reply = JSON.stringify({ passages: [
+    { title: "Opening", excerpt: "Intro text.", interpretation: "It opens." },
+    { title: "Invented", excerpt: "Never written anywhere." },
+    { title: "Closing", excerpt: "Outro text." },
+  ] });
+  const sourceText = async (item: { capturedContent?: string }) => item.capturedContent ? { text: item.capturedContent } : null;
+
+  it("renders checked passages with computed locators and counts the checked ones", async () => {
+    const { actions } = setup({ sourceText, completeResearch: async () => reply, researchLabel: () => "Test model" });
+    actions.extractEvidence(snap([]));
+    await settle();
+    expect(all("blockquote").map((el) => el.textContent)).toEqual(["Intro text.", "Outro text."]);
+    expect(button("Add 2 passages")).toBeDefined();
+    expect(all("select").filter((el) => el.getAttribute("aria-label") === "Where it is: type")[0].value).toBe("paragraph");
+    const closing = all("input").find((el) => el.getAttribute("aria-label") === "Add Closing");
+    closing.checked = false;
+    closing.dispatchEvent({ type: "change" });
+    expect(button("Add 1 passage")).toBeDefined();
+  });
+
+  it("adds reviewed passages with the model label and closes", async () => {
+    const { actions, repository, changed } = setup({ sourceText, completeResearch: async () => reply, researchLabel: () => "Test model" });
+    (repository as any).createEvidence = vi.fn(async () => ({ path: "R/P/Evidence/X.md" }));
+    actions.extractEvidence(snap([]));
+    await settle();
+    click(button("Add 2 passages"));
+    await settle();
+    expect((repository as any).createEvidence).toHaveBeenCalledTimes(2);
+    expect((repository as any).createEvidence).toHaveBeenCalledWith(expect.objectContaining({ project: project.path, source: source.path, title: "Opening", excerpt: "Intro text.", locatorKind: "paragraph", locatorValue: "1", interpretation: "It opens.", reviewState: "reviewed", model: "Test model" }));
+    expect(changed).toHaveBeenCalled();
+    expect(modal().closed).toBe(true);
+  });
+
+  it("creates a manual passage without a location as proposed", async () => {
+    const { actions, repository } = setup({ sourceText: async () => null });
+    (repository as any).createEvidence = vi.fn(async () => ({ path: "R/P/Evidence/X.md" }));
+    actions.extractEvidence(snap([]));
+    await settle();
+    expect(all("p").map((el) => el.textContent)).toContain("This source has no text to read. Open it, copy the passage, and paste it below.");
+    type(byLabel("Your passage"), "Pasted by hand here");
+    expect(byLabel("Passage title").value).toBe("Pasted by hand here");
+    click(button("Add 1 passage"));
+    await settle();
+    expect((repository as any).createEvidence).toHaveBeenCalledWith(expect.objectContaining({ excerpt: "Pasted by hand here", reviewState: "proposed" }));
+  });
+
+  it("shows the manual path when the call fails", async () => {
+    const { actions } = setup({ sourceText, completeResearch: async () => { throw new Error("offline"); } });
+    actions.extractEvidence(snap([]));
+    await settle();
+    const texts = all("p").map((el) => el.textContent);
+    expect(texts).toContain("Couldn't read this source automatically. Add a passage yourself below.");
+    expect(texts).toContain("offline");
+  });
+
+  it("keeps failed passages checked and the modal open", async () => {
+    const { actions, repository } = setup({ sourceText, completeResearch: async () => reply });
+    (repository as any).createEvidence = vi.fn(async (input: { title: string }) => { if (input.title === "Closing") throw new Error("write failed"); return {}; });
+    actions.extractEvidence(snap([]));
+    await settle();
+    click(button("Add 2 passages"));
+    await settle();
+    expect(modal().closed).toBe(false);
+    expect(all("p").map((el) => el.textContent).join(" ")).toContain("write failed");
+    expect(all("blockquote").map((el) => el.textContent)).toEqual(["Outro text."]);
+    expect(button("Add 1 passage")).toBeDefined();
+  });
+});
+
+describe("evidence review draft retry", () => {
+  it("shows the reason and re-runs the draft without overwriting typed text", async () => {
+    let calls = 0;
+    const rewriteText = vi.fn(async () => { calls++; if (calls === 1) throw new Error("rate limited"); return "Second draft"; });
+    const { actions } = setup({ rewriteText });
+    actions.reviewEvidence(snap([ev("E", { reviewState: "proposed" })]));
+    await settle();
+    expect(all("p").map((el) => el.textContent).join(" ")).toContain("rate limited");
+    click(button("Draft again"));
+    await settle();
+    expect(byLabel("Evidence interpretation").value).toBe("Second draft");
+    expect(rewriteText).toHaveBeenCalledTimes(2);
   });
 });

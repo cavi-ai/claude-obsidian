@@ -51,7 +51,7 @@ export interface ResearchDeskViewModel {
 
 function title(value: string): string { return value[0]?.toUpperCase() + value.slice(1); }
 
-function findingAction(finding: AuditFinding): ResearchDeskAction | undefined {
+export function findingAction(finding: AuditFinding): ResearchDeskAction | undefined {
   const name = basename(finding.path);
   const copy = findingCopy(finding.code, name);
   const base = { ...copy, path: finding.path };

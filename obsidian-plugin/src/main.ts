@@ -106,6 +106,7 @@ import { existingVaultTags } from "./indexing/autoTagger";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
 import { SemanticIndexer } from "./semantic/indexer";
+import { extractPdfPages } from "./semantic/pdf";
 import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
@@ -1477,6 +1478,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
       rewriteText: this.researchRewriteText(),
       completeResearch: async ({ system, user, maxTokens }) => (await this.router().completeResolved(this.requireResearchSelection(), { system, user, maxTokens: maxTokens ?? 1024, temperature: 0.2 })).text,
       researchLabel: () => researchModelChip(this.router().researchStatus()).text.replace(/^AI · /, ""),
+      sourceText: async (source) => {
+        if (typeof source.capturedContent === "string") return { text: source.capturedContent };
+        if (!source.asset?.toLowerCase().endsWith(".pdf")) return null;
+        const file = this.app.vault.getAbstractFileByPath(source.asset);
+        if (!(file instanceof TFile)) return null;
+        const { loadPdf } = await import("./semantic/pdfjs");
+        const pages = await extractPdfPages(loadPdf, await this.app.vault.readBinary(file));
+        return { text: pages.map(({ text }) => text).join("\n\n"), pages };
+      },
       ...(typeof DOMParser === "undefined" ? {} : {
         captureWeb: (url: string) => captureWebSource(url, {
           fetchHtml: async (target) => {

@@ -51,6 +51,7 @@ export class EvidenceReviewModal extends Modal {
     interpretation.value = evidence.interpretation ?? "";
     const status = this.contentEl.createEl("p", { cls: "cc-research-modal-status", attr: { role: "status" } });
     const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
+    const again = this.contentEl.createEl("button", { cls: "is-hidden", text: "Draft again" });
 
     let touched = false;
     interpretation.addEventListener("input", () => { touched = true; });
@@ -60,10 +61,12 @@ export class EvidenceReviewModal extends Modal {
       const sourceInfo = `Source: ${evidence.title} (${evidence.source}${evidence.locatorValue ? `, ${evidence.locatorKind ?? "locator"} ${evidence.locatorValue}` : ""})\nExcerpt:\n${evidence.excerpt}`;
       status.setText(`Drafting${label}…`);
       error.setText("");
+      again.addClass("is-hidden");
       void rewriteText({ text: "Draft the interpretation for this evidence.", instruction: INTERPRET_INSTRUCTION, context: sourceInfo })
         .then((result) => { if (!touched && !interpretation.value.trim()) interpretation.value = result; status.setText(""); })
-        .catch((cause) => { status.setText(""); error.setText(`Couldn't draft this. ${sanitizeLoadError(cause)}`); });
+        .catch((cause) => { status.setText(""); error.setText(`Couldn't draft this. ${sanitizeLoadError(cause)}`); again.removeClass("is-hidden"); });
     };
+    again.addEventListener("click", draftInterpretation);
     if (rewriteText && !interpretation.value.trim()) draftInterpretation();
 
     const actions = this.contentEl.createDiv({ cls: "cc-research-modal-actions" });

@@ -1,5 +1,7 @@
 import { Notice, TFile, type App } from "obsidian";
 import { buildClaimSuggestionRequest, claimSuggestionEvidence, parseClaimSuggestion } from "../../research/claimSuggestion";
+import { buildExtractionRequest, fitSourceText, parseExtraction, type SourceText } from "../../research/evidenceExtraction";
+import type { ResearchSourceRecord } from "../../research/types";
 import type { ResearchDeskRun } from "../../research/deskViewModel";
 import { isStaleEvidence, type ProjectSnapshot } from "../../research/graph";
 import { passageContext, pickClaimForReview, pickEvidenceForReview } from "../../research/reviewTargets";
@@ -8,6 +10,7 @@ import type { WebCapture } from "../../research/webCapture";
 import { parseClipUrl } from "../../sources/detect";
 import type { ResearchWorkbenchTab } from "../ResearchWorkbenchView";
 import { ClaimCreateModal, ClaimReviewModal } from "./claimModals";
+import { EvidenceExtractModal, type PassageLoad } from "./evidenceExtractModal";
 import { EvidenceReviewModal } from "./evidenceReviewModal";
 import { OutlineCreateModal } from "./outlineModal";
 import { ProjectCreateModal } from "./projectCreateModal";
@@ -24,6 +27,7 @@ export interface ResearchActionsDeps {
   rewriteText?: RewriteTextFn;
   completeResearch?: (input: { system: string; user: string; maxTokens?: number }) => Promise<string>;
   researchLabel?: () => string;
+  sourceText?: (source: ResearchSourceRecord) => Promise<SourceText | null>;
   captureWeb?: WebCapture;
   saveAsset?: (projectPath: string, name: string, data: ArrayBuffer) => Promise<string>;
   suggestTags?: (content: string) => Promise<string[]>;
@@ -121,7 +125,31 @@ export class ResearchActions {
   }
 
   extractEvidence(snapshot: ProjectSnapshot, sourcePath?: string): void {
-    void this.deps.openWorkbench(snapshot.project.path, "Evidence", sourcePath);
+    if (!snapshot.sources.length) { this.addSource(snapshot.project.path); return; }
+    const withEvidence = new Set(snapshot.evidence.map(({ source }) => source));
+    const initial = snapshot.sources.find(({ path }) => path === sourcePath) ?? snapshot.sources.find(({ path }) => !withEvidence.has(path)) ?? snapshot.sources[0]!;
+    const { completeResearch, sourceText } = this.deps;
+    const label = this.deps.researchLabel?.();
+    const load = async (path: string): Promise<PassageLoad> => {
+      const source = snapshot.sources.find((candidate) => candidate.path === path);
+      if (!source) return { kind: "none" };
+      const text = sourceText ? await sourceText(source) : null;
+      if (!text || !text.text.trim()) return { kind: "no-text" };
+      if (!completeResearch) return { kind: "failed", reason: "Research AI is off." };
+      const fitted = fitSourceText(text.text, snapshot.project.question);
+      const request = buildExtractionRequest({ question: snapshot.project.question, sourceTitle: source.title, text: fitted.text, trimmed: fitted.trimmed });
+      const raw = await completeResearch({ ...request, maxTokens: 2000 });
+      const passages = parseExtraction(raw, text, snapshot.evidence.filter((item) => item.source === path).map(({ excerpt }) => excerpt));
+      return passages.length ? { kind: "passages", passages } : { kind: "none" };
+    };
+    new EvidenceExtractModal(this.deps.app, {
+      sources: snapshot.sources,
+      initialSource: initial.path,
+      ...(label ? { label } : {}),
+      load,
+      create: async (passage) => { await this.deps.repository.createEvidence({ project: snapshot.project.path, ...passage }); },
+      changed: () => this.deps.changed(),
+    }).open();
   }
 
   reviewEvidence(snapshot: ProjectSnapshot, path?: string): void {

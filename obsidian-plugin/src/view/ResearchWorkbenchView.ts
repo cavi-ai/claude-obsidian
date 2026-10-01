@@ -306,7 +306,11 @@ export class ResearchWorkbenchView extends ItemView {
         metric.createSpan({ text: label });
       }
       root.createEl("h3", { text: "Next actions" });
-      for (const action of vm.nextActions) this.openButton(root, action.label, action.path);
+      for (const action of vm.nextActions) {
+        const { run, path } = action;
+        if (run) this.runButton(root, action.label, () => void this.actions.run({ run, ...(path ? { path } : {}) }, snapshot));
+        else this.openButton(root, action.label, path);
+      }
       return;
     }
     if (this.activeTab === "Audit") {
@@ -355,9 +359,11 @@ export class ResearchWorkbenchView extends ItemView {
     region.createEl("p", { cls: "cc-research-actions-description", text: "Use the project tools without leaving this research context." });
     const actions = region.createDiv({ cls: "cc-research-actions", attr: { "aria-label": "Research actions" } });
     const projectPath = snapshot?.project.path;
-    const contextual = ({ Overview: "Run audit", Sources: "Add source", Evidence: "Review evidence", Claims: "Create claim", Outline: "Build outline", Draft: "Build outline", Audit: "Run audit", Intelligence: "Run audit", Discover: "Add source" } as Record<Tab, string>)[this.activeTab];
+    const extractFirst = !snapshot || snapshot.sources.some(({ path }) => !snapshot.evidence.some(({ source }) => source === path)) || !snapshot.evidence.some(({ reviewState }) => reviewState === "proposed");
+    const contextual = ({ Overview: "Run audit", Sources: "Add source", Evidence: extractFirst ? "Extract evidence" : "Review evidence", Claims: "Create claim", Outline: "Build outline", Draft: "Build outline", Audit: "Run audit", Intelligence: "Run audit", Discover: "Add source" } as Record<Tab, string>)[this.activeTab];
     this.actionButton(actions, "Create project", undefined, undefined, () => this.actions.createProject(), contextual === "Create project");
     this.actionButton(actions, "Add source", projectPath, "Select a research project before adding a source.", () => projectPath ? this.actions.addSource(projectPath) : new Notice("Select a research project first."), contextual === "Add source");
+    this.actionButton(actions, "Extract evidence", projectPath, "Select a research project before extracting evidence.", () => { if (snapshot) { this.activeTab = "Evidence"; this.actions.extractEvidence(snapshot); } else new Notice("Select a research project first."); }, contextual === "Extract evidence");
     this.actionButton(actions, "Review evidence", projectPath, "Select a research project before reviewing evidence.", () => { if (snapshot) { this.activeTab = "Evidence"; this.actions.reviewEvidence(snapshot); } else new Notice("Select a research project first."); }, contextual === "Review evidence");
     this.actionButton(actions, "Create claim", projectPath, "Select a research project before creating a claim.", () => { if (snapshot) { this.activeTab = "Claims"; this.actions.createClaim(snapshot); } else new Notice("Select a research project first."); }, contextual === "Create claim");
     this.actionButton(actions, "Run audit", projectPath, undefined, () => { this.activeTab = "Audit"; void this.render(); }, contextual === "Run audit");
@@ -367,6 +373,10 @@ export class ResearchWorkbenchView extends ItemView {
   private actionButton(root: HTMLElement, label: string, path?: string, hint?: string, action?: () => void, contextual = false): void {
     const button = root.createEl("button", { cls: `cc-research-action${contextual ? " is-contextual mod-cta" : ""}`, text: label, attr: { "aria-label": label, ...(hint ? { title: hint } : {}) } });
     button.addEventListener("click", action ?? (() => path ? void this.openPath(path) : new Notice(hint ?? "Select a research project first.")));
+  }
+
+  private runButton(root: HTMLElement, label: string, run: () => void): void {
+    root.createEl("button", { cls: "cc-research-open", text: label }).addEventListener("click", run);
   }
 
   private openButton(root: HTMLElement, label: string, path?: string): void {

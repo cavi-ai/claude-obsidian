@@ -80,12 +80,12 @@ test("04 handoff: each quick action does its step", async () => {
     await expect(harness.page.locator(".cc-research-desk")).toBeVisible();
   };
   const quick = (name: string) => harness.page.locator(".cc-research-desk").getByRole("button", { name, exact: true });
-  for (const [button, heading] of [["Add source", "Add research source"], ["Develop claim", "Create evidence-backed claim"]] as const) {
+  for (const [button, heading] of [["Add source", "Add research source"], ["Extract evidence", "Pull passages from a source"], ["Develop claim", "Create evidence-backed claim"]] as const) {
     await quick(button).click();
     await expect(harness.page.locator(".modal-container").last().getByRole("heading", { name: heading })).toBeVisible();
     await harness.page.keyboard.press("Escape");
   }
-  for (const [button, tab] of [["Extract evidence", "Evidence"], ["Continue draft", "Draft"], ["Run audit", "Audit"]] as const) {
+  for (const [button, tab] of [["Continue draft", "Draft"], ["Run audit", "Audit"]] as const) {
     await quick(button).click();
     const workbench = harness.page.locator(".cc-research-workbench");
     await expect(workbench).toBeVisible();
@@ -232,4 +232,22 @@ test("09 Companion continuity: active research becomes context, not a new home",
   await expect.poll(async () => await chat.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   await chat.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/07-companion-context.png" });
   expect(consoleFailures.filter((failure) => /EPIPE|unhandled/i.test(failure))).toEqual([]);
+});
+
+test("10 pull passages: Claude's exact passage is added with its section filled in", async () => {
+  const reply = JSON.stringify({ passages: [{ title: "Captured", excerpt: "Captured study.", interpretation: "The study was captured." }] });
+  harness = await harness.reset({ providerReply: [{ match: "exact passages", flags: "i", replies: [reply] }] });
+  await harness.page.evaluate(async () => { await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-research-desk"); });
+  const desk = harness.page.locator(".cc-research-desk");
+  await desk.getByLabel("Active research project").selectOption("Research/Alpha/Project.md");
+  await desk.getByRole("button", { name: "Extract evidence", exact: true }).click();
+  const modal = harness.page.locator(".modal-container").last();
+  await expect(modal.getByRole("heading", { name: "Pull passages from a source" })).toBeVisible();
+  await expect(modal.locator("blockquote")).toHaveText("Captured study.");
+  await expect(modal.getByLabel("Where it is: type").first()).toHaveValue("section");
+  await expect(modal.getByLabel("Where it is: value").first()).toHaveValue("Source");
+  await modal.getByRole("button", { name: "Add 1 passage", exact: true }).click();
+  await expect(modal).toBeHidden();
+  const names = await harness.page.evaluate(() => (window as unknown as { app: { vault: { getMarkdownFiles(): Array<{ path: string }> } } }).app.vault.getMarkdownFiles().map(({ path }) => path).filter((path) => path.startsWith("Research/Alpha/Evidence/")));
+  expect(names.some((path) => /Captured/.test(path))).toBe(true);
 });

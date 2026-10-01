@@ -251,7 +251,7 @@ describe("ResearchWorkbenchView", () => {
     expect(elements(view, ".cc-research-empty-state-title")[0]?.textContent).toBe("No passages yet");
     expect(elements(view, ".cc-research-empty-state-copy")[0]?.textContent).toContain("exact passage");
     expect(elements(view, ".cc-research-actions-heading")[0]?.textContent).toBe("Workspace actions");
-    expect(elements(view, ".is-contextual").map(({ textContent }) => textContent)).toEqual(["Review evidence"]);
+    expect(elements(view, ".is-contextual").map(({ textContent }) => textContent)).toEqual(["Extract evidence"]);
   });
 
   it("reviews proposed evidence natively and returns to the Evidence panel", async () => {
