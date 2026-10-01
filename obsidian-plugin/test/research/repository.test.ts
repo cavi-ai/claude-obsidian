@@ -471,5 +471,18 @@ describe("ResearchRepository", () => {
       expect(reloaded.limitations).toEqual(["Small sample"]);
       await expect(repo.reviewClaim(claim.path, "bogus" as never)).rejects.toThrow(/review state/i);
     });
+
+    it("writes the limitation into the claim note body, replacing the earlier callout", async () => {
+      const io = new MemoryIO();
+      const repo = new ResearchRepository(io);
+      const project = await repo.createProject(projectInput);
+      const claim = await repo.createClaim({ project: project.path, title: "Claim", proposition: "Result." });
+      await repo.reviewClaim(claim.path, "reviewed", "Small sample");
+      await repo.reviewClaim(claim.path, "reviewed", "Only adults");
+      const body = io.files.get(claim.path)!;
+      expect(body.match(/\[!warning\]- Limitations/g)).toHaveLength(1);
+      expect(body).toContain("> - Small sample\n> - Only adults");
+      expect(body.indexOf("Result.")).toBeLessThan(body.indexOf("Limitations"));
+    });
   });
 });

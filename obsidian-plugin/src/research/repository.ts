@@ -21,6 +21,7 @@ import type {
   DiscoverySourceProvenance,
 } from "./types";
 import { isReviewState } from "./types";
+import { upsertLimitations } from "./limitations";
 
 export interface ResearchRepositoryIO {
   listMarkdown(): Promise<ResearchNoteInput[]>;
@@ -449,6 +450,7 @@ export class ResearchRepository {
       frontmatter.review_state = state;
       if (limitations !== record.limitations) frontmatter.limitations = limitations;
     });
+    if (limitations !== record.limitations && this.io.updateText) await this.io.updateText(path, (current) => upsertLimitations(current, limitations));
     return { ...record, reviewState: state, limitations };
   }
 
