@@ -33,6 +33,13 @@ describe("HealthController", () => {
     expect(ontology.items[0]!.path).toBe("t.md");
   });
 
+  it("does not flag the plugin's own triage board", async () => {
+    const report = await new HealthController(deps({
+      markdownFiles: () => [{ path: "Clippings/Triage.md", frontmatter: { type: "triage", source_enriched: true } }],
+    })).scan();
+    expect(report.sections.find((s) => s.id === "ontology")).toMatchObject({ count: 0, items: [] });
+  });
+
   it("treats an empty registry as not seeded", async () => {
     const report = await new HealthController(deps({ ontology: () => ({ resolve: () => undefined, resolved: () => new Map() }) })).scan();
     expect(report.sections.map((s) => s.id)).not.toContain("ontology");

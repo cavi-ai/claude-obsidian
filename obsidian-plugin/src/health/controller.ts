@@ -56,7 +56,8 @@ export class HealthController {
     const registry = this.deps.ontology();
     if (!registry || registry.resolved().size === 0) return [];
     return this.deps.markdownFiles()
-      .filter((f): f is { path: string; frontmatter: Record<string, unknown> } => typeof f.frontmatter?.type === "string")
+      // The triage board is plugin-generated, not an ontology note.
+      .filter((f): f is { path: string; frontmatter: Record<string, unknown> } => typeof f.frontmatter?.type === "string" && f.frontmatter.type !== "triage")
       .map(({ path, frontmatter }) => {
         const r = conform(frontmatter, registry.resolve(frontmatter.type as string), (t) => this.deps.lookupTargetType(t));
         return { path, frontmatter, issues: r.issues, fixed: r.fixed };
