@@ -282,7 +282,7 @@ describe("ResearchWorkbenchView", () => {
     const modal = getLastOpenedModal()!;
     const inputs = [...modal.contentEl.querySelectorAll("input")] as any[];
     const textarea = modal.contentEl.querySelector("textarea") as any;
-    inputs.find((input) => input.getAttribute("aria-label") === "Claim title")!.value = "Claim";
+    inputs.find((input) => input.getAttribute("aria-label") === "Short title")!.value = "Claim";
     textarea.value = "The evidence supports this proposition.";
     const support = inputs.find((input) => input.getAttribute("aria-label") === "Evidence E supports");
     support.checked = true;

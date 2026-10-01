@@ -205,7 +205,7 @@ export class ResearchActions {
     const label = this.deps.researchLabel?.();
     new ClaimCreateModal(this.deps.app, {
       evidence: ordered,
-      submit: async (input) => { await this.deps.repository.createClaim({ project: snapshot.project.path, ...input }); await this.deps.changed(); },
+      submit: async (input) => { await this.deps.repository.createClaim({ project: snapshot.project.path, ...input, reviewState: "reviewed" }); await this.deps.changed(); },
       ...(this.deps.rewriteText ? { rewriteText: this.deps.rewriteText } : {}),
       ...(complete ? {
         suggest: async () => {

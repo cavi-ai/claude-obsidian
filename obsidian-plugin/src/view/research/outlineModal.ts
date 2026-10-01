@@ -6,8 +6,8 @@ export class OutlineCreateModal extends Modal {
   constructor(app: App, private readonly claims: ClaimRecord[], private readonly submit: (claimPaths: string[]) => Promise<void>) { super(app); }
   override onOpen(): void {
     this.contentEl.empty();
-    this.contentEl.createEl("h2", { text: "Build evidence-backed outline" });
-    this.contentEl.createEl("p", { text: "Choose the reviewed, supported claims to include in the canonical outline." });
+    this.contentEl.createEl("h2", { text: "Build the outline" });
+    this.contentEl.createEl("p", { text: "Pick the claims to include. Each one becomes a section." });
     const selected = new Map<string, HTMLInputElement>();
     for (const claim of this.claims) {
       const row = this.contentEl.createEl("label", { cls: "cc-research-outline-claim" });

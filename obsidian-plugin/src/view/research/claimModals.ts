@@ -31,10 +31,10 @@ export class ClaimCreateModal extends Modal {
   override onOpen(): void {
     const { evidence, rewriteText, suggest } = this.deps;
     this.contentEl.empty();
-    this.contentEl.createEl("h2", { text: "Create evidence-backed claim" });
+    this.contentEl.createEl("h2", { text: "New claim" });
     const status = this.contentEl.createEl("p", { cls: "cc-research-modal-status", attr: { role: "status" } });
-    const title = this.field("Claim title", "input") as HTMLInputElement;
-    const proposition = this.field("Proposition", "textarea") as HTMLTextAreaElement;
+    const title = this.field("Short title", "input") as HTMLInputElement;
+    const proposition = this.field("Claim", "textarea") as HTMLTextAreaElement;
     const confidenceWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
     confidenceWrap.createEl("label", { text: "Confidence" });
     const confidence = confidenceWrap.createEl("select", { attr: { "aria-label": "Claim confidence" } });
@@ -91,19 +91,19 @@ export class ClaimCreateModal extends Modal {
     if (rewriteText) {
       let sharpened: string | null = null;
       const preview = this.contentEl.createDiv({ cls: "cc-research-sharpen-preview is-hidden" });
-      preview.createEl("strong", { text: "Sharpened proposition" });
+      preview.createEl("strong", { text: "Sharper wording" });
       const previewText = preview.createEl("p", { cls: "cc-research-sharpen-text" });
       const previewActions = preview.createDiv({ cls: "cc-research-modal-actions" });
-      const use = previewActions.createEl("button", { cls: "mod-cta", text: "Use rewrite" });
+      const use = previewActions.createEl("button", { cls: "mod-cta", text: "Use this" });
       use.addEventListener("click", () => { if (sharpened !== null) { proposition.value = sharpened; touched.proposition = true; } sharpened = null; preview.addClass("is-hidden"); });
       const dismiss = previewActions.createEl("button", { text: "Dismiss" });
       dismiss.addEventListener("click", () => { sharpened = null; preview.addClass("is-hidden"); });
 
       const sharpenWrap = this.contentEl.createDiv({ cls: "cc-research-modal-actions" });
-      const sharpen = sharpenWrap.createEl("button", { text: "Sharpen with Claude", attr: { "aria-label": "Sharpen the proposition with Claude, grounded in the checked evidence" } });
+      const sharpen = sharpenWrap.createEl("button", { text: "Sharpen with Claude", attr: { "aria-label": "Sharpen the claim with Claude, using the linked passages" } });
       sharpen.addEventListener("click", () => {
         const draft = proposition.value.trim();
-        if (!draft) { error.setText("Write a proposition first, then sharpen it."); return; }
+        if (!draft) { error.setText("Write the claim first, then sharpen it."); return; }
         const context = evidence
           .flatMap((item) => {
             const choices = relations.get(item.path);
@@ -126,7 +126,7 @@ export class ClaimCreateModal extends Modal {
     button.addEventListener("click", () => {
       const input: ClaimModalInput = { title: title.value, proposition: proposition.value, confidence: confidence.value as ClaimModalInput["confidence"], supports: [], challenges: [], contextualizes: [] };
       for (const [path, choices] of relations) for (const relation of RELATIONS) if (choices[relation].checked) input[relation].push(path);
-      if (!input.title.trim() || !input.proposition.trim()) { error.setText("Claim title and proposition are required."); return; }
+      if (!input.title.trim() || !input.proposition.trim()) { error.setText("Add a short title and the claim."); return; }
       if (![...input.supports, ...input.challenges, ...input.contextualizes].length) { error.setText("Link at least one passage."); return; }
       void this.deps.submit(input).then(() => this.close()).catch((cause) => error.setText(sanitizeLoadError(cause)));
     });

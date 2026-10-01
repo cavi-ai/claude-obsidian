@@ -139,9 +139,9 @@ test("research Sharpen with Claude runs a tool-less Claude Code one-shot", async
     await expect(page.getByRole("heading", { name: "Continuity research" })).toBeVisible();
     await desk.getByRole("button", { name: "Develop claim", exact: true }).click();
     const modal = page.locator(".modal-container").last();
-    await modal.getByLabel("Claim title").fill("Workflow continuity claim");
-    await modal.getByLabel("Proposition", { exact: true }).fill("Reviewed evidence preserves continuity across the workflow.");
-    await modal.getByRole("button", { name: /Sharpen the proposition with Claude/ }).click();
+    await modal.getByLabel("Short title").fill("Workflow continuity claim");
+    await modal.getByLabel("Claim", { exact: true }).fill("Reviewed evidence preserves continuity across the workflow.");
+    await modal.getByRole("button", { name: /Sharpen the claim with Claude/ }).click();
     await expect(modal.locator(".cc-research-sharpen-text")).toContainText("pong from claude code", { timeout: 30_000 });
 
     const log = await readFile(harness.argvLog, "utf8");

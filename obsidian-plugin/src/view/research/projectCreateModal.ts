@@ -6,7 +6,7 @@ export class ProjectCreateModal extends Modal {
   override onOpen(): void {
     this.contentEl.empty();
     this.contentEl.createEl("h2", { text: "Create research project" });
-    this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: "A project frames one question, then builds a traceable trail: sources → evidence → claims → outline → draft." });
+    this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: "A project answers one question. You'll add sources, pull passages, make claims, then write." });
 
     const titleWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
     titleWrap.createEl("label", { text: "Title" });
@@ -14,7 +14,7 @@ export class ProjectCreateModal extends Modal {
     if (this.initial?.title) title.value = this.initial.title;
 
     const questionWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    questionWrap.createEl("label", { text: "Research question — the single question every record answers to" });
+    questionWrap.createEl("label", { text: "Research question" });
     const question = questionWrap.createEl("textarea", { attr: { "aria-label": "Research question", rows: "3", placeholder: "How does task-switching affect deep-work output for remote engineers?" } });
     if (this.initial?.question) question.value = this.initial.question;
     if (this.rewriteText) {
@@ -45,7 +45,7 @@ export class ProjectCreateModal extends Modal {
     }
 
     const folderWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    folderWrap.createEl("label", { text: "Project folder — where the project notes live" });
+    folderWrap.createEl("label", { text: "Folder" });
     const folder = folderWrap.createEl("input", { attr: { "aria-label": "Project folder" } });
     let folderTouched = Boolean(this.initial?.folder);
     if (this.initial?.folder) folder.value = this.initial.folder;
@@ -53,7 +53,7 @@ export class ProjectCreateModal extends Modal {
     title.addEventListener("input", () => { if (!folderTouched) folder.value = title.value.trim() ? `Research/${title.value.trim()}` : ""; });
 
     const audienceWrap = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-    audienceWrap.createEl("label", { text: "Audience (optional) — who the final document is written for" });
+    audienceWrap.createEl("label", { text: "Who it's for (optional)" });
     const audience = audienceWrap.createEl("input", { attr: { "aria-label": "Audience (optional)" } });
 
     const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });

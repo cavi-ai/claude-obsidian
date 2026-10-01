@@ -109,11 +109,11 @@ describe("claim creation", () => {
     const { actions } = setup({ completeResearch, researchLabel: () => "Claude Code · sonnet" });
     actions.createClaim(snap([ev("A")]));
     expect(all("p").map((el) => el.textContent)).toContain("Drafting a claim with Claude Code · sonnet…");
-    type(byLabel("Claim title"), "My title");
+    type(byLabel("Short title"), "My title");
     resolve(suggestion);
     await settle();
-    expect(byLabel("Claim title").value).toBe("My title");
-    expect(byLabel("Proposition").value).toBe("Drafted proposition.");
+    expect(byLabel("Short title").value).toBe("My title");
+    expect(byLabel("Claim").value).toBe("Drafted proposition.");
     expect(byLabel("Claim confidence").value).toBe("high");
     expect(byLabel("A supports").checked).toBe(true);
   });
@@ -130,12 +130,12 @@ describe("claim creation", () => {
   it("creates what the user filled in", async () => {
     const { actions, repository } = setup();
     actions.createClaim(snap([ev("A")]));
-    type(byLabel("Claim title"), "Mine");
-    type(byLabel("Proposition"), "It does.");
+    type(byLabel("Short title"), "Mine");
+    type(byLabel("Claim"), "It does.");
     byLabel("A supports").checked = true;
     click(button("Create claim"));
     await settle();
-    expect(repository.createClaim).toHaveBeenCalledWith(expect.objectContaining({ title: "Mine", supports: ["R/P/Evidence/A.md"] }));
+    expect(repository.createClaim).toHaveBeenCalledWith(expect.objectContaining({ title: "Mine", reviewState: "reviewed", supports: ["R/P/Evidence/A.md"] }));
   });
 });
 

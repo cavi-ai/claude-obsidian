@@ -80,7 +80,7 @@ test("04 handoff: each quick action does its step", async () => {
     await expect(harness.page.locator(".cc-research-desk")).toBeVisible();
   };
   const quick = (name: string) => harness.page.locator(".cc-research-desk").getByRole("button", { name, exact: true });
-  for (const [button, heading] of [["Add source", "Add research source"], ["Extract evidence", "Pull passages from a source"], ["Develop claim", "Create evidence-backed claim"]] as const) {
+  for (const [button, heading] of [["Add source", "Add research source"], ["Extract evidence", "Pull passages from a source"], ["Develop claim", "New claim"]] as const) {
     await quick(button).click();
     await expect(harness.page.locator(".modal-container").last().getByRole("heading", { name: heading })).toBeVisible();
     await harness.page.keyboard.press("Escape");
@@ -167,8 +167,8 @@ test("07 native continuity: evidence becomes a claim and an outline without leav
   await workbench.locator(".cc-research-tab-select").selectOption("Claims");
   await workbench.getByRole("button", { name: "Create claim", exact: true }).click();
   const claim = harness.page.locator(".modal-container").last();
-  await claim.getByLabel("Claim title").fill("Workflow continuity claim");
-  await claim.getByLabel("Proposition", { exact: true }).fill("Reviewed evidence preserves continuity across the workflow.");
+  await claim.getByLabel("Short title").fill("Workflow continuity claim");
+  await claim.getByLabel("Claim", { exact: true }).fill("Reviewed evidence preserves continuity across the workflow.");
   await claim.getByLabel("Challenge supports").check();
   await verifyModalWidths(claim, "Create claim", "06b-create-claim-mobile");
   await claim.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/06b-create-claim.png" });
@@ -179,7 +179,7 @@ test("07 native continuity: evidence becomes a claim and an outline without leav
   await workbench.locator(".cc-research-tab-select").selectOption("Outline");
   await workbench.getByRole("button", { name: "Build outline", exact: true }).click();
   const outline = harness.page.locator(".modal-container").last();
-  await expect(outline.getByRole("heading", { name: "Build evidence-backed outline" })).toBeVisible();
+  await expect(outline.getByRole("heading", { name: "Build the outline" })).toBeVisible();
   await expect(outline.getByLabel("Include Continuity claim")).toBeChecked();
   await verifyModalWidths(outline, "Build outline", "06c-build-outline-mobile");
   await outline.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/06c-build-outline.png" });
