@@ -9,7 +9,6 @@ import { conform } from "../ontology/conform";
 import { describeOntology } from "../ontology/describe";
 import { validateProposal } from "../ontology/propose";
 import type { OntologyRegistry } from "../ontology/registry";
-import type { ResolvedType } from "../ontology/types";
 import { replaceSection } from "./edit";
 import { readFrontmatter } from "./frontmatterRead";
 import { applyPatch, type PatchTarget } from "./patch";
