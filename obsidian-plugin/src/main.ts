@@ -19,6 +19,7 @@ import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
 import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
+import { DISCOVERY_CACHE_HOURS, DISCOVERY_EXPANSION_LIMIT, DISCOVERY_MAX_RESULTS } from "./discovery/limits";
 import { DraftCoordinator } from "./research/draftCoordinator";
 import { RevisionCoordinator } from "./research/revisionCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
@@ -41,7 +42,7 @@ import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
 import { sanitizeEndpointForDisplay, UtilityUnavailableError, type UtilityFallbackApproval } from "./providers/endpointPolicy";
 import { ANTHROPIC_DEFAULT_BASE_URL } from "./providers/auth";
-import { DEFAULT_SETTINGS, normalizeDiscoverySettings, type PluginSettings, type ArtifactOpenTarget } from "./types";
+import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, linkMention, withLinktext, type LinkCandidate } from "./links/unlinkedMentions";
@@ -55,7 +56,7 @@ import { REWRITE_SYSTEM, buildRewriteUser, buildGroundedRewriteUser, rewriteMaxT
 import { DiffModal } from "./view/DiffModal";
 import { BatchDiffModal } from "./view/BatchDiffModal";
 import { RewriteModal } from "./view/RewriteModal";
-import { renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
+import { ARTIFACT_HEIGHT, renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
 import { VaultTools, SEMANTIC_OFF_MESSAGE, type VaultToolsOptions } from "./mcp/vaultTools";
 import { catalogPromptProvider, composeResourceProviders, substrateResourceProvider, vaultResourceProvider } from "./mcp/providers";
@@ -683,7 +684,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private registerArtifactBlocks(): void {
     // Inline interactive artifacts: ```claude-html ... ```
     this.registerMarkdownCodeBlockProcessor("claude-html", (source, el, ctx) => {
-      let height = this.settings.artifactHeight;
+      let height = ARTIFACT_HEIGHT;
       let title = "Claude artifact";
       const info = ctx.getSectionInfo(el);
       if (info) {
@@ -2015,7 +2016,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
     if (actionId === "copy-diagnostics") {
       const logPath = "Claude/enrichment-diagnostics.log";
-      if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — turn on the toggle in Settings → Source capture and run Enrich all again.");
+      if (!(await this.app.vault.adapter.exists(logPath))) throw new Error("No enrichment diagnostics log exists yet — set enrichmentDiagnostics to true in the plugin data.json and run Enrich all again.");
       const text = await this.app.vault.adapter.read(logPath);
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable on this device.");
       await navigator.clipboard.writeText(text.slice(-8192));
@@ -2326,12 +2327,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const openAlex = {
         search: (query: Parameters<OpenAlexAdapter["search"]>[0], cursor?: string, signal?: AbortSignal) =>
           new OpenAlexAdapter(http, {
-            maxResults: normalizeDiscoverySettings(this.settings).discoveryMaxResults,
+            maxResults: DISCOVERY_MAX_RESULTS,
             ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
           }).search(query, cursor, signal),
         expand: (input: Parameters<OpenAlexAdapter["expand"]>[0], signal?: AbortSignal) =>
           new OpenAlexAdapter(http, {
-            maxResults: normalizeDiscoverySettings(this.settings).discoveryExpansionLimit,
+            maxResults: DISCOVERY_EXPANSION_LIMIT,
             ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
           }).expand(input, signal),
       };
@@ -2341,7 +2342,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         arxiv: new ArxivAdapter(http),
         repository: this.researchRepository(),
         enabled: () => this.settings.discoveryEnabled,
-        cacheHours: () => normalizeDiscoverySettings(this.settings).discoveryCacheHours,
+        cacheHours: () => DISCOVERY_CACHE_HOURS,
         rerankerMode: () => this.settings.discoveryReranker,
         chatBackend: () => this.settings.chatBackend,
         anthropic: () => ({ provider: this.router().anthropic, model: resolveModelId(this.settings.model, this.settings.customModel) }),
