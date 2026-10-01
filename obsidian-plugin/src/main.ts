@@ -3130,12 +3130,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._cliRuntime;
   }
 
-  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
+  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean; proposeOnly: boolean; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
     const registry = binding.backend.supportsPermissionPrompt
-      ? interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools)
-      : perTurnTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools);
+      ? interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools, () => binding.proposeOnly)
+      : perTurnTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools, () => binding.proposeOnly);
     const server = new McpHttpServer(
       {
         port: 0,
@@ -3167,7 +3167,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return claudeBackend;
   }
 
-  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string }): Promise<AgentTurnRunner> {
+  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string; proposeOnly?: boolean }): Promise<AgentTurnRunner> {
     const backend = this.cliBackendFor(this.settings.chatBackend);
     const cli = this.router().get(backend.id) as CliProvider;
     const executable = cli.executable();
@@ -3176,7 +3176,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const cwd = this.vaultBasePath();
     if (!runtime || !cwd) throw new Error(`${backend.label} runs on desktop only.`);
     const allowedTools = opts.agentMode ? cliAllowedTools(this.agentTools().definitions(), opts.planMode) : [];
-    const signature = JSON.stringify({ backend: backend.id, model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
+    const proposeOnly = opts.proposeOnly === true;
+    const signature = JSON.stringify({ proposeOnly, backend: backend.id, model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
     if (!opts.resumeSessionId && existing && existing.signature === signature && !existing.session.isClosed()) {
       existing.lastUsed = Date.now();
@@ -3194,7 +3195,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (promptFile) this.cliPromptFiles.add(promptFile);
     let bridge: McpHttpServer | null = null;
     try {
-      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode, backend });
+      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode, proposeOnly, backend });
       bridge = started.server;
       const mcpConfig = mcpConfigJson(started.port, started.token);
       let session: CliSession;
@@ -3427,7 +3428,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         }
         const conversationId = `order:${order.id}`;
         try {
-          const runner = await this.cliTurnRunner({ conversationId, planMode: false, agentMode: toolsSupported, model, deps: { confirmWrite: async () => false, proposeEdit }, transcript: "" });
+          const runner = await this.cliTurnRunner({ conversationId, planMode: false, agentMode: toolsSupported, model, deps: { confirmWrite: async () => false, proposeEdit }, transcript: "", proposeOnly: true });
           return await runner.run(request, handlers);
         } finally {
           await this.closeCliSession(conversationId);
