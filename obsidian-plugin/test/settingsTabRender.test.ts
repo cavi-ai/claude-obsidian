@@ -120,7 +120,7 @@ describe("settings definitions", () => {
     const pages = flatten(definitionsOf(plugin)).filter((i) => i.type === "page");
     const names = [
       "Agent (act on your vault)", "Agent bridge — MCP server (desktop)", "External tools — MCP client",
-      "Agent in the cloud (mobile-friendly)", "Cloud replies (pull from repo)", "Local models (Ollama & endpoints)",
+      "Cloud (experimental)", "Local models (Ollama & endpoints)",
       "Source capture (typed clips)", "Scholarly discovery", "Session memory",
     ];
     for (const name of names) {
@@ -132,11 +132,30 @@ describe("settings definitions", () => {
   it("keeps the cloud dispatch privacy wording on the page description", () => {
     const plugin = stubPlugin();
     plugin.settings.settingsShowAdvanced = true;
-    const page = flatten(definitionsOf(plugin)).find((i) => i.type === "page" && i.name === "Agent in the cloud (mobile-friendly)") as { desc?: string };
+    const page = flatten(definitionsOf(plugin)).find((i) => i.type === "page" && i.name === "Cloud (experimental)") as { desc?: string };
     expect(page.desc).toContain(
       "⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. "
         + "Stored locally in this vault's plugin data. Use a private repo.",
     );
+  });
+
+  it("merges cloud and storage pages", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const names = flatten(definitionsOf(plugin)).filter((i) => i.type === "page").map((p) => p.name);
+    expect(names).toEqual(expect.arrayContaining(["Cloud (experimental)", "Files & tags"]));
+    for (const old of ["Agent in the cloud (mobile-friendly)", "Cloud replies (pull from repo)", "Storage", "Indexing & tags"]) expect(names).not.toContain(old);
+  });
+
+  it("keeps the cloud page hidden in basic view until cloud dispatch is on", () => {
+    const cloudPage = (plugin: ReturnType<typeof stubPlugin>) =>
+      flatten(definitionsOf(plugin)).find((i) => i.type === "page" && i.name === "Cloud (experimental)") as { visible?: boolean | (() => boolean) };
+    const visible = (page: { visible?: boolean | (() => boolean) }) => (typeof page.visible === "function" ? page.visible() : page.visible ?? true);
+    const off = stubPlugin();
+    expect(visible(cloudPage(off))).toBe(false);
+    const on = stubPlugin();
+    on.settings.cloudDispatchEnabled = true;
+    expect(visible(cloudPage(on))).toBe(true);
   });
 
   it("declares the four new-chat context rows", () => {

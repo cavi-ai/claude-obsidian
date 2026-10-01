@@ -203,8 +203,7 @@ const PAGE_RELEVANCE: Record<string, (s: PluginSettings) => boolean> = {
     s.utilityBackend === "ollama" || s.utilityBackend === "custom",
   "Agent bridge — MCP server (desktop)": (s) => s.mcpEnabled,
   "External tools — MCP client": (s) => s.mcpClientServers.length > 0,
-  "Agent in the cloud (mobile-friendly)": (s) => s.cloudDispatchEnabled,
-  "Cloud replies (pull from repo)": (s) => s.cloudDispatchEnabled,
+  "Cloud (experimental)": (s) => s.cloudDispatchEnabled,
   "Session memory": (s) => s.memoryEnabled,
   "Scholarly discovery": (s) => s.discoveryEnabled,
 };
@@ -398,8 +397,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
           { type: "page", name: "Agent (act on your vault)", desc: PAGE_DESC.agent, items: this.agentItems() },
           { type: "page", name: "Agent bridge — MCP server (desktop)", visible: () => !Platform.isMobile, desc: PAGE_DESC.mcpBridge, items: this.mcpItems() },
           { type: "page", name: "External tools — MCP client", desc: PAGE_DESC.mcpClient, items: this.mcpClientItems() },
-          { type: "page", name: "Agent in the cloud (mobile-friendly)", desc: this.cloudDispatchDesc(), items: this.cloudItems() },
-          { type: "page", name: "Cloud replies (pull from repo)", desc: PAGE_DESC.cloudReplies, items: this.repliesItems() },
+          { type: "page", name: "Cloud (experimental)", desc: this.cloudDesc(), items: [...this.cloudItems(), ...this.repliesItems()] },
         ],
       },
       {
@@ -408,7 +406,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         items: [
           { type: "page", name: "Semantic search (local embeddings)", items: this.semanticItems() },
           { type: "page", name: "Local models (Ollama & endpoints)", visible: () => !Platform.isMobile, desc: `${PAGE_DESC.localModels} ${PAGE_DESC.openaiCompat}`, items: this.localModelsItems() },
-          { type: "page", name: "Indexing & tags", items: this.indexingItems() },
           { type: "page", name: "Source capture (typed clips)", desc: PAGE_DESC.sourceCapture, items: this.sourceCaptureItems() },
           { type: "page", name: "Vault ontology (typed notes & relations)", items: this.ontologyItems() },
           { type: "page", name: "Scholarly discovery", desc: PAGE_DESC.discovery, items: this.discoveryItems() },
@@ -419,7 +416,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         heading: "Files, memory & privacy",
         items: [
           { type: "page", name: "Session memory", visible: () => !Platform.isMobile, desc: PAGE_DESC.memory, items: this.memoryItems() },
-          { type: "page", name: "Storage", items: this.storageItems() },
+          { type: "page", name: "Files & tags", items: [...this.storageItems(), ...this.indexingItems()] },
           { type: "page", name: "What this plugin accesses (privacy)", items: this.privacyItems() },
           { type: "page", name: "Desktop-only features", visible: () => Platform.isMobile, items: this.desktopOnlyItems() },
         ],
@@ -427,8 +424,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     ];
   }
 
-  private cloudDispatchDesc(): string {
-    return `${PAGE_DESC.cloudDispatch} ⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. ${this.storageBlurb()} Use a private repo.`;
+  private cloudDesc(): string {
+    return `${PAGE_DESC.cloudDispatch} ⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. ${this.storageBlurb()} Use a private repo. ${PAGE_DESC.cloudReplies}`;
   }
 
   /** Callouts, the advanced-settings reveal, and the desktop-integrations entry point, above the first heading. */
