@@ -1526,7 +1526,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
           results.push({ path: file.path, outcome: null });
           continue;
         }
-        const outcome = await this.enrichment().runEnrich(file, false);
+        const raw = await this.enrichment().runEnrich(file, false);
+        // A denied or fail-closed utility is systemic: nothing may reach the chat model after it.
+        const outcome: EnrichOutcomeLike = raw.status === "failed" && raw.error instanceof UtilityUnavailableError
+          ? { status: "skipped", reason: raw.error.message }
+          : raw;
         results.push({ path: file.path, outcome });
         if (outcome.status === "skipped") break;
       }
