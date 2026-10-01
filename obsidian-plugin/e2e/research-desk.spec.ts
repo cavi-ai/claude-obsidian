@@ -59,13 +59,38 @@ test("03 continuity: project switching and active-document state remain understa
   await expect(desk.locator(".cc-desk-document")).toContainText("White paper");
 });
 
-test("04 handoff: every quick action opens the matching advanced capability", async () => {
-  const mappings = [["Capture source", "Sources"], ["Review evidence", "Evidence"], ["Develop claim", "Claims"], ["Continue draft", "Draft"], ["Run audit", "Audit"]] as const;
-  for (const [button, tab] of mappings) {
-    await harness.page.locator(".cc-research-desk").getByRole("button", { name: button, exact: true }).click();
-    const workbench = harness.page.locator(".cc-research-workbench"); await expect(workbench).toBeVisible(); await expect(workbench.locator(".cc-research-tab-select")).toHaveValue(tab);
+test("03b Re-check clears: the top action opens the changed passage and Keep resolves it", async () => {
+  await harness.page.evaluate(() => { (window as unknown as { app: { plugins: { plugins: Record<string, { researchDeskPreferences: unknown }> } } }).app.plugins.plugins["claude-companion"]!.researchDeskPreferences = {}; });
+  const desk = harness.page.locator(".cc-research-desk");
+  await desk.getByLabel("Active research project").selectOption("Research/Beta/Project.md");
+  await desk.getByLabel("Active research project").selectOption("Research/Alpha/Project.md");
+  await expect(desk.locator(".cc-desk-next h3")).toHaveText("Re-check Stale result");
+  await desk.getByRole("button", { name: "Start this task", exact: true }).click();
+  const modal = harness.page.locator(".modal-container").last();
+  await expect(modal.getByRole("heading", { name: "Check Stale result" })).toBeVisible();
+  await expect(modal).toContainText("The source changed since this was checked");
+  await modal.getByRole("button", { name: "Keep", exact: true }).click();
+  await expect(modal).toBeHidden();
+  await expect(desk.locator(".cc-desk-next h3")).not.toHaveText("Re-check Stale result");
+});
+
+test("04 handoff: each quick action does its step", async () => {
+  const openDesk = async () => {
     await harness.page.evaluate(async () => { await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-research-desk"); });
     await expect(harness.page.locator(".cc-research-desk")).toBeVisible();
+  };
+  const quick = (name: string) => harness.page.locator(".cc-research-desk").getByRole("button", { name, exact: true });
+  for (const [button, heading] of [["Add source", "Add research source"], ["Develop claim", "Create evidence-backed claim"]] as const) {
+    await quick(button).click();
+    await expect(harness.page.locator(".modal-container").last().getByRole("heading", { name: heading })).toBeVisible();
+    await harness.page.keyboard.press("Escape");
+  }
+  for (const [button, tab] of [["Extract evidence", "Evidence"], ["Continue draft", "Draft"], ["Run audit", "Audit"]] as const) {
+    await quick(button).click();
+    const workbench = harness.page.locator(".cc-research-workbench");
+    await expect(workbench).toBeVisible();
+    await expect(workbench.locator(".cc-research-tab-select")).toHaveValue(tab);
+    await openDesk();
   }
 });
 
@@ -132,11 +157,11 @@ test("07 native continuity: evidence becomes a claim and an outline without leav
   await workbench.locator(".cc-research-tab-select").selectOption("Evidence");
   await workbench.getByRole("button", { name: "Review evidence", exact: true }).click();
   const review = harness.page.locator(".modal-container").last();
-  await expect(review.getByRole("heading", { name: "Review Challenge" })).toBeVisible();
+  await expect(review.getByRole("heading", { name: "Check Challenge" })).toBeVisible();
   await expect(review.locator(".cc-research-evidence-excerpt")).toContainText("Continuity varies by workflow");
-  await verifyModalWidths(review, "Mark reviewed", "06a-review-evidence-mobile");
+  await verifyModalWidths(review, "Keep", "06a-review-evidence-mobile");
   await review.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/06a-review-evidence.png" });
-  await review.getByRole("button", { name: "Mark reviewed" }).click();
+  await review.getByRole("button", { name: "Keep", exact: true }).click();
   await expect(review).toBeHidden();
 
   await workbench.locator(".cc-research-tab-select").selectOption("Claims");

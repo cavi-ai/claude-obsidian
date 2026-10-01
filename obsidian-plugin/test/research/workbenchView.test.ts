@@ -234,7 +234,7 @@ describe("ResearchWorkbenchView", () => {
     await view.setProjectPath(snapshot.project.path);
     expect(elements(view, ".cc-research-panel-intro")).toHaveLength(1);
     expect(elements(view, ".cc-research-panel-title")[0]?.textContent).toBe("Project overview");
-    expect(elements(view, ".cc-research-panel-description")[0]?.textContent).toContain("research system");
+    expect(elements(view, ".cc-research-panel-description")[0]?.textContent).toContain("Where this project stands");
 
     await view.focus("Sources");
     expect(elements(view, ".cc-research-panel-title")[0]?.textContent).toBe("Source library");
@@ -248,8 +248,8 @@ describe("ResearchWorkbenchView", () => {
     await view.setProjectPath(snapshot.project.path);
     await view.focus("Evidence");
     expect(elements(view, ".cc-research-empty-state")).toHaveLength(1);
-    expect(elements(view, ".cc-research-empty-state-title")[0]?.textContent).toBe("No evidence yet");
-    expect(elements(view, ".cc-research-empty-state-copy")[0]?.textContent).toContain("lift the exact passage");
+    expect(elements(view, ".cc-research-empty-state-title")[0]?.textContent).toBe("No passages yet");
+    expect(elements(view, ".cc-research-empty-state-copy")[0]?.textContent).toContain("exact passage");
     expect(elements(view, ".cc-research-actions-heading")[0]?.textContent).toBe("Workspace actions");
     expect(elements(view, ".is-contextual").map(({ textContent }) => textContent)).toEqual(["Review evidence"]);
   });
@@ -264,7 +264,7 @@ describe("ResearchWorkbenchView", () => {
     click(elements(view, "button").find(({ textContent }) => textContent === "Review evidence"));
     const modal = getLastOpenedModal();
     expect([...modal!.contentEl.querySelectorAll("p")].map(({ textContent }: any) => textContent)).toContain("A directly inspectable passage.");
-    click([...modal!.contentEl.querySelectorAll("button")].find(({ textContent }: any) => textContent === "Mark reviewed"));
+    click([...modal!.contentEl.querySelectorAll("button")].find(({ textContent }: any) => textContent === "Keep"));
     await Promise.resolve(); await Promise.resolve();
 
     expect(reviewEvidence).toHaveBeenCalledWith(proposed.path, "reviewed");

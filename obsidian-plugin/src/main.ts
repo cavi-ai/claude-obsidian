@@ -6,7 +6,10 @@ import { SystemView, SYSTEM_VIEW_TYPE, type SystemViewDeps } from "./view/System
 import { SafeFixModal } from "./view/SafeFixModal";
 import { HealthController } from "./health/controller";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
-import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, ProjectCreateModal, QUESTION_INSTRUCTION, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
+import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
+import { ResearchActions } from "./view/research/actions";
+import { ProjectCreateModal } from "./view/research/projectCreateModal";
+import { QUESTION_INSTRUCTION } from "./view/research/shared";
 import { ResearchDeskView, RESEARCH_DESK_VIEW_TYPE } from "./view/ResearchDeskView";
 import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
 import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesView";
@@ -609,7 +612,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       updatePreferences: async (projectPath, update) => { this.researchDeskPreferences[projectPath] = update(this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] }); await this.persist(); },
       openWorkbench: (projectPath, target, path) => this.activateResearchWorkbench(projectPath, target, path),
       askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
-      createProject: () => this.activateResearchWorkbench(undefined, "Overview"),
+      actions: this.createResearchActions(),
       triageClippings: (folder) => this.triageClippings(folder),
       triageFolderChoices: () => triageFolderChoices(this.settings),
       pickTriageFolder: () => this.pickTriageFolder(),
@@ -636,38 +639,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
           draftCoordinator: new DraftCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
           revisionCoordinator: new RevisionCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
-          rewriteText: this.researchRewriteText(),
-          ...(typeof DOMParser === "undefined" ? {} : {
-            captureWeb: (url: string) => captureWebSource(url, {
-              fetchHtml: async (target) => {
-                const response = await requestUrl({ url: target, method: "GET", throw: false });
-                if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
-                return response.text;
-              },
-              parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
-            }),
-          }),
-          saveAsset: async (projectPath, name, data) => {
-            const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
-            await ensureVaultFolder(this.app, folder);
-            let path = normalizePath(`${folder}/${name}`);
-            if (this.app.vault.getAbstractFileByPath(path)) {
-              const base = name.replace(/\.[^.]+$/, "");
-              const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
-              path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
-            }
-            await this.app.vault.createBinary(path, data);
-            return path;
-          },
-          suggestTags: async (content) => {
-            try {
-              const { tags } = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
-              return tags;
-            } catch (e) {
-              console.warn("[companion] source tagging failed", e);
-              return [];
-            }
-          },
+          actions: this.createResearchActions(),
           openDesk: (projectPath) => this.activateResearchDesk(projectPath),
           askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
         };
@@ -1495,6 +1467,64 @@ export default class ClaudeCompanionPlugin extends Plugin {
     } finally {
       progress.hide();
     }
+  }
+
+  /** One step runner shared by the Research Desk and Workbench. */
+  private createResearchActions(): ResearchActions {
+    return new ResearchActions({
+      app: this.app,
+      repository: this.researchRepository(),
+      rewriteText: this.researchRewriteText(),
+      completeResearch: async ({ system, user, maxTokens }) => (await this.router().completeResolved(this.requireResearchSelection(), { system, user, maxTokens: maxTokens ?? 1024, temperature: 0.2 })).text,
+      researchLabel: () => researchModelChip(this.router().researchStatus()).text.replace(/^AI · /, ""),
+      ...(typeof DOMParser === "undefined" ? {} : {
+        captureWeb: (url: string) => captureWebSource(url, {
+          fetchHtml: async (target) => {
+            const response = await requestUrl({ url: target, method: "GET", throw: false });
+            if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
+            return response.text;
+          },
+          parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+        }),
+      }),
+      saveAsset: async (projectPath, name, data) => {
+        const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
+        await ensureVaultFolder(this.app, folder);
+        let path = normalizePath(`${folder}/${name}`);
+        if (this.app.vault.getAbstractFileByPath(path)) {
+          const base = name.replace(/\.[^.]+$/, "");
+          const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
+          path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
+        }
+        await this.app.vault.createBinary(path, data);
+        return path;
+      },
+      suggestTags: async (content) => {
+        try {
+          const { tags } = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
+          return tags;
+        } catch (e) {
+          console.warn("[companion] source tagging failed", e);
+          return [];
+        }
+      },
+      openPath: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
+        else new Notice(`Research note not found: ${path}`);
+      },
+      changed: () => this.refreshResearchViews(),
+      openWorkbench: (projectPath, tab, path) => this.activateResearchWorkbench(projectPath, tab, path),
+      selectProject: async (path) => {
+        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchDeskView) await leaf.view.setProjectPath(path);
+        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) if (leaf.view instanceof ResearchWorkbenchView) await leaf.view.setProjectPath(path);
+      },
+    });
+  }
+
+  private async refreshResearchViews(): Promise<void> {
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchDeskView) await leaf.view.render();
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) if (leaf.view instanceof ResearchWorkbenchView) await leaf.view.render();
   }
 
   private requireResearchSelection(): { provider: Provider; model: string } {

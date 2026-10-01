@@ -138,9 +138,6 @@ test("research Sharpen with Claude runs a tool-less Claude Code one-shot", async
     await expect(desk).toBeVisible();
     await expect(page.getByRole("heading", { name: "Continuity research" })).toBeVisible();
     await desk.getByRole("button", { name: "Develop claim", exact: true }).click();
-    const workbench = page.locator(".cc-research-workbench");
-    await expect(workbench).toBeVisible();
-    await workbench.getByRole("button", { name: "Create claim", exact: true }).click();
     const modal = page.locator(".modal-container").last();
     await modal.getByLabel("Claim title").fill("Workflow continuity claim");
     await modal.getByLabel("Proposition", { exact: true }).fill("Reviewed evidence preserves continuity across the workflow.");
@@ -148,11 +145,14 @@ test("research Sharpen with Claude runs a tool-less Claude Code one-shot", async
     await expect(modal.locator(".cc-research-sharpen-text")).toContainText("pong from claude code", { timeout: 30_000 });
 
     const log = await readFile(harness.argvLog, "utf8");
-    const last = log.split("\n").filter((l) => l.startsWith("ARGV ")).at(-1) ?? "";
-    expect(last).toContain("--no-session-persistence");
-    expect(last).toContain("--strict-mcp-config");
-    expect(last).not.toContain("--mcp-config ");
-    expect(last).not.toContain("--permission-prompt-tool");
+    const argv = log.split("\n").filter((l) => l.startsWith("ARGV "));
+    expect(argv.length).toBeGreaterThan(0);
+    for (const line of argv) {
+      expect(line).toContain("--no-session-persistence");
+      expect(line).toContain("--strict-mcp-config");
+      expect(line).not.toContain("--mcp-config");
+      expect(line).not.toContain("--permission-prompt-tool");
+    }
     expect(await harness.providerRequests()).toBe(0);
   } finally {
     await harness.close();
