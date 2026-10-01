@@ -7,8 +7,8 @@ import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { toAnthropicTools, executeTool, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
-import { planEdits, applyPlan, parseProposedEdits } from "../edit/diff";
-import { reviewEdits } from "../editor/reviewEdits";
+import { planEdits, parseProposedEdits } from "../edit/diff";
+import { reviewAndApply } from "../edit/reviewAndApply";
 import type { ApiMessage, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
 import { TFile } from "obsidian";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, transcriptText, type Conversation } from "../conversations/store";
@@ -1222,34 +1222,24 @@ export class ChatView extends ItemView {
   }
 
   private async applyReviewedEdit(conversationId: string, file: TFile, plan: ReturnType<typeof planEdits>, description?: string, signal?: AbortSignal): Promise<string> {
-    const outcome = await reviewEdits(
-      this.app,
-      { file, plan, ...(description !== undefined ? { description } : {}) },
-      { inlineEnabled: this.plugin.settings.inlineDiffEnabled, ...(signal ? { signal } : {}) },
-    );
+    const result = await reviewAndApply(this.app, file, plan, description, { inlineEnabled: this.plugin.settings.inlineDiffEnabled, ...(signal ? { signal } : {}) });
     if (signal?.aborted) return "Turn stopped. The proposed edit is saved for later review.";
-    const accepted = outcome.accepted;
-    if (!accepted) {
+    if (result.cancelled) {
       const conversation = this.plugin.listConversations().find((entry) => entry.id === conversationId);
       if (conversation && this.conversationId === conversationId) this.transcript.renderRecoverableEdit(conversation);
       return "User rejected the proposed edit. It is saved for later review.";
     }
 
-    // Inline review already edited the live buffer; the modal path applies under the write lock.
-    if (outcome.mode === "modal") {
-      await this.app.vault.process(file, (current) => applyPlan(current, plan, accepted));
-    }
-    const applied = accepted.filter(Boolean).length;
-    if (applied === plan.hunks.length) {
+    const { applied, total } = result;
+    if (applied === total) {
       await this.plugin.clearChatEditProposal(conversationId).catch((error: unknown) => console.error("[Claude Companion] could not clear applied edit recovery record", error));
       if (this.conversationId === conversationId) this.messagesEl.querySelector(".cc-edit-recovery")?.remove();
     } else {
-      const edits = plan.hunks.filter((_, index) => !accepted[index]).map((hunk) => ({ old_str: hunk.oldText, new_str: hunk.newText }));
-      await this.plugin.saveChatEditProposal(conversationId, { path: file.path, edits, ...(description ? { description } : {}) }).catch((error: unknown) => console.error("[Claude Companion] could not retain rejected edit recovery record", error));
+      await this.plugin.saveChatEditProposal(conversationId, { path: file.path, edits: result.remaining, ...(description ? { description } : {}) }).catch((error: unknown) => console.error("[Claude Companion] could not retain rejected edit recovery record", error));
     }
-    return applied === plan.hunks.length
+    return applied === total
       ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${file.path}.`
-      : `Applied ${applied} of ${plan.hunks.length} edits to ${file.path} (the user rejected the rest).`;
+      : `Applied ${applied} of ${total} edits to ${file.path} (the user rejected the rest).`;
   }
 
   private async reviewLastProposedEdit(conversation: Conversation): Promise<void> {

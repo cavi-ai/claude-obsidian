@@ -74,6 +74,7 @@ import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
 import { OrdersController } from "./orders/controller";
+import { discardQueuedEdit as discardQueuedOrderEdit, reviewQueuedEdit as reviewQueuedOrderEdit, type QueueReviewDeps } from "./orders/queueReview";
 import { normalizeEditQueue, type QueuedEdit } from "./orders/editQueue";
 import { ORDER_SCAFFOLD, parseOrder, type StandingOrder } from "./orders/order";
 import { ORDERS_OUTPUT_ROOT } from "./orders/output";
@@ -3433,6 +3434,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
         }
       },
     });
+  }
+
+  listQueuedEdits(): QueuedEdit[] {
+    return this.orderEditQueue;
+  }
+
+  private queueReviewDeps(): QueueReviewDeps {
+    return {
+      app: this.app,
+      getQueue: () => this.orderEditQueue,
+      setQueue: async (next) => { this.orderEditQueue = next; await this.persist(); },
+      inlineEnabled: () => this.settings.inlineDiffEnabled,
+      onChanged: () => this.onOrderQueueChanged(),
+    };
+  }
+
+  reviewQueuedEdit(id: string): Promise<void> {
+    return reviewQueuedOrderEdit(this.queueReviewDeps(), id);
+  }
+
+  discardQueuedEdit(id: string): Promise<void> {
+    return discardQueuedOrderEdit(this.queueReviewDeps(), id);
   }
 
   private onOrderQueueChanged(): void {
