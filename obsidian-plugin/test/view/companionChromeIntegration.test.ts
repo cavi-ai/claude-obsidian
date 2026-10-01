@@ -63,6 +63,7 @@ describe("Companion chrome view integration", () => {
     const plugin = {
       settings: structuredClone(DEFAULT_SETTINGS),
       companionChrome: () => deps,
+      listQueuedEdits: () => [],
     } as unknown as ClaudeCompanionPlugin;
     plugin.settings.sourceCaptureEnabled = false;
 
