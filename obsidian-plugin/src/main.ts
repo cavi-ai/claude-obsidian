@@ -106,7 +106,7 @@ import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
-import { needsCredentialSetup } from "./providers/setupState";
+import { credentialSetupInputs, needsCredentialSetup, type SetupInputs } from "./providers/setupState";
 import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
 import { wizardPlan, wizardPlanExplicit, WIZARD_DISMISSED_SETTINGS, type WizardState, type WizardStep } from "./onboarding/wizard";
 import { SetupWizardModal, type SetupWizardDependencies } from "./view/SetupWizardModal";
@@ -1745,13 +1745,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
+  private clipperStatus(): "not-set-up" | "current" | "update-available" {
+    const statuses = this.clipperSetups().map(({ status }) => status);
+    return statuses.includes("update-available") ? "update-available" : statuses.every((status) => status === "current") ? "current" : "not-set-up";
+  }
+
   private quickOptionsSnapshot(): QuickOptionsState {
-    const clipperStatuses = this.clipperSetups().map(({ status }) => status);
-    const clipperStatus = clipperStatuses.includes("update-available")
-      ? "update-available" as const
-      : clipperStatuses.every((status) => status === "current")
-        ? "current" as const
-        : "not-set-up" as const;
+    const clipperStatus = this.clipperStatus();
     const embeddingModel = this.settings.embeddingEngine === "builtin"
       ? builtinModelById(this.settings.builtinEmbeddingModel).hfRepo.split("/").at(-1) ?? "Built-in model"
       : this.settings.embeddingEngine === "ollama"
@@ -2401,6 +2401,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   // ---------- first run ----------
+
+  /** Inputs for needsCredentialSetup; ChatView's send gate and System share them. */
+  credentialSetupInputs(): SetupInputs {
+    return credentialSetupInputs(this.router());
+  }
 
   /** Settings-level view of what a fresh install still owes the user. */
   private firstRunState(): FirstRunState {
@@ -3465,6 +3470,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
         };
       },
       inboxPending: () => this.inboxPendingCount(),
+      companion: () => ({
+        connection: { backend: this.router().chatBackend, needsCredential: needsCredentialSetup(this.credentialSetupInputs()) },
+        activity: this.activity.snapshot().records
+          .filter((r) => r.state === "needs-attention")
+          .map((r) => ({ id: r.id, title: r.title, failed: r.failed, recovery: r.recovery.map(({ id, label }) => ({ id, label })) })),
+        bridge: { applicable: !Platform.isMobile, enabled: this.settings.mcpEnabled, running: this.mcpRunning(), port: this.settings.mcpPort },
+        clipper: { applicable: this.settings.sourceCaptureEnabled, status: this.clipperStatus() },
+      }),
       now: () => new Date().toISOString(),
     });
   }

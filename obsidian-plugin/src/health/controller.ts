@@ -1,7 +1,7 @@
 import { conform } from "../ontology/conform";
 import type { ResolvedType } from "../ontology/types";
 import type { AuditFinding } from "../research/audit";
-import { scanVaultHealth, type HealthInput, type HealthReport } from "./scan";
+import { scanVaultHealth, type CompanionStatus, type HealthInput, type HealthReport } from "./scan";
 
 export interface HealthDeps {
   markdownFiles(): Array<{ path: string; frontmatter?: Record<string, unknown> | undefined }>;
@@ -12,6 +12,7 @@ export interface HealthDeps {
   auditProject(path: string): Promise<AuditFinding[]>;
   index(): Promise<{ enabled: boolean; built: boolean; failed: Array<{ path: string; message: string }> }>;
   inboxPending(): number;
+  companion(): CompanionStatus;
   now(): string;
 }
 
@@ -35,6 +36,7 @@ export class HealthController {
       research,
       index: await this.deps.index(),
       inboxPending: this.deps.inboxPending(),
+      companion: this.deps.companion(),
       now: this.deps.now(),
     });
   }
