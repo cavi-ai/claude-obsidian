@@ -48,11 +48,10 @@ describe("scholarly discovery plugin wiring", () => {
     expect(coordinator.stateFor(snapshot).status).toBe("idle");
     expect(requestUrl).not.toHaveBeenCalled();
 
-    plugin.settings.discoveryMaxResults = 999;
     plugin.settings.openAlexContactEmail = "  person@example.test  ";
     await coordinator.search(snapshot, "query");
     const url = new URL(requestUrl.mock.calls[0]![0].url);
-    expect(url.searchParams.get("per-page")).toBe("100");
+    expect(url.searchParams.get("per-page")).toBe("20");
     expect(url.searchParams.get("mailto")).toBe("person@example.test");
   });
 
@@ -101,7 +100,7 @@ describe("scholarly discovery plugin wiring", () => {
     Object.defineProperty(plugin, "app", { value: { workspace: { getLeavesOfType: () => [] } } });
     await plugin.loadSettings();
     plugin.refreshViews();
-    expect(plugin.settings.discoveryMaxResults).toBe(100);
+    expect(plugin.settings).not.toHaveProperty("discoveryMaxResults");
     expect(requestUrl).not.toHaveBeenCalled();
   });
 

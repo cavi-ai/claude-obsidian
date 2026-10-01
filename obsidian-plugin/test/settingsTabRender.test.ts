@@ -90,10 +90,6 @@ describe("settings definitions", () => {
     await tab.setControlValue("artifactBaseTags", "one, two ,, three");
     expect(plugin.settings.artifactBaseTags).toEqual(["one", "two", "three"]);
     expect(tab.getControlValue("artifactBaseTags")).toBe("one, two, three");
-
-    // Discovery numbers are clamped by normalizeDiscoverySettings.
-    await tab.setControlValue("discoveryMaxResults", 9999);
-    expect(plugin.settings.discoveryMaxResults).toBe(100);
   });
 
   it("edits the new-chat context defaults through nested codec keys", async () => {
@@ -107,6 +103,68 @@ describe("settings definitions", () => {
     await tab.setControlValue("context.activeNote", false);
     expect(context.activeNote).toBe(false);
     expect(tab.getControlValue("context.activeNote")).toBe(false);
+  });
+
+  it("has no prose-only rows", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const keptPages = ["What this plugin accesses (privacy)", "Desktop-only features"];
+    const scoped = definitionsOf(plugin).flatMap((g) => (g.items ?? []).filter((i) => !keptPages.includes(i.name ?? "")));
+    const rows = flatten(scoped).filter((i) => i.type !== "group" && i.type !== "page" && i.type !== "list");
+    const prose = rows.filter((r) => !r.control && !(r as { render?: unknown }).render && !(r as { action?: unknown }).action);
+    expect(prose.map((r) => r.name)).toEqual([]);
+  });
+
+  it("folds the prose into page descriptions", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const pages = flatten(definitionsOf(plugin)).filter((i) => i.type === "page");
+    const names = [
+      "Agent (act on your vault)", "Agent bridge — MCP server (desktop)", "External tools — MCP client",
+      "Cloud (experimental)", "Local models (Ollama & endpoints)",
+      "Source capture (typed clips)", "Research Desk & discovery", "Session memory",
+    ];
+    for (const name of names) {
+      const page = pages.find((p) => p.name === name);
+      expect(typeof (page as { desc?: unknown } | undefined)?.desc === "string" && ((page as { desc: string }).desc.length > 0), name).toBe(true);
+    }
+  });
+
+  it("keeps the cloud dispatch privacy wording on the page description", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const page = flatten(definitionsOf(plugin)).find((i) => i.type === "page" && i.name === "Cloud (experimental)") as { desc?: string };
+    expect(page.desc).toContain(
+      "⚠️ Unlike the local bridge, this sends your prompt + attached note context to Anthropic's cloud and runs against your vault's Git repo. "
+        + "Stored locally in this vault's plugin data. Use a private repo.",
+    );
+  });
+
+  it("merges cloud and storage pages", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const names = flatten(definitionsOf(plugin)).filter((i) => i.type === "page").map((p) => p.name);
+    expect(names).toEqual(expect.arrayContaining(["Cloud (experimental)", "Files & tags"]));
+    for (const old of ["Agent in the cloud (mobile-friendly)", "Cloud replies (pull from repo)", "Storage", "Indexing & tags"]) expect(names).not.toContain(old);
+  });
+
+  it("keeps the cloud page hidden in basic view until cloud dispatch is on", () => {
+    const cloudPage = (plugin: ReturnType<typeof stubPlugin>) =>
+      flatten(definitionsOf(plugin)).find((i) => i.type === "page" && i.name === "Cloud (experimental)") as { visible?: boolean | (() => boolean) };
+    const visible = (page: { visible?: boolean | (() => boolean) }) => (typeof page.visible === "function" ? page.visible() : page.visible ?? true);
+    const off = stubPlugin();
+    expect(visible(cloudPage(off))).toBe(false);
+    const on = stubPlugin();
+    on.settings.cloudDispatchEnabled = true;
+    expect(visible(cloudPage(on))).toBe(true);
+  });
+
+  it("hides the enrichment diagnostics switch but keeps the setting", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const keys = flatten(definitionsOf(plugin)).flatMap((item) => (item.control ? [item.control.key] : []));
+    expect(keys).not.toContain("enrichmentDiagnostics");
+    expect(DEFAULT_SETTINGS.enrichmentDiagnostics).toBe(false);
   });
 
   it("declares the four new-chat context rows", () => {
