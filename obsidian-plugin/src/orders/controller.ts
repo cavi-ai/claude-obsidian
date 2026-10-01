@@ -1,6 +1,7 @@
 // Runs standing orders: schedule ticks and new-note events feed one serial queue. All IO is injected.
 
 import type { ActivityStore } from "../activity/store";
+import { stripFrontmatter } from "../semantic/chunk";
 import { enqueueEdit, type QueuedEdit } from "./editQueue";
 import { matchingOrders, type NoteFacts } from "./match";
 import type { StandingOrder } from "./order";
@@ -30,16 +31,19 @@ export interface OrdersControllerDeps {
   onQueueChanged(): void;
 }
 
+export const ORDER_NOTE_SETTLE_MS = 60_000;
 const MAX_RETRYABLE = 50;
 
 type Source = { kind: "schedule" } | { kind: "note"; path: string };
-interface Job { order: StandingOrder; source: Source; activityId?: string }
+/** `manual` jobs (run now, retry) skip the still-enabled re-check. */
+interface Job { order: StandingOrder; source: Source; activityId?: string; manual?: boolean }
 
 export class OrdersController {
   private orders: StandingOrder[] = [];
   private invalid: Array<{ path: string; reason: string }> = [];
   private chain: Promise<void> = Promise.resolve();
   private held: Array<{ orderId: string; path: string }> = [];
+  private pending = new Map<string, number>();
   private failed = new Map<string, Job>();
   private lastStamp = 0;
 
@@ -60,6 +64,18 @@ export class OrdersController {
   async tick(): Promise<void> {
     if (!this.deps.enabled()) return;
     const now = this.deps.now();
+    const settled = [...this.pending].filter(([, lastEventAt]) => now.getTime() - lastEventAt >= ORDER_NOTE_SETTLE_MS).map(([path]) => path);
+    for (const path of settled) this.pending.delete(path);
+    const bodies = new Map<string, string>();
+    for (const path of settled) {
+      try {
+        const body = stripFrontmatter(await this.deps.readNote(path));
+        if (body.trim()) bodies.set(path, body);
+      } catch {
+        // note vanished before it settled
+      }
+    }
+
     const jobs: Job[] = [];
     let state = this.deps.getState();
     for (const id of dueOrders(this.orders, state, now)) {
@@ -78,41 +94,43 @@ export class OrdersController {
       else stillHeld.push(item);
     }
     this.held = stillHeld;
+    for (const path of bodies.keys()) {
+      const facts = this.deps.noteFacts(path);
+      if (!facts) continue;
+      for (const id of matchingOrders(this.orders, facts, state, this.deps.excludedRoots())) {
+        const order = this.orders.find((o) => o.id === id);
+        if (!order) continue;
+        state = recordFired(state, id, path);
+        const taken = takeHourSlot(state, id, now.getTime());
+        state = taken.state;
+        if (taken.allowed) jobs.push({ order, source: { kind: "note", path } });
+        else this.held.push({ orderId: id, path });
+      }
+    }
     await this.deps.setState(state);
     await Promise.all(jobs.map((job) => this.enqueue(job)));
   }
 
+  /** Records the change only; tick() fires the order once the note has been quiet for ORDER_NOTE_SETTLE_MS. */
   async noteEvent(path: string): Promise<void> {
     if (!this.deps.enabled()) return;
     const facts = this.deps.noteFacts(path);
     if (!facts) return;
-    let state = this.deps.getState();
-    const jobs: Job[] = [];
-    for (const id of matchingOrders(this.orders, facts, state, this.deps.excludedRoots())) {
-      const order = this.orders.find((o) => o.id === id);
-      if (!order) continue;
-      state = recordFired(state, id, path);
-      const taken = takeHourSlot(state, id, this.deps.now().getTime());
-      state = taken.state;
-      if (taken.allowed) jobs.push({ order, source: { kind: "note", path } });
-      else this.held.push({ orderId: id, path });
-    }
-    if (state === this.deps.getState()) return;
-    await this.deps.setState(state);
-    await Promise.all(jobs.map((job) => this.enqueue(job)));
+    if (matchingOrders(this.orders, facts, this.deps.getState(), this.deps.excludedRoots()).length === 0) return;
+    this.pending.set(path, this.deps.now().getTime());
   }
 
   async runNow(orderId: string): Promise<void> {
     const order = this.orders.find((o) => o.id === orderId);
     if (!order) throw new Error(`Standing order not found: ${orderId}`);
-    await this.enqueue({ order, source: { kind: "schedule" } });
+    await this.enqueue({ order, source: { kind: "schedule" }, manual: true });
   }
 
   async retry(activityId: string): Promise<void> {
     const job = this.failed.get(activityId);
     if (!job) throw new Error("That run can no longer be retried.");
     this.failed.delete(activityId);
-    await this.enqueue(job);
+    await this.enqueue({ ...job, manual: true });
   }
 
   private enqueue(job: Job): Promise<void> {
@@ -122,7 +140,10 @@ export class OrdersController {
   }
 
   private async execute(job: Job): Promise<void> {
-    const { order, source } = job;
+    const { source } = job;
+    const live = this.orders.find((o) => o.id === job.order.id);
+    if (!job.manual && !live?.enabled) return;
+    const order = job.manual ? job.order : live ?? job.order;
     const now = this.deps.now();
     const activity = this.deps.activity;
     this.lastStamp = Math.max(now.getTime(), this.lastStamp + 1);

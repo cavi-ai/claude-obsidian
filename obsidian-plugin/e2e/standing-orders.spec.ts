@@ -19,7 +19,8 @@ const PROPOSE = JSON.stringify({
   input: { path: "Meetings/Standup.md", edits: [{ old_str: "- [ ] ship", new_str: "- [x] ship" }], description: "Mark shipped" },
 });
 
-type PluginSeam = { ordersState: Record<string, unknown> };
+type OrdersSeam = { pending: Map<string, number>; tick(): Promise<void> };
+type PluginSeam = { ordersState: Record<string, unknown>; standingOrders(): OrdersSeam };
 type AppSeam = { app: { plugins: { plugins: Record<string, PluginSeam> }; vault: { create(path: string, content: string): Promise<unknown>; getFiles(): Array<{ path: string }>; getAbstractFileByPath(path: string): unknown; cachedRead(file: unknown): Promise<string> }; commands: { executeCommandById(id: string): Promise<void> } } };
 
 test("a standing order runs on a new note and its proposed edit is reviewed in the Inbox", async ({ rig }) => {
@@ -32,6 +33,14 @@ test("a standing order runs on a new note and its proposed edit is reviewed in t
     await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as AppSeam).app.plugins.plugins["claude-companion"]?.ordersState ?? {}).length), { timeout: 20_000 }).toBe(1);
     await page.evaluate(async () => {
       await (window as unknown as AppSeam).app.vault.create("Meetings/Standup.md", "- [ ] ship\n");
+    });
+
+    // The 60s settle window is not waited out: rewind the pending note's last-event time past it, then run the tick.
+    await expect.poll(() => page.evaluate(() => (window as unknown as AppSeam).app.plugins.plugins["claude-companion"]!.standingOrders().pending.has("Meetings/Standup.md"))).toBe(true);
+    await page.evaluate(async () => {
+      const orders = (window as unknown as AppSeam).app.plugins.plugins["claude-companion"]!.standingOrders();
+      orders.pending.set("Meetings/Standup.md", Date.now() - 61_000);
+      await orders.tick();
     });
 
     await expect.poll(() => page.evaluate(() => (window as unknown as AppSeam).app.vault.getFiles().map((f) => f.path).filter((p) => p.startsWith("Claude/Orders/Follow ups/"))), { timeout: 20_000 }).toHaveLength(1);

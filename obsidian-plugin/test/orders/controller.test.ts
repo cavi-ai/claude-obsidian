@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ActivityStore } from "../../src/activity/store";
-import { OrdersController, type OrdersControllerDeps } from "../../src/orders/controller";
+import { ORDER_NOTE_SETTLE_MS, OrdersController, type OrdersControllerDeps } from "../../src/orders/controller";
 import type { QueuedEdit } from "../../src/orders/editQueue";
 import type { NoteFacts } from "../../src/orders/match";
 import type { StandingOrder } from "../../src/orders/order";
@@ -24,6 +24,8 @@ interface Harness {
   queue: { value: QueuedEdit[] };
   queueChanged: ReturnType<typeof vi.fn>;
   facts: Map<string, NoteFacts>;
+  notes: Map<string, string>;
+  orders: StandingOrder[];
 }
 
 function harness(opts: { orders?: StandingOrder[]; enabled?: boolean; run?: (order: StandingOrder, trigger: OrderTrigger) => Promise<OrderRunResult>; invalid?: Array<{ path: string; reason: string }> } = {}): Harness {
@@ -33,15 +35,17 @@ function harness(opts: { orders?: StandingOrder[]; enabled?: boolean; run?: (ord
   const state = { value: {} as OrdersState };
   const queue = { value: [] as QueuedEdit[] };
   const facts = new Map<string, NoteFacts>();
+  const notes = new Map<string, string>();
+  const orders = opts.orders ?? [noteOrder];
   const activity = new ActivityStore();
   const queueChanged = vi.fn();
   const deps: OrdersControllerDeps = {
     enabled: () => opts.enabled ?? true,
     now: () => new Date(clock.ms),
-    loadOrders: async () => ({ orders: opts.orders ?? [noteOrder], invalid: opts.invalid ?? [] }),
+    loadOrders: async () => ({ orders: [...orders], invalid: opts.invalid ?? [] }),
     excludedRoots: () => ["Claude/Templates", "Claude/Orders"],
     noteFacts: (path) => facts.get(path) ?? null,
-    readNote: async (path) => `content of ${path}`,
+    readNote: async (path) => notes.get(path) ?? `content of ${path}`,
     writeRunNote: async (path, content) => { written.push({ path, content }); return path; },
     run: async (order, trigger) => {
       runs.push({ order, trigger });
@@ -54,10 +58,12 @@ function harness(opts: { orders?: StandingOrder[]; enabled?: boolean; run?: (ord
     activity,
     onQueueChanged: queueChanged,
   };
-  return { deps, controller: new OrdersController(deps), clock, runs, written, activity, state, queue, queueChanged, facts };
+  return { deps, controller: new OrdersController(deps), clock, runs, written, activity, state, queue, queueChanged, facts, notes, orders };
 }
 
 const fact = (h: Harness, path: string, ctime = START + 1000): void => { h.facts.set(path, { path, ctime, tags: [] }); };
+/** A note event, then the settle window passing, then the 60s tick that promotes it. */
+const settleAndTick = async (h: Harness): Promise<void> => { h.clock.ms += ORDER_NOTE_SETTLE_MS; await h.controller.tick(); };
 
 describe("OrdersController note events", () => {
   it("runs once for a new matching note, writes the run note and finishes the activity", async () => {
@@ -65,11 +71,13 @@ describe("OrdersController note events", () => {
     await h.controller.refresh();
     fact(h, "Meetings/a.md");
     await h.controller.noteEvent("Meetings/a.md");
+    expect(h.runs).toHaveLength(0);
+    await settleAndTick(h);
 
     expect(h.runs).toHaveLength(1);
     expect(h.runs[0]?.trigger).toEqual({ kind: "note", path: "Meetings/a.md", content: "content of Meetings/a.md" });
     expect(h.written).toHaveLength(1);
-    expect(h.written[0]?.path).toMatch(/^Claude\/Orders\/Follow ups\/2026-10-07 1000\.md$/);
+    expect(h.written[0]?.path).toMatch(/^Claude\/Orders\/Follow ups\/2026-10-07 1001\.md$/);
     expect(h.written[0]?.content).toContain("type: \"order-run\"");
     expect(h.queue.value).toHaveLength(1);
     expect(h.queue.value[0]).toMatchObject({ id: `${h.written[0]?.path}#0`, orderId: noteOrder.id, orderName: "Follow ups", path: "Meetings/a.md", description: "Mark shipped" });
@@ -83,7 +91,7 @@ describe("OrdersController note events", () => {
     await h.controller.refresh();
     fact(h, "Meetings/a.md");
     await h.controller.noteEvent("Meetings/a.md");
-    await h.controller.tick();
+    await settleAndTick(h);
     expect(h.runs).toHaveLength(0);
   });
 
@@ -92,6 +100,7 @@ describe("OrdersController note events", () => {
     await h.controller.refresh();
     fact(h, "Meetings/a.md");
     await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
     expect(h.runs).toHaveLength(0);
   });
 
@@ -100,6 +109,7 @@ describe("OrdersController note events", () => {
     await h.controller.refresh();
     for (let i = 0; i < 5; i++) fact(h, `Meetings/old${i}.md`, START - 1000 - i);
     for (let i = 0; i < 5; i++) await h.controller.noteEvent(`Meetings/old${i}.md`);
+    await settleAndTick(h);
     expect(h.runs).toHaveLength(0);
   });
 
@@ -108,6 +118,7 @@ describe("OrdersController note events", () => {
     await h.controller.refresh();
     h.facts.set("Claude/Orders/Follow ups/r.md", { path: "Claude/Orders/Follow ups/r.md", ctime: START + 5, tags: ["order-run"] });
     await h.controller.noteEvent("Claude/Orders/Follow ups/r.md");
+    await settleAndTick(h);
     expect(h.runs).toHaveLength(0);
   });
 
@@ -115,6 +126,7 @@ describe("OrdersController note events", () => {
     const h = harness();
     await h.controller.refresh();
     await h.controller.noteEvent("Meetings/photo.png");
+    await settleAndTick(h);
     expect(h.runs).toHaveLength(0);
   });
 
@@ -124,6 +136,49 @@ describe("OrdersController note events", () => {
     fact(h, "Meetings/a.md");
     await Promise.all([h.controller.noteEvent("Meetings/a.md"), h.controller.noteEvent("Meetings/a.md")]);
     await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
+    await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
+    await settleAndTick(h);
+    expect(h.runs).toHaveLength(1);
+  });
+
+  it("never runs an empty note, and re-arms it on its next change", async () => {
+    const h = harness();
+    await h.controller.refresh();
+    fact(h, "Meetings/a.md");
+    h.notes.set("Meetings/a.md", "---\ntags: [x]\n---\n  \n");
+    await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
+    expect(h.runs).toHaveLength(0);
+    expect(Object.values(h.state.value)[0]?.fired).toEqual([]);
+
+    await settleAndTick(h);
+    expect(h.runs).toHaveLength(0);
+
+    h.notes.set("Meetings/a.md", "---\ntags: [x]\n---\nNotes from standup\n");
+    await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
+    expect(h.runs).toHaveLength(1);
+    expect(h.runs[0]?.trigger).toMatchObject({ kind: "note", path: "Meetings/a.md" });
+  });
+
+  it("waits for a quiet minute: a change at 50s restarts the timer", async () => {
+    const h = harness();
+    await h.controller.refresh();
+    fact(h, "Meetings/a.md");
+    await h.controller.noteEvent("Meetings/a.md");
+    h.clock.ms += 50_000;
+    await h.controller.tick();
+    await h.controller.noteEvent("Meetings/a.md");
+    h.clock.ms += 10_000;
+    await h.controller.tick();
+    expect(h.runs).toHaveLength(0);
+    h.clock.ms += 49_999;
+    await h.controller.tick();
+    expect(h.runs).toHaveLength(0);
+    h.clock.ms += 1;
+    await h.controller.tick();
     expect(h.runs).toHaveLength(1);
   });
 
@@ -133,6 +188,7 @@ describe("OrdersController note events", () => {
     h.clock.ms = Math.floor(START / HOUR) * HOUR + 60_000;
     for (let i = 0; i < 11; i++) fact(h, `Meetings/n${i}.md`, h.clock.ms + 1000);
     for (let i = 0; i < 11; i++) await h.controller.noteEvent(`Meetings/n${i}.md`);
+    await settleAndTick(h);
     expect(h.runs).toHaveLength(10);
     await h.controller.tick();
     expect(h.runs).toHaveLength(10);
@@ -149,12 +205,14 @@ describe("OrdersController note events", () => {
     await h.controller.refresh();
     fact(h, "Meetings/a.md");
     fact(h, "Meetings/b.md");
-    const first = h.controller.noteEvent("Meetings/a.md");
-    const second = h.controller.noteEvent("Meetings/b.md");
+    await h.controller.noteEvent("Meetings/a.md");
+    await h.controller.noteEvent("Meetings/b.md");
+    h.clock.ms += ORDER_NOTE_SETTLE_MS;
+    const ticking = h.controller.tick();
     await new Promise((r) => setTimeout(r, 5));
     expect(h.runs).toHaveLength(1);
     release();
-    await Promise.all([first, second]);
+    await ticking;
     expect(h.runs).toHaveLength(2);
   });
 });
@@ -166,6 +224,7 @@ describe("OrdersController failures", () => {
     await h.controller.refresh();
     fact(h, "Meetings/a.md");
     await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
 
     const record = h.activity.snapshot().records[0]!;
     expect(record.state).toBe("needs-attention");
@@ -187,6 +246,7 @@ describe("OrdersController failures", () => {
     await h.controller.refresh();
     fact(h, "Meetings/a.md");
     await h.controller.noteEvent("Meetings/a.md");
+    await settleAndTick(h);
     expect(h.activity.snapshot().records[0]).toMatchObject({ state: "needs-attention" });
   });
 });
@@ -238,5 +298,71 @@ describe("OrdersController registry", () => {
     orders.length = 0;
     await h.controller.refresh();
     expect(h.state.value).toEqual({});
+  });
+});
+
+describe("OrdersController disabling", () => {
+  function gated() {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    return { gate, release: () => release() };
+  }
+
+  async function queueBehindRunning(h: Harness, hold: Promise<void>): Promise<{ done: Promise<void>; started: () => number }> {
+    fact(h, "Meetings/a.md");
+    fact(h, "Meetings/b.md");
+    await h.controller.noteEvent("Meetings/a.md");
+    await h.controller.noteEvent("Meetings/b.md");
+    h.clock.ms += ORDER_NOTE_SETTLE_MS;
+    const done = h.controller.tick();
+    await new Promise((r) => setTimeout(r, 5));
+    void hold;
+    return { done, started: () => h.runs.length };
+  }
+
+  it("never starts a queued run once its order is disabled", async () => {
+    const g = gated();
+    const h = harness({ run: async () => { await g.gate; return { text: "ok", proposals: [] }; } });
+    await h.controller.refresh();
+    const q = await queueBehindRunning(h, g.gate);
+    expect(q.started()).toBe(1);
+    h.orders[0] = { ...noteOrder, enabled: false };
+    await h.controller.refresh();
+    g.release();
+    await q.done;
+    expect(h.runs).toHaveLength(1);
+  });
+
+  it("never starts a queued run once its order note is deleted", async () => {
+    const g = gated();
+    const h = harness({ run: async () => { await g.gate; return { text: "ok", proposals: [] }; } });
+    await h.controller.refresh();
+    const q = await queueBehindRunning(h, g.gate);
+    h.orders.length = 0;
+    await h.controller.refresh();
+    g.release();
+    await q.done;
+    expect(h.runs).toHaveLength(1);
+  });
+
+  it("drops held runs when the order is disabled", async () => {
+    const h = harness();
+    await h.controller.refresh();
+    h.clock.ms = Math.floor(START / HOUR) * HOUR + 60_000;
+    for (let i = 0; i < 11; i++) { fact(h, `Meetings/n${i}.md`, h.clock.ms + 1000); await h.controller.noteEvent(`Meetings/n${i}.md`); }
+    await settleAndTick(h);
+    expect(h.runs).toHaveLength(10);
+    h.orders[0] = { ...noteOrder, enabled: false };
+    await h.controller.refresh();
+    h.clock.ms += HOUR;
+    await h.controller.tick();
+    expect(h.runs).toHaveLength(10);
+  });
+
+  it("still runs a disabled order on demand", async () => {
+    const h = harness({ orders: [{ ...noteOrder, enabled: false }] });
+    await h.controller.refresh();
+    await h.controller.runNow(noteOrder.id);
+    expect(h.runs).toHaveLength(1);
   });
 });
