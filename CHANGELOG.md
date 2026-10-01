@@ -4,6 +4,29 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] — 2026-10-01
+
+### Added
+- **Find research themes from the Inbox.** A Research themes section groups
+  enriched clips, in the inbox or already organized, into themes and stays
+  available after Organize empties the inbox.
+- **New chat context defaults.** Settings → Behavior sets which context each
+  new chat starts with: active note, selection, linked notes, vault search.
+- **`/workbench`** opens the Research Workbench; `/research` opens the Research
+  Desk.
+
+### Changed
+- **Context choices stay in their chat.** @mentions, `/ask-vault`, and the
+  context menu change only the current chat tab; workflow, plan, and artifact
+  commands no longer change your defaults.
+- **Note cleanup is named "Tidy with Claude".** "Enrich" now means source
+  enrichment only; theme commands are named "Find research themes".
+
+### Fixed
+- **Finding themes continues past a clip that fails to enrich.** Failed clips
+  are skipped and counted; a declined send still stops before anything reaches
+  the model.
+
 ## [0.33.0] — 2026-09-28
 
 ### Added
