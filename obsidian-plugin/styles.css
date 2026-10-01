@@ -3394,3 +3394,63 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-similar-score { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .cc-similar-prop { color: var(--text-faint); font-size: var(--font-ui-smaller); }
 .cc-similar-empty { color: var(--text-muted); padding: var(--size-4-3); }
+
+/* ----- vault health board ----- */
+.cc-health-view {
+  padding: 8px 12px;
+}
+.cc-health-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.cc-health-scanned {
+  color: var(--text-muted);
+  font-size: var(--cc-text-sm);
+}
+.cc-health-section {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  background: var(--background-secondary);
+}
+.cc-health-section.is-error {
+  border-color: var(--text-error);
+}
+.cc-health-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.cc-health-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+.cc-health-link {
+  align-self: flex-start;
+  max-width: 100%;
+  min-height: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-accent);
+  cursor: pointer;
+}
+.cc-health-message,
+.cc-health-more {
+  color: var(--text-muted);
+  font-size: var(--cc-text-sm);
+}
+.cc-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
