@@ -61,6 +61,10 @@ describe("resolveSettings with legacy configs", () => {
     expect(s.mcpClientServers).toEqual([]);
   });
 
+  it("still reads enrichmentDiagnostics from stored data", () => {
+    expect(resolveSettings({ settings: { enrichmentDiagnostics: true } }).enrichmentDiagnostics).toBe(true);
+  });
+
   it("ignores removed tuning keys in stored data", () => {
     const stored = { artifactHeight: 900, discoveryMaxResults: 99, discoveryExpansionLimit: 7, discoveryCacheHours: 3, cloudRoutineBetaHeader: "x" };
     for (const raw of [stored, { settings: stored }]) {

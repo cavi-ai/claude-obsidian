@@ -158,6 +158,14 @@ describe("settings definitions", () => {
     expect(visible(cloudPage(on))).toBe(true);
   });
 
+  it("hides the enrichment diagnostics switch but keeps the setting", () => {
+    const plugin = stubPlugin();
+    plugin.settings.settingsShowAdvanced = true;
+    const keys = flatten(definitionsOf(plugin)).flatMap((item) => (item.control ? [item.control.key] : []));
+    expect(keys).not.toContain("enrichmentDiagnostics");
+    expect(DEFAULT_SETTINGS.enrichmentDiagnostics).toBe(false);
+  });
+
   it("declares the four new-chat context rows", () => {
     const plugin = stubPlugin();
     plugin.settings.settingsShowAdvanced = true;

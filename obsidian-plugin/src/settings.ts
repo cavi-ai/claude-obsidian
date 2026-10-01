@@ -834,7 +834,6 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     return [
       { name: "Enable source capture", desc: "Master switch for watching the inbox and the “Enrich note as source” command.", control: { type: "toggle", key: "sourceCaptureEnabled" } },
       { name: "Auto-enrich on create", desc: "Type files automatically as they appear in the inbox (otherwise use the command).", control: { type: "toggle", key: "sourceEnrichOnCreate" } },
-      { name: "Enrichment diagnostics log", desc: "Append one line per enrichment phase to Claude/enrichment-diagnostics.log (paths and counts only, never note content). Turn on to diagnose a crash during Enrich all.", control: { type: "toggle", key: "enrichmentDiagnostics" } },
       { name: "Inbox folder", desc: "Folder the Web Clipper writes to and Companion watches.", control: { type: "text", key: "sourceInboxFolder", placeholder: "Clippings" } },
       { name: "Organized folder", desc: "Where “Organize clippings” moves reviewed clips — one subfolder per inferred topic/project.", control: { type: "text", key: "clipOrganizedFolder", placeholder: "Library" } },
       { name: "Base tags", desc: "Comma-separated tags added to every enriched source note.", control: { type: "text", key: "sourceBaseTags" } },
