@@ -30,8 +30,10 @@ test("@vault in one chat tab leaves the other tab and the stored default off", a
 
   await focusChatLeaf(page, 0);
   const first = page.locator(".cc-chat-root:visible").first();
-  await first.locator(".cc-input").fill("@");
-  await page.locator(".cc-at-item:visible", { hasText: "Entire vault" }).click();
+  // Keyboard choose: hovering an @ row re-renders the list and detaches it mid-click.
+  await first.locator(".cc-input").fill("@entire");
+  await expect(first.locator(".cc-at-item.is-selected")).toContainText("Entire vault");
+  await first.locator(".cc-input").press("Enter");
   await expect(first.getByRole("button", { name: /^Manage context, 1 item active/ })).toBeVisible();
 
   await focusChatLeaf(page, 1);
