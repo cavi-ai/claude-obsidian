@@ -197,6 +197,7 @@ export class ChatView extends ItemView {
       renderStreamingArtifactInto: (...args) => this.renderStreamingArtifactInto(...args),
       resumeInterruptedTurn: (...args) => this.resumeInterruptedTurn(...args),
       reviewLastProposedEdit: (...args) => this.reviewLastProposedEdit(...args),
+      discardLastProposedEdit: (...args) => this.discardLastProposedEdit(...args),
       restoreMediaAfterFailure: (...args) => this.restoreMediaAfterFailure(...args),
       setSending: (...args) => this.setSending(...args),
       setupRequired: (...args) => this.setupRequired(...args),
@@ -1240,6 +1241,10 @@ export class ChatView extends ItemView {
     return applied === total
       ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${file.path}.`
       : `Applied ${applied} of ${total} edits to ${file.path} (the user rejected the rest).`;
+  }
+
+  private async discardLastProposedEdit(conversation: Conversation): Promise<void> {
+    await this.plugin.clearChatEditProposal(conversation.id).catch((error: unknown) => console.error("[Claude Companion] could not discard edit recovery record", error));
   }
 
   private async reviewLastProposedEdit(conversation: Conversation): Promise<void> {
