@@ -81,7 +81,7 @@ function continuationActions(snapshot: ProjectSnapshot): ResearchDeskAction[] {
 
 export function buildResearchDeskViewModel(snapshot: ProjectSnapshot, findings: AuditFinding[], preferences: ResearchDeskPreferences, document?: ResearchDeskDocumentProgress): ResearchDeskViewModel {
   const actions = findings.map(findingAction).filter((action): action is ResearchDeskAction => Boolean(action));
-  for (const claim of snapshot.claims) if (claim.challenging.length) actions.push({ id: `challenged-claim:${claim.path}`, label: `Respond to challenges for ${claim.title}`, reason: `${claim.challenging.length} challenging evidence record${claim.challenging.length === 1 ? "" : "s"} need an explicit response.`, target: "Claims", priority: 1, path: claim.path, tone: "attention" });
+  for (const claim of snapshot.claims) if (claim.challenging.length && !claim.limitations.length) actions.push({ id: `challenged-claim:${claim.path}`, label: `Respond to challenges for ${claim.title}`, reason: `${claim.challenging.length} challenging evidence record${claim.challenging.length === 1 ? "" : "s"} need an explicit response.`, target: "Claims", priority: 1, path: claim.path, tone: "attention" });
   for (const question of snapshot.questions) if (question.status === "open") actions.push({ id: `open-question:${question.path}`, label: question.title, reason: question.question, target: "Overview", priority: 5, path: question.path, tone: "attention" });
   actions.push(...continuationActions(snapshot));
   actions.sort((left, right) => left.priority - right.priority || compareCodeUnits(left.path ?? "", right.path ?? "") || compareCodeUnits(left.id, right.id));

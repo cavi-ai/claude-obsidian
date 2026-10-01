@@ -27,6 +27,13 @@ describe("buildResearchDeskViewModel", () => {
     expect(new Set(vm.attention.map(({ label }) => label)).size).toBe(vm.attention.length);
   });
 
+  it("shows the challenged-claim action only until a limitation answers it", () => {
+    const answered = { ...challengedClaim, limitations: ["Small sample"] } as typeof challengedClaim;
+    const ids = (claim: ResearchRecord) => { const current = snapshot([source, staleEvidence, proposedEvidence, claim, draft]); return buildResearchDeskViewModel(current, auditProject(current), { dismissedActionIds: [] }).actions.map(({ id }) => id); };
+    expect(ids(challengedClaim)).toContain(`challenged-claim:${challengedClaim.path}`);
+    expect(ids(answered)).not.toContain(`challenged-claim:${challengedClaim.path}`);
+  });
+
   it("respects dismissed and pinned actions without hiding the remaining queue", () => {
     const current = snapshot([source, staleEvidence, proposedEvidence, challengedClaim, question, draft]);
     const findings = auditProject(current);
