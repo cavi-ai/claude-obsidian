@@ -46,7 +46,7 @@ export interface CommandActions {
   consolidateMemory(): void;
   enrichNoteAsSource(file: TFile): void;
   openSourceInbox(): void;
-  openVaultHealth(): void;
+  openSystem(): void;
   exportClipperTemplates(): void;
   seedOntology(): void;
   openSetupWizard(): void;
@@ -146,7 +146,7 @@ export function companionCommands(actions: CommandActions): Command[] {
       },
     },
     { id: "open-source-inbox", name: "Open source inbox", callback: () => actions.openSourceInbox() },
-    { id: "open-vault-health", name: "Open vault health", callback: () => actions.openVaultHealth() },
+    { id: "open-system", name: "Open system status", callback: () => actions.openSystem() },
     whenEnabled("export-clipper-templates", "Export Web Clipper templates (typed clipping)", () => actions.sourceCaptureEnabled(), () => actions.exportClipperTemplates()),
     whenEnabled("seed-ontology", "Seed ontology (default type schemas)", () => actions.ontologyEnabled(), () => actions.seedOntology()),
     { id: "open-setup-wizard", name: "Open setup wizard", callback: () => actions.openSetupWizard() },

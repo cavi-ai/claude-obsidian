@@ -5,7 +5,7 @@ export type CompanionPage =
   | "memory"
   | "research-desk"
   | "research-workbench"
-  | "health";
+  | "system";
 
 export type ClipperStatus = "not-set-up" | "current" | "update-available";
 export type QuickOptionKind = "toggle" | "select" | "text" | "status" | "action";
@@ -119,8 +119,8 @@ export function quickOptionsFor(page: CompanionPage, state: QuickOptionsState): 
         desktopIntegrations(),
         allSettings(),
       ];
-    case "health":
-      return [{ id: "refresh-health", label: "Refresh vault health", kind: "action" }, desktopIntegrations(), allSettings()];
+    case "system":
+      return [{ id: "refresh-system", label: "Refresh system status", kind: "action" }, desktopIntegrations(), allSettings()];
     case "inbox": {
       const clipperLabel = state.clipperStatus === "not-set-up" ? "Set up schemas" : state.clipperStatus === "update-available" ? "Update schemas" : "View schemas";
       const clipperValue = state.clipperStatus === "not-set-up" ? "Not set up" : state.clipperStatus === "update-available" ? "Update available" : "Current";

@@ -7,6 +7,7 @@ const base = (over: Partial<HealthInput> = {}): HealthInput => ({
   research: [],
   index: { enabled: true, built: true, failed: [] },
   inboxPending: 0,
+  companion: { connection: { backend: "claude", needsCredential: false }, activity: [], bridge: { applicable: true, enabled: false, running: false, port: 27124 }, clipper: { applicable: true, status: "current" } },
   now: "2026-10-01T00:00:00.000Z",
   ...over,
 });
@@ -66,7 +67,48 @@ describe("scanVaultHealth", () => {
       inboxPending: 1,
       unresolved: { "a.md": { X: 1 } },
       research: [{ project: "P", findings: [{ severity: "error", path: "P/c.md", explanation: "x" }] }],
-    })).sections.map((s) => s.id);
+    })).sections.filter((s) => s.group === "vault").map((s) => s.id);
     expect(ids.slice(0, 3)).toEqual(["research", "links", "inbox"]);
+  });
+
+  const companion = (over: Partial<HealthInput["companion"]>) => base({ companion: { ...base().companion, ...over } });
+
+  it("connection without a credential is an error with the setup action", () => {
+    expect(section(companion({ connection: { backend: "claude-cli", needsCredential: true } }), "connection")).toMatchObject({
+      group: "companion", count: 1, severity: "error",
+      items: [{ path: "", message: "claude-cli has no credential — chat cannot send" }],
+      actions: [{ id: "open-setup-wizard", label: "Open setup wizard" }],
+    });
+  });
+
+  it("activity records become warnings carrying their recovery actions", () => {
+    const s = section(companion({ activity: [{ id: "semantic-index:catch-up", title: "Semantic index needs attention", failed: 2, recovery: [{ id: "retry-index", label: "Retry" }] }] }), "activity")!;
+    expect(s).toMatchObject({ count: 1, severity: "warning", items: [{ path: "", message: "Semantic index needs attention — 2 failed" }] });
+    expect(s.actions).toEqual([{ id: "retry-index", label: "Retry", activityId: "semantic-index:catch-up" }]);
+  });
+
+  it("bridge on but not running is an error", () => {
+    expect(section(companion({ bridge: { applicable: true, enabled: true, running: false, port: 27124 } }), "bridge")).toMatchObject({
+      severity: "error", items: [{ path: "", message: "Bridge is on but not running on port 27124" }],
+      actions: [{ id: "open-settings", label: "Open settings · Agent → Agent bridge" }],
+    });
+  });
+
+  it("omits bridge and clipper when not applicable", () => {
+    const ids = scanVaultHealth(companion({ bridge: { applicable: false, enabled: true, running: false, port: 1 }, clipper: { applicable: false, status: "not-set-up" } })).sections.map((s) => s.id);
+    expect(ids).not.toContain("bridge");
+    expect(ids).not.toContain("clipper");
+  });
+
+  it("clipper status maps to severity and action label", () => {
+    expect(section(companion({ clipper: { applicable: true, status: "update-available" } }), "clipper")).toMatchObject({ severity: "warning", actions: [{ id: "clipper-schemas", label: "Update schemas" }] });
+    expect(section(companion({ clipper: { applicable: true, status: "not-set-up" } }), "clipper")).toMatchObject({ severity: "info", actions: [{ id: "clipper-schemas", label: "Set up Web Clipper" }] });
+  });
+
+  it("index belongs to the companion group; companion sections come first", () => {
+    const report = scanVaultHealth(base({ unresolved: { "a.md": { X: 1 } }, index: { enabled: true, built: false, failed: [] } }));
+    expect(report.sections.find((s) => s.id === "index")?.group).toBe("companion");
+    const groups = report.sections.map((s) => s.group);
+    expect(groups.indexOf("vault")).toBeGreaterThan(groups.lastIndexOf("companion"));
   });
 });

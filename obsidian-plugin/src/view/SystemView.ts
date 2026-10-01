@@ -1,12 +1,12 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import type { SafeFix } from "../health/controller";
-import type { HealthReport, HealthSection } from "../health/scan";
+import type { HealthAction, HealthGroup, HealthReport, HealthSection } from "../health/scan";
 import { renderCompanionChrome } from "./companionChrome";
 
-export const HEALTH_VIEW_TYPE = "claude-vault-health";
+export const SYSTEM_VIEW_TYPE = "claude-system";
 
-export interface HealthViewDeps {
+export interface SystemViewDeps {
   scan(): Promise<HealthReport>;
   safeFixes(): SafeFix[];
   openNote(path: string): void;
@@ -15,22 +15,28 @@ export interface HealthViewDeps {
   catchUpIndex(): Promise<void>;
   openInbox(): Promise<void>;
   reviewSafeFixes(fixes: SafeFix[], done: () => void): void;
+  openSetupWizard(): void;
+  openSettings(): void;
+  openClipperSetup(): void;
+  runActivityRecovery(activityId: string, actionId: string): void | Promise<void>;
 }
 
+const GROUPS: Array<{ id: HealthGroup; label: string }> = [{ id: "companion", label: "COMPANION" }, { id: "vault", label: "VAULT" }];
+
 /** One local scan per open or Refresh; never on a timer or vault event. */
-export class HealthView extends ItemView {
+export class SystemView extends ItemView {
   private disposeChrome: ((remove?: boolean) => void) | null = null;
   private generation = 0;
 
-  constructor(leaf: WorkspaceLeaf, private plugin: ClaudeCompanionPlugin, private deps: HealthViewDeps) {
+  constructor(leaf: WorkspaceLeaf, private plugin: ClaudeCompanionPlugin, private deps: SystemViewDeps) {
     super(leaf);
   }
 
   override getViewType(): string {
-    return HEALTH_VIEW_TYPE;
+    return SYSTEM_VIEW_TYPE;
   }
   override getDisplayText(): string {
-    return "Vault health";
+    return "System";
   }
   override getIcon(): string {
     return "heart-pulse";
@@ -52,13 +58,13 @@ export class HealthView extends ItemView {
     this.disposeChrome?.();
     this.disposeChrome = null;
     root.empty();
-    root.addClass("cc-health-view");
-    this.disposeChrome = renderCompanionChrome(root, "health", "Vault health", this.plugin.companionChrome());
-    root.createDiv({ cls: "cc-eyebrow", text: "VAULT HEALTH" });
-    const bar = root.createDiv({ cls: "cc-health-bar" });
-    const refresh = bar.createEl("button", { cls: "cc-health-refresh", text: "Refresh" });
+    root.addClass("cc-system-view");
+    this.disposeChrome = renderCompanionChrome(root, "system", "System", this.plugin.companionChrome());
+    root.createDiv({ cls: "cc-eyebrow", text: "SYSTEM" });
+    const bar = root.createDiv({ cls: "cc-system-bar" });
+    const refresh = bar.createEl("button", { cls: "cc-system-refresh", text: "Refresh" });
     refresh.addEventListener("click", () => void this.render());
-    const scanned = bar.createSpan({ cls: "cc-health-scanned", text: "Scanning…" });
+    const scanned = bar.createSpan({ cls: "cc-system-scanned", text: "Scanning…" });
 
     let report: HealthReport;
     try {
@@ -73,33 +79,40 @@ export class HealthView extends ItemView {
 
     const problems = report.sections.filter((s) => s.severity !== "ok");
     if (problems.length === 0) {
-      root.createEl("p", { cls: "cc-health-ok", text: "Everything checks out." });
-      return;
+      root.createEl("p", { cls: "cc-system-ok", text: "Everything checks out." });
+    } else {
+      for (const group of GROUPS) {
+        root.createDiv({ cls: "cc-system-group", text: group.label });
+        const rows = problems.filter((s) => s.group === group.id);
+        if (rows.length === 0) root.createEl("p", { cls: "cc-system-group-ok", text: "All good." });
+        for (const section of rows) this.renderSection(root, section);
+      }
     }
-    for (const section of problems) this.renderSection(root, section);
+    const footer = root.createEl("button", { cls: "cc-system-settings", text: "Open Companion settings" });
+    footer.addEventListener("click", () => this.deps.openSettings());
   }
 
   private renderSection(root: HTMLElement, section: HealthSection): void {
-    const card = root.createDiv({ cls: `cc-health-section cc-health-${section.id} is-${section.severity}` });
-    card.createDiv({ cls: "cc-health-title", text: `${section.title} · ${section.count}` });
+    const card = root.createDiv({ cls: `cc-system-section cc-system-${section.id} is-${section.severity}` });
+    card.createDiv({ cls: "cc-system-title", text: `${section.title} · ${section.count}` });
     for (const item of section.items) {
-      const row = card.createDiv({ cls: "cc-health-row" });
+      const row = card.createDiv({ cls: "cc-system-row" });
       if (item.path) {
-        const link = row.createEl("button", { cls: "cc-health-link", text: item.path });
+        const link = row.createEl("button", { cls: "cc-system-link", text: item.path });
         link.addEventListener("click", () => this.deps.openNote(item.path));
       }
-      row.createSpan({ cls: "cc-health-message", text: item.message });
+      row.createSpan({ cls: "cc-system-message", text: item.message });
     }
     if (section.count > section.items.length) {
-      card.createDiv({ cls: "cc-health-more", text: `+${section.count - section.items.length} more` });
+      card.createDiv({ cls: "cc-system-more", text: `+${section.count - section.items.length} more` });
     }
     this.renderActions(card, section);
   }
 
   private renderActions(card: HTMLElement, section: HealthSection): void {
-    const actions = card.createDiv({ cls: "cc-health-actions" });
+    const actions = card.createDiv({ cls: "cc-system-actions" });
     const action = (text: string, run: () => void | Promise<void>, title?: string): void => {
-      const button = actions.createEl("button", { cls: "cc-health-action", text });
+      const button = actions.createEl("button", { cls: "cc-system-action", text });
       if (title) button.setAttribute("title", title);
       button.addEventListener("click", () => void Promise.resolve(run()));
     };
@@ -107,7 +120,13 @@ export class HealthView extends ItemView {
       await run();
       await this.render();
     };
+    for (const a of section.actions ?? []) action(a.label, () => this.dispatch(a));
     switch (section.id) {
+      case "connection":
+      case "activity":
+      case "bridge":
+      case "clipper":
+        return;
       case "ontology":
         if ((section.fixable ?? 0) > 0) {
           action(`Review safe fixes (${section.fixable})`, () => this.deps.reviewSafeFixes(this.deps.safeFixes(), () => void this.render()));
@@ -127,6 +146,15 @@ export class HealthView extends ItemView {
         return;
       case "links":
         return;
+    }
+  }
+
+  private dispatch(action: HealthAction): void | Promise<void> {
+    if (action.activityId) return this.deps.runActivityRecovery(action.activityId, action.id);
+    switch (action.id) {
+      case "open-setup-wizard": return this.deps.openSetupWizard();
+      case "open-settings": return this.deps.openSettings();
+      case "clipper-schemas": return this.deps.openClipperSetup();
     }
   }
 }

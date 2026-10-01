@@ -20,6 +20,7 @@ function deps(over: Partial<HealthDeps> = {}): HealthDeps {
     auditProject: async () => [],
     index: async () => ({ enabled: false, built: false, failed: [] }),
     inboxPending: () => 0,
+    companion: () => ({ connection: { backend: "claude", needsCredential: true }, activity: [], bridge: { applicable: false, enabled: false, running: false, port: 0 }, clipper: { applicable: false, status: "current" } }),
     now: () => "2026-10-01T00:00:00.000Z",
     ...over,
   };
@@ -63,6 +64,11 @@ describe("HealthController", () => {
   it("passes index state through", async () => {
     const report = await new HealthController(deps({ index: async () => ({ enabled: true, built: true, failed: [{ path: "x.md", message: "boom" }] }) })).scan();
     expect(report.sections.find((s) => s.id === "index")).toMatchObject({ count: 1, severity: "warning" });
+  });
+
+  it("passes companion status through", async () => {
+    const report = await new HealthController(deps()).scan();
+    expect(report.sections.find((s) => s.id === "connection")).toMatchObject({ severity: "error" });
   });
 
   it("safeFixes lists only keys conform changed", () => {
