@@ -16,6 +16,7 @@ import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesVi
 import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
+import { resolveSourceText } from "./research/evidenceExtraction";
 import { ensureVaultFolder, lookupRelationTargetType, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
@@ -1478,15 +1479,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
       rewriteText: this.researchRewriteText(),
       completeResearch: async ({ system, user, maxTokens }) => (await this.router().completeResolved(this.requireResearchSelection(), { system, user, maxTokens: maxTokens ?? 1024, temperature: 0.2 })).text,
       researchLabel: () => researchModelChip(this.router().researchStatus()).text.replace(/^AI · /, ""),
-      sourceText: async (source) => {
-        if (typeof source.capturedContent === "string") return { text: source.capturedContent };
-        if (!source.asset?.toLowerCase().endsWith(".pdf")) return null;
-        const file = this.app.vault.getAbstractFileByPath(source.asset);
-        if (!(file instanceof TFile)) return null;
-        const { loadPdf } = await import("./semantic/pdfjs");
-        const pages = await extractPdfPages(loadPdf, await this.app.vault.readBinary(file));
-        return { text: pages.map(({ text }) => text).join("\n\n"), pages };
-      },
+      sourceText: (source) => resolveSourceText(source, {
+        readPdfPages: async (assetPath) => {
+          const file = this.app.vault.getAbstractFileByPath(assetPath);
+          if (!(file instanceof TFile)) return null;
+          const { loadPdf } = await import("./semantic/pdfjs");
+          return extractPdfPages(loadPdf, await this.app.vault.readBinary(file));
+        },
+        readNote: async (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
+        },
+      }),
       ...(typeof DOMParser === "undefined" ? {} : {
         captureWeb: (url: string) => captureWebSource(url, {
           fetchHtml: async (target) => {

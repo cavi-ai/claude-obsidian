@@ -1,7 +1,24 @@
-import type { SourceLocatorKind } from "./types";
+import type { ResearchSourceRecord, SourceLocatorKind } from "./types";
 
 export interface SourceText { text: string; pages?: Array<{ page: number; text: string }> }
 export interface ProposedPassage { title: string; excerpt: string; locatorKind: SourceLocatorKind; locatorValue: string; interpretation?: string }
+
+export interface SourceTextIo {
+  readPdfPages(assetPath: string): Promise<Array<{ page: number; text: string }> | null>;
+  readNote(path: string): Promise<string | null>;
+}
+
+/** Text Claude can read for a source: its capture, else its PDF pages, else the source note's own body. */
+export async function resolveSourceText(source: Pick<ResearchSourceRecord, "path" | "asset" | "capturedContent">, io: SourceTextIo): Promise<SourceText | null> {
+  if (typeof source.capturedContent === "string" && source.capturedContent.trim()) return { text: source.capturedContent };
+  if (source.asset?.toLowerCase().endsWith(".pdf")) {
+    const pages = await io.readPdfPages(source.asset);
+    if (pages?.length) return { text: pages.map(({ text }) => text).join("\n\n"), pages };
+  }
+  const note = await io.readNote(source.path);
+  const body = note?.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+  return body ? { text: body } : null;
+}
 
 export const EXTRACTION_CHAR_LIMIT = 80_000;
 const MAX_PASSAGES = 5;

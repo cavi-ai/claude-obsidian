@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildExtractionRequest, fitSourceText, locatePassage, parseExtraction } from "../../src/research/evidenceExtraction";
+import { buildExtractionRequest, fitSourceText, locatePassage, parseExtraction, resolveSourceText, type SourceTextIo } from "../../src/research/evidenceExtraction";
 
 const reply = (...passages: Array<Record<string, string>>) => JSON.stringify({ passages });
 const doc = { text: "# Intro\n\nOpening text here.\n\n## Findings\n\nThe study found a 12% drop.\n\nA second paragraph." };
@@ -69,5 +69,26 @@ describe("buildExtractionRequest", () => {
     expect(user).toContain("Doc");
     expect(user).toContain("Body");
     expect(user).toContain("only its most relevant parts");
+  });
+});
+
+describe("resolveSourceText", () => {
+  const io = (over: Partial<SourceTextIo> = {}): SourceTextIo => ({ readPdfPages: async () => null, readNote: async () => null, ...over });
+
+  it("prefers the captured text", async () => {
+    expect(await resolveSourceText({ path: "S.md", capturedContent: "Captured." }, io({ readNote: async () => "body" }))).toEqual({ text: "Captured." });
+  });
+
+  it("reads PDF pages for a PDF asset", async () => {
+    const pages = [{ page: 1, text: "One" }, { page: 2, text: "Two" }];
+    expect(await resolveSourceText({ path: "S.md", asset: "a/Paper.PDF" }, io({ readPdfPages: async () => pages }))).toEqual({ text: "One\n\nTwo", pages });
+  });
+
+  it("falls back to the source note body without frontmatter", async () => {
+    expect(await resolveSourceText({ path: "S.md" }, io({ readNote: async () => "---\ntitle: S\n---\n# Source\n\nCaptured study.\n" }))).toEqual({ text: "# Source\n\nCaptured study." });
+  });
+
+  it("returns null when nothing has text", async () => {
+    expect(await resolveSourceText({ path: "S.md", asset: "a/Paper.pdf" }, io({ readNote: async () => "---\ntitle: S\n---\n" }))).toBeNull();
   });
 });

@@ -112,7 +112,7 @@ test("05 advanced workbench: grouped navigation exposes every research panel wit
   expect(await harness.providerRequests()).toBe(before);
   await harness.page.screenshot({ path: "/private/tmp/claude-companion-research-e2e-results/05-workbench.png" });
 
-  for (const [tab, title, artifact] of [["Overview", "Project overview", "05a-overview"], ["Sources", "Source library", "05b-sources"], ["Evidence", "Evidence review", "05c-evidence"], ["Intelligence", "Research intelligence", "05d-intelligence"]] as const) {
+  for (const [tab, title, artifact] of [["Overview", "Project overview", "05a-overview"], ["Sources", "Source library", "05b-sources"], ["Evidence", "Evidence review", "05c-evidence"], ["Intelligence", "Insights", "05d-intelligence"]] as const) {
     await workbench.locator(".cc-research-tab-select").selectOption(tab);
     await expect(workbench.locator(".cc-research-panel-title")).toHaveText(title);
     await expect(workbench.getByRole("heading", { name: "Continuity research" })).toBeVisible();
