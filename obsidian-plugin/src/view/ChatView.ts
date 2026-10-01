@@ -7,7 +7,7 @@ import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { toAnthropicTools, executeTool, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
-import { planEdits, applyPlan, type ProposedEdit } from "../edit/diff";
+import { planEdits, applyPlan, parseProposedEdits } from "../edit/diff";
 import { reviewEdits } from "../editor/reviewEdits";
 import type { ApiMessage, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
 import { TFile } from "obsidian";
@@ -59,18 +59,6 @@ function appendAssistantMessage(base: ChatMessage[], result: AgentTurnResult): C
 /** Tag which provider a fallback-ineligible error actually failed on, for renderError's hint. */
 function tagProvider(error: Error | undefined, provider: ErrorHintProvider): void {
   if (error) (error as Error & { ccProvider?: ErrorHintProvider }).ccProvider = provider;
-}
-
-/** Defensive shape-check of a propose_note_edit `edits` argument. */
-function parseProposedEdits(v: unknown): ProposedEdit[] {
-  if (!Array.isArray(v) || v.length === 0) throw new Error("propose_note_edit requires a non-empty 'edits' array.");
-  return v.map((e, i) => {
-    const o = e as { old_str?: unknown; new_str?: unknown };
-    if (typeof o?.old_str !== "string" || typeof o?.new_str !== "string") {
-      throw new Error(`edits[${i}] must have string 'old_str' and 'new_str'.`);
-    }
-    return { old_str: o.old_str, new_str: o.new_str };
-  });
 }
 
 interface ObsidianAppWithSettings {
