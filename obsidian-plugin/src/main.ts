@@ -6,14 +6,13 @@ import { SystemView, SYSTEM_VIEW_TYPE, type SystemViewDeps } from "./view/System
 import { SafeFixModal } from "./view/SafeFixModal";
 import { HealthController } from "./health/controller";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
-import { ResearchWorkbenchView, RESEARCH_WORKBENCH_VIEW_TYPE, type ResearchWorkbenchTab } from "./view/ResearchWorkbenchView";
+import { ResearchView, ResearchWorkbenchRedirect, RESEARCH_DESK_VIEW_TYPE, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchView";
+import { DiscoveryModal } from "./view/research/discoveryModal";
 import { ResearchActions } from "./view/research/actions";
 import { ProjectCreateModal } from "./view/research/projectCreateModal";
 import { QUESTION_INSTRUCTION } from "./view/research/shared";
-import { ResearchDeskView, RESEARCH_DESK_VIEW_TYPE } from "./view/ResearchDeskView";
 import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
 import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesView";
-import { normalizeDeskPreferenceMap, type ResearchDeskPreferenceMap } from "./research/deskPreferences";
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
 import { resolveSourceText } from "./research/evidenceExtraction";
@@ -21,11 +20,12 @@ import { ensureVaultFolder, lookupRelationTargetType, uniqueNotePath, writeOrRep
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
-import { IntelligenceCoordinator } from "./research/intelligenceCoordinator";
 import { DiscoveryCoordinator } from "./discovery/coordinator";
 import { RESEARCH_MODELS, researchCoordinatorMode, researchModelChip, type ResearchModel } from "./research/researchModel";
 import { DISCOVERY_CACHE_HOURS, DISCOVERY_EXPANSION_LIMIT, DISCOVERY_MAX_RESULTS } from "./discovery/limits";
 import { DraftCoordinator } from "./research/draftCoordinator";
+import { PROVENANCE_LANGUAGE } from "./research/draftSections";
+import { renderProvenanceReferences } from "./view/research/provenanceReferences";
 import { RevisionCoordinator } from "./research/revisionCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
 import { CrossrefAdapter } from "./discovery/adapters/crossref";
@@ -35,7 +35,8 @@ import { shouldNotifyTurnComplete } from "./chat/turnNotice";
 import { createObsidianDiscoveryHttp } from "./discovery/adapters/obsidianHttp";
 import type { ZoteroLibrary } from "./discovery/adapters/zotero";
 import { resolveModelId } from "./claude/models";
-import { inferResearchProjectPath, isResearchProjectChange, projectPathForActivation } from "./research/workbenchRouting";
+import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
+import type { ProjectSnapshot } from "./research/graph";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
@@ -151,7 +152,9 @@ import { TriageFolderModal } from "./view/TriageFolderModal";
 import { OntologyRegistry } from "./ontology/registry";
 import { seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
-import { buildResearchDeskViewModel } from "./research/deskViewModel";
+import { nextSteps } from "./research/nextSteps";
+import { documentSections } from "./research/sectionStatus";
+import { deriveResearchStage } from "./research/stage";
 import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, triageFolderChoices, partitionEnrichOutcomes, type EnrichOutcomeLike, type TriageNote, type TriageFolderChoice } from "./research/triage";
 import { captureWebSource } from "./research/webCapture";
 import type { WebCapture } from "./context/webCapture";
@@ -193,7 +196,6 @@ interface PersistedData {
   settings?: Partial<PluginSettings>;
   conversations?: Conversation[];
   activeConversationId?: string | null;
-  researchDeskPreferences?: ResearchDeskPreferenceMap;
   buildRuns?: BuildRun[];
   activeBuildRunId?: string | null;
   standingOrders?: unknown;
@@ -291,7 +293,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return null;
   }
 
-  private researchDeskPreferences: ResearchDeskPreferenceMap = {};
   private _build: BuildController | null = null;
   private build(): BuildController {
     return (this._build ??= new BuildController({
@@ -338,9 +339,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _cliProvider: CliProvider | null = null;
   private _codexProvider: CliProvider | null = null;
   private _opencodeProvider: CliProvider | null = null;
-  private _intelligenceCoordinator: IntelligenceCoordinator | null = null;
   private _discoveryCoordinator: DiscoveryCoordinator | null = null;
-  private _viewIntelligenceCoordinators?: Set<IntelligenceCoordinator>;
   private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
   private cliSessions = new Map<string, { session: CliSession; bridge: McpHttpServer; signature: string; promptFile: string; lastUsed: number }>();
   private cliPromptFiles = new Set<string>();
@@ -624,45 +623,20 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(SYSTEM_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SystemView(leaf, this, this.systemDeps()));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
     this.registerView(BUILD_VIEW_TYPE, (leaf: WorkspaceLeaf) => new BuildView(leaf, this.build().viewDependencies()));
-    this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchDeskView(leaf, this.researchRepository(), {
+    this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchView(leaf, this.researchRepository(), {
       chrome: this.companionChrome(),
-      preferencesFor: (projectPath) => this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] },
-      updatePreferences: async (projectPath, update) => { this.researchDeskPreferences[projectPath] = update(this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] }); await this.persist(); },
-      openWorkbench: (projectPath, target, path) => this.activateResearchWorkbench(projectPath, target, path),
-      askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
       actions: this.createResearchActions(),
-      triageClippings: (folder) => this.triageClippings(folder),
-      triageFolderChoices: () => triageFolderChoices(this.settings),
-      pickTriageFolder: () => this.pickTriageFolder(),
+      askResearch: (projectPath, prompt, display) => this.askResearch(projectPath, prompt, display),
+      openPath: (path) => this.openResearchPath(path),
+      webSearchEnabled: () => this.settings.webSearchEnabled,
+      draftCoordinator: new DraftCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
+      revisionCoordinator: new RevisionCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
+      openDiscovery: (snapshot) => this.openDiscovery(snapshot),
       startFromActiveNote: () => void this.startResearchFromActiveNote(),
       researchStatus: () => this.router().researchStatus(),
       openResearchSettings: () => this.openCompanionSettings(),
     }));
-    this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchView(
-      leaf,
-      this.researchRepository(),
-      (() => {
-        const discoveryCoordinator = this.createDiscoveryCoordinator();
-        const coordinator = this.createIntelligenceCoordinator();
-        return {
-          chrome: this.companionChrome(),
-          coordinator,
-          narratorMode: () => researchCoordinatorMode(this.settings.researchModel),
-          researchStatus: () => this.router().researchStatus(),
-          openResearchSettings: () => this.openCompanionSettings(),
-          retainIntelligenceCoordinator: () => this.retainIntelligenceCoordinator(coordinator),
-          releaseIntelligenceCoordinator: () => this.releaseIntelligenceCoordinator(coordinator),
-          discoveryCoordinator,
-          retainDiscoveryCoordinator: () => this.retainDiscoveryCoordinator(discoveryCoordinator),
-          releaseDiscoveryCoordinator: () => this.releaseDiscoveryCoordinator(discoveryCoordinator),
-          draftCoordinator: new DraftCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
-          revisionCoordinator: new RevisionCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
-          actions: this.createResearchActions(),
-          openDesk: (projectPath) => this.activateResearchDesk(projectPath),
-          askCompanion: (projectPath) => this.askCompanionAboutProject(projectPath),
-        };
-      })(),
-    ));
+    this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchRedirect(leaf));
     this.registerBasesView(SIMILAR_BASES_VIEW_TYPE, {
       name: "Similar notes",
       icon: "sparkles",
@@ -692,6 +666,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
         open: (h, ti) => this.openArtifact(h, ti),
         openWith: (h, ti, target) => this.openArtifactWith(h, ti, target),
       });
+    });
+    this.registerMarkdownCodeBlockProcessor(PROVENANCE_LANGUAGE, (source, el, ctx) => {
+      renderProvenanceReferences(el, source, (path) => void this.app.workspace.openLinkText(path, ctx.sourcePath));
     });
   }
 
@@ -833,7 +810,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       rebuildSemanticIndex: () => void this.rebuildSemanticIndex(),
       openRelatedNotes: () => void this.activateRelatedView(),
       openResearchDesk: () => void this.activateResearchDesk(),
-      openResearchWorkbench: () => void this.activateResearchWorkbench(),
       triageClippings: () => void this.triageClippingsWithPicker(),
       startResearchFromActiveNote: () => void this.startResearchFromActiveNote(),
       showSemanticIndexStatus: () => void this.showSemanticIndexStatus(),
@@ -1542,23 +1518,36 @@ export default class ClaudeCompanionPlugin extends Plugin {
           return [];
         }
       },
-      openPath: async (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-        else new Notice(`Research note not found: ${path}`);
-      },
+      openPath: (path) => this.openResearchPath(path),
       changed: () => this.refreshResearchViews(),
-      openWorkbench: (projectPath, tab, path) => this.activateResearchWorkbench(projectPath, tab, path),
       selectProject: async (path) => {
-        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchDeskView) await leaf.view.setProjectPath(path);
-        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) if (leaf.view instanceof ResearchWorkbenchView) await leaf.view.setProjectPath(path);
+        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchView) await leaf.view.setProjectPath(path);
       },
     });
   }
 
+  private async openResearchPath(path: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
+    else new Notice(`Research note not found: ${path}`);
+  }
+
+  async askResearch(projectPath: string, prompt: string, display: string): Promise<boolean> {
+    const view = await this.activateView();
+    if (!view) return false;
+    view.attachNote(projectPath);
+    const started = await view.submitPrompt(prompt, display);
+    if (!started) new Notice("Claude is still busy — try again when the current reply finishes.");
+    return started;
+  }
+
+  private openDiscovery(snapshot: ProjectSnapshot): void {
+    const coordinator = this.createDiscoveryCoordinator();
+    new DiscoveryModal(this.app, coordinator, snapshot, () => this.researchRepository().loadProject(snapshot.project.path), (path) => this.openResearchPath(path), () => this.releaseDiscoveryCoordinator(coordinator)).open();
+  }
+
   private async refreshResearchViews(): Promise<void> {
-    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchDeskView) await leaf.view.render();
-    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) if (leaf.view instanceof ResearchWorkbenchView) await leaf.view.render();
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchView) await leaf.view.render();
   }
 
   private requireResearchSelection(): { provider: Provider; model: string } {
@@ -1744,8 +1733,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
         ...(url ? { url } : {}),
         capturedContent: body.slice(0, 50000),
       });
-      new Notice(`Project started with “${file.basename}” as the first source — press Search in Discover for preliminary materials.`);
-      await this.activateResearchWorkbench(record.path, "Discover");
+      new Notice(`Project started with “${file.basename}” as the first source.`);
+      await this.activateResearchDesk(record.path);
     }, this.researchRewriteText(), { title: file.basename, folder: `Research/${file.basename}`, ...(question ? { question } : {}) }).open();
   }
 
@@ -1765,15 +1754,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.mobileUtilityFallbackConsentInFlight = null;
     for (const timer of this.clipperVerificationTimers?.values() ?? []) window.clearTimeout(timer);
     this.clipperVerificationTimers?.clear();
-    this._intelligenceCoordinator?.cancel();
-    this._intelligenceCoordinator = null;
     this._discoveryCoordinator?.cancel();
     this._discoveryCoordinator?.clearCache();
     this._discoveryCoordinator = null;
     for (const modal of this._desktopIntegrationModals ?? []) modal.close();
     this._desktopIntegrationModals?.clear();
-    for (const coordinator of this._viewIntelligenceCoordinators ?? []) coordinator.cancel();
-    this._viewIntelligenceCoordinators?.clear();
     for (const coordinator of this._viewDiscoveryCoordinators ?? []) { coordinator.cancel(); coordinator.clearCache(); }
     this._viewDiscoveryCoordinators?.clear();
     this._build?.destroy();
@@ -2132,10 +2117,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const raw = (await this.loadData()) as PersistedData | Partial<PluginSettings> | null;
     const loaded = resolveSettings(raw);
     this.convState = isNamespacedData(raw)
-      ? fromPersisted({ conversations: (raw).conversations, activeId: (raw).activeConversationId })
+      ? fromPersisted({ conversations: (raw).conversations, activeId: (raw as PersistedData).activeConversationId })
       : emptyState();
     this.conversations().restoreTurnActivities();
-    this.researchDeskPreferences = normalizeDeskPreferenceMap(isNamespacedData(raw) ? (raw).researchDeskPreferences : undefined);
     this.build().restoreState(
       isNamespacedData(raw) ? raw.buildRuns : undefined,
       isNamespacedData(raw) ? raw.activeBuildRunId : null,
@@ -2166,7 +2150,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       settings: stripped.settings,
       conversations: this.convState.conversations,
       activeConversationId: this.convState.activeId,
-      researchDeskPreferences: this.researchDeskPreferences,
       standingOrders: this.ordersState,
       orderEditQueue: this.orderEditQueue,
       ...this.build().serializeState(),
@@ -2326,10 +2309,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         void v.refreshContextStatus();
       }
     }
-    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) {
-      const v = leaf.view;
-      if (v instanceof ResearchWorkbenchView) void v.render();
-    }
+    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchView) void leaf.view.render();
   }
 
   // ---------- providers ----------
@@ -2358,43 +2338,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
     }
     return this._router;
-  }
-
-  intelligenceCoordinator(): IntelligenceCoordinator {
-    if (!this._intelligenceCoordinator) {
-      this._intelligenceCoordinator = this.buildIntelligenceCoordinator();
-    }
-    return this._intelligenceCoordinator;
-  }
-
-  createIntelligenceCoordinator(): IntelligenceCoordinator {
-    const coordinator = this.buildIntelligenceCoordinator();
-    (this._viewIntelligenceCoordinators ??= new Set()).add(coordinator);
-    return coordinator;
-  }
-
-  releaseIntelligenceCoordinator(coordinator: IntelligenceCoordinator): void {
-    if (!this._viewIntelligenceCoordinators?.delete(coordinator)) return;
-    coordinator.cancel();
-  }
-
-  retainIntelligenceCoordinator(coordinator: IntelligenceCoordinator): void {
-    (this._viewIntelligenceCoordinators ??= new Set()).add(coordinator);
-  }
-
-  private buildIntelligenceCoordinator(): IntelligenceCoordinator {
-      return new IntelligenceCoordinator({
-        mode: () => researchCoordinatorMode(this.settings.researchModel),
-        chatBackend: () => this.settings.chatBackend,
-        anthropic: () => ({
-          provider: this.router().anthropic,
-          model: resolveModelId(this.settings.model, this.settings.customModel),
-        }),
-        local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
-        chat: () => this.router().chatProvider(),
-        localAvailable: () => this.router().localAvailable(),
-        maxTokens: () => this.settings.maxTokens,
-      });
   }
 
   /** One lazy coordinator shared by every discovery surface. */
@@ -3632,15 +3575,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (projectPath) {
       try {
         const snapshot = await this.researchRepository().loadProject(projectPath);
-        const vm = buildResearchDeskViewModel(snapshot, auditProject(snapshot), this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] });
+        const audit = auditProject(snapshot);
+        const document = await documentSections(snapshot, (path) => this.researchRepository().loadDraftSections(path));
+        const steps = nextSteps({ snapshot, audit, ...(document ? { sections: document.sections } : {}), webSearch: this.settings.webSearchEnabled });
         return resolveCompanionWorkspace({
           activeNote: { path: active.path, title: active.basename },
           research: {
             projectPath,
-            title: vm.title,
-            stage: vm.stage.current,
-            ...(vm.nextAction ? { nextAction: vm.nextAction.label, nextReason: vm.nextAction.reason } : {}),
-            actions: vm.actions.slice(0, 3),
+            title: snapshot.project.title,
+            stage: deriveResearchStage(snapshot, document?.sections.map(({ state }) => state)),
+            ...(steps[0] ? { nextAction: steps[0].label } : {}),
+            steps,
           },
         });
       } catch (e) { console.debug("Claude Companion: research workspace resolution failed, using active note", e); }
@@ -3873,29 +3818,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
       if (leaf) await leaf.setViewState({ type: RESEARCH_DESK_VIEW_TYPE, active: true });
     }
-    if (leaf?.view instanceof ResearchDeskView) {
+    if (leaf?.view instanceof ResearchView) {
       const selected = leaf.view.getProjectPath();
       const next = projectPathForActivation(projectPath, inferred, selected);
       if (next && next !== selected) await leaf.view.setProjectPath(next);
-    }
-    if (leaf) await workspace.revealLeaf(leaf);
-  }
-
-  async activateResearchWorkbench(projectPath?: string, tab: ResearchWorkbenchTab = "Overview", path?: string): Promise<void> {
-    const active = this.app.workspace.getActiveFile();
-    const frontmatter = active ? this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined : undefined;
-    const inferred = active ? inferResearchProjectPath(active.path, frontmatter) : undefined;
-    const { workspace } = this.app;
-    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)[0] ?? null;
-    if (!leaf) {
-      leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
-      if (leaf) await leaf.setViewState({ type: RESEARCH_WORKBENCH_VIEW_TYPE, active: true });
-    }
-    if (leaf?.view instanceof ResearchWorkbenchView) {
-      const selected = leaf.view.getProjectPath();
-      const next = projectPathForActivation(projectPath, inferred, selected);
-      if (next && next !== selected) await leaf.view.setProjectPath(next);
-      await leaf.view.focus(tab, path);
     }
     if (leaf) await workspace.revealLeaf(leaf);
   }
@@ -3907,13 +3833,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.researchRefreshTimer = null;
       const changes = this.researchRefreshChanges;
       this.researchRefreshChanges = [];
-      for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_WORKBENCH_VIEW_TYPE)) {
-        const view = leaf.view;
-        if (view instanceof ResearchWorkbenchView && changes.some(({ path, oldPath }) => view.isRelevantChange(path, oldPath))) void view.render();
-      }
       for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) {
         const view = leaf.view;
-        if (view instanceof ResearchDeskView && changes.some(({ path, oldPath }) => isResearchProjectChange(view.getProjectPath(), path, oldPath))) void view.render();
+        if (view instanceof ResearchView && changes.some(({ path, oldPath }) => view.isRelevantChange(path, oldPath))) void view.render();
       }
     }, 250);
   }

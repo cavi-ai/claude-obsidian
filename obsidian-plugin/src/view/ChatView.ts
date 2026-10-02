@@ -201,7 +201,7 @@ export class ChatView extends ItemView {
       restoreMediaAfterFailure: (...args) => this.restoreMediaAfterFailure(...args),
       setSending: (...args) => this.setSending(...args),
       setupRequired: (...args) => this.setupRequired(...args),
-      submitPrompt: (text, display) => this.submitPrompt(text, display),
+      submitPrompt: async (text, display) => { await this.submitPrompt(text, display); },
       updateUsageBar: (...args) => this.updateUsageBar(...args),
       controls: () => this.controls,
       inputEl: () => this.composer.inputEl,
@@ -473,10 +473,10 @@ export class ChatView extends ItemView {
 
   // ---------- public entry point (used by commands) ----------
 
-  async submitPrompt(text: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<void> {
-    if (!text.trim() || this.streaming) return;
+  async submitPrompt(text: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
+    if (!text.trim() || this.streaming) return false;
     this.inputEl.value = "";
-    await this.run(text.trim(), display, maxTokens, opts);
+    return this.run(text.trim(), display, maxTokens, opts);
   }
 
   // ---------- "@" context picker ----------
@@ -601,16 +601,20 @@ export class ChatView extends ItemView {
 
 
   /** Attach canonical workspace context and hand control back to the user. */
-  prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
+  attachNote(path: string): void {
     const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
-    const alreadyIncludedAsActiveNote = this.contextToggles.activeNote && active?.path === workspace.contextPath;
-    if (!alreadyIncludedAsActiveNote && !this.attachedPaths.some(({ path, kind }) => path === workspace.contextPath && kind === "note")) {
-      this.attachedPaths.push({ path: workspace.contextPath, kind: "note" });
+    const alreadyIncludedAsActiveNote = this.contextToggles.activeNote && active?.path === path;
+    if (!alreadyIncludedAsActiveNote && !this.attachedPaths.some(({ path: attached, kind }) => attached === path && kind === "note")) {
+      this.attachedPaths.push({ path, kind: "note" });
     }
+    this.renderContextManager();
+  }
+
+  prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
+    this.attachNote(workspace.contextPath);
     this.inputEl.value = workspace.kind === "research"
       ? `Help me continue ${workspace.title.replace(/^Continue /, "")}. `
       : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `;
-    this.renderContextManager();
     this.composer.autosizeInput();
     this.updateUsageBar();
     this.inputEl.focus();
@@ -711,8 +715,7 @@ export class ChatView extends ItemView {
         this.composer.autosizeInput();
       },
       activateResearchDesk: () => this.plugin.activateResearchDesk(),
-      activateResearchWorkbench: () => this.plugin.activateResearchWorkbench(),
-      requestCompletion: (prompt, display) => this.submitPrompt(prompt, display),
+      requestCompletion: async (prompt, display) => { await this.submitPrompt(prompt, display); },
     })) return;
 
     this.inputEl.value = "";
@@ -821,7 +824,7 @@ export class ChatView extends ItemView {
     }
   }
 
-  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<void> {
+  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -846,7 +849,7 @@ export class ChatView extends ItemView {
       }
       if (!caps.cli) {
         new Notice(entry?.provider.available() ? `${label} is not signed in — ${entry.backend.signInHint}, or add an API key in Companion settings.` : `${label} runs on desktop only. Add an API key to chat here.`);
-        return;
+        return false;
       }
     }
     if (!provider.hasCredentials() && backend !== "auto") {
@@ -857,7 +860,7 @@ export class ChatView extends ItemView {
             ? "Set the endpoint host and model in Companion settings → Local models."
             : "Add your Anthropic credential in Claude Companion settings first.";
       new Notice(where);
-      return;
+      return false;
     }
 
     const previousTurn = this.conversationId ? this.plugin.listConversations().find((entry) => entry.id === this.conversationId)?.activeTurn : undefined;
@@ -885,7 +888,7 @@ export class ChatView extends ItemView {
         this.composer.autosizeInput();
       }
       new Notice(`Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}`);
-      return;
+      return false;
     }
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
@@ -910,7 +913,7 @@ export class ChatView extends ItemView {
     // provider actually round-tripping tool_use (Claude, and local models whose
     // metadata reports "tools") — local-only setups get the same agent.
     const toolCapable = await router.chatToolCapable();
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) return true;
     this.agentCapable = this.plugin.settings.agentModeEnabled && toolCapable;
     this.updateModeControl();
     const agentActive = this.agentCapable;
@@ -938,7 +941,7 @@ export class ChatView extends ItemView {
       this.attachedPages,
       searchScope,
     );
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) return true;
     // A resumed Claude Code session already owns its history. Sending the whole
     // conversation again can repeat the interrupted request and duplicate writes.
     const wireMessages = this.resumeCliSessionId ? this.messages.slice(-1) : compactArtifactsInHistory(this.messages);
@@ -954,7 +957,7 @@ export class ChatView extends ItemView {
     // see them — textContent() drops non-text blocks on the Ollama path.
     if (this.attachedMedia.length > 0) {
       const blocks = await this.composer.mediaBlocks();
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return true;
       const last = apiMessages[apiMessages.length - 1];
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
@@ -1031,11 +1034,12 @@ export class ChatView extends ItemView {
     // A capped turn keeps its receipt + handoff: show Continue, or chain the
     // next turn when auto-continue is on — only while this view shows the
     // conversation; a backgrounded turn waits for the user.
-    if (!outcome?.capped || this.conversationId !== turn.conversationId) return;
+    if (!outcome?.capped || this.conversationId !== turn.conversationId) return true;
     const conversation = this.plugin.listConversations().find((entry) => entry.id === turn.conversationId);
-    if (!conversation || conversation.activeTurn?.state !== "capped") return;
+    if (!conversation || conversation.activeTurn?.state !== "capped") return true;
     this.transcript.renderInterruptedTurn(conversation);
     if (shouldAutoContinue(this.plugin.settings.agentAutoContinue, conversation.activeTurn)) await this.resumeInterruptedTurn(conversation);
+    return true;
   }
 
   /**

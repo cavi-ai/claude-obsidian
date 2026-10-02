@@ -42,13 +42,13 @@ the same material discoverable without sending an embedding index away.
 
 ### Research and write with continuity
 
-The Research Desk carries a project from sources to evidence, claims, outline,
-draft, and assurance. Evidence keeps its source locator and fingerprint, and
-only reviewed, current evidence counts as trusted support. The vault remains
-the readable source of truth at every stage.
+The Research Desk shows one project's argument, the next steps Claude suggests,
+and its documents with References. Evidence keeps its source locator and
+fingerprint, and only reviewed, current evidence counts as trusted support. The
+vault remains the readable source of truth at every stage.
 
 <p align="center">
-  <img src="assets/research-desk.png" width="760" alt="Research Desk showing a project's stage, next action, document progress, and attention queue">
+  <img src="assets/research-desk.png" width="760" alt="Research Desk showing a project's suggested next steps, claim cards with their status, and document progress">
 </p>
 
 [See the research workflow →](guides/research-workbench.md)
@@ -116,7 +116,7 @@ To add the portable workflows in Claude Code:
 
 - [Getting started](guides/getting-started.md)
 - [Agent mode, edits, and guardrails](guides/agent-mode.md)
-- [Research Desk and Workbench](guides/research-workbench.md)
+- [Research Desk](guides/research-workbench.md)
 - [Interactive artifacts](guides/artifacts.md)
 - [Local models and semantic search](guides/local-models.md)
 - [Claude Code and the MCP bridge](guides/claude-code-bridge.md)

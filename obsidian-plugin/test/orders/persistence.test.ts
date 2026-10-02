@@ -14,7 +14,6 @@ describe("standing order persistence", () => {
       app: new App(),
       settings: structuredClone(DEFAULT_SETTINGS),
       convState: { conversations: [], activeId: null },
-      researchDeskPreferences: {},
       ordersState: state,
       orderEditQueue: queue,
       saveData: async (data: unknown) => { saved = structuredClone(data); },
