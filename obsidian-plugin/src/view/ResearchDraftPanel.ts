@@ -3,6 +3,7 @@ import type { RevisionCoordinator, RevisionPreview } from "../research/revisionC
 import type { RevisionIntent } from "../research/revisionPolicy";
 import type { DraftSectionParseResult, ParsedDraftSection } from "../research/draftSections";
 import type { ProjectSnapshot } from "../research/graph";
+import { evidenceChanged } from "../research/sectionStatus";
 import { buildDraftGrounding, groundingClaimFingerprint } from "../research/draftGrounding";
 import type { ResearchRepository } from "../research/repository";
 import type { ResearchDocumentRecord } from "../research/types";
@@ -62,7 +63,7 @@ export class ResearchDraftPanel {
     const card = root.createEl("article", { cls: "cc-draft-section" });
     const heading = section.heading;
     card.createEl("h4", { text: heading });
-    const evidenceDrift = section.envelope.provider !== "companion" && this.evidenceChanged(snapshot, section);
+    const evidenceDrift = section.envelope.provider !== "companion" && evidenceChanged(snapshot, section);
     const stale = section.modifiedSinceReview || evidenceDrift;
     const status = section.modifiedSinceReview ? "Modified since review" : evidenceDrift ? "Evidence changed since review" : section.envelope.provider === "companion" ? "Ready to draft" : "Accepted draft";
     card.createEl("p", { cls: `cc-draft-status${stale ? " is-stale" : ""}`, text: status });
@@ -198,14 +199,5 @@ export class ResearchDraftPanel {
       this.revisionPreviews.delete(preview.section.envelope.id); this.revisionForms.delete(preview.section.envelope.id);
     } catch (error) { this.errors.set(preview.section.envelope.id, safeDraftError(error)); }
     await this.deps.rerender();
-  }
-
-  private evidenceChanged(snapshot: ProjectSnapshot, section: ParsedDraftSection): boolean {
-    try {
-      const claimPath = section.envelope.claimPaths[0];
-      if (!claimPath) return true;
-      const packet = buildDraftGrounding(snapshot, claimPath);
-      return groundingClaimFingerprint(packet) !== section.envelope.claimFingerprint || JSON.stringify(packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint }))) !== JSON.stringify(section.envelope.evidence);
-    } catch { return true; }
   }
 }
