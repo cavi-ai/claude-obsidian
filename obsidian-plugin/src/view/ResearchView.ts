@@ -24,7 +24,7 @@ const NEW_PROJECT = "__new__";
 export interface ResearchViewDependencies {
   chrome?: CompanionChromeDependencies;
   actions: ResearchActions;
-  askResearch(projectPath: string, prompt: string, display: string): void | Promise<void>;
+  askResearch(projectPath: string, prompt: string, display: string): boolean | Promise<boolean>;
   openPath(path: string): void | Promise<void>;
   webSearchEnabled(): boolean;
   draftCoordinator?: DraftCoordinator;
@@ -166,9 +166,11 @@ export class ResearchView extends ItemView {
     send.addEventListener("click", () => {
       const instruction = input.value.trim();
       if (!instruction) return;
-      this.instruction = "";
-      input.value = "";
-      void this.deps.askResearch(snapshot.project.path, buildResearchAgentPrompt(snapshot.project, instruction), instruction);
+      void (async () => {
+        if (!await this.deps.askResearch(snapshot.project.path, buildResearchAgentPrompt(snapshot.project, instruction), instruction)) return;
+        this.instruction = "";
+        input.value = "";
+      })();
     });
   }
 

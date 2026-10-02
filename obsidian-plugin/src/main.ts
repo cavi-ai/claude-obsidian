@@ -1513,11 +1513,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     else new Notice(`Research note not found: ${path}`);
   }
 
-  async askResearch(projectPath: string, prompt: string, display: string): Promise<void> {
+  async askResearch(projectPath: string, prompt: string, display: string): Promise<boolean> {
     const view = await this.activateView();
-    if (!view) return;
+    if (!view) return false;
     view.attachNote(projectPath);
-    await view.submitPrompt(prompt, display);
+    const started = await view.submitPrompt(prompt, display);
+    if (!started) new Notice("Claude is still busy — try again when the current reply finishes.");
+    return started;
   }
 
   private openDiscovery(snapshot: ProjectSnapshot): void {

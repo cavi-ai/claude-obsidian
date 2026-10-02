@@ -26,7 +26,7 @@ function make(over: { snapshot?: typeof snapshot; doc?: string; projects?: Array
     convertDocumentFormat: vi.fn(async () => 1),
   };
   const actions = { createProject: vi.fn(), addSource: vi.fn(), extractEvidence: vi.fn(), createClaim: vi.fn(), reviewClaim: vi.fn(), runStep: vi.fn(async () => undefined) };
-  const askResearch = vi.fn(async () => undefined);
+  const askResearch = vi.fn(async (..._args: unknown[]) => true);
   const openPath = vi.fn(async () => undefined);
   const draftCoordinator = { preview: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => { throw new Error("stop"); }) };
   const view = new ResearchView(new WorkspaceLeaf(), repository as never, { actions: actions as never, askResearch, openPath, webSearchEnabled: () => false, draftCoordinator: draftCoordinator as never });
@@ -70,6 +70,21 @@ describe("ResearchView", () => {
     click(button(view, "Send"));
     await flush();
     expect(askResearch).toHaveBeenCalledWith(P, expect.stringContaining("Task: Summarize the codecs"), "Summarize the codecs");
+  });
+
+  it("keeps the typed instruction when chat cannot take it and clears it once sent", async () => {
+    const { view, askResearch } = make();
+    await view.setProjectPath(P);
+    const input = () => all(view, "textarea")[0] as unknown as { value: string };
+    input().value = "Summarize the codecs";
+    input().dispatchEvent({ type: "input" } as never);
+    askResearch.mockResolvedValueOnce(false);
+    click(button(view, "Send"));
+    await flush();
+    expect(input().value).toBe("Summarize the codecs");
+    click(button(view, "Send"));
+    await flush();
+    expect(input().value).toBe("");
   });
 
   it("runs a draft step through the draft coordinator", async () => {
