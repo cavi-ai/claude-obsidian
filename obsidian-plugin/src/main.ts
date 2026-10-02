@@ -26,6 +26,8 @@ import { DiscoveryCoordinator } from "./discovery/coordinator";
 import { RESEARCH_MODELS, researchCoordinatorMode, researchModelChip, type ResearchModel } from "./research/researchModel";
 import { DISCOVERY_CACHE_HOURS, DISCOVERY_EXPANSION_LIMIT, DISCOVERY_MAX_RESULTS } from "./discovery/limits";
 import { DraftCoordinator } from "./research/draftCoordinator";
+import { PROVENANCE_LANGUAGE } from "./research/draftSections";
+import { renderProvenanceReferences } from "./view/research/provenanceReferences";
 import { RevisionCoordinator } from "./research/revisionCoordinator";
 import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
 import { CrossrefAdapter } from "./discovery/adapters/crossref";
@@ -677,6 +679,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
         open: (h, ti) => this.openArtifact(h, ti),
         openWith: (h, ti, target) => this.openArtifactWith(h, ti, target),
       });
+    });
+    this.registerMarkdownCodeBlockProcessor(PROVENANCE_LANGUAGE, (source, el, ctx) => {
+      renderProvenanceReferences(el, source, (path) => void this.app.workspace.openLinkText(path, ctx.sourcePath));
     });
   }
 
