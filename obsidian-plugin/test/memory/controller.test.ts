@@ -73,9 +73,9 @@ describe("consolidateMemory with recorded facts", () => {
   it("keeps a fact recorded while the model was running", async () => {
     const note = recordedNote("- 2026-10-02 · codex · Uses pnpm");
     const late = "- 2026-10-02 · codex · Ships on Fridays";
-    let ctx: ReturnType<typeof setup> | undefined;
-    ctx = setup({ [MEMORY]: note }, async () => {
-      ctx?.store.set(MEMORY, `${note}${late}\n`);
+    const files: Record<string, string> = { [MEMORY]: note };
+    const ctx = setup(files, async () => {
+      ctx.store.set(MEMORY, `${note}${late}\n`);
       return MERGED;
     });
     await ctx.controller.consolidateMemory({ quiet: true });
