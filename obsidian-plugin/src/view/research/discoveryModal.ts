@@ -17,6 +17,7 @@ export class DiscoveryModal extends Modal {
 
   override onOpen(): void {
     this.titleEl.setText("Search papers");
+    this.contentEl.addClass("cc-discovery-modal");
     this.panel = new DiscoveryPanel({ coordinator: this.coordinator, openPath: this.openPath, rerender: () => this.draw(true) });
     void this.draw(false);
   }
