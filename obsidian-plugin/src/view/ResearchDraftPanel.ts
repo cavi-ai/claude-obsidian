@@ -38,25 +38,13 @@ export class ResearchDraftPanel {
     if (scope !== this.scope) {
       this.active?.abort(); this.previews.clear(); this.errors.clear(); this.revisionPreviews.clear(); this.revisionForms.clear(); this.scope = scope;
     }
-    const docError = this.errors.get("__document__");
     root.createEl("h3", { text: "Section drafting" });
     root.createEl("p", { text: "Draft one claim-grounded section at a time. Previewing never writes to the vault." });
     if (!document) { root.createEl("p", { text: "Build an evidence-backed outline before drafting." }); return; }
     if (!parsed) { root.createEl("p", { cls: "cc-research-error", text: "The document sections could not be loaded." }); return; }
     for (const issue of parsed.issues) root.createEl("p", { cls: "cc-research-error", text: issue });
-    if (docError) root.createEl("p", { cls: "cc-research-error", attr: { role: "alert" }, text: docError });
-    if (parsed.format === "v1") {
-      const clean = root.createEl("button", { cls: "mod-cta", text: "Clean up format" });
-      clean.addEventListener("click", () => void this.cleanUp(document.path));
-    }
     if (!parsed.sections.length) { root.createEl("p", { text: "This document has no managed sections. Regenerate the evidence-backed outline to make its sections draftable." }); return; }
     for (const section of parsed.sections) this.renderSection(root, snapshot, document, section);
-  }
-
-  private async cleanUp(documentPath: string): Promise<void> {
-    try { await this.deps.repository.convertDocumentFormat(documentPath); }
-    catch (error) { this.errors.set("__document__", safeDraftError(error)); }
-    await this.deps.rerender();
   }
 
   private renderSection(root: HTMLElement, snapshot: ProjectSnapshot, document: ResearchDocumentRecord, section: ParsedDraftSection): void {
@@ -149,7 +137,7 @@ export class ResearchDraftPanel {
     discard.addEventListener("click", () => { this.revisionPreviews.delete(section.envelope.id); this.revisionForms.delete(section.envelope.id); this.errors.delete(section.envelope.id); void this.deps.rerender(); });
   }
 
-  private async preview(snapshot: ProjectSnapshot, section: ParsedDraftSection): Promise<void> {
+  async preview(snapshot: ProjectSnapshot, section: ParsedDraftSection): Promise<void> {
     this.active?.abort();
     const controller = new AbortController();
     this.active = controller;

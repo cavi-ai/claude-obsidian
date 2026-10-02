@@ -3,6 +3,7 @@ import { buildClaimSuggestionRequest, claimSuggestionEvidence, parseClaimSuggest
 import { buildExtractionRequest, fitSourceText, parseExtraction, type SourceText } from "../../research/evidenceExtraction";
 import type { ResearchSourceRecord } from "../../research/types";
 import type { ResearchDeskRun } from "../../research/deskViewModel";
+import type { NextStep } from "../../research/nextSteps";
 import { isStaleEvidence, type ProjectSnapshot } from "../../research/graph";
 import { passageContext, pickClaimForReview, pickEvidenceForReview } from "../../research/reviewTargets";
 import type { ResearchRepository } from "../../research/repository";
@@ -227,6 +228,20 @@ export class ResearchActions {
       await this.deps.changed();
       await this.deps.openPath(outline.path);
     }).open();
+  }
+
+  async runStep(step: NextStep, snapshot: ProjectSnapshot): Promise<void> {
+    switch (step.kind) {
+      case "check":
+        if (step.path && snapshot.claims.some(({ path }) => path === step.path)) this.reviewClaim(snapshot, step.path);
+        else this.reviewEvidence(snapshot, step.path);
+        return;
+      case "extract": this.extractEvidence(snapshot, step.path); return;
+      case "build-outline": this.buildOutline(snapshot); return;
+      case "add-source": this.addSource(snapshot.project.path); return;
+      case "chat":
+      case "draft-section": return;
+    }
   }
 
   async run(action: { run: ResearchDeskRun; path?: string }, snapshot: ProjectSnapshot): Promise<void> {
