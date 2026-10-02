@@ -531,4 +531,16 @@ describe("research document format v2", () => {
     expect(parseDraftSections(converted.replace(/^---\n[\s\S]*?\n---\n/, ""))).toMatchObject({ format: "v2", issues: [], sections: [{ heading: "Claim", markdown: "Old body.", modifiedSinceReview: false }] });
     expect(await repo.convertDocumentFormat(oldPath)).toBe(0);
   });
+
+  it("convertDocumentFormat rejects stray prose and leaves the file unchanged", async () => {
+    const { io, repo, project } = await outlineFixture();
+    const envelope = { id: "claim-old", claimPaths: [`${project.path.replace(/\/Project\.md$/, "")}/Claims/Claim.md`], evidence: [], citations: [], provider: "companion", model: "evidence-outline-v1", generatedAt: "outline" };
+    const content = "## Claim\n\nOld body.";
+    const v1 = `<!-- cavi:draft-section version=1 meta=${encodeURIComponent(JSON.stringify(envelope))} fingerprint=fnv1a-${fnv1aHex(content)} -->\n${content}\n<!-- cavi:draft-section:end id=claim-old -->`;
+    const oldPath = `${project.path.replace(/\/Project\.md$/, "")}/Documents/Stray.md`;
+    const original = `---\ntitle: "Stray"\ntype: "research-document"\nproject: "[[${project.path}]]"\ndocument_kind: "outline"\nclaims: []\n---\n# Stray\n\n${v1}\n\nMy own paragraph.\n`;
+    io.files.set(oldPath, original);
+    await expect(repo.convertDocumentFormat(oldPath)).rejects.toThrow(/outside a managed section/);
+    expect(io.files.get(oldPath)).toBe(original);
+  });
 });

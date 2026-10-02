@@ -226,6 +226,10 @@ function locateV1(text: string): { sections: V1Section[]; issues: string[] } {
       end: markerIndex + endMarker.length,
     });
   }
+  sections.forEach((section, at) => {
+    const gap = text.slice(section.end, sections[at + 1]?.start ?? text.length).trim();
+    if (gap && !/^## \S/.test(gap)) issues.push(`Text after "${section.heading}" is outside a managed section — put it under its own ## heading, then clean up again`);
+  });
   return { sections, issues };
 }
 

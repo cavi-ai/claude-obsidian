@@ -174,6 +174,32 @@ describe("old v1 documents", () => {
     expect(parsed.sections.map(({ markdown, modifiedSinceReview }) => [markdown, modifiedSinceReview])).toEqual([["New A.", false], ["Hand edited B [@smith2025].", true]]);
   });
 
+  describe("prose outside managed sections", () => {
+    const a = outline("claim-a", "Claim A");
+    const stray = `# Outline\n\n${v1Section(a, "## Claim A\n\nProposition A.")}\nMy note between.\n${v1Section(b, "Body B.")}\n\nMy closing note.\n`;
+
+    it("names each section followed by stray prose and refuses to convert or apply", () => {
+      const parsed = parseDraftSections(stray);
+      expect(parsed.issues).toEqual([
+        'Text after "Claim A" is outside a managed section — put it under its own ## heading, then clean up again',
+        'Text after "B claim" is outside a managed section — put it under its own ## heading, then clean up again',
+      ]);
+      expect(() => convertV1Document(stray)).toThrow(/outside a managed section/);
+      expect(() => applyDraftSection(stray, parsed.sections[0]!, a, "New A.")).toThrow(/outside a managed section/);
+    });
+
+    it("converts once the prose sits under its own headings and keeps it byte for byte", () => {
+      const fixed = `# Outline\n\n${v1Section(a, "## Claim A\n\nProposition A.")}\n\n## Notes\n\nMy note between.\n\n${v1Section(b, "Body B.")}\n\n## Notes 2\n\nMy closing note.\n`;
+      const { document } = convertV1Document(fixed);
+      const parsed = parseDraftSections(document);
+      expect(parsed.issues).toEqual([]);
+      expect(parsed.sections.map(({ modifiedSinceReview }) => modifiedSinceReview)).toEqual([false, false]);
+      const next = applyDraftSection(fixed, parsed.sections[1]!, b, "New B.");
+      expect(next).toContain("## Notes\n\nMy note between.\n");
+      expect(next).toContain("## Notes 2\n\nMy closing note.\n");
+    });
+  });
+
   it("refuses to convert a document that mixes formats", () => {
     const mixed = `${v1}\n${renderManagedDocument("", [{ envelope: drafted, heading: "X", markdown: "Y [@smith2025]." }])}`;
     expect(() => convertV1Document(mixed)).toThrow(/mixes old and new/);
