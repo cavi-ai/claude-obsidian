@@ -56,12 +56,6 @@ const captures: CaptureContract[] = [
     maxHeightToWidth: 1.15,
   },
   {
-    path: join(plugin, "..", "assets", "research-workbench-intelligence.png"),
-    width: 1520,
-    height: 1520,
-    maxHeightToWidth: 1.15,
-  },
-  {
     path: join(plugin, "..", "assets", "mcp-bridge-settings.png"),
     width: 1350,
     height: 1340,
