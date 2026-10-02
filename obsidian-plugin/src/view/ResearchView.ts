@@ -43,6 +43,9 @@ export class ResearchView extends ItemView {
   private renderSequence = 0;
   private sectionsOpen = false;
   private instruction = "";
+  private askFocus: { start: number; end: number } | undefined;
+  private restoreFocus: { start: number; end: number } | undefined;
+  private rendering = false;
   private readonly expanded = new Set<string>();
   private readonly draftPanel: ResearchDraftPanel | undefined;
 
@@ -95,6 +98,8 @@ export class ResearchView extends ItemView {
     const root = this.contentEl;
     this.disposeChrome?.();
     this.disposeChrome = null;
+    this.restoreFocus = this.askFocus;
+    this.rendering = true;
     root.empty();
     root.addClass("cc-research-desk");
     if (this.deps.chrome) {
@@ -104,7 +109,7 @@ export class ResearchView extends ItemView {
         snapshot: () => ({ ...chrome.snapshot(), ...(snapshot ? { activeProject: snapshot.project.title } : {}) }),
       });
     }
-    if (!snapshot) { this.renderEmpty(root, projects, loadError); return; }
+    if (!snapshot) { this.renderEmpty(root, projects, loadError); this.rendering = false; return; }
     const audit = auditProject(snapshot);
     const argument = buildArgument(snapshot, audit, analyzeProjectIntelligence(snapshot), document?.sections);
     const steps = nextSteps({ snapshot, audit, ...(document ? { sections: document.sections } : {}), webSearch: this.deps.webSearchEnabled() });
@@ -114,6 +119,7 @@ export class ResearchView extends ItemView {
     this.renderArgument(root, snapshot, argument);
     this.renderDocument(root, snapshot, document);
     this.renderSources(root, snapshot);
+    this.rendering = false;
   }
 
   private renderHeader(root: HTMLElement, snapshot: ProjectSnapshot, projects: Array<{ path: string; title: string }>): void {
@@ -161,7 +167,18 @@ export class ResearchView extends ItemView {
     const form = ask.createDiv({ cls: "cc-desk-ask-form" });
     const input = form.createEl("textarea", { cls: "cc-desk-ask-input", attr: { "aria-label": "Instruction for Claude", placeholder: "Tell Claude what to do next…", rows: "2" } });
     input.value = this.instruction;
-    input.addEventListener("input", () => { this.instruction = input.value; });
+    const caret = () => ({ start: input.selectionStart ?? input.value.length, end: input.selectionEnd ?? input.value.length });
+    input.addEventListener("focus", () => { this.askFocus = caret(); });
+    input.addEventListener("blur", () => { if (!this.rendering) this.askFocus = undefined; });
+    input.addEventListener("input", () => { this.instruction = input.value; if (this.askFocus) this.askFocus = caret(); });
+    for (const type of ["keyup", "click"]) input.addEventListener(type, () => { if (this.askFocus) this.askFocus = caret(); });
+    if (this.restoreFocus) {
+      const { start, end } = this.restoreFocus;
+      input.focus();
+      input.setSelectionRange(start, end);
+      this.askFocus = { start, end };
+      this.restoreFocus = undefined;
+    }
     const send = form.createEl("button", { cls: "mod-cta", text: "Send" });
     send.addEventListener("click", () => {
       const instruction = input.value.trim();

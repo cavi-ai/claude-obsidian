@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceLeaf } from "obsidian";
+import { FakeElement } from "../fakes/obsidian";
 import { buildProjectSnapshot } from "../../src/research/graph";
 import { parseDraftSections, renderManagedDocument } from "../../src/research/draftSections";
 import { ResearchView, ResearchWorkbenchRedirect, RESEARCH_DESK_VIEW_TYPE } from "../../src/view/ResearchView";
@@ -85,6 +86,30 @@ describe("ResearchView", () => {
     click(button(view, "Send"));
     await flush();
     expect(input().value).toBe("");
+  });
+
+  it("restores Ask focus and caret across a refresh", async () => {
+    const { view } = make();
+    await view.setProjectPath(P);
+    const focus = vi.spyOn(FakeElement.prototype, "focus");
+    const old = all(view, "textarea")[0] as unknown as FakeElement & { value: string };
+    old.dispatchEvent({ type: "focus" });
+    old.value = "Summarize";
+    old.selectionStart = 3;
+    old.selectionEnd = 6;
+    old.dispatchEvent({ type: "input" });
+    focus.mockClear();
+    await view.render();
+    const next = all(view, "textarea")[0] as unknown as FakeElement & { value: string };
+    expect(next).not.toBe(old);
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(focus.mock.contexts[0]).toBe(next);
+    expect([next.value, next.selectionStart, next.selectionEnd]).toEqual(["Summarize", 3, 6]);
+    focus.mockClear();
+    next.dispatchEvent({ type: "blur" });
+    await view.render();
+    expect(focus).not.toHaveBeenCalled();
+    focus.mockRestore();
   });
 
   it("runs a draft step through the draft coordinator", async () => {
