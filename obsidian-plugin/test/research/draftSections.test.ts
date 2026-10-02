@@ -144,6 +144,32 @@ describe("research document format v2", () => {
   });
 });
 
+describe("CRLF documents", () => {
+  const crlf = (text: string) => text.replace(/\n/g, "\r\n");
+
+  it("reads a CRLF v2 note with a multi-line section as unmodified", () => {
+    const doc = renderManagedDocument("# Draft", [{ envelope: outline("c-a", "A"), heading: "A", markdown: "Line one.\nLine two.\n\nPara two." }]);
+    expect(parseDraftSections(crlf(doc)).sections.map(({ markdown, modifiedSinceReview }) => [markdown, modifiedSinceReview])).toEqual([["Line one.\nLine two.\n\nPara two.", false]]);
+  });
+
+  it("reads and converts a CRLF v1 note", () => {
+    const v1 = crlf(`# Outline\n\n${v1Section(outline("claim-a", "Claim A"), "## Claim A\n\nLine one.\nLine two.")}\n`);
+    const parsed = parseDraftSections(v1);
+    expect(parsed.sections.map(({ heading, markdown, modifiedSinceReview }) => [heading, markdown, modifiedSinceReview])).toEqual([["Claim A", "Line one.\nLine two.", false]]);
+    const { document, converted } = convertV1Document(v1);
+    expect(converted).toBe(1);
+    expect(document).not.toContain("\r");
+  });
+
+  it("writes LF only after an accept", () => {
+    const doc = crlf(renderManagedDocument("# Draft", [{ envelope: outline("c-a", "A"), heading: "A", markdown: "Old.\nMore." }]));
+    const previewed = parseDraftSections(doc).sections[0]!;
+    const next = applyDraftSection(doc, previewed, { ...outline("c-a", "A"), provider: "anthropic" }, "New.");
+    expect(next).not.toContain("\r");
+    expect(parseDraftSections(next).sections[0]).toMatchObject({ markdown: "New.", modifiedSinceReview: false });
+  });
+});
+
 describe("old v1 documents", () => {
   const b = { ...drafted, id: "claim-b", claimPaths: ["Research/Claims/B claim.md"] };
   const v1 = `# Outline\n\n${v1Section(outline("claim-a", "Claim A"), "## Claim A\n\nProposition A.")}\n${v1Section(b, "Hand edited B [@smith2025].", "Drafted B [@smith2025].")}\n`;

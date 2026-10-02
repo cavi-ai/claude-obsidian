@@ -244,7 +244,10 @@ function locateV1(text: string): { sections: V1Section[]; issues: string[] } {
 
 const publicSection = ({ envelope, heading, markdown, modifiedSinceReview }: ParsedDraftSection): ParsedDraftSection => ({ envelope, heading, markdown, modifiedSinceReview });
 
-export function parseDraftSections(document: string): DraftSectionParseResult {
+const toLf = (text: string): string => text.replace(/\r\n?/g, "\n");
+
+export function parseDraftSections(source: string): DraftSectionParseResult {
+  const document = toLf(source);
   const blocks = provenanceBlocks(document);
   const hasV1 = document.includes(V1_MARKER);
   if (blocks.length && hasV1) return { format: "v2", sections: [], issues: ["Document mixes old and new section markers"] };
@@ -276,7 +279,8 @@ export function renderManagedDocument(preamble: string, sections: ManagedSection
   return `${[preamble.trim(), ...parts, renderProvenanceBlock(entries)].filter(Boolean).join("\n\n")}\n`;
 }
 
-export function convertV1Document(document: string): { document: string; converted: number } {
+export function convertV1Document(source: string): { document: string; converted: number } {
+  const document = toLf(source);
   if (!document.includes(V1_MARKER)) return { document, converted: 0 };
   if (provenanceBlocks(document).length) throw new Error("Document mixes old and new section markers");
   const { sections, issues } = locateV1(document);
@@ -296,11 +300,12 @@ export function convertV1Document(document: string): { document: string; convert
   return { document: `${out.trimEnd()}\n\n${renderProvenanceBlock(entries)}\n`, converted: sections.length };
 }
 
-export function applyDraftSection(document: string, previewed: ParsedDraftSection, envelope: DraftSectionEnvelope, markdown: string): string {
+export function applyDraftSection(source: string, previewed: ParsedDraftSection, envelope: DraftSectionEnvelope, markdown: string): string {
   if (envelope.id !== previewed.envelope.id) throw new Error("Replacement draft section id must match the previewed section");
   assertSafeEnvelope(envelope);
   const body = normalizeSectionBody(markdown);
   if (!body) throw new Error("Draft section Markdown must not be empty");
+  const document = toLf(source);
   const current = document.includes(V1_MARKER) ? convertV1Document(document).document : document;
   const blocks = provenanceBlocks(current);
   if (blocks.length !== 1) throw new Error("Research document has no managed sections");
