@@ -4,6 +4,36 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] — 2026-10-02
+
+### Added
+- **Standing orders.** A prompt template with a `schedule` (`daily 08:00`,
+  `weekly mon 08:00`) or `on_note` (`folder`, `tag`) trigger runs while
+  Obsidian is open and writes a run note under `Claude/Orders/`. Edits it
+  proposes wait under Proposed edits in the Inbox. New orders start disabled;
+  commands New standing order and Run standing order now…; Standing orders
+  setting on the Agent page.
+- **One Research Desk view** replaces the Research Desk and Research Workbench:
+  project header, Fix first, Ask Claude with up to three next steps, Argument,
+  Document, Add sources.
+- A saved chat edit proposal can be discarded.
+
+### Changed
+- Research documents keep section provenance in one `claude-provenance` block
+  shown as References; Clean up format converts older documents.
+- Claim cards show one status each and expand to their passages.
+- The cloud dispatch checklist no longer lists the beta header step.
+
+### Removed
+- The Research Workbench view, the `open-research-workbench` command, and
+  `/workbench`; saved Workbench leaves open the Research Desk.
+
+### Fixed
+- Edits to a note's frontmatter open in the diff review instead of an inline
+  review hidden by the Properties view.
+- Drafted sections with an echoed heading or top-level headings are normalized
+  before validation; CRLF research documents parse.
+
 ## [0.36.0] — 2026-10-02
 
 ### Added
