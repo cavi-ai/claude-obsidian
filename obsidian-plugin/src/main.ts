@@ -144,7 +144,9 @@ import { TriageFolderModal } from "./view/TriageFolderModal";
 import { OntologyRegistry } from "./ontology/registry";
 import { seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
-import { buildResearchDeskViewModel } from "./research/deskViewModel";
+import { nextSteps } from "./research/nextSteps";
+import { documentSections } from "./research/sectionStatus";
+import { deriveResearchStage } from "./research/stage";
 import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, triageFolderChoices, partitionEnrichOutcomes, type EnrichOutcomeLike, type TriageNote, type TriageFolderChoice } from "./research/triage";
 import { captureWebSource } from "./research/webCapture";
 import type { WebCapture } from "./context/webCapture";
@@ -3421,15 +3423,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (projectPath) {
       try {
         const snapshot = await this.researchRepository().loadProject(projectPath);
-        const vm = buildResearchDeskViewModel(snapshot, auditProject(snapshot), this.researchDeskPreferences[projectPath] ?? { dismissedActionIds: [] });
+        const audit = auditProject(snapshot);
+        const document = await documentSections(snapshot, (path) => this.researchRepository().loadDraftSections(path));
+        const steps = nextSteps({ snapshot, audit, ...(document ? { sections: document.sections } : {}), webSearch: this.settings.webSearchEnabled });
         return resolveCompanionWorkspace({
           activeNote: { path: active.path, title: active.basename },
           research: {
             projectPath,
-            title: vm.title,
-            stage: vm.stage.current,
-            ...(vm.nextAction ? { nextAction: vm.nextAction.label, nextReason: vm.nextAction.reason } : {}),
-            actions: vm.actions.slice(0, 3),
+            title: snapshot.project.title,
+            stage: deriveResearchStage(snapshot, document?.sections.map(({ state }) => state)),
+            ...(steps[0] ? { nextAction: steps[0].label } : {}),
+            steps,
           },
         });
       } catch (e) { console.debug("Claude Companion: research workspace resolution failed, using active note", e); }
