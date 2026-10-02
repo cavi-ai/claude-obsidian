@@ -57,6 +57,17 @@ function toolUseReply(text: string): { name: string; input: Record<string, unkno
 export function startProviderStub(state: StubState): Promise<{ server: Server; port: number }> {
   const defaultReply = JSON.stringify({ markdown: "Grounded prose [@study].", support: [], claimPreservation: [], changes: [], gaps: [] });
   const server = createServer((request, response) => {
+    // Streaming goes through the browser fetch(), which preflights from app://obsidian.md.
+    response.setHeader("Access-Control-Allow-Origin", "*");
+    if (request.method === "OPTIONS") {
+      request.resume();
+      response.writeHead(204, {
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": request.headers["access-control-request-headers"] ?? "*",
+      });
+      response.end();
+      return;
+    }
     state.requests += 1;
     let body = "";
     request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
