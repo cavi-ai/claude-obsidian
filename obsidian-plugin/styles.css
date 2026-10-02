@@ -1752,6 +1752,33 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-inbox-organize:active {
   transform: scale(0.97);
 }
+.cc-inbox-orders {
+  margin-bottom: 18px;
+}
+.cc-inbox-order-edit {
+  flex-wrap: wrap;
+}
+.cc-inbox-order-detail {
+  flex: 1 1 100%;
+  min-width: 0;
+  order: 3;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.cc-inbox-order-description {
+  color: var(--text-normal);
+}
+.cc-inbox-order-missing {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.cc-inbox-order-review,
+.cc-inbox-order-discard {
+  min-height: 32px;
+  padding: 4px 14px;
+  border-radius: 16px;
+  cursor: pointer;
+}
 .cc-inbox-organize:disabled {
   opacity: 0.5;
   cursor: default;
@@ -2247,6 +2274,20 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   font-style: italic;
+}
+
+.cc-edit-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-style: normal;
+}
+
+.cc-edit-recovery span {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Write-confirmation dialog. */

@@ -69,10 +69,19 @@ import { catalogPromptProvider, composeResourceProviders, substrateResourceProvi
 import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
-import type { AnthropicToolDef, Provider, ProviderId } from "./providers/types";
+import type { AnthropicToolDef, CompletionRequest, Provider, ProviderId } from "./providers/types";
+import { executeTool, readOnlyAnthropicTools } from "./agent/tools";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
+import { OrdersController } from "./orders/controller";
+import { discardQueuedEdit as discardQueuedOrderEdit, reviewQueuedEdit as reviewQueuedOrderEdit, type QueueReviewDeps } from "./orders/queueReview";
+import { normalizeEditQueue, type QueuedEdit } from "./orders/editQueue";
+import { ORDER_SCAFFOLD, parseOrder, type StandingOrder } from "./orders/order";
+import { ORDERS_OUTPUT_ROOT } from "./orders/output";
+import { runOrder, type OrderRunResult, type OrderTrigger } from "./orders/runner";
+import { normalizeOrdersState, type OrdersState } from "./orders/state";
+import { OrderPicker } from "./view/OrderPicker";
 import {
   buildFolderOrganizePrompt,
   currentDomainOf,
@@ -90,7 +99,7 @@ import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
 import { stripFrontmatter } from "./semantic/chunk";
 import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
-import type { AgentTurnRunner } from "./agent/loop";
+import { providerTurnRunner, type AgentTurnRunner } from "./agent/loop";
 import { CliSession } from "./cli/session";
 import { mcpConfigJson } from "./cli/argv";
 import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, perTurnTools, type InteractiveToolDeps } from "./cli/bridgeTools";
@@ -130,7 +139,7 @@ import {
 } from "./conversations/store";
 import { ConversationsController } from "./conversations/controller";
 import type { ChatMessage } from "./types";
-import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
+import { getAllTags, normalizePath, TFile, TFolder, type Editor } from "obsidian";
 import { inboxItems, typedInboxItems, type InboxFileEntry } from "./sources/inbox";
 import { parseClipUrl } from "./sources/detect";
 import { SourceEnrichmentController, sourceActivityDetail, type EnrichRunOutcome } from "./sources/controller";
@@ -189,6 +198,8 @@ interface PersistedData {
   activeConversationId?: string | null;
   buildRuns?: BuildRun[];
   activeBuildRunId?: string | null;
+  standingOrders?: unknown;
+  orderEditQueue?: unknown;
 }
 
 type UtilityFallbackConsentKey = Pick<UtilityFallbackConsentContext, "identity" | "destinationFingerprint">;
@@ -503,6 +514,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
   private inboxRibbonEl: HTMLElement | null = null;
   private inboxBadgeTimer: number | null = null;
+  private ordersState: OrdersState = {};
+  private orderEditQueue: QueuedEdit[] = [];
+  private _standingOrders?: OrdersController;
+  private ordersRefreshTimer: number | null = null;
   /** Lazily-built ontology registry; null while the feature is disabled. */
   private _ontology: OntologyRegistry | null = null;
   /** Debounce timer for ontology reloads on schema-note changes. */
@@ -705,6 +720,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.scheduleOntologyReload(); }));
+
+      this.startStandingOrders();
   }
 
   /** Keeps the plan Build action and the last-seen note in step with the workspace. */
@@ -806,6 +823,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       reviewLinkSuggestions: () => void this.reviewLinkSuggestions(),
       openWorkflowPicker: () => void this.openWorkflowPicker(),
       createPromptTemplate: () => void this.createPromptTemplate(),
+      createStandingOrder: () => void this.createStandingOrder(),
+      runStandingOrder: () => this.pickStandingOrder(),
       openSessionPicker: () => void this.memory().openSessionPicker(),
       openMemoryView: () => void this.activateMemoryView(),
       consolidateMemory: () => void this.memory().consolidateMemory(),
@@ -1752,6 +1771,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
     if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
     if (this.inboxBadgeTimer !== null) window.clearTimeout(this.inboxBadgeTimer);
+    if (this.ordersRefreshTimer !== null) window.clearTimeout(this.ordersRefreshTimer);
   }
 
   /** Lazy external-MCP manager; null until first configured use. */
@@ -2031,6 +2051,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
+    if (activityId.startsWith("order:")) {
+      if (actionId === "retry") return this.standingOrders().retry(activityId);
+      const orderId = activityId.slice("order:".length).replace(/:\d+$/, "");
+      const file = this.app.vault.getAbstractFileByPath(orderId);
+      if (!(file instanceof TFile)) throw new Error(`Order note missing: ${orderId}`);
+      await this.app.workspace.getLeaf(false).openFile(file);
+      return;
+    }
     if (activityId.startsWith("chat-turn:")) {
       const conversationId = activityId.slice("chat-turn:".length);
       const conversation = this.conversations().list().find(({ id }) => id === conversationId);
@@ -2096,6 +2124,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       isNamespacedData(raw) ? raw.buildRuns : undefined,
       isNamespacedData(raw) ? raw.activeBuildRunId : null,
     );
+    this.ordersState = normalizeOrdersState(isNamespacedData(raw) ? raw.standingOrders : undefined);
+    this.orderEditQueue = normalizeEditQueue(isNamespacedData(raw) ? raw.orderEditQueue : undefined);
 
     // Any plaintext credential still in data.json moves to the secret store now,
     // then the file is rewritten without it. Must run after buildRuns is restored:
@@ -2120,6 +2150,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       settings: stripped.settings,
       conversations: this.convState.conversations,
       activeConversationId: this.convState.activeId,
+      standingOrders: this.ordersState,
+      orderEditQueue: this.orderEditQueue,
       ...this.build().serializeState(),
     })) as PersistedData;
     const result = (this.persistChain ?? Promise.resolve()).catch(() => {}).then(() => this.saveData(data));
@@ -3041,12 +3073,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._cliRuntime;
   }
 
-  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
+  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean; proposeOnly: boolean; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
     const registry = binding.backend.supportsPermissionPrompt
-      ? interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools)
-      : perTurnTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools);
+      ? interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools, () => binding.proposeOnly)
+      : perTurnTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools, () => binding.proposeOnly);
     const server = new McpHttpServer(
       {
         port: 0,
@@ -3078,7 +3110,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return claudeBackend;
   }
 
-  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string }): Promise<AgentTurnRunner> {
+  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string; proposeOnly?: boolean }): Promise<AgentTurnRunner> {
     const backend = this.cliBackendFor(this.settings.chatBackend);
     const cli = this.router().get(backend.id) as CliProvider;
     const executable = cli.executable();
@@ -3087,7 +3119,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const cwd = this.vaultBasePath();
     if (!runtime || !cwd) throw new Error(`${backend.label} runs on desktop only.`);
     const allowedTools = opts.agentMode ? cliAllowedTools(this.agentTools().definitions(), opts.planMode) : [];
-    const signature = JSON.stringify({ backend: backend.id, model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
+    const proposeOnly = opts.proposeOnly === true;
+    const signature = JSON.stringify({ proposeOnly, backend: backend.id, model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
     if (!opts.resumeSessionId && existing && existing.signature === signature && !existing.session.isClosed()) {
       existing.lastUsed = Date.now();
@@ -3105,7 +3138,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (promptFile) this.cliPromptFiles.add(promptFile);
     let bridge: McpHttpServer | null = null;
     try {
-      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode, backend });
+      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode, proposeOnly, backend });
       bridge = started.server;
       const mcpConfig = mcpConfigJson(started.port, started.token);
       let session: CliSession;
@@ -3236,6 +3269,189 @@ export default class ClaudeCompanionPlugin extends Plugin {
         });
     }
     return out;
+  }
+
+  // ---------- standing orders ----------
+  private templatesRoot(): string {
+    return normalizePath(this.settings.templatesFolder).replace(/\/+$/, "");
+  }
+
+  private standingOrders(): OrdersController {
+    return (this._standingOrders ??= new OrdersController({
+      enabled: () => this.settings.standingOrdersEnabled,
+      now: () => new Date(),
+      loadOrders: () => this.loadStandingOrders(),
+      excludedRoots: () => [this.templatesRoot(), ORDERS_OUTPUT_ROOT].filter(Boolean),
+      noteFacts: (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile) || file.extension !== "md") return null;
+        const cache = this.app.metadataCache.getFileCache(file);
+        const tags = (cache ? getAllTags(cache) ?? [] : []).map((tag) => tag.replace(/^#/, "").toLowerCase());
+        return { path, ctime: file.stat.ctime, tags };
+      },
+      readNote: (path) => this.readVaultNote(path),
+      writeRunNote: async (path, content) => {
+        const slash = path.lastIndexOf("/");
+        await ensureVaultFolder(this.app, path.slice(0, slash));
+        const unique = await uniqueNotePath(this.app, path.slice(0, slash), path.slice(slash + 1).replace(/\.md$/, ""), "md");
+        await this.app.vault.create(unique, content);
+        return unique;
+      },
+      run: (order, trigger, now) => this.runStandingOrder(order, trigger, now),
+      getState: () => this.ordersState,
+      setState: async (next) => {
+        if (JSON.stringify(next) === JSON.stringify(this.ordersState)) return;
+        this.ordersState = next;
+        await this.persist();
+      },
+      getQueue: () => this.orderEditQueue,
+      setQueue: async (next) => {
+        this.orderEditQueue = next;
+        await this.persist();
+      },
+      activity: this.activity,
+      onQueueChanged: () => this.onOrderQueueChanged(),
+    }));
+  }
+
+  private async readVaultNote(path: string): Promise<string> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`);
+    return this.app.vault.cachedRead(file);
+  }
+
+  private async loadStandingOrders(): Promise<{ orders: StandingOrder[]; invalid: Array<{ path: string; reason: string }> }> {
+    const orders: StandingOrder[] = [];
+    const invalid: Array<{ path: string; reason: string }> = [];
+    const folder = this.templatesRoot();
+    if (!folder) return { orders, invalid };
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (!f.path.startsWith(`${folder}/`)) continue;
+      try {
+        const fm = (this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined) ?? {};
+        const template = parseTemplateNote(f.path, f.basename, fm, stripFrontmatter(await this.app.vault.cachedRead(f)));
+        if (!template) continue;
+        const parsed = parseOrder(template, fm);
+        if (parsed.kind === "order") orders.push(parsed.order);
+        else if (parsed.kind === "invalid") invalid.push({ path: parsed.path, reason: parsed.reason });
+      } catch (e) {
+        console.debug("Claude Companion: skipping unreadable order", f.path, e);
+      }
+    }
+    orders.sort((a, b) => a.name.localeCompare(b.name));
+    return { orders, invalid };
+  }
+
+  /** Read tools plus propose_note_edit only; confirmWrite stays absent so any write call fails closed. */
+  private async runStandingOrder(order: StandingOrder, trigger: OrderTrigger, now: Date): Promise<OrderRunResult> {
+    const router = this.router();
+    const caps = router.chatCapabilities();
+    const toolsSupported = await router.chatToolCapable();
+    const { provider, model: providerModel } = router.chatProvider();
+    return runOrder(order, trigger, now, {
+      readTools: readOnlyAnthropicTools(this.agentTools().definitions()),
+      toolsSupported,
+      readNote: (path) => this.readVaultNote(path),
+      runTurn: async (turn, proposeEdit) => {
+        const model = caps.local ? providerModel : turn.model ?? providerModel;
+        const request: CompletionRequest = {
+          system: this.composeSystemPrompt({ agent: true, plan: false }),
+          messages: [{ role: "user", content: turn.prompt }],
+          model,
+          maxTokens: this.settings.maxTokens,
+          ...(turn.tools.length > 0 ? { tools: turn.tools } : {}),
+        };
+        const handlers = { onText: () => undefined };
+        if (!caps.cli) {
+          return providerTurnRunner({
+            stream: (req, h) => provider.stream(req, h),
+            execute: (block, signal) => executeTool({ ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
+            maxIterations: this.settings.agentMaxIterations,
+          }).run(request, handlers);
+        }
+        const conversationId = `order:${order.id}`;
+        try {
+          const runner = await this.cliTurnRunner({ conversationId, planMode: false, agentMode: toolsSupported, model, deps: { confirmWrite: async () => false, proposeEdit }, transcript: "", proposeOnly: true });
+          return await runner.run(request, handlers);
+        } finally {
+          await this.closeCliSession(conversationId);
+        }
+      },
+    });
+  }
+
+  listQueuedEdits(): QueuedEdit[] {
+    return this.orderEditQueue;
+  }
+
+  private queueReviewDeps(): QueueReviewDeps {
+    return {
+      app: this.app,
+      getQueue: () => this.orderEditQueue,
+      setQueue: async (next) => { this.orderEditQueue = next; await this.persist(); },
+      inlineEnabled: () => this.settings.inlineDiffEnabled,
+      onChanged: () => this.onOrderQueueChanged(),
+    };
+  }
+
+  reviewQueuedEdit(id: string): Promise<void> {
+    return reviewQueuedOrderEdit(this.queueReviewDeps(), id);
+  }
+
+  discardQueuedEdit(id: string): Promise<void> {
+    return discardQueuedOrderEdit(this.queueReviewDeps(), id);
+  }
+
+  private onOrderQueueChanged(): void {
+    this.syncInboxBadge();
+    for (const leaf of this.app.workspace.getLeavesOfType(INBOX_VIEW_TYPE)) {
+      if (leaf.view instanceof InboxView) void leaf.view.render();
+    }
+  }
+
+  private scheduleOrdersRefresh(): void {
+    if (this.ordersRefreshTimer !== null) window.clearTimeout(this.ordersRefreshTimer);
+    this.ordersRefreshTimer = window.setTimeout(() => {
+      this.ordersRefreshTimer = null;
+      void this.standingOrders().refresh();
+    }, 1000);
+  }
+
+  /** Registered after layout-ready so Obsidian's initial scan does not look like new notes. */
+  private startStandingOrders(): void {
+    const controller = this.standingOrders();
+    void controller.refresh().then(() => controller.tick()).catch((error: unknown) => console.error("[Claude Companion] standing orders failed to start", error));
+    this.registerInterval(window.setInterval(() => void controller.tick(), 60_000));
+    this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile) void controller.noteEvent(f.path); }));
+    const inTemplates = (path: string): boolean => path.startsWith(`${this.templatesRoot()}/`);
+    this.registerEvent(this.app.metadataCache.on("changed", (f) => {
+      void controller.noteEvent(f.path);
+      if (inTemplates(f.path)) this.scheduleOrdersRefresh();
+    }));
+    this.registerEvent(this.app.vault.on("create", (f) => { if (inTemplates(f.path)) this.scheduleOrdersRefresh(); }));
+    this.registerEvent(this.app.vault.on("modify", (f) => { if (inTemplates(f.path)) this.scheduleOrdersRefresh(); }));
+    this.registerEvent(this.app.vault.on("delete", (f) => { if (inTemplates(f.path)) this.scheduleOrdersRefresh(); }));
+    this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (inTemplates(f.path) || inTemplates(oldPath)) this.scheduleOrdersRefresh(); }));
+  }
+
+  async createStandingOrder(): Promise<void> {
+    const folder = this.templatesRoot();
+    await ensureVaultFolder(this.app, folder);
+    const path = await uniqueNotePath(this.app, folder, "My standing order", "md");
+    const file = await this.app.vault.create(path, ORDER_SCAFFOLD);
+    await this.app.workspace.getLeaf(false).openFile(file);
+    new Notice("Standing order created — edit the trigger and prompt, then set enabled: true.");
+  }
+
+  private pickStandingOrder(): void {
+    const orders = this.standingOrders().validOrders();
+    if (orders.length === 0) {
+      new Notice("No standing orders yet — run “New standing order” first.");
+      return;
+    }
+    new OrderPicker(this.app, orders, (order) => {
+      void this.standingOrders().runNow(order.id).catch((error: unknown) => new Notice(`Standing order failed: ${error instanceof Error ? error.message : String(error)}`));
+    }).open();
   }
 
   // ---------- prompt templates (user slash commands) ----------
@@ -3491,6 +3707,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           .map((r) => ({ id: r.id, title: r.title, failed: r.failed, recovery: r.recovery.map(({ id, label }) => ({ id, label })) })),
         bridge: { applicable: !Platform.isMobile, enabled: this.settings.mcpEnabled, running: this.mcpRunning(), port: this.settings.mcpPort },
         clipper: { applicable: this.settings.sourceCaptureEnabled, status: this.clipperStatus() },
+        orders: { invalid: this.standingOrders().invalidOrders() },
       }),
       now: () => new Date().toISOString(),
     });
@@ -3558,8 +3775,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private syncInboxBadge(): void {
     const el = this.inboxRibbonEl;
     if (!el) return;
-    const n = this.settings.sourceCaptureEnabled ? this.inboxPendingCount() : 0;
-    el.setAttr("aria-label", n > 0 ? `Source inbox — ${n} to type` : "Source inbox");
+    const pending = this.settings.sourceCaptureEnabled ? this.inboxPendingCount() : 0;
+    const queued = this.orderEditQueue.length;
+    const n = pending + queued;
+    const waiting = [...(pending > 0 ? [`${pending} to type`] : []), ...(queued > 0 ? [`${queued} to review`] : [])];
+    el.setAttr("aria-label", n > 0 ? `Source inbox — ${waiting.join(", ")}` : "Source inbox");
     let badge = el.querySelector<HTMLElement>(".cc-inbox-ribbon-badge");
     if (n > 0) {
       if (!badge) badge = el.createSpan({ cls: "cc-inbox-ribbon-badge" });
