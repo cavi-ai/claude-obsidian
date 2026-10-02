@@ -227,7 +227,7 @@ test.describe("README captures", () => {
         const desk = harness.page.locator('.workspace-leaf-content[data-type="claude-research-desk"]');
         await setRightSidebarWidth(harness.page, 760);
         await expect.poll(async () => (await desk.boundingBox())?.width ?? 0).toBeCloseTo(760, 0);
-        await shoot(desk, "research-desk.png", theme);
+        await shootThrough(desk, desk.locator(".cc-desk-sources"), 760, "research-desk.png", theme);
       });
 
       test("mcp-bridge-settings.png", async () => {
