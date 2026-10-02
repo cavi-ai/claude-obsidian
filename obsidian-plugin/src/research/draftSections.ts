@@ -194,8 +194,11 @@ function locateV2(text: string, block: Block): { sections: LocatedSection[]; iss
   const sections: LocatedSection[] = [];
   let cursor = -1;
   for (const entry of entries) {
-    const index = headings.findIndex((heading, at) => at > cursor && heading.text === entry.heading);
-    if (index < 0) { issues.push(`Section "${entry.heading}" not found — restore the heading or rebuild the outline`); continue; }
+    const bodyOf = (at: number): string => text.slice(headings[at]!.bodyStart, headings[at + 1]?.start ?? block.start).trim();
+    const candidates = headings.flatMap((heading, at) => at > cursor && heading.text === entry.heading ? [at] : []);
+    if (!candidates.length) { issues.push(`Section "${entry.heading}" not found — restore the heading or rebuild the outline`); continue; }
+    const index = candidates.length === 1 ? candidates[0]! : candidates.find((at) => draftMarkdownFingerprint(bodyOf(at)) === entry.fingerprint) ?? -1;
+    if (index < 0) { issues.push(`Duplicate heading "${entry.heading}" — rename one so the section can be found`); continue; }
     cursor = index;
     const heading = headings[index]!;
     const bodyEnd = headings[index + 1]?.start ?? block.start;

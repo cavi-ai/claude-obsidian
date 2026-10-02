@@ -55,6 +55,24 @@ describe("research document format v2", () => {
     expect(parseDraftSections(doc).sections.map(({ markdown }) => markdown)).toEqual(["first", "second"]);
   });
 
+  it("matches the managed section when a preamble heading has the same text", () => {
+    const doc = renderManagedDocument("# Draft\n\n## Intro\n\nMy own intro.", [{ envelope: outline("intro", "Intro"), heading: "Intro", markdown: "Managed intro." }]);
+    const parsed = parseDraftSections(doc);
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.sections.map(({ markdown, modifiedSinceReview }) => [markdown, modifiedSinceReview])).toEqual([["Managed intro.", false]]);
+  });
+
+  it("reports a duplicate heading that cannot be told apart and refuses to accept", () => {
+    const doc = renderManagedDocument("", [
+      { envelope: outline("claim-a", "A"), heading: "A", markdown: "Body A." },
+      { envelope: outline("claim-b", "B"), heading: "B", markdown: "Body B." },
+    ]);
+    const previewed = parseDraftSections(doc).sections[1]!;
+    const inserted = doc.replace("Body A.", "Body A.\n\n## B\n\nMy own B.").replace("Body B.", "Body B edited.");
+    expect(parseDraftSections(inserted).issues).toEqual(['Duplicate heading "B" — rename one so the section can be found']);
+    expect(() => applyDraftSection(inserted, previewed, outline("claim-b", "B"), "New B.")).toThrow(/Duplicate heading "B"/);
+  });
+
   it("reports a renamed heading", () => {
     const doc = renderManagedDocument("", [{ envelope: drafted, heading: "External validity", markdown: "Body [@smith2025]." }]);
     const parsed = parseDraftSections(doc.replace("## External validity", "## Renamed"));
