@@ -32,6 +32,16 @@ describe("RevisionCoordinator", () => {
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ responseFormat: "json", temperature: 0 }));
   });
 
+  it("accepts a response that echoes the section heading", async () => {
+    const echoed = JSON.stringify({ ...JSON.parse(valid), markdown: "## C\n\nThe results vary [@smith]." });
+    const provider = { id: "anthropic", label: "Claude", hasCredentials: () => true, complete: vi.fn(async () => echoed) } as unknown as Provider;
+    const coordinator = new RevisionCoordinator({ selection: () => ({ provider, model: "new-model" }), maxTokens: () => 2000, now: () => "now" });
+    const preview = await coordinator.preview(snapshot, section, { intent: "clarity" });
+    expect(preview.response.canAccept).toBe(true);
+    expect(preview.response.violations).toEqual([]);
+    expect(preview.response.markdown).toBe("The results vary [@smith].");
+  });
+
   it("retries once and fails closed without a generated fallback", async () => {
     const complete = vi.fn(async () => "{}");
     const provider = { id: "ollama", label: "Local", hasCredentials: () => true, complete } as unknown as Provider;
