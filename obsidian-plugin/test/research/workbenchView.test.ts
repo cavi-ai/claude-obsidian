@@ -2,9 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { getLastOpenedModal, WorkspaceLeaf } from "obsidian";
 import type { ResearchRepository } from "../../src/research/repository";
 import { MAX_RESEARCH_SOURCE_FILE_BYTES, RESEARCH_WORKBENCH_VIEW_TYPE, ResearchWorkbenchView, replaceResearchProjectPath } from "../../src/view/ResearchWorkbenchView";
-import { parseDraftSections, renderDraftSection } from "../../src/research/draftSections";
+import { parseDraftSections, renderManagedDocument, type DraftSectionEnvelope, type ParsedDraftSection } from "../../src/research/draftSections";
 import { ResearchDraftPanel, safeDraftError } from "../../src/view/ResearchDraftPanel";
 import { buildDraftGrounding, groundingClaimFingerprint } from "../../src/research/draftGrounding";
+
+function makeSection(envelope: DraftSectionEnvelope, heading: string, markdown: string): ParsedDraftSection {
+  return parseDraftSections(renderManagedDocument("", [{ envelope, heading, markdown }])).sections[0]!;
+}
 
 const snapshot = {
   project: { path: "Research/P/Project.md", title: "Project P", question: "Why?", stage: "reason", status: "active" },
@@ -380,7 +384,7 @@ describe("ResearchWorkbenchView", () => {
   });
 
   it("previews and explicitly accepts one grounded section from the Draft tab", async () => {
-    const managed = parseDraftSections(renderDraftSection({ id: "claim-c", claimPaths: ["Research/P/Claims/C.md"], evidence: [], citations: [], provider: "companion", model: "evidence-outline-v1", generatedAt: "outline" }, "## Claim C\n\nOutline text.")).sections[0];
+    const managed = makeSection({ id: "claim-c", claimPaths: ["Research/P/Claims/C.md"], evidence: [], citations: [], provider: "companion", model: "evidence-outline-v1", generatedAt: "outline" }, "Claim C", "Outline text.");
     if (!managed) throw new Error("missing section fixture");
     const draftSnapshot = { ...snapshot,
       sources: [{ path: "Research/P/Sources/S.md", title: "S", type: "research-source", project: snapshot.project.path, sourceKind: "zotero", zoteroKey: "smith2025", contentFingerprint: "sha256:s" }],
@@ -420,7 +424,7 @@ describe("ResearchWorkbenchView", () => {
   });
 
   it("surfaces accepted-section evidence drift", async () => {
-    const accepted = parseDraftSections(renderDraftSection({ id: "claim-c", claimPaths: ["Research/P/Claims/C.md"], evidence: [{ path: "Research/P/Evidence/E.md", fingerprint: "old" }], citations: [], provider: "anthropic", model: "test", generatedAt: "then" }, "## Claim C\n\nGrounded [@smith2025].")).sections[0];
+    const accepted = makeSection({ id: "claim-c", claimPaths: ["Research/P/Claims/C.md"], evidence: [{ path: "Research/P/Evidence/E.md", fingerprint: "old" }], citations: [], provider: "anthropic", model: "test", generatedAt: "then" }, "Claim C", "Grounded [@smith2025].");
     if (!accepted) throw new Error("missing section fixture");
     const driftSnapshot = { ...snapshot,
       sources: [{ path: "Research/P/Sources/S.md", title: "S", contentFingerprint: "sha256:s" }],
@@ -438,7 +442,7 @@ describe("ResearchWorkbenchView", () => {
       evidence: [{ path: "Research/P/Evidence/E.md", source: "Research/P/Sources/S.md", sourceFingerprint: "sha256:s", locatorKind: "page", locatorValue: "1", excerpt: "Grounded.", reviewState: "reviewed" }],
       claims: [{ path: "Research/P/Claims/C.md", title: "C", proposition: "Grounded.", confidence: "moderate", reviewState: "reviewed", supporting: ["Research/P/Evidence/E.md"], challenging: [], contextual: [], limitations: [] }], documents: [], questions: [], issues: [] } as never;
     const packet = buildDraftGrounding(revisionSnapshot, "Research/P/Claims/C.md");
-    const accepted = parseDraftSections(renderDraftSection({ id: "claim-c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [{ key: "source-s", sourcePath: "Research/P/Sources/S.md" }], provider: "anthropic", model: "draft-model", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) }, "## Claim C\n\nGrounded [@source-s].")).sections[0];
+    const accepted = makeSection({ id: "claim-c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [{ key: "source-s", sourcePath: "Research/P/Sources/S.md" }], provider: "anthropic", model: "draft-model", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) }, "Claim C", "Grounded [@source-s].");
     if (!accepted) throw new Error("missing accepted section");
     const revisionPreview = vi.fn(async (_snapshot, _section, request) => ({ section: accepted, packet, request, response: { markdown: "## Claim C\n\nThe result is grounded [@source-s].", support: [{ passage: "The result is grounded [@source-s].", claimPath: packet.claim.path, evidencePaths: ["Research/P/Evidence/E.md"], citationKeys: ["source-s"] }], claimPreservation: [{ claimPath: packet.claim.path, passage: "The result is grounded [@source-s].", status: "preserved" }], changes: [{ kind: "audience", severity: "warning", description: "Uses general-audience wording." }], gaps: [], warnings: ["Uses general-audience wording."], violations: [], canAccept: true }, envelope: { ...accepted.envelope, revisionIntent: request.intent, revisionInstruction: request.customInstruction, revisedFromFingerprint: "fnv1a-before", generatedAt: "now" } }));
     const acceptRevisionSection = vi.fn(async () => undefined);

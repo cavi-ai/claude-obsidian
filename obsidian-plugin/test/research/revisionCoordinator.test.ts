@@ -2,9 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { RevisionCoordinator } from "../../src/research/revisionCoordinator";
 import { buildDraftGrounding, groundingClaimFingerprint } from "../../src/research/draftGrounding";
 import { buildProjectSnapshot } from "../../src/research/graph";
-import { parseDraftSections, renderDraftSection } from "../../src/research/draftSections";
+import { parseDraftSections, renderManagedDocument, type DraftSectionEnvelope, type ParsedDraftSection } from "../../src/research/draftSections";
 import type { Provider } from "../../src/providers/types";
 import type { ResearchRecord } from "../../src/research/types";
+
+function makeSection(envelope: DraftSectionEnvelope, heading: string, markdown: string): ParsedDraftSection {
+  return parseDraftSections(renderManagedDocument("", [{ envelope, heading, markdown }])).sections[0]!;
+}
 
 const records: ResearchRecord[] = [
   { path: "R/Project.md", title: "R", type: "research-project", project: "R/Project.md", question: "Why?", stage: "write", status: "active" },
@@ -14,8 +18,8 @@ const records: ResearchRecord[] = [
 ];
 const snapshot = buildProjectSnapshot("R/Project.md", records, []);
 const packet = buildDraftGrounding(snapshot, "R/Claims/C.md");
-const section = parseDraftSections(renderDraftSection({ id: "c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [{ key: "smith", sourcePath: "R/Sources/S.md" }], provider: "anthropic", model: "old", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) }, "## C\n\nResults vary [@smith].")).sections[0]!;
-const valid = JSON.stringify({ markdown: "## C\n\nThe results vary [@smith].", support: [{ passage: "The results vary [@smith].", claimPath: "R/Claims/C.md", evidencePaths: ["R/Evidence/E.md"], citationKeys: ["smith"] }], claimPreservation: [{ claimPath: "R/Claims/C.md", passage: "The results vary [@smith].", status: "preserved" }], changes: [{ kind: "clarity", severity: "warning", description: "Uses direct wording." }], gaps: [] });
+const section = makeSection({ id: "c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [{ key: "smith", sourcePath: "R/Sources/S.md" }], provider: "anthropic", model: "old", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) }, "C", "Results vary [@smith].");
+const valid = JSON.stringify({ markdown: "The results vary [@smith].", support: [{ passage: "The results vary [@smith].", claimPath: "R/Claims/C.md", evidencePaths: ["R/Evidence/E.md"], citationKeys: ["smith"] }], claimPreservation: [{ claimPath: "R/Claims/C.md", passage: "The results vary [@smith].", status: "preserved" }], changes: [{ kind: "clarity", severity: "warning", description: "Uses direct wording." }], gaps: [] });
 
 describe("RevisionCoordinator", () => {
   it("previews a current accepted section and records revision provenance without writing", async () => {

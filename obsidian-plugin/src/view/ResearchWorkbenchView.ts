@@ -186,7 +186,7 @@ export class ResearchWorkbenchView extends ItemView {
       draftDocument = snapshot.documents.find(({ documentKind }) => documentKind === "draft") ?? snapshot.documents.find(({ documentKind }) => documentKind === "outline");
       if (draftDocument) {
         try { draftSections = await this.repository.loadDraftSections(draftDocument.path); }
-        catch (error) { draftSections = { sections: [], issues: [sanitizeLoadError(error)] }; }
+        catch (error) { draftSections = { format: "none", sections: [], issues: [sanitizeLoadError(error)] }; }
       }
     }
     if (sequence !== this.renderSequence) return;

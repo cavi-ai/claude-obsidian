@@ -36,6 +36,17 @@ describe("research outline renderers", () => {
     });
   });
 
+  it("emits clean v2 sections with a heading that keeps markdown characters", () => {
+    const special = { ...snapshot, claims: snapshot.claims.map((claim) => ({ ...claim, title: "C# vs. F#" })) } as typeof snapshot;
+    const markdown = renderEvidenceOutline(special, ["Research/P/Claims/C.md"]);
+    expect(markdown).not.toContain("cavi:draft-section");
+    expect(markdown).toContain("## C# vs. F#\n\n");
+    const parsed = parseDraftSections(markdown);
+    expect(parsed.format).toBe("v2");
+    expect(parsed.sections[0]).toMatchObject({ heading: "C# vs. F#", modifiedSinceReview: false });
+    expect(parsed.sections[0]?.envelope.provider).toBe("companion");
+  });
+
   it("rejects claims and evidence references outside the snapshot", () => {
     expect(() => renderEvidenceOutline(snapshot, ["Other/Claim.md"])).toThrow("Claim is not part of project");
     const broken = buildProjectSnapshot("Research/P/Project.md", records.map((record) => record.type === "claim" ? { ...record, supports: ["Other/E.md"] } : record), []);

@@ -1,3 +1,4 @@
+import { containsReservedMarker } from "./draftSections";
 import type { DraftGroundingPacket } from "./draftGrounding";
 
 export interface DraftSupportEntry {
@@ -29,7 +30,7 @@ function parseResponse(value: unknown): ValidatedDraftResponse {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Draft response must be an object");
   const raw = value as Record<string, unknown>;
   if (typeof raw.markdown !== "string" || !raw.markdown.trim()) throw new Error("Draft response Markdown must not be empty");
-  if (raw.markdown.includes("<!-- cavi:draft-section")) throw new Error("Draft response contains a reserved Companion marker");
+  if (containsReservedMarker(raw.markdown)) throw new Error("Draft response contains a reserved Companion marker");
   if (!Array.isArray(raw.support) || !raw.support.length) throw new Error("Draft response must include passage-level support");
   if (!strings(raw.gaps ?? [])) throw new Error("Draft response gaps must be a list of non-empty strings");
   const support = raw.support.map((entry): DraftSupportEntry => {
