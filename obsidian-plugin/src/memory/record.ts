@@ -10,8 +10,8 @@ const SOURCE_MAX = 32;
 
 export interface RecordInput {
   fact: string;
-  topic?: string;
-  source?: string;
+  topic?: string | undefined;
+  source?: string | undefined;
   /** YYYY-MM-DD */
   date: string;
 }
