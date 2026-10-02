@@ -25,6 +25,7 @@ export class DiscoveryModal extends Modal {
   private async draw(reload: boolean): Promise<void> {
     if (!this.panel) return;
     if (reload) this.snapshot = await this.reload();
+    if (!this.panel) return;
     this.contentEl.empty();
     this.panel.render(this.contentEl, this.snapshot);
   }
