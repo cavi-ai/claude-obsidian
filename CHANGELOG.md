@@ -4,6 +4,16 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] — 2026-10-02
+
+### Changed
+- The plugin bundle is 1.04 MB smaller (3.67 MB → 2.64 MB): the embedding and
+  PDF worker bundles ship compressed and unpack on first use.
+
+### Fixed
+- Research Desk counts use the singular for one source, passage, claim, or
+  section.
+
 ## [0.37.0] — 2026-10-02
 
 ### Added
