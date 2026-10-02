@@ -36,6 +36,13 @@ describe("research outline renderers", () => {
     });
   });
 
+  it("keeps a proposition that starts with a hash", () => {
+    const hashed = { ...snapshot, claims: snapshot.claims.map((claim) => ({ ...claim, proposition: "# of parameters predicts quality." })) } as typeof snapshot;
+    const markdown = renderEvidenceOutline(hashed, ["Research/P/Claims/C.md"]);
+    expect(markdown).toContain("## Claim C\n\n# of parameters predicts quality.\n");
+    expect(parseDraftSections(markdown.replace(/^---\n[\s\S]*?\n---\n/, "")).sections[0]?.markdown.startsWith("# of parameters predicts quality.")).toBe(true);
+  });
+
   it("emits clean v2 sections with a heading that keeps markdown characters", () => {
     const special = { ...snapshot, claims: snapshot.claims.map((claim) => ({ ...claim, title: "C# vs. F#" })) } as typeof snapshot;
     const markdown = renderEvidenceOutline(special, ["Research/P/Claims/C.md"]);

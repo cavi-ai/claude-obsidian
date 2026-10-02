@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fnv1aHex } from "../../src/hashing";
 import {
   applyDraftSection,
+  cleanModelMarkdown,
   containsReservedMarker,
   convertV1Document,
   normalizeSectionBody,
@@ -79,9 +80,16 @@ describe("research document format v2", () => {
     expect(parseDraftSections(doc).sections[0]?.heading).toBe("C# vs. F#");
   });
 
-  it("normalizes model headings and leaves fenced code alone", () => {
-    expect(normalizeSectionBody("## Title\n\nIntro\n\n# Big\n\n## Sub\n\n```py\n# comment\n## not heading\n```\n\n### Keep"))
+  it("cleans model headings and leaves fenced code alone", () => {
+    expect(cleanModelMarkdown("## Title\n\nIntro\n\n# Big\n\n## Sub\n\n```py\n# comment\n## not heading\n```\n\n### Keep"))
       .toBe("Intro\n\n### Big\n\n### Sub\n\n```py\n# comment\n## not heading\n```\n\n### Keep");
+    expect(cleanModelMarkdown("## C\n\nText.\n\n# Big\n\n## Sub")).toBe("Text.\n\n### Big\n\n### Sub");
+  });
+
+  it("keeps user-authored first lines and h1 lines, demoting only h2", () => {
+    expect(normalizeSectionBody("# of parameters predicts quality.\n\n## Sub\n\n# Big")).toBe("# of parameters predicts quality.\n\n### Sub\n\n# Big");
+    const doc = renderManagedDocument("", [{ envelope: outline("c-a", "A"), heading: "A", markdown: "# of parameters predicts quality." }]);
+    expect(parseDraftSections(doc).sections[0]).toMatchObject({ markdown: "# of parameters predicts quality.", modifiedSinceReview: false });
   });
 
   it("rejects reserved markers", () => {
@@ -96,7 +104,7 @@ describe("research document format v2", () => {
       { envelope: outline("claim-b", "Claim B"), heading: "Claim B", markdown: "Outline B." },
     ]);
     const previewed = parseDraftSections(doc).sections[0]!;
-    const next = applyDraftSection(doc, previewed, { ...outline("claim-a", "Claim A"), provider: "anthropic", model: "m", generatedAt: "2026-10-01T00:00:00.000Z" }, "## Claim A\n\nDrafted A.\n\n## Inner\n\nMore.");
+    const next = applyDraftSection(doc, previewed, { ...outline("claim-a", "Claim A"), provider: "anthropic", model: "m", generatedAt: "2026-10-01T00:00:00.000Z" }, "Drafted A.\n\n## Inner\n\nMore.");
     const parsed = parseDraftSections(next);
     expect(parsed.issues).toEqual([]);
     expect(parsed.sections.map(({ heading, markdown, modifiedSinceReview, envelope }) => ({ heading, markdown, modifiedSinceReview, provider: envelope.provider }))).toEqual([
@@ -116,7 +124,7 @@ describe("research document format v2", () => {
   it("refuses an empty body and a mismatched id", () => {
     const doc = renderManagedDocument("", [{ envelope: drafted, heading: "External validity", markdown: "Original [@smith2025]." }]);
     const previewed = parseDraftSections(doc).sections[0]!;
-    expect(() => applyDraftSection(doc, previewed, drafted, "## Only a heading")).toThrow(/must not be empty/);
+    expect(() => applyDraftSection(doc, previewed, drafted, "  \n ")).toThrow(/must not be empty/);
     expect(() => applyDraftSection(doc, previewed, { ...drafted, id: "other" }, "Text [@smith2025].")).toThrow(/id must match/);
   });
 

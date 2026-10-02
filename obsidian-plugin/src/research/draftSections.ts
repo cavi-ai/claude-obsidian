@@ -102,16 +102,24 @@ export function sectionHeading(value: string): string {
   return value.replace(/\s+/g, " ").trim() || "Untitled section";
 }
 
-export function normalizeSectionBody(markdown: string): string {
-  const lines = markdown.replace(/\r\n?/g, "\n").trim().split("\n");
-  if (/^#{1,2}\s/.test(lines[0] ?? "")) lines.shift();
+function mapOutsideFences(markdown: string, map: (line: string) => string): string {
   let fenced = false;
-  const body = lines.map((line) => {
+  return markdown.split("\n").map((line) => {
     if (FENCE_LINE.test(line)) { fenced = !fenced; return line; }
-    return fenced ? line : line.replace(/^#{1,2}(?=\s)/, "###");
-  }).join("\n").trim();
+    return fenced ? line : map(line);
+  }).join("\n");
+}
+
+export function normalizeSectionBody(markdown: string): string {
+  const body = mapOutsideFences(markdown.replace(/\r\n?/g, "\n").trim(), (line) => line.replace(/^##(?=\s)/, "###")).trim();
   if (containsReservedMarker(body)) throw new Error("Draft section Markdown contains a reserved Companion marker");
   return body;
+}
+
+export function cleanModelMarkdown(markdown: string): string {
+  const rows = markdown.replace(/\r\n?/g, "\n").trim().split("\n");
+  if (/^#{1,2}\s/.test(rows[0] ?? "")) rows.shift();
+  return normalizeSectionBody(mapOutsideFences(rows.join("\n"), (line) => line.replace(/^#(?=\s)/, "###")));
 }
 
 function lines(text: string, limit = text.length): Line[] {
@@ -214,12 +222,13 @@ function locateV1(text: string): { sections: V1Section[]; issues: string[] } {
     const markerIndex = text.indexOf(endMarker, contentStart);
     if (markerIndex < 0) { issues.push(`Draft section ${envelope.id} is missing its closing marker`); continue; }
     const raw = text.slice(contentStart, markerIndex);
-    const lead = /^##\s+(.+?)\s*$/.exec(raw.trim().split("\n", 1)[0] ?? "");
+    const trimmed = raw.trim();
+    const lead = /^##\s+(.+?)\s*$/.exec(trimmed.split("\n", 1)[0] ?? "");
     const acceptedFingerprint = match[2] ?? "";
     sections.push({
       envelope,
       heading: lead ? sectionHeading(lead[1]!) : v1Heading(envelope),
-      markdown: normalizeSectionBody(raw),
+      markdown: normalizeSectionBody(lead ? trimmed.slice(trimmed.indexOf("\n") < 0 ? trimmed.length : trimmed.indexOf("\n") + 1) : raw),
       modifiedSinceReview: fingerprintText(raw) !== acceptedFingerprint,
       acceptedFingerprint,
       start: match.index ?? 0,
