@@ -99,7 +99,7 @@ export class MemoryController {
 
     const memoryPath = this.deps.normalizePath(`${folder}/${MEMORY_NOTE_BASENAME}.md`);
     const existing = await this.deps.vault.readContent(memoryPath);
-    const { body: existingBody, recorded } = existing === null ? { body: null, recorded: [] } : splitRecorded(existing);
+    const { body: existingBody, recorded } = existing === null ? { body: null, recorded: [] as string[] } : splitRecorded(existing);
     if (digests.length === 0 && recorded.length === 0) {
       if (!opts?.quiet) this.deps.notice("No session digests to consolidate yet — capture a session first.");
       return;
