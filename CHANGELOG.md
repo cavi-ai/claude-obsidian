@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edits to tables, callouts, code blocks, math blocks, HTML blocks, and
   embeds open in the diff review in Live Preview instead of an inline review
   the rendered block hides. Source mode keeps inline review.
+- The chat header controls no longer use `display: contents`.
 
 ## [0.38.0] — 2026-10-02
 
