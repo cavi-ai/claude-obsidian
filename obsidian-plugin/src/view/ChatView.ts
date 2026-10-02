@@ -612,16 +612,20 @@ export class ChatView extends ItemView {
 
 
   /** Attach canonical workspace context and hand control back to the user. */
-  prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
+  attachNote(path: string): void {
     const active = this.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
-    const alreadyIncludedAsActiveNote = this.contextToggles.activeNote && active?.path === workspace.contextPath;
-    if (!alreadyIncludedAsActiveNote && !this.attachedPaths.some(({ path, kind }) => path === workspace.contextPath && kind === "note")) {
-      this.attachedPaths.push({ path: workspace.contextPath, kind: "note" });
+    const alreadyIncludedAsActiveNote = this.contextToggles.activeNote && active?.path === path;
+    if (!alreadyIncludedAsActiveNote && !this.attachedPaths.some(({ path: attached, kind }) => attached === path && kind === "note")) {
+      this.attachedPaths.push({ path, kind: "note" });
     }
+    this.renderContextManager();
+  }
+
+  prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
+    this.attachNote(workspace.contextPath);
     this.inputEl.value = workspace.kind === "research"
       ? `Help me continue ${workspace.title.replace(/^Continue /, "")}. `
       : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `;
-    this.renderContextManager();
     this.composer.autosizeInput();
     this.updateUsageBar();
     this.inputEl.focus();
@@ -722,7 +726,6 @@ export class ChatView extends ItemView {
         this.composer.autosizeInput();
       },
       activateResearchDesk: () => this.plugin.activateResearchDesk(),
-      activateResearchWorkbench: () => this.plugin.activateResearchWorkbench(),
       requestCompletion: (prompt, display) => this.submitPrompt(prompt, display),
     })) return;
 

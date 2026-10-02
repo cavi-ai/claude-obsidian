@@ -22,7 +22,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     createClaim: vi.fn(async () => ({ path: "R/P/Claims/New.md" })),
   };
   const changed = vi.fn(async () => undefined);
-  const actions = new ResearchActions({ app: new WorkspaceLeaf().app, repository: repository as never, openPath: async () => undefined, changed, openWorkbench: async () => undefined, selectProject: async () => undefined, ...overrides } as never);
+  const actions = new ResearchActions({ app: new WorkspaceLeaf().app, repository: repository as never, openPath: async () => undefined, changed, selectProject: async () => undefined, ...overrides } as never);
   return { actions, repository, calls, changed };
 }
 const modal = () => getLastOpenedModal()!;
@@ -156,18 +156,10 @@ describe("project creation", () => {
 });
 
 describe("desk actions", () => {
-  it("dispatches each run kind", async () => {
-    const openWorkbench = vi.fn(async () => undefined);
-    const openPath = vi.fn(async () => undefined);
-    const { actions } = setup({ openWorkbench, openPath });
-    const snapshot = snap([]);
-    await actions.run({ run: "continue-draft", path: "D.md" }, snapshot);
-    await actions.run({ run: "audit" }, snapshot);
-    await actions.run({ run: "open-record", path: "X.md" }, snapshot);
-    await actions.run({ run: "extract-evidence", path: "R/P/Sources/S.md" }, snapshot);
+  it("runs a step by kind", async () => {
+    const { actions } = setup();
+    await actions.runStep({ kind: "extract", label: "Pull passages", path: "R/P/Sources/S.md" } as never, snap([]));
     expect(all("h2")[0].textContent).toBe("Pull passages from a source");
-    expect(openWorkbench.mock.calls).toEqual([[project.path, "Draft", "D.md"], [project.path, "Audit"]]);
-    expect(openPath).toHaveBeenCalledWith("X.md");
   });
 });
 

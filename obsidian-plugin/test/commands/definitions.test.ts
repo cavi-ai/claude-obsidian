@@ -5,7 +5,7 @@ import { companionCommands, type CommandActions } from "../../src/commands/defin
 const ACTION_NAMES = [
   "openChat", "newChat", "newChatTab", "generatePlanFromNote", "generateArtifactFromContext", "rewriteSelection",
   "enrichNote", "enableVaultSearch", "rebuildSemanticIndex", "openRelatedNotes", "openResearchDesk",
-  "openResearchWorkbench", "triageClippings", "startResearchFromActiveNote", "showSemanticIndexStatus",
+  "triageClippings", "startResearchFromActiveNote", "showSemanticIndexStatus",
   "browseConversations", "deleteActiveConversation", "handoffToBuild", "markNoteAsPlan", "organizeClippings",
   "dispatchCloudSession", "pullCloudReplies", "reviewLinkSuggestions", "openWorkflowPicker",
   "createPromptTemplate", "openSessionPicker", "openMemoryView", "consolidateMemory", "enrichNoteAsSource",
@@ -79,6 +79,10 @@ describe("command surface", () => {
 });
 
 describe("plain commands", () => {
+  it("has no workbench command", () => {
+    expect(companionCommands(harness().actions).map(({ id }) => id)).not.toContain("open-research-workbench");
+  });
+
   it.each([
     ["open-chat", "openChat"],
     ["new-chat", "newChat"],
@@ -88,7 +92,6 @@ describe("plain commands", () => {
     ["rebuild-semantic-index", "rebuildSemanticIndex"],
     ["open-related-notes", "openRelatedNotes"],
     ["open-research-desk", "openResearchDesk"],
-    ["open-research-workbench", "openResearchWorkbench"],
     ["triage-clippings", "triageClippings"],
     ["semantic-index-status", "showSemanticIndexStatus"],
     ["browse-conversations", "browseConversations"],

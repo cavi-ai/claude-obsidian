@@ -27,7 +27,6 @@ export interface CommandActions {
   rebuildSemanticIndex(): void;
   openRelatedNotes(): void;
   openResearchDesk(): void;
-  openResearchWorkbench(): void;
   triageClippings(): void;
   startResearchFromActiveNote(): void;
   showSemanticIndexStatus(): void;
@@ -102,7 +101,6 @@ export function companionCommands(actions: CommandActions): Command[] {
     { id: "rebuild-semantic-index", name: "Rebuild semantic index (local embeddings)", callback: () => actions.rebuildSemanticIndex() },
     { id: "open-related-notes", name: "Open related notes panel", callback: () => actions.openRelatedNotes() },
     { id: "open-research-desk", name: "Open research desk", callback: () => actions.openResearchDesk() },
-    { id: "open-research-workbench", name: "Open advanced research workbench", callback: () => actions.openResearchWorkbench() },
     { id: "triage-clippings", name: "Find research themes in a folder…", callback: () => actions.triageClippings() },
     {
       id: "research-from-active-note",
