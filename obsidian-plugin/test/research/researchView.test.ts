@@ -36,6 +36,7 @@ function make(over: { snapshot?: typeof snapshot; doc?: string; projects?: Array
 const all = (view: ResearchView, selector: string) => view.contentEl.querySelectorAll(selector) as unknown as HTMLElement[];
 const button = (view: ResearchView, text: string) => all(view, "button").find(({ textContent }) => textContent === text);
 const click = (element: HTMLElement | undefined) => { if (!element) throw new Error("missing element"); element.dispatchEvent({ type: "click" } as never); };
+const childIndex = (view: ResearchView, cls: string) => (view.contentEl.children as unknown as Array<{ classList: Set<string> }>).findIndex((child) => child.classList.has(cls));
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("ResearchView", () => {
@@ -50,6 +51,9 @@ describe("ResearchView", () => {
     await view.setProjectPath(P);
     expect(all(view, "h2")[0]?.textContent).toBe("Audio");
     for (const selector of [".cc-desk-ask", ".cc-desk-argument", ".cc-desk-document", ".cc-desk-sources"]) expect(all(view, selector)).toHaveLength(1);
+    const indices = [".cc-desk-header", ".cc-desk-ask", ".cc-desk-argument", ".cc-desk-document", ".cc-desk-sources"].map((selector) => childIndex(view, selector.slice(1)));
+    expect(indices.every((index) => index >= 0)).toBe(true);
+    expect(indices).toEqual([...indices].sort((a, b) => a - b));
     for (const selector of [".cc-desk-fix", ".cc-research-tabs", ".cc-desk-stage", ".cc-desk-next"]) expect(all(view, selector)).toHaveLength(0);
     expect(all(view, ".cc-desk-chip")[0]?.textContent).toBe("Not drafted");
     expect(all(view, ".cc-desk-document-progress")[0]?.textContent).toBe("0 of 1 sections drafted");
@@ -135,6 +139,8 @@ describe("ResearchView", () => {
     const { view, openPath } = make({ snapshot: broken });
     await view.setProjectPath(P);
     expect(all(view, ".cc-desk-fix")).toHaveLength(1);
+    expect(childIndex(view, "cc-desk-header")).toBeLessThan(childIndex(view, "cc-desk-fix"));
+    expect(childIndex(view, "cc-desk-fix")).toBeLessThan(childIndex(view, "cc-desk-ask"));
     click(all(view, ".cc-desk-fix-row")[0]);
     await flush();
     expect(openPath).toHaveBeenCalledWith("Research/A/Claims/C.md");

@@ -161,6 +161,27 @@ describe("desk actions", () => {
     await actions.runStep({ kind: "extract", label: "Pull passages", path: "R/P/Sources/S.md" } as never, snap([]));
     expect(all("h2")[0].textContent).toBe("Pull passages from a source");
   });
+
+
+  it("routes every other step kind to its action", async () => {
+    const { actions } = setup();
+    const target = snap([ev("E"), claim("C")]);
+    const spies = {
+      reviewClaim: vi.spyOn(actions, "reviewClaim").mockImplementation(() => undefined),
+      reviewEvidence: vi.spyOn(actions, "reviewEvidence").mockImplementation(() => undefined),
+      addSource: vi.spyOn(actions, "addSource").mockImplementation(() => undefined),
+      buildOutline: vi.spyOn(actions, "buildOutline").mockImplementation(() => undefined),
+    };
+    await actions.runStep({ kind: "check", label: "Check C", path: "R/P/Claims/C.md" } as never, target);
+    expect(spies.reviewClaim).toHaveBeenCalledWith(target, "R/P/Claims/C.md");
+    expect(spies.reviewEvidence).not.toHaveBeenCalled();
+    await actions.runStep({ kind: "check", label: "Check E", path: "R/P/Evidence/E.md" } as never, target);
+    expect(spies.reviewEvidence).toHaveBeenCalledWith(target, "R/P/Evidence/E.md");
+    await actions.runStep({ kind: "add-source", label: "Add a source" } as never, target);
+    expect(spies.addSource).toHaveBeenCalledWith(project.path);
+    await actions.runStep({ kind: "build-outline", label: "Build the outline" } as never, target);
+    expect(spies.buildOutline).toHaveBeenCalledWith(target);
+  });
 });
 
 describe("extract evidence modal", () => {
