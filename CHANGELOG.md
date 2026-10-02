@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] — 2026-10-02
+
+### Added
+- **Agents can record memory.** A `memory_record` tool on the agent bridge and
+  in chat adds a fact to "What Claude Knows" under "Recorded by agents", with
+  the date and the agent that recorded it. Facts are scrubbed of secrets,
+  limited to 500 characters, and folded into the note's sections at the next
+  consolidation. Setting: Agents can record memory (on by default).
+
+### Fixed
+- Edits to tables, callouts, code blocks, math blocks, HTML blocks, and
+  embeds open in the diff review in Live Preview instead of an inline review
+  the rendered block hides. Source mode keeps inline review.
+
 ## [0.38.0] — 2026-10-02
 
 ### Changed
