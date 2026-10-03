@@ -41,6 +41,8 @@ export interface ArtifactActions {
   open?: (html: string, title: string) => void;
   /** Open with an explicit target (from the split-button dropdown). */
   openWith?: (html: string, title: string, target: ArtifactOpenTarget) => void;
+  /** Publish as a secret gist; the button renders only when this is supplied. */
+  publish?: (html: string, title: string) => void;
 }
 
 /** Targets offered in the Open split-button's dropdown. */
@@ -81,6 +83,14 @@ export function renderArtifactInline(
   const fsBtn = bar.createEl("button", { cls: "cc-artifact-btn", attr: { "aria-label": "Open full screen in Obsidian" } });
   setIcon(fsBtn, "maximize-2");
   fsBtn.addEventListener("click", () => openWith(html, title, "obsidian"));
+
+  if (actions.publish) {
+    const publish = actions.publish;
+    const publishBtn = bar.createEl("button", { cls: "cc-artifact-btn cc-artifact-publish", attr: { "aria-label": "Publish to GitHub Gist" } });
+    setIcon(publishBtn, "share-2");
+    publishBtn.createSpan({ text: "Publish" });
+    publishBtn.addEventListener("click", () => publish(html, title));
+  }
 
   // Split "Open" button: the body is a 1-click open (per setting); the caret
   // opens a dropdown to choose a target one-off.
