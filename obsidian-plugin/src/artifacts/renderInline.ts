@@ -20,7 +20,7 @@ const ARTIFACT_CSP =
  * proposal and is NOT honored by Electron/Obsidian, so the meta tag — not the
  * attribute — is what restricts the artifact.
  */
-function withCsp(html: string): string {
+export function withCsp(html: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">`;
   if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}${meta}`);
   if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${meta}</head>`);
