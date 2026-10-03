@@ -4,6 +4,16 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] — 2026-10-02
+
+### Added
+- **Publish to GitHub Gist.** Publish a note from its file menu or the command
+  palette, or an artifact from its toolbar, as a secret gist and copy the
+  link. Notes upload without frontmatter, `%%comments%%`, or vault embeds and
+  images; republishing updates the same gist; Unpublish deletes it. Artifact
+  links open through gist.githack.com. A Publishing settings page holds the
+  GitHub token (Gists: read and write) and lists everything published.
+
 ## [0.39.0] — 2026-10-02
 
 ### Added
