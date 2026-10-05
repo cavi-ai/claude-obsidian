@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildVocabulary } from "../../src/tags/vocabulary";
-import { resolveTags, variantKeys } from "../../src/tags/resolve";
+import { createTagResolver, resolveTags, variantKeys } from "../../src/tags/resolve";
 
 function vocabOf(counts: Record<string, number>) {
   const files: Array<{ path: string; tags: string[] }> = [];
@@ -40,26 +40,96 @@ describe("resolveTags", () => {
   it("never singularizes short or invariant words", () => {
     const vocab = vocabOf({ cs: 2, io: 2, aw: 2 });
     expect(resolveTags(["css", "ios", "aws"], vocab).every((r) => r.match === "new")).toBe(true);
-    expect(variantKeys("css").plural).toBe("css");
-    expect(variantKeys("windows").plural).toBe("windows");
+    expect(variantKeys("css").plural).toEqual(["css"]);
+    expect(variantKeys("windows").plural).toEqual(["windows"]);
   });
 
-  it("singularizes -ies, -es and plain -s words", () => {
-    expect(variantKeys("categories").plural).toBe("category");
-    expect(variantKeys("boxes").plural).toBe("box");
-    expect(variantKeys("classes").plural).toBe("class");
-    expect(variantKeys("class").plural).toBe("class");
-    expect(variantKeys("ai/ml-models").plural).toBe("ai/mlmodel");
+  it("singularizes to candidate forms", () => {
+    expect(variantKeys("categories").plural).toEqual(["category", "categorie"]);
+    expect(variantKeys("boxes").plural).toEqual(["box", "boxe"]);
+    expect(variantKeys("classes").plural).toEqual(["class", "classe"]);
+    expect(variantKeys("class").plural).toEqual(["class"]);
+    expect(variantKeys("ai/ml-models").plural).toEqual(["ai/mlmodel", "ai/mlmodels"]);
     expect(variantKeys("ai/ml-models").separator).toBe("ai/mlmodels");
   });
 
-  it("prefers the variant with more notes over an exact match", () => {
-    const vocab = vocabOf({ llm: 9, llms: 2 });
-    expect(resolveTags(["LLMs"], vocab)).toEqual([{ input: "llms", tag: "llm", match: "variant", via: "plural" }]);
+  it("never remaps a tag that already exists", () => {
+    expect(resolveTags(["LLMs"], vocabOf({ llm: 9, llms: 2 }))).toEqual([{ input: "llms", tag: "llms", match: "exact" }]);
+    expect(resolveTags(["canva"], vocabOf({ canvas: 5, canva: 2 }))).toEqual([{ input: "canva", tag: "canva", match: "exact" }]);
+  });
+
+  it("picks the most used variant for a new input, ties shorter then alphabetical", () => {
+    expect(resolveTags(["ai-agents"], vocabOf({ aiagent: 1, "ai-agent": 4 }))[0].tag).toBe("ai-agent");
+    expect(resolveTags(["llms"], vocabOf({ llm: 2, "ll-m": 2 }))[0].tag).toBe("llm");
+  });
+
+  it.each([
+    ["caches", ["cache"], "cache"],
+    ["sizes", ["size"], "size"],
+    ["movies", ["movie"], "movie"],
+    ["cookies", ["cookie"], "cookie"],
+    ["batches", ["batch"], "batch"],
+    ["boxes", ["box"], "box"],
+    ["categories", ["category"], "category"],
+    ["apis", ["api"], "api"],
+    ["biases", ["bias"], "bias"],
+    ["statuses", ["status"], "status"],
+    ["aliases", ["alias"], "alias"],
+    ["lenses", ["lens"], "lens"],
+    ["canvases", ["canvas"], "canvas"],
+    ["classes", ["class"], "class"],
+    ["teams", ["team"], "team"],
+    ["llm", ["llms"], "llms"],
+    ["ai-agent", ["ai-agents"], "ai-agents"],
+    ["ai/agent", ["ai/agents"], "ai/agents"],
+  ])("maps plural forms: %s", (input, tags, expected) => {
+    const vocab = vocabOf(Object.fromEntries(tags.map((t) => [t, 1])));
+    expect(resolveTags([input], vocab)).toEqual([{ input, tag: expected, match: "variant", via: "plural" }]);
+  });
+
+  it.each([
+    ["planes", ["plan"]],
+    ["canva", ["canvas"]],
+    ["electronic", ["electronics"]],
+    ["blue", ["blues"]],
+    ["http", ["https"]],
+    ["sale", ["sales"]],
+    ["cases", ["cas"]],
+    ["uses", ["us"]],
+    ["buses", ["bus"]],
+    ["prs", ["pr"]],
+    ["news", ["new"]],
+    ["windows", ["window"]],
+    ["class", ["clas"]],
+    ["agents", ["ai/agents"]],
+    ["kubernets", ["kubernetes"]],
+    ["system-design", ["design-system"]],
+    ["agents/ai", ["ai/agents"]],
+  ])("does not map unrelated pair: %s", (input, tags) => {
+    const vocab = vocabOf(Object.fromEntries(tags.map((t) => [t, 1])));
+    expect(resolveTags([input], vocab)).toEqual([{ input, tag: input, match: "new" }]);
+  });
+
+  it.each([
+    ["machinelearning", ["machine-learning"], "machine-learning"],
+    ["ai_agents", ["ai-agents"], "ai-agents"],
+    ["sales-force", ["salesforce"], "salesforce"],
+  ])("maps separator variants: %s", (input, tags, expected) => {
+    const vocab = vocabOf(Object.fromEntries(tags.map((t) => [t, 1])));
+    expect(resolveTags([input], vocab)).toEqual([{ input, tag: expected, match: "variant", via: "separator" }]);
+  });
+
+  it("a resolver built once matches resolveTags", () => {
+    const vocab = vocabOf({ llm: 3, "ai-agents": 2 });
+    const resolve = createTagResolver(vocab);
+    const raw = ["LLMs", "ai_agent", "rust"];
+    const viaResolver = raw.map(resolve);
+    expect(viaResolver.map((r) => r?.tag)).toEqual(resolveTags(raw, vocab).map((r) => r.tag));
+    expect(resolve("#")).toBeNull();
+    expect(raw.map(resolve)).toEqual(viaResolver);
   });
 
   it("breaks ties by exact, then shorter, then alphabetical", () => {
-    expect(resolveTags(["llms"], vocabOf({ llm: 2, llms: 2 }))[0]).toMatchObject({ tag: "llms", match: "exact" });
     expect(resolveTags(["llm"], vocabOf({ "ai-agent": 1, "ai-agents": 1, aiagent: 1 }))).toEqual([
       { input: "llm", tag: "llm", match: "new" },
     ]);
