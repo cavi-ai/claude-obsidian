@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OptimizeController, type OptimizeDeps } from "../../src/optimize/controller";
+import { formatApplyNotice, OptimizeController, type OptimizeDeps } from "../../src/optimize/controller";
 import { pairKey } from "../../src/optimize/tagScan";
 import type { NoteTagInput } from "../../src/optimize/mergePlan";
 
@@ -122,4 +122,12 @@ describe("OptimizeController.dismiss", () => {
     expect(rewritten).toEqual([]);
     expect(writes).toEqual([]);
   });
+
+describe("formatApplyNotice", () => {
+  it("adds the skipped inline count only when there is one", () => {
+    const r = { merges: 3, notes: 7, inlineSkipped: 0, cycles: [], runNote: null };
+    expect(formatApplyNotice(r)).toBe("Merged 3 tags across 7 notes");
+    expect(formatApplyNotice({ ...r, inlineSkipped: 2 })).toBe("Merged 3 tags across 7 notes, 2 inline tags skipped");
+  });
+});
 });

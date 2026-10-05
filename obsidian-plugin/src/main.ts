@@ -118,7 +118,8 @@ import { CloudDispatchModal } from "./view/CloudDispatchModal";
 import { normalizeTags } from "./indexing/frontmatter";
 import { resolveTags } from "./tags/resolve";
 import { vaultTagEntries, vaultVocabulary } from "./tags/vaultTags";
-import { OptimizeController } from "./optimize/controller";
+import { formatApplyNotice, OptimizeController } from "./optimize/controller";
+import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
@@ -923,6 +924,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       openSystem: () => void this.activateSystem(),
       exportClipperTemplates: () => void this.exportClipperTemplates(),
       seedOntology: () => void this.seedOntology(),
+      optimizeBrain: () => void this.reviewTagMerges(() => undefined),
       openSetupWizard: () => this.openSetupWizard(),
       publishNote: (file) => void this.publish().publishNote(file.path),
       copyPublishedLink: (file) => void this.publish().copyLink(file.path),
@@ -3820,6 +3822,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
 
+  private async reviewTagMerges(done: () => void): Promise<void> {
+    const controller = this.optimizeController();
+    const report = await controller.scan();
+    new OptimizeBrainModal(this.app, report.candidates, controller, (result) => {
+      if (result) new Notice(formatApplyNotice(result));
+      done();
+    }).open();
+  }
+
   private healthController(): HealthController {
     const repo = (): ResearchRepository => this.researchRepository();
     return new HealthController({
@@ -3839,6 +3850,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
           built: indexer ? (await indexer.stats()).notes > 0 : false,
           failed: failed.map((d) => ({ path: d.label, message: d.message })),
         };
+      },
+      tags: async () => {
+        const report = await this.optimizeController().scan({ semantic: false });
+        return { total: report.totalTags, singleUse: report.singleUse, candidates: report.candidates.length };
       },
       inboxPending: () => this.inboxPendingCount(),
       companion: () => ({
@@ -3871,6 +3886,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const chrome = this.companionChrome();
         return chrome.runActivityRecovery ? chrome.runActivityRecovery(activityId, id) : chrome.run({ id, page: "system", activityId });
       },
+      reviewTagMerges: (done) => void this.reviewTagMerges(done),
       reviewSafeFixes: (fixes, done) => new SafeFixModal(this.app, fixes, async (path, patch) => {
         const file = this.app.vault.getFileByPath(path);
         if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => { Object.assign(fm, patch); });

@@ -11,6 +11,7 @@ export interface HealthDeps {
   listProjects(): Promise<Array<{ path: string }>>;
   auditProject(path: string): Promise<AuditFinding[]>;
   index(): Promise<{ enabled: boolean; built: boolean; failed: Array<{ path: string; message: string }> }>;
+  tags(): Promise<HealthInput["tags"]>;
   inboxPending(): number;
   companion(): CompanionStatus;
   now(): string;
@@ -35,6 +36,7 @@ export class HealthController {
       unresolved: this.deps.unresolvedLinks(),
       research,
       index: await this.deps.index(),
+      tags: await this.deps.tags(),
       inboxPending: this.deps.inboxPending(),
       companion: this.deps.companion(),
       now: this.deps.now(),

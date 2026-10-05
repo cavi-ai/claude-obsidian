@@ -30,6 +30,11 @@ export interface ApplyResult {
   runNote: string | null;
 }
 
+export function formatApplyNotice(result: ApplyResult): string {
+  const base = `Merged ${result.merges} tags across ${result.notes} notes`;
+  return result.inlineSkipped > 0 ? `${base}, ${result.inlineSkipped} inline tags skipped` : base;
+}
+
 export class OptimizeController {
   constructor(private deps: OptimizeDeps) {}
 

@@ -19,6 +19,7 @@ function deps(over: Partial<HealthDeps> = {}): HealthDeps {
     listProjects: async () => [],
     auditProject: async () => [],
     index: async () => ({ enabled: false, built: false, failed: [] }),
+    tags: async () => null,
     inboxPending: () => 0,
     companion: () => ({ connection: { backend: "claude", needsCredential: true }, activity: [], bridge: { applicable: false, enabled: false, running: false, port: 0 }, clipper: { applicable: false, status: "current" }, orders: { invalid: [] } }),
     now: () => "2026-10-01T00:00:00.000Z",
@@ -81,5 +82,10 @@ describe("HealthController", () => {
       ontology: () => ({ resolve: () => listType, resolved: () => new Map([["tagged", listType]]) }),
     }));
     expect(c.safeFixes()).toEqual([{ path: "a.md", changes: [{ key: "aliases", from: "solo", to: ["solo"] }], fixed: { type: "tagged", aliases: ["solo"], title: "A" } }]);
+  });
+
+  it("passes the tag stats from deps.tags into the scan", async () => {
+    const report = await new HealthController(deps({ tags: async () => ({ total: 9, singleUse: 4, candidates: 2 }) })).scan();
+    expect(report.sections.find((s) => s.id === "tags")).toMatchObject({ count: 2 });
   });
 });
