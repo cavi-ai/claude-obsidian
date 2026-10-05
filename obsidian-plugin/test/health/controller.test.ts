@@ -42,6 +42,18 @@ describe("HealthController", () => {
     expect(report.sections.find((s) => s.id === "ontology")).toMatchObject({ count: 0, items: [] });
   });
 
+  it("does not flag plugin-generated run notes but still flags an undeclared type", async () => {
+    const report = await new HealthController(deps({
+      markdownFiles: () => [
+        { path: "Claude/Orders/run.md", frontmatter: { type: "order-run" } },
+        { path: "Claude/Optimize/run.md", frontmatter: { type: "optimize-run" } },
+        { path: "mystery.md", frontmatter: { type: "mystery" } },
+      ],
+    })).scan();
+    const ontology = report.sections.find((s) => s.id === "ontology")!;
+    expect(ontology.items.map((i) => i.path)).toEqual(["mystery.md"]);
+  });
+
   it("treats an empty registry as not seeded", async () => {
     const report = await new HealthController(deps({ ontology: () => ({ resolve: () => undefined, resolved: () => new Map() }) })).scan();
     expect(report.sections.map((s) => s.id)).not.toContain("ontology");

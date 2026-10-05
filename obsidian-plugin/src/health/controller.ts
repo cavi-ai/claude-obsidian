@@ -19,6 +19,8 @@ export interface HealthDeps {
 
 export interface SafeFix { path: string; changes: Array<{ key: string; from: unknown; to: unknown }>; fixed: Record<string, unknown> }
 
+export const GENERATED_NOTE_TYPES: ReadonlySet<string> = new Set(["triage", "order-run", "optimize-run"]);
+
 export class HealthController {
   constructor(private readonly deps: HealthDeps) {}
 
@@ -60,8 +62,7 @@ export class HealthController {
     const registry = this.deps.ontology();
     if (!registry || registry.resolved().size === 0) return [];
     return this.deps.markdownFiles()
-      // The triage board is plugin-generated, not an ontology note.
-      .filter((f): f is { path: string; frontmatter: Record<string, unknown> } => typeof f.frontmatter?.type === "string" && f.frontmatter.type !== "triage")
+      .filter((f): f is { path: string; frontmatter: Record<string, unknown> } => typeof f.frontmatter?.type === "string" && !GENERATED_NOTE_TYPES.has(f.frontmatter.type))
       .map(({ path, frontmatter }) => {
         const r = conform(frontmatter, registry.resolve(frontmatter.type as string), (t) => this.deps.lookupTargetType(t));
         return { path, frontmatter, issues: r.issues, fixed: r.fixed };
