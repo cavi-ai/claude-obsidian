@@ -12,6 +12,7 @@ export interface HealthDeps {
   auditProject(path: string): Promise<AuditFinding[]>;
   index(): Promise<{ enabled: boolean; built: boolean; failed: Array<{ path: string; message: string }> }>;
   tags(): Promise<HealthInput["tags"]>;
+  orphanCount(): number;
   inboxPending(): number;
   companion(): CompanionStatus;
   now(): string;
@@ -39,6 +40,7 @@ export class HealthController {
       research,
       index: await this.deps.index(),
       tags: await this.deps.tags(),
+      orphans: this.deps.orphanCount(),
       inboxPending: this.deps.inboxPending(),
       companion: this.deps.companion(),
       now: this.deps.now(),

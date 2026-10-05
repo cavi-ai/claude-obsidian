@@ -16,6 +16,7 @@ export interface SystemViewDeps {
   openInbox(): Promise<void>;
   reviewSafeFixes(fixes: SafeFix[], done: () => void): void;
   reviewTagMerges(done: () => void): void;
+  connectOrphans(done: () => void): void;
   openSetupWizard(): void;
   openSettings(): void;
   openClipperSetup(): void;
@@ -147,6 +148,9 @@ export class SystemView extends ItemView {
         return;
       case "tags":
         if (section.count > 0) action("Review tag merges", () => this.deps.reviewTagMerges(() => void this.render()));
+        return;
+      case "orphans":
+        if (section.count > 0) action("Connect orphan notes", () => this.deps.connectOrphans(() => void this.render()));
         return;
       case "links":
         return;

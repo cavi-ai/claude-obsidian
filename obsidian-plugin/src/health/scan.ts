@@ -2,7 +2,7 @@ import type { ConformanceIssue } from "../ontology/conform";
 
 export type HealthSeverity = "ok" | "info" | "warning" | "error";
 export type HealthGroup = "companion" | "vault";
-export type HealthSectionId = "connection" | "activity" | "index" | "bridge" | "clipper" | "ontology" | "links" | "tags" | "research" | "inbox" | "orders";
+export type HealthSectionId = "connection" | "activity" | "index" | "bridge" | "clipper" | "ontology" | "links" | "orphans" | "tags" | "research" | "inbox" | "orders";
 export interface HealthItem { path: string; message: string; project?: string }
 export interface HealthAction { id: string; label: string; activityId?: string; path?: string }
 export interface HealthSection { id: HealthSectionId; group: HealthGroup; title: string; count: number; severity: HealthSeverity; items: HealthItem[]; fixable?: number; actions?: HealthAction[] }
@@ -19,6 +19,8 @@ export interface HealthInput {
   unresolved: Record<string, Record<string, number>>;
   research: Array<{ project: string; findings: Array<{ severity: "error" | "warning" | "info"; path: string; explanation: string }> }>;
   index: { enabled: boolean; built: boolean; failed: Array<{ path: string; message: string }> };
+  /** Markdown notes with no links in or out. */
+  orphans: number;
   tags: { total: number; singleUse: number; candidates: number } | null;
   inboxPending: number;
   companion: CompanionStatus;
@@ -27,7 +29,7 @@ export interface HealthInput {
 
 export const HEALTH_ITEM_CAP = 50;
 const RANK: Record<HealthSeverity, number> = { error: 0, warning: 1, info: 2, ok: 3 };
-const ORDER: HealthSectionId[] = ["connection", "activity", "index", "bridge", "clipper", "orders", "ontology", "links", "tags", "research", "inbox"];
+const ORDER: HealthSectionId[] = ["connection", "activity", "index", "bridge", "clipper", "orders", "ontology", "links", "orphans", "tags", "research", "inbox"];
 const GROUP_RANK: Record<HealthGroup, number> = { companion: 0, vault: 1 };
 const OPEN_SETTINGS: HealthAction = { id: "open-settings", label: "Open settings · Agent → Agent bridge" };
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -52,6 +54,11 @@ export function scanVaultHealth(input: HealthInput): HealthReport {
   sections.push({
     id: "links", group: "vault", title: "Broken links", count: linkCount, severity: linkCount > 0 ? "warning" : "ok",
     items: linkRows.slice(0, HEALTH_ITEM_CAP).map((r) => ({ path: r.path, message: `${plural(r.total, "broken link")}: ${r.targets.slice(0, 3).join(", ")}` })),
+  });
+
+  sections.push({
+    id: "orphans", group: "vault", title: "Orphan notes", count: input.orphans, severity: input.orphans > 0 ? "info" : "ok",
+    items: input.orphans > 0 ? [{ path: "", message: `${input.orphans} notes with no links` }] : [],
   });
 
   if (input.tags && input.tags.total > 0) {
