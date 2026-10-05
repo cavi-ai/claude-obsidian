@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { applyPlan } from "../../src/edit/diff";
 import { findUnlinkedMentions, withLinktext } from "../../src/links/unlinkedMentions";
@@ -125,6 +127,15 @@ describe("mergeRelated", () => {
 
   it("refuses an object, number or boolean", () => {
     for (const v of [{ a: 1 }, 5, true]) expect(mergeRelated(v, ["[[A]]"])).toEqual({ ok: false, message: "related is not a list" });
+  });
+});
+
+describe("pure link weave modules", () => {
+  it("never import obsidian", () => {
+    for (const rel of ["../../src/optimize/linkScan.ts", "../../src/optimize/linkPlan.ts", "../../src/view/linkWeaveState.ts"]) {
+      const source = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+      expect(source, rel).not.toMatch(/from\s+["']obsidian["']/);
+    }
   });
 });
 

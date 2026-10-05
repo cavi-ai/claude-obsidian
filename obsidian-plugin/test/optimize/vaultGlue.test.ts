@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { App } from "obsidian";
 import { collapseMerges, planTagMerges } from "../../src/optimize/mergePlan";
 import { acceptsRelated, addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "../../src/optimize/vaultGlue";
+import { SEED_TYPES } from "../../src/ontology/seed";
+import { resolveTypes } from "../../src/ontology/schema";
 import type { ResolvedType } from "../../src/ontology/types";
 
 function seeded(content: string, fmTags: unknown) {
@@ -159,6 +161,17 @@ describe("acceptsRelated", () => {
   });
 });
 
+describe("acceptsRelated with the seeded ontology", () => {
+  const { resolved } = resolveTypes([...SEED_TYPES, { name: "island", version: 1, properties: [], relations: [] }]);
+  const real = { resolve: (n: string) => resolved.get(n), resolved: () => resolved as ReadonlyMap<string, ResolvedType> };
+
+  it("accepts a seeded type that extends entity and refuses a root type without related", () => {
+    expect(acceptsRelated("person", real)).toBe(true);
+    expect(acceptsRelated("claim", real)).toBe(true);
+    expect(acceptsRelated("island", real)).toBe(false);
+  });
+});
+
 describe("linkScanNotes", () => {
   it("reads basename, aliases (list or string), mtime and string type", () => {
     const app = new App();
@@ -229,7 +242,7 @@ describe("addRelatedLinks", () => {
     expect(ctx.fm()).toEqual({ related: ["[[N|alias]]"] });
   });
 
-  it("round-trips through the real serializer quoted, in order", async () => {
+  it("keeps the existing entries first through the fake processFrontMatter", async () => {
     const app = new App();
     const file = app.vault.seed("o.md", "---\nrelated:\n  - \"[[Old]]\"\n---\nbody");
     await addRelatedLinks(app as never, "o.md", ["[[Café]]"]);

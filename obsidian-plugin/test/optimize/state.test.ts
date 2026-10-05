@@ -64,6 +64,12 @@ describe("normalizeOptimizeState dismissedLinks", () => {
     expect(normalizeOptimizeState({ dismissedLinks: "x" })).not.toHaveProperty("dismissedLinks");
   });
 
+  it("keeps the newest 2000 of 2,100 distinct dismissedLinks, in order", () => {
+    const keys = Array.from({ length: 2100 }, (_, i) => `s${i}\u0000t${i}`);
+    const out = normalizeOptimizeState({ dismissedLinks: keys });
+    expect(out.dismissedLinks).toEqual(keys.slice(100));
+  });
+
   it("keeps string pairs only, deduped, newest 2000, independent of tag dismissals", () => {
     const out = normalizeOptimizeState({ dismissed: ["t|u"], dismissedLinks: ["a.md\u0000b.md", 3, null, "a.md\u0000b.md", "c.md\u0000d.md"] });
     expect(out.dismissed).toEqual(["t|u"]);

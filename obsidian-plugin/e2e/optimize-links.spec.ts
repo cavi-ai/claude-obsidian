@@ -60,5 +60,5 @@ test("connect an orphan note: the mention becomes a link and the related row add
     return [await app.vault.adapter.read("Daily/log.md"), await app.vault.adapter.read("Orphans/Zephyr Quill.md")];
   });
   expect(log).toBe("See [[Hub]]. Talked about [[Zephyr Quill]] today.");
-  expect(orphan).toMatch(/^---\nrelated:\n\s+- "?\[\[Twin\]\]"?\n---\n/);
+  expect(orphan).toMatch(/^---\nrelated:\n\s+- "\[\[Twin\]\]"\n---\n/);
 });
