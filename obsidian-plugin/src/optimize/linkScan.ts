@@ -69,6 +69,7 @@ export const MAX_PROPOSALS_PER_KIND = 3;
 export const RELATED_FLOOR = 0.5;
 export const MAX_NEIGHBOUR_LOOKUPS = 200;
 export const YIELD_EVERY = 50;
+export const YIELD_EVERY_LOOKUPS = 10;
 
 const NON_TARGET_NAME = [/^untitled\b/i, /^\d{4}-\d{2}-\d{2}/, /^\d+$/];
 
@@ -162,6 +163,7 @@ export async function scanOrphans(input: LinkScanInput): Promise<LinkScanReport>
     const orphan = byPath.get(path);
     if (orphan?.acceptsRelated && lookups < MAX_NEIGHBOUR_LOOKUPS) {
       lookups += 1;
+      if (lookups % YIELD_EVERY_LOOKUPS === 0) await yieldTurn();
       const bodyLinked = new Set((proposals.get(path) ?? []).filter((p) => p.kind === "outbound").map((p) => p.target));
       const accept = (candidate: string): boolean => {
         const target = byPath.get(candidate);

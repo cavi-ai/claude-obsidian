@@ -236,6 +236,15 @@ describe("scanOrphans", () => {
     expect(report.remaining).toBe(500);
   });
 
+  it("yields after every 10 neighbour lookups", async () => {
+    const notes = [...Array.from({ length: 25 }, (_, i) => note(`o${String(i).padStart(2, "0")}.md`)), note("hub.md"), note("side.md")];
+    let yields = 0;
+    const neighbours = async (): Promise<NeighbourHit[]> => [{ path: "hub.md", score: 0.9 }];
+    const report = await scanOrphans(setup(notes, {}, { edges: { "hub.md": { "side.md": 1 } }, neighbours, yieldEvery: async () => void (yields += 1) }).input);
+    expect(report.groups).toHaveLength(25);
+    expect(yields).toBe(2);
+  });
+
   it("yields once per 50 notes read and reports progress", async () => {
     const notes = Array.from({ length: 120 }, (_, i) => note(`n${String(i).padStart(3, "0")}.md`));
     const edges = Object.fromEntries(notes.slice(1).map((n, i) => [n.path, { [notes[1 + ((i + 1) % 119)]!.path]: 1 }]));
