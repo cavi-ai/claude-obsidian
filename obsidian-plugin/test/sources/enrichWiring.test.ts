@@ -24,11 +24,15 @@ interface PrivateEnrich {
   organizeFolderFlow(folder: TFolder): Promise<void>;
 }
 
-function controllerHarness(completeResolved: ReturnType<typeof vi.fn>): SourceEnrichmentController {
+function controllerHarness(
+  completeResolved: ReturnType<typeof vi.fn>,
+  overrides: Partial<ConstructorParameters<typeof SourceEnrichmentController>[0]> = {},
+): SourceEnrichmentController {
   const settings = { ...DEFAULT_SETTINGS };
   return new SourceEnrichmentController({
     settings: () => settings,
     saveSettings: async () => {},
+    resolveTags: (tags) => tags,
     isMobile: false,
     mobileSourceNoteMaxBytes: 5 * 1024 * 1024,
     enrichApp: undefined as never,
@@ -43,6 +47,7 @@ function controllerHarness(completeResolved: ReturnType<typeof vi.fn>): SourceEn
     utilityLifecycleGeneration: () => 0,
     notice: () => {},
     openChoiceModal: () => ({ close() {} }),
+    ...overrides,
   });
 }
 
@@ -261,7 +266,9 @@ describe("source enrichment wiring", () => {
       sourceBaseTags: ["source"],
     });
     app.vault.seed("Notes/Existing.md", "x", { tags: ["llm"] });
-    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+    app.vault.seed("Notes/S1.md", "x", { tags: ["sources"] });
+    app.vault.seed("Notes/S2.md", "x", { tags: ["sources"] });
+    const complete = vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
       title: "Private note",
       site: "Vault",
       summary: "Private content.",
@@ -274,6 +281,8 @@ describe("source enrichment wiring", () => {
     const written = await app.vault.read(file);
     expect(written).toContain("topics:\n  - LLMs\n  - brand-new\n");
     expect(written).toContain("tags:\n  - source\n  - llm\n  - brand-new\n");
+    expect(written).not.toContain("sources");
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 
   it("resolves research-source topics into tags and keeps topics raw", async () => {
@@ -284,12 +293,14 @@ describe("source enrichment wiring", () => {
       sourceBaseTags: ["source"],
     });
     app.vault.seed("Notes/Existing.md", "x", { tags: ["llm"] });
+    app.vault.seed("Notes/S1.md", "x", { tags: ["sources"] });
+    app.vault.seed("Notes/S2.md", "x", { tags: ["sources"] });
     const body = "x".repeat(400);
     const note = app.vault.seed(
       "Research/Source.md",
       `---\ntitle: Test\ntype: research-source\n---\n\n## Captured content\n\n<!-- cavi:capture version=1 chars=${body.length} -->\n${body}\n<!-- cavi:capture:end -->\n`,
     );
-    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+    const complete = vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
       summary: "A summary.",
       key_claims: ["c"],
       topics: ["LLMs", "brand-new"],
@@ -300,6 +311,29 @@ describe("source enrichment wiring", () => {
     const written = await app.vault.read(note);
     expect(written).toContain("topics:\n  - LLMs\n  - brand-new\n");
     expect(written).toContain("tags:\n  - source\n  - llm\n  - brand-new\n");
+    expect(written).not.toContain("sources");
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run the tag resolver for an enrichment without topics", async () => {
+    const app = new App();
+    const body = "x".repeat(400);
+    const note = app.vault.seed(
+      "Research/NoTopics.md",
+      `---\ntitle: Test\ntype: research-source\n---\n\n## Captured content\n\n<!-- cavi:capture version=1 chars=${body.length} -->\n${body}\n<!-- cavi:capture:end -->\n`,
+    );
+    const resolveTags = vi.fn((tags: string[]) => tags);
+    const completeResolved = vi.fn(async () => ({ text: JSON.stringify({ summary: "A summary.", key_claims: ["c"] }) }));
+    const controller = controllerHarness(completeResolved, {
+      resolveTags,
+      router: () => ({ utilitySelection: async () => selection(), completeResolved }) as never,
+      enrichApp: app as never,
+      vault: { cachedRead: async () => app.vault.cachedRead(note) },
+      settings: () => ({ ...DEFAULT_SETTINGS, sourceCaptureConsent: "allow" }),
+    });
+    await controller.enrichResearchSource(note as never);
+    expect(completeResolved).toHaveBeenCalledTimes(1);
+    expect(resolveTags).not.toHaveBeenCalled();
   });
 
   it("/frontmatter resolves suggested tags against the vault and marks new ones in the review modal", async () => {

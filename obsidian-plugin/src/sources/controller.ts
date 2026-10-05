@@ -41,7 +41,7 @@ export function sourceActivityDetail(value: string): string {
 
 export interface SourceEnrichmentControllerDeps {
   settings: () => PluginSettings;
-  resolveTags?: (tags: string[]) => string[];
+  resolveTags: (tags: string[]) => string[];
   saveSettings: () => Promise<void>;
   isMobile: boolean;
   mobileSourceNoteMaxBytes: number;
@@ -413,7 +413,7 @@ export class SourceEnrichmentController {
   }
 
   private resolveTopics(topics: string[]): string[] {
-    return this.deps.resolveTags ? this.deps.resolveTags(topics) : topics;
+    return topics.length === 0 ? [] : this.deps.resolveTags(topics);
   }
 
   buildEnrichDeps(

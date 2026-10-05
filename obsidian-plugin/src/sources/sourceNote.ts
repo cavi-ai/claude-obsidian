@@ -12,7 +12,7 @@ export function sourceFrontmatter(record: SourceRecord, baseTags: string[], reso
   fm.captured_at = record.provenance.capturedAt;
   fm.enriched_by = record.provenance.enrichedBy;
   const topics = Array.isArray(record.fields.topics) ? record.fields.topics : [];
-  fm.tags = normalizeTags([...baseTags, ...(resolve ? resolve(topics.map(String)) : topics)]);
+  fm.tags = normalizeTags([...baseTags, ...(resolve && topics.length > 0 ? resolve(topics.map(String)) : topics)]);
   return fm;
 }
 

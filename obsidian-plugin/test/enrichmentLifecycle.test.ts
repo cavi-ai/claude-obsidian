@@ -27,6 +27,7 @@ function testControllerDeps(overrides: Partial<SourceEnrichmentControllerDeps> =
   return {
     settings: () => ({ ...DEFAULT_SETTINGS, sourceCaptureConsent: "allow", sourceCaptureEnabled: true, sourceEnrichOnCreate: true, sourceInboxFolder: "Clippings" }) as PluginSettings,
     saveSettings: async () => {},
+    resolveTags: (tags) => tags,
     isMobile: false,
     mobileSourceNoteMaxBytes: 5 * 1024 * 1024,
     enrichApp: undefined as never,
