@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { App } from "obsidian";
 import { collapseMerges, planTagMerges } from "../../src/optimize/mergePlan";
-import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "../../src/optimize/vaultGlue";
+import { acceptsRelated, addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "../../src/optimize/vaultGlue";
+import type { ResolvedType } from "../../src/ontology/types";
 
 function seeded(content: string, fmTags: unknown) {
   const app = new App();
@@ -132,5 +133,112 @@ describe("writeOptimizeRunNote", () => {
     expect(first).toBe("Claude/Optimize/Tag merges 2026-10-05 1000.md");
     expect(second).not.toBe(first);
     expect(await read(app as never, first)).toBe("one");
+  });
+
+  it("names the note after the given title", async () => {
+    const app = new App() as never as import("obsidian").App;
+    expect(await writeOptimizeRunNote(app, "x", "2026-10-05T10:00:00.000Z", "Link weave")).toBe("Claude/Optimize/Link weave 2026-10-05 1000.md");
+  });
+});
+
+const type = (name: string, relations: string[]): ResolvedType => ({ name, version: 1, lineage: [name], properties: [], relations: relations.map((key) => ({ key, targets: ["entity"] })) });
+const registry = (...types: ResolvedType[]) => ({ resolve: (n: string) => types.find((t) => t.name === n), resolved: () => new Map(types.map((t) => [t.name, t])) as ReadonlyMap<string, ResolvedType> });
+
+describe("acceptsRelated", () => {
+  it("accepts untyped notes and every note when no ontology is loaded", () => {
+    expect(acceptsRelated(undefined, registry(type("person", [])))).toBe(true);
+    expect(acceptsRelated("person", null)).toBe(true);
+    expect(acceptsRelated("person", registry())).toBe(true);
+  });
+
+  it("accepts a typed note only when its resolved type declares related", () => {
+    const reg = registry(type("entity", ["related"]), type("person", ["related", "knows"]), type("tool", ["uses"]));
+    expect(acceptsRelated("person", reg)).toBe(true);
+    expect(acceptsRelated("tool", reg)).toBe(false);
+    expect(acceptsRelated("ghost", reg)).toBe(false);
+  });
+});
+
+describe("linkScanNotes", () => {
+  it("reads basename, aliases (list or string), mtime and string type", () => {
+    const app = new App();
+    app.vault.seed("a/Café.md", "x", { mtime: 5, frontmatter: { aliases: ["Cafe", 7], type: "tool" } });
+    app.vault.seed("b.md", "x", { mtime: 6, frontmatter: { aliases: "Bee", type: 3 } });
+    app.vault.seed("c.md", "x", { mtime: 7 });
+    const notes = linkScanNotes(app as never, registry(type("tool", ["uses"])));
+    expect(notes).toEqual([
+      { path: "a/Café.md", basename: "Café", aliases: ["Cafe", "7"], mtime: 5, type: "tool", acceptsRelated: false },
+      { path: "b.md", basename: "b", aliases: ["Bee"], mtime: 6, acceptsRelated: true },
+      { path: "c.md", basename: "c", aliases: [], mtime: 7, acceptsRelated: true },
+    ]);
+  });
+});
+
+describe("processNoteBody", () => {
+  it("transforms the current content and throws for a missing note", async () => {
+    const app = new App();
+    const file = app.vault.seed("n.md", "old");
+    await processNoteBody(app as never, "n.md", (c) => `${c}!`);
+    expect(file._content).toBe("old!");
+    await expect(processNoteBody(app as never, "gone.md", (c) => c)).rejects.toThrow("Note not found: gone.md");
+  });
+});
+
+describe("addRelatedLinks", () => {
+  function withFrontmatter(initial: Record<string, unknown> | undefined) {
+    const app = new App();
+    const file = app.vault.seed("o.md", "body");
+    let fm: Record<string, unknown> | undefined = initial;
+    let calls = 0;
+    app.fileManager.processFrontMatter = async (_f, fn) => {
+      calls++;
+      fm ??= {};
+      fn(fm);
+    };
+    return { app: app as never, file, fm: () => fm, calls: () => calls };
+  }
+
+  it("creates the related list on a note with no frontmatter, keeping Unicode and emoji text", async () => {
+    const ctx = withFrontmatter(undefined);
+    expect(await addRelatedLinks(ctx.app, "o.md", ["[[Café]]", "[[🧠 Brain]]", "[[2024]]"])).toEqual({ ok: true, added: ["[[Café]]", "[[🧠 Brain]]", "[[2024]]"] });
+    expect(ctx.fm()?.related).toEqual(["[[Café]]", "[[🧠 Brain]]", "[[2024]]"]);
+  });
+
+  it("keeps existing values in order for a string, a list, a list with a non-string, and null", async () => {
+    for (const [existing, expected] of [
+      ["[[Old]]", ["[[Old]]", "[[N]]"]],
+      [["[[Z]]", "[[A]]"], ["[[Z]]", "[[A]]", "[[N]]"]],
+      [["[[Z]]", { k: 1 }], ["[[Z]]", { k: 1 }, "[[N]]"]],
+      [null, ["[[N]]"]],
+    ] as Array<[unknown, unknown[]]>) {
+      const ctx = withFrontmatter({ related: existing, other: "kept" });
+      await addRelatedLinks(ctx.app, "o.md", ["[[N]]"]);
+      expect(ctx.fm()).toEqual({ related: expected, other: "kept" });
+    }
+  });
+
+  it("leaves an object value untouched and reports it", async () => {
+    const ctx = withFrontmatter({ related: { a: 1 } });
+    expect(await addRelatedLinks(ctx.app, "o.md", ["[[N]]"])).toEqual({ ok: false, message: "related is not a list" });
+    expect(ctx.fm()).toEqual({ related: { a: 1 } });
+  });
+
+  it("does not write when every entry is already present", async () => {
+    const ctx = withFrontmatter({ related: ["[[N|alias]]"] });
+    expect(await addRelatedLinks(ctx.app, "o.md", ["[[N]]"])).toEqual({ ok: true, added: [] });
+    expect(ctx.fm()).toEqual({ related: ["[[N|alias]]"] });
+  });
+
+  it("round-trips through the real serializer quoted, in order", async () => {
+    const app = new App();
+    const file = app.vault.seed("o.md", "---\nrelated:\n  - \"[[Old]]\"\n---\nbody");
+    await addRelatedLinks(app as never, "o.md", ["[[Café]]"]);
+    expect(file._content).toContain('"[[Old]]"');
+    expect(file._content.indexOf("[[Old]]")).toBeLessThan(file._content.indexOf("[[Café]]"));
+    expect(file._content).toContain("body");
+  });
+
+  it("throws for a missing note", async () => {
+    await expect(addRelatedLinks(new App() as never, "gone.md", ["[[N]]"])).rejects.toThrow("Note not found: gone.md");
   });
 });

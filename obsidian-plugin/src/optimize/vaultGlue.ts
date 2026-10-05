@@ -1,6 +1,10 @@
 import { TFile, type App } from "obsidian";
 import { tagId } from "../tags/vocabulary";
 import { ensureVaultFolder, uniqueNotePath } from "../vault/vaultFiles";
+import type { ResolvedType } from "../ontology/types";
+import type { RelatedWrite } from "./linkController";
+import { mergeRelated } from "./linkPlan";
+import type { LinkScanNote } from "./linkScan";
 import { entryId, mapTagList, OPTIMIZE_OUTPUT_ROOT, rewriteInlineTags, type NoteMergePlan, type NoteTagInput } from "./mergePlan";
 
 const TAG_KEY = /^tags?$/i;
@@ -76,10 +80,53 @@ export async function applyNoteMerge(
   return { inlineApplied, inlineSkipped, changed: [...changed] };
 }
 
-export async function writeOptimizeRunNote(app: App, content: string, now: string): Promise<string> {
+export async function writeOptimizeRunNote(app: App, content: string, now: string, title = "Tag merges"): Promise<string> {
   await ensureVaultFolder(app, OPTIMIZE_OUTPUT_ROOT);
   const stamp = now.slice(0, 16).replace("T", " ").replace(":", "");
-  const path = await uniqueNotePath(app, OPTIMIZE_OUTPUT_ROOT, `Tag merges ${stamp}`, "md");
+  const path = await uniqueNotePath(app, OPTIMIZE_OUTPUT_ROOT, `${title} ${stamp}`, "md");
   await app.vault.create(path, content);
   return path;
+}
+
+export interface RelationRegistry {
+  resolve(name: string): ResolvedType | undefined;
+  resolved(): ReadonlyMap<string, ResolvedType>;
+}
+
+/** Whether `conform` would accept a `related` key on a note of this type. */
+export function acceptsRelated(type: string | undefined, registry: RelationRegistry | null): boolean {
+  if (type === undefined || !registry || registry.resolved().size === 0) return true;
+  return registry.resolve(type)?.relations.some((r) => r.key === "related") ?? false;
+}
+
+export function linkScanNotes(app: App, registry: RelationRegistry | null): LinkScanNote[] {
+  return app.vault.getMarkdownFiles().map((f) => {
+    const fm = app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined;
+    const raw = fm?.aliases;
+    const aliases = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" && raw.trim() ? [raw] : [];
+    const type = typeof fm?.type === "string" ? fm.type : undefined;
+    return { path: f.path, basename: f.basename, aliases, mtime: f.stat.mtime, ...(type !== undefined ? { type } : {}), acceptsRelated: acceptsRelated(type, registry) };
+  });
+}
+
+export async function processNoteBody(app: App, path: string, transform: (current: string) => string): Promise<void> {
+  const file = markdownFile(app, path);
+  if (!file) throw new Error(`Note not found: ${path}`);
+  await app.vault.process(file, transform);
+}
+
+export async function addRelatedLinks(app: App, path: string, entries: string[]): Promise<RelatedWrite> {
+  const file = markdownFile(app, path);
+  if (!file) throw new Error(`Note not found: ${path}`);
+  let result: RelatedWrite = { ok: true, added: [] };
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+    const merged = mergeRelated(fm.related, entries);
+    if (!merged.ok) {
+      result = merged;
+      return;
+    }
+    result = { ok: true, added: merged.added };
+    if (merged.added.length > 0) fm.related = merged.value;
+  });
+  return result;
 }

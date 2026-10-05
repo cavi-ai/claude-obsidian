@@ -12,6 +12,8 @@ export interface StoredVerdict {
 
 export interface OptimizeState {
   dismissed: string[];
+  /** `<source>\u0000<target>` pairs the user dismissed in the link weave review. */
+  dismissedLinks?: string[];
   verdicts: Record<string, StoredVerdict>;
   lastBackgroundRun?: string;
 }
@@ -48,12 +50,8 @@ function normalizeVerdicts(raw: unknown): Record<string, StoredVerdict> {
   return Object.fromEntries(valid.slice(0, MAX_VERDICTS));
 }
 
-export function normalizeOptimizeState(raw: unknown): OptimizeState {
-  const source = raw as { dismissed?: unknown; verdicts?: unknown; lastBackgroundRun?: unknown } | null;
-  const verdicts = normalizeVerdicts(source?.verdicts);
-  const lastBackgroundRun = typeof source?.lastBackgroundRun === "string" ? { lastBackgroundRun: source.lastBackgroundRun } : {};
-  const list = source?.dismissed;
-  if (!Array.isArray(list)) return { dismissed: [], verdicts, ...lastBackgroundRun };
+function normalizeIds(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
   const seen = new Set<string>();
   const newestFirst: string[] = [];
   for (let i = list.length - 1; i >= 0; i--) {
@@ -63,5 +61,18 @@ export function normalizeOptimizeState(raw: unknown): OptimizeState {
     newestFirst.push(entry);
     if (newestFirst.length === MAX_DISMISSED) break;
   }
-  return { dismissed: newestFirst.reverse(), verdicts, ...lastBackgroundRun };
+  return newestFirst.reverse();
+}
+
+export function normalizeOptimizeState(raw: unknown): OptimizeState {
+  const source = raw as { dismissed?: unknown; dismissedLinks?: unknown; verdicts?: unknown; lastBackgroundRun?: unknown } | null;
+  const verdicts = normalizeVerdicts(source?.verdicts);
+  const lastBackgroundRun = typeof source?.lastBackgroundRun === "string" ? { lastBackgroundRun: source.lastBackgroundRun } : {};
+  const dismissedLinks = normalizeIds(source?.dismissedLinks);
+  return {
+    dismissed: normalizeIds(source?.dismissed),
+    verdicts,
+    ...(dismissedLinks.length > 0 ? { dismissedLinks } : {}),
+    ...lastBackgroundRun,
+  };
 }

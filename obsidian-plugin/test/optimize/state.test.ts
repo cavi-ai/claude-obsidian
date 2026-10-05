@@ -57,3 +57,24 @@ describe("normalizeOptimizeState", () => {
     expect(out["k0|l0"]).toBeUndefined();
   });
 });
+
+describe("normalizeOptimizeState dismissedLinks", () => {
+  it("omits dismissedLinks when there are none, so existing state is unchanged", () => {
+    expect(normalizeOptimizeState({ dismissed: ["a|b"] })).toEqual({ dismissed: ["a|b"], verdicts: {} });
+    expect(normalizeOptimizeState({ dismissedLinks: "x" })).not.toHaveProperty("dismissedLinks");
+  });
+
+  it("keeps string pairs only, deduped, newest 2000, independent of tag dismissals", () => {
+    const out = normalizeOptimizeState({ dismissed: ["t|u"], dismissedLinks: ["a.md\u0000b.md", 3, null, "a.md\u0000b.md", "c.md\u0000d.md"] });
+    expect(out.dismissed).toEqual(["t|u"]);
+    expect(out.dismissedLinks).toEqual(["a.md\u0000b.md", "c.md\u0000d.md"]);
+    const many = normalizeOptimizeState({ dismissedLinks: Array.from({ length: 2005 }, (_, i) => `s${i}\u0000t${i}`) });
+    expect(many.dismissedLinks).toHaveLength(2000);
+    expect(many.dismissedLinks?.[1999]).toBe("s2004\u0000t2004");
+  });
+
+  it("keeps verdicts and lastBackgroundRun alongside dismissedLinks", () => {
+    const out = normalizeOptimizeState({ dismissedLinks: ["a\u0000b"], lastBackgroundRun: "2026-10-05T00:00:00.000Z" });
+    expect(out).toEqual({ dismissed: [], verdicts: {}, dismissedLinks: ["a\u0000b"], lastBackgroundRun: "2026-10-05T00:00:00.000Z" });
+  });
+});
