@@ -220,7 +220,7 @@ describe("OptimizeController.apply results", () => {
     expect(result.orders).toEqual(["Claude/Templates/Meet.md"]);
     expect(writes[0]?.content).toContain("## Standing orders that trigger on a merged tag");
     expect(writes[0]?.content).toContain("[[Claude/Templates/Meet]] — `meetings`");
-    expect(formatApplyNotice(result)).toContain("1 standing orders trigger on a merged tag");
+    expect(formatApplyNotice(result)).toContain("1 standing order triggers on a merged tag");
   });
 });
 
@@ -246,9 +246,13 @@ describe("formatApplyNotice", () => {
     const r: ApplyResult = { merges: 3, notes: 7, inlineSkipped: 0, failed: [], unchanged: 0, dropped: [], orders: [], runNote: null };
     expect(formatApplyNotice(r)).toBe("Merged 3 tags across 7 notes");
     expect(formatApplyNotice({ ...r, inlineSkipped: 2 })).toBe("Merged 3 tags across 7 notes, 2 inline tags skipped");
-    expect(formatApplyNotice({ ...r, inlineSkipped: 1, failed: ["a"], unchanged: 2, dropped: ["a", "b"], orders: ["o"] })).toBe(
-      "Merged 3 tags across 7 notes, 1 inline tags skipped, 1 notes failed, 2 notes left unchanged, 2 merges dropped (cycle: a, b), 1 standing orders trigger on a merged tag",
+    expect(formatApplyNotice({ ...r, merges: 1, notes: 1, inlineSkipped: 1, failed: ["a"], unchanged: 1, dropped: ["a"], orders: ["o"] })).toBe(
+      "Merged 1 tag across 1 note, 1 inline tag skipped, 1 note failed, 1 note left unchanged, 1 merge dropped (cycle: a), 1 standing order triggers on a merged tag",
     );
+    expect(formatApplyNotice({ ...r, merges: 2, notes: 2, inlineSkipped: 2, failed: ["a", "b"], unchanged: 2, dropped: ["a", "b"], orders: ["o", "p"] })).toBe(
+      "Merged 2 tags across 2 notes, 2 inline tags skipped, 2 notes failed, 2 notes left unchanged, 2 merges dropped (cycle: a, b), 2 standing orders trigger on a merged tag",
+    );
+    expect(formatApplyNotice({ ...r, merges: 0, notes: 0 })).toBe("Merged 0 tags across 0 notes");
   });
 });
 });

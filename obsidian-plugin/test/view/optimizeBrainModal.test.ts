@@ -60,7 +60,7 @@ describe("OptimizeBrainModal", () => {
     await settle();
     expect(actions.dismiss).toHaveBeenCalledWith("llm|llms");
     expect(actions.apply).not.toHaveBeenCalled();
-    expect(modal.titleEl.textContent).toBe("Review 1 tag merges");
+    expect(modal.titleEl.textContent).toBe("Review 1 tag merge");
     expect(allText(root())).not.toContain("llms (2)");
   });
 
@@ -75,6 +75,12 @@ describe("OptimizeBrainModal", () => {
     b.modal.onClose();
     expect(b.onDone).toHaveBeenCalledWith(null);
     expect(b.actions.apply).not.toHaveBeenCalled();
+  });
+
+  it("titles one row singular and two rows plural", () => {
+    expect(setup(candidates.slice(0, 1)).modal.titleEl.textContent).toBe("Review 1 tag merge");
+    expect(setup().modal.titleEl.textContent).toBe("Review 2 tag merges");
+    expect(setup([]).modal.titleEl.textContent).toBe("Review 0 tag merges");
   });
 
   it("renders the saved-search description line", () => {

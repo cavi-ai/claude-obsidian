@@ -32,7 +32,7 @@ export class OptimizeBrainModal extends Modal {
   private render(): void {
     const { contentEl } = this;
     contentEl.empty();
-    this.titleEl.setText(`Review ${this.state.rows.length} tag merges`);
+    this.titleEl.setText(`Review ${this.state.rows.length} tag ${this.state.rows.length === 1 ? "merge" : "merges"}`);
     contentEl.createDiv({
       text: "Merges rewrite tags in notes. Saved searches, Bases, and queries that name a merged tag are not changed.",
     });

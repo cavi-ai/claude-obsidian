@@ -33,13 +33,17 @@ export interface ApplyResult {
   runNote: string | null;
 }
 
+const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
 export function formatApplyNotice(result: ApplyResult): string {
-  let text = `Merged ${result.merges} tags across ${result.notes} notes`;
-  if (result.inlineSkipped > 0) text += `, ${result.inlineSkipped} inline tags skipped`;
-  if (result.failed.length > 0) text += `, ${result.failed.length} notes failed`;
-  if (result.unchanged > 0) text += `, ${result.unchanged} notes left unchanged`;
-  if (result.dropped.length > 0) text += `, ${result.dropped.length} merges dropped (cycle: ${result.dropped.join(", ")})`;
-  if (result.orders.length > 0) text += `, ${result.orders.length} standing orders trigger on a merged tag`;
+  let text = `Merged ${count(result.merges, "tag", "tags")} across ${count(result.notes, "note", "notes")}`;
+  if (result.inlineSkipped > 0) text += `, ${count(result.inlineSkipped, "inline tag", "inline tags")} skipped`;
+  if (result.failed.length > 0) text += `, ${count(result.failed.length, "note", "notes")} failed`;
+  if (result.unchanged > 0) text += `, ${count(result.unchanged, "note", "notes")} left unchanged`;
+  if (result.dropped.length > 0) text += `, ${count(result.dropped.length, "merge", "merges")} dropped (cycle: ${result.dropped.join(", ")})`;
+  if (result.orders.length > 0) {
+    text += `, ${count(result.orders.length, "standing order triggers", "standing orders trigger")} on a merged tag`;
+  }
   return text;
 }
 
