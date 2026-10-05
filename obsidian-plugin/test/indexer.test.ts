@@ -303,6 +303,22 @@ describe("SemanticIndexer", () => {
     expect(rel[0].path).toBe("kittens.md"); // closest by shared cat/feline terms
   });
 
+  it("relatedStored: reads stored vectors only and never embeds, even for an unindexed note", async () => {
+    const ctx = makeDeps({
+      "cats.md": "The feline cat is a small mammal.",
+      "kittens.md": "A kitten is a young cat, also feline.",
+      "ocean.md": "Fish swim in the ocean.",
+    });
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.build();
+    const callsAfterBuild = ctx.embedCalls.length;
+    const rel = await ix.relatedStored("cats.md", 5, (p) => p !== "ocean.md");
+    expect(rel.map((r) => r.path)).toEqual(["kittens.md"]);
+    ctx.files["fresh.md"] = "A cat story.";
+    expect(await ix.relatedStored("fresh.md", 5)).toEqual([]);
+    expect(ctx.embedCalls.length).toBe(callsAfterBuild);
+  });
+
   it("indexes PDFs with page-locator chunks, skips unchanged, prunes removed", async () => {
     const ctx = makeDeps({ "cats.md": "# Cats\nThe feline cat is a small mammal." });
     const pdfPages = [
