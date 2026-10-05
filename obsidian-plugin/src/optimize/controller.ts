@@ -143,7 +143,7 @@ export class OptimizeController {
     const vocab = buildVocabulary(this.deps.tagEntries(), tagId);
     const titles = (tag: string): string[] => (vocab.get(tag)?.notes ?? []).slice(0, MAX_TITLES).map(basename);
     const stored: Record<string, StoredVerdict> = {};
-    let failure: unknown = null;
+    let failure: Error | null = null;
     try {
       const report = await this.scan();
       const pending = report.candidates.filter((c) => !c.verdict && !c.evidence.some((e) => e === "separator" || e === "plural"));
@@ -190,7 +190,7 @@ export class OptimizeController {
         }
       }
     } catch (error) {
-      failure = error;
+      failure = error instanceof Error ? error : new Error(String(error));
     }
     const state = this.deps.getState();
     const merged: Record<string, StoredVerdict> = { ...state.verdicts, ...stored };

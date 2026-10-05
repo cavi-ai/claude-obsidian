@@ -5,7 +5,7 @@ import { pairKey } from "../../src/optimize/tagScan";
 import type { NoteTagInput } from "../../src/optimize/mergePlan";
 import type { OptimizeState } from "../../src/optimize/state";
 import { UtilityUnavailableError } from "../../src/providers/endpointPolicy";
-import { VerdictParseError, type ClassifyPair, type Verdict } from "../../src/optimize/classify";
+import { VerdictParseError, type Verdict } from "../../src/optimize/classify";
 import type { MergeCandidate } from "../../src/optimize/tagScan";
 
 function setup(over: Partial<OptimizeDeps> = {}, notes: Record<string, { fm: string[]; inline?: Array<{ tag: string; start: number; end: number }> }> = {}) {

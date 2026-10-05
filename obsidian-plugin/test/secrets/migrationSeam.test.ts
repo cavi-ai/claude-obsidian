@@ -135,7 +135,7 @@ describe("loadSettings migration seam", () => {
       loadData: async () => structuredClone({ settings: { apiKey: "SENTINEL-KEY" }, conversations: [], optimize: { dismissed: ["a|b", 3, "a|b"] } }),
     });
     await plugin.loadSettings();
-    expect((JSON.parse(onDisk()) as { optimize?: unknown }).optimize).toEqual({ dismissed: ["a|b"] });
+    expect((JSON.parse(onDisk()) as { optimize?: unknown }).optimize).toEqual({ dismissed: ["a|b"], verdicts: {} });
   });
 
   it("migrates every populated credential, not just the API key", async () => {
