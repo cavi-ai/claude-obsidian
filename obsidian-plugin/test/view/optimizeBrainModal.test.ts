@@ -89,7 +89,7 @@ describe("OptimizeBrainModal", () => {
     await settle();
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(onDone).toHaveBeenCalledWith(null);
-    expect(getNoticeMessages()).toContain("Tag merge failed: boom").toBe(true);
+    expect(getNoticeMessages()).toContain("Tag merge failed: boom");
   });
 
   it("closing while apply is in flight reports the result once, after it settles", async () => {
@@ -112,7 +112,7 @@ describe("OptimizeBrainModal", () => {
     button(root(), "Dismiss").dispatchEvent({ type: "click" });
     await settle();
     expect(modal.titleEl.textContent).toBe("Review 2 tag merges");
-    expect(getNoticeMessages()).toContain("Tag dismiss failed: nope").toBe(true);
+    expect(getNoticeMessages()).toContain("Tag dismiss failed: nope");
   });
 
   it("shows the empty state", () => {
