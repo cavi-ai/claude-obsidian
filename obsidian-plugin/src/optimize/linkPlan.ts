@@ -70,7 +70,7 @@ export function mergeRelated(existing: unknown, add: string[]): RelatedMerge {
   let kept: unknown[];
   if (existing === undefined || existing === null || existing === "") kept = [];
   else if (typeof existing === "string") kept = [existing];
-  else if (Array.isArray(existing)) kept = [...existing];
+  else if (Array.isArray(existing)) kept = [...(existing as unknown[])];
   else return { ok: false, message: "related is not a list" };
   const seen = new Set(kept.filter((e): e is string => typeof e === "string").map(wikiTarget));
   const added: string[] = [];

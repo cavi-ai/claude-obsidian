@@ -63,7 +63,7 @@ export class LinkWeaveController {
     for (const plan of plans) {
       for (const u of plan.unlinked) failed.push({ path: plan.path, message: `${u.proposal.target}: ${u.message}` });
       const bodyDone = plan.body !== null && !conflicts.has(plan.path) && !failedBody.has(plan.path);
-      if (bodyDone) for (const p of plan.linked) applied.push({ source: p.source, target: p.target, kind: p.kind as "inbound" | "outbound" });
+      if (bodyDone) for (const p of plan.linked) applied.push({ source: p.source, target: p.target, kind: p.kind });
       if (plan.related.length === 0) continue;
       if (conflicts.has(plan.path) || failedBody.has(plan.path)) continue;
       try {
