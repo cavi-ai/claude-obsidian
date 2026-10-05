@@ -9,7 +9,7 @@ describe("collapseMerges", () => {
   });
 
   it("drops a cycle whole and reports it once", () => {
-    const { map, cycles } = collapseMerges([
+    const { map, cycles, dropped } = collapseMerges([
       { from: "a", to: "b" },
       { from: "b", to: "c" },
       { from: "c", to: "a" },
@@ -17,6 +17,7 @@ describe("collapseMerges", () => {
     ]);
     expect(Object.fromEntries(map)).toEqual({ x: "y" });
     expect(cycles).toEqual([["a", "b", "c"]]);
+    expect(dropped.sort()).toEqual(["a", "b", "c"]);
   });
 
   it("drops a chain that feeds a cycle, keeps the first target of a duplicate from, ignores self merges", () => {
@@ -108,11 +109,22 @@ describe("rewriteInlineTags", () => {
 
 describe("renderRunNote", () => {
   it("writes merges in code spans so no #<from> is a live tag", () => {
-    const note = renderRunNote([{ from: "llms", to: "llm", paths: ["Notes/a.md"] }], "2026-10-05T12:00:00.000Z");
+    const note = renderRunNote({ applied: [{ from: "llms", to: "llm", paths: ["Notes/a.md"] }], failed: [], orders: [] }, "2026-10-05T12:00:00.000Z");
     expect(note).toContain("`llms` → `llm`");
     expect(note).toContain("[[Notes/a]]");
     expect(note).not.toContain("#llms");
     expect(note).not.toMatch(/#llm\b/);
     expect(note.startsWith("---\n")).toBe(true);
+    expect(note).not.toContain("## ");
+  });
+
+  it("adds sections for failed paths and affected orders only when present", () => {
+    const note = renderRunNote(
+      { applied: [{ from: "a", to: "b", paths: ["n.md"] }], failed: ["bad.md"], orders: [{ path: "T/o.md", tag: "a" }] },
+      "2026-10-05T12:00:00.000Z",
+    );
+    expect(note).toContain("## Not rewritten\n\n- `bad.md`");
+    expect(note).not.toContain("[[bad");
+    expect(note).toContain("## Standing orders that trigger on a merged tag\n\n- [[T/o]] — `a`");
   });
 });

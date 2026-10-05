@@ -3812,6 +3812,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       noteVectors: async () => (await this.indexer()?.noteVectors()) ?? null,
       noteTags: (path) => noteTagInput(this.app, path),
       rewriteNote: (plan, map) => applyNoteMerge(this.app, plan, map),
+      orderTagTriggers: () => this.standingOrders().tagTriggers(),
       writeRunNote: (content, now) => writeOptimizeRunNote(this.app, content, now),
       getState: () => this.optimizeState,
       setState: async (next) => {

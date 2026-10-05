@@ -17,7 +17,7 @@ export const OPTIMIZE_OUTPUT_ROOT = "Claude/Optimize";
 
 const wikiTarget = (path: string) => path.replace(/\.md$/i, "");
 
-export function collapseMerges(merges: Array<{ from: string; to: string }>): { map: Map<string, string>; cycles: string[][] } {
+export function collapseMerges(merges: Array<{ from: string; to: string }>): { map: Map<string, string>; cycles: string[][]; dropped: string[] } {
   const direct = new Map<string, string>();
   for (const m of merges) {
     const from = tagId(m.from);
@@ -50,10 +50,10 @@ export function collapseMerges(merges: Array<{ from: string; to: string }>): { m
       cycles.push(rotated);
     }
   }
-  return { map, cycles };
+  return { map, cycles, dropped: [...direct.keys()].filter((from) => !map.has(from)) };
 }
 
-function entryId(entry: unknown): string | null {
+export function entryId(entry: unknown): string | null {
   return typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean" ? tagId(String(entry)) : null;
 }
 
@@ -123,18 +123,32 @@ export function rewriteInlineTags(
   return { content: out, applied: appliedFrom.length, skipped, appliedFrom };
 }
 
-export function renderRunNote(applied: Array<{ from: string; to: string; paths: string[] }>, now: string): string {
-  const notes = new Set(applied.flatMap((m) => m.paths));
+export interface RunNoteInput {
+  applied: Array<{ from: string; to: string; paths: string[] }>;
+  failed: string[];
+  orders: Array<{ path: string; tag: string }>;
+}
+
+export function renderRunNote(input: RunNoteInput, now: string): string {
+  const notes = new Set(input.applied.flatMap((m) => m.paths));
   const frontmatter = buildFrontmatter({
     type: "optimize-run",
     created: now,
-    merges: applied.length,
+    merges: input.applied.length,
     notes: notes.size,
   });
   const lines = [frontmatter, "", "# Tag merges", ""];
-  for (const m of applied) {
+  for (const m of input.applied) {
     lines.push(`- \`${m.from}\` → \`${m.to}\``);
     for (const p of m.paths) lines.push(`  - [[${wikiTarget(p)}]]`);
+  }
+  if (input.failed.length > 0) {
+    lines.push("", "## Not rewritten", "");
+    for (const p of input.failed) lines.push(`- \`${p}\``);
+  }
+  if (input.orders.length > 0) {
+    lines.push("", "## Standing orders that trigger on a merged tag", "");
+    for (const o of input.orders) lines.push(`- [[${wikiTarget(o.path)}]] — \`${o.tag}\``);
   }
   return `${lines.join("\n")}\n`;
 }

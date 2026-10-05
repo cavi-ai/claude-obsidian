@@ -12,7 +12,7 @@ const candidates: MergeCandidate[] = [
   { id: "llm|llms", from: "llms", to: "llm", evidence: ["plural"], score: 1, fromCount: 2, toCount: 9 },
   { id: "kube|kubes", from: "kubes", to: "kube", evidence: ["typo"], score: 0.6, fromCount: 1, toCount: 4 },
 ];
-const result: ApplyResult = { merges: 1, notes: 2, inlineSkipped: 0, cycles: [], runNote: null };
+const result: ApplyResult = { merges: 1, notes: 2, inlineSkipped: 0, failed: [], unchanged: 0, dropped: [], orders: [], runNote: null };
 
 const allText = (el: FakeElement): string => [el.textContent, ...el.children.map(allText)].join("\n");
 const button = (root: FakeElement, text: string): FakeElement => root.querySelectorAll("button").find((b) => b.textContent === text)!;

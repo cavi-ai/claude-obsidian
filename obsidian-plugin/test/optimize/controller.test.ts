@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { formatApplyNotice, OptimizeController, type OptimizeDeps } from "../../src/optimize/controller";
+import { formatApplyNotice, type ApplyResult, OptimizeController, type OptimizeDeps } from "../../src/optimize/controller";
+import { tagId } from "../../src/tags/vocabulary";
 import { pairKey } from "../../src/optimize/tagScan";
 import type { NoteTagInput } from "../../src/optimize/mergePlan";
 
@@ -15,10 +16,13 @@ function setup(over: Partial<OptimizeDeps> = {}, notes: Record<string, { fm: str
       const n = notes[path];
       return n ? { path, frontmatterTags: n.fm, inline: n.inline ?? [] } : null;
     },
-    rewriteNote: async (plan) => {
+    rewriteNote: async (plan, map) => {
       rewritten.push(plan.path);
-      return { inlineApplied: plan.inline.length, inlineSkipped: 0 };
+      const changed = new Set(plan.inline.map((e) => e.from));
+      for (const t of plan.before) if (map.has(tagId(t))) changed.add(tagId(t));
+      return { inlineApplied: plan.inline.length, inlineSkipped: 0, changed: [...changed] };
     },
+    orderTagTriggers: () => [],
     writeRunNote: async (content, now) => {
       writes.push({ content, now });
       return "Claude/Optimize/run.md";
@@ -110,7 +114,7 @@ describe("OptimizeController tag identity", () => {
         noteTags: (path) => ({ path, frontmatterTags: ["📚books"], inline: [] }),
         rewriteNote: async (plan) => {
           plans.push(plan.after);
-          return { inlineApplied: 0, inlineSkipped: 0 };
+          return { inlineApplied: 0, inlineSkipped: 0, changed: ["📚books"] };
         },
       },
       { "s0.md": { fm: ["📚books"] } },
@@ -125,14 +129,14 @@ describe("OptimizeController.apply", () => {
     const { controller, rewritten, writes } = setup({}, NOTES);
     const result = await controller.apply([{ from: "llms", to: "llm" }]);
     expect(rewritten.sort()).toEqual(["a.md", "c.md"]);
-    expect(result).toMatchObject({ merges: 1, notes: 2, inlineSkipped: 0, cycles: [], runNote: "Claude/Optimize/run.md" });
+    expect(result).toMatchObject({ merges: 1, notes: 2, inlineSkipped: 0, failed: [], unchanged: 0, dropped: [], orders: [], runNote: "Claude/Optimize/run.md" });
     expect(writes).toHaveLength(1);
     expect(writes[0]?.now).toBe("2026-10-05T10:00:00.000Z");
     expect(writes[0]?.content).toContain("`llms` → `llm`");
   });
 
   it("sums skipped inline occurrences", async () => {
-    const { controller } = setup({ rewriteNote: async () => ({ inlineApplied: 0, inlineSkipped: 2 }) }, NOTES);
+    const { controller } = setup({ rewriteNote: async () => ({ inlineApplied: 0, inlineSkipped: 2, changed: ["llms"] }) }, NOTES);
     expect((await controller.apply([{ from: "llms", to: "llm" }])).inlineSkipped).toBe(4);
   });
 
@@ -150,8 +154,73 @@ describe("OptimizeController.apply", () => {
       { from: "a", to: "b" }, { from: "b", to: "c" },
       { from: "x", to: "y" }, { from: "y", to: "x" },
     ]);
-    expect(result.cycles).toEqual([["x", "y"]]);
+    expect(result.dropped.sort()).toEqual(["x", "y"]);
     expect(rewritten).toEqual(["a.md"]);
+  });
+});
+
+describe("OptimizeController.apply results", () => {
+  const empty = async () => ({ inlineApplied: 0, inlineSkipped: 0, changed: [] as string[] });
+  const inlineNotes = {
+    "a.md": { fm: ["x"], inline: [{ tag: "llms", start: 0, end: 5 }] },
+    "b.md": { fm: ["x"], inline: [{ tag: "llms", start: 0, end: 5 }] },
+  };
+
+  it("counts only what was really written", async () => {
+    const { controller, writes } = setup({ rewriteNote: empty }, inlineNotes);
+    const result = await controller.apply([{ from: "llms", to: "llm" }]);
+    expect(result).toMatchObject({ merges: 0, notes: 0, unchanged: 2, runNote: null });
+    expect(writes).toEqual([]);
+  });
+
+  it("keeps going when one note throws and lists it without a wikilink", async () => {
+    const notes = { "a.md": { fm: ["llms"] }, "b.md": { fm: ["llms"] }, "c.md": { fm: ["llms"] } };
+    const done: string[] = [];
+    const { controller, writes } = setup({
+      rewriteNote: async (plan) => {
+        if (plan.path === "b.md") throw new Error("locked");
+        done.push(plan.path);
+        return { inlineApplied: 0, inlineSkipped: 0, changed: ["llms"] };
+      },
+    }, notes);
+    const result = await controller.apply([{ from: "llms", to: "llm" }]);
+    expect(done.sort()).toEqual(["a.md", "c.md"]);
+    expect(result).toMatchObject({ notes: 2, failed: ["b.md"] });
+    const note = writes[0]?.content ?? "";
+    expect(note).toContain("## Not rewritten");
+    expect(note).toContain("`b.md`");
+    expect(note).not.toContain("[[b");
+  });
+
+  it("lists a note whose tags cannot be read as failed", async () => {
+    const { controller } = setup({ noteTags: () => null }, NOTES);
+    expect((await controller.apply([{ from: "llms", to: "llm" }])).failed.sort()).toEqual(["a.md", "c.md"]);
+  });
+
+  it("resolves with runNote null when the run note write throws", async () => {
+    const { controller } = setup({ writeRunNote: async () => { throw new Error("disk"); } }, NOTES);
+    const result = await controller.apply([{ from: "llms", to: "llm" }]);
+    expect(result).toMatchObject({ notes: 2, runNote: null });
+  });
+
+  it("reports every dropped merge and names it in the notice", async () => {
+    const { controller } = setup({}, { "a.md": { fm: ["a"] } });
+    const result = await controller.apply([
+      { from: "a", to: "b" }, { from: "b", to: "c" }, { from: "c", to: "a" }, { from: "x", to: "a" },
+    ]);
+    expect([...result.dropped].sort()).toEqual(["a", "b", "c", "x"]);
+    expect(formatApplyNotice(result)).toContain("4 merges dropped (cycle: ");
+  });
+
+  it("reports standing orders that trigger on a merged tag", async () => {
+    const { controller, writes } = setup({
+      orderTagTriggers: () => [{ path: "Claude/Templates/Meet.md", tag: "meetings" }, { path: "Claude/Templates/Other.md", tag: "other" }],
+    }, { "a.md": { fm: ["meetings"] } });
+    const result = await controller.apply([{ from: "meetings", to: "meeting" }]);
+    expect(result.orders).toEqual(["Claude/Templates/Meet.md"]);
+    expect(writes[0]?.content).toContain("## Standing orders that trigger on a merged tag");
+    expect(writes[0]?.content).toContain("[[Claude/Templates/Meet]] — `meetings`");
+    expect(formatApplyNotice(result)).toContain("1 standing orders trigger on a merged tag");
   });
 });
 
@@ -174,9 +243,12 @@ describe("OptimizeController.dismiss", () => {
 
 describe("formatApplyNotice", () => {
   it("adds the skipped inline count only when there is one", () => {
-    const r = { merges: 3, notes: 7, inlineSkipped: 0, cycles: [], runNote: null };
+    const r: ApplyResult = { merges: 3, notes: 7, inlineSkipped: 0, failed: [], unchanged: 0, dropped: [], orders: [], runNote: null };
     expect(formatApplyNotice(r)).toBe("Merged 3 tags across 7 notes");
     expect(formatApplyNotice({ ...r, inlineSkipped: 2 })).toBe("Merged 3 tags across 7 notes, 2 inline tags skipped");
+    expect(formatApplyNotice({ ...r, inlineSkipped: 1, failed: ["a"], unchanged: 2, dropped: ["a", "b"], orders: ["o"] })).toBe(
+      "Merged 3 tags across 7 notes, 1 inline tags skipped, 1 notes failed, 2 notes left unchanged, 2 merges dropped (cycle: a, b), 1 standing orders trigger on a merged tag",
+    );
   });
 });
 });

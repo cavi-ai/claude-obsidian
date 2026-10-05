@@ -36,7 +36,7 @@ describe("applyNoteMerge", () => {
     const { map } = collapseMerges([{ from: "llms", to: "llm" }, { from: "ai", to: "artificial-intelligence" }]);
     const [plan] = planTagMerges(map, [noteTagInput(app, "N.md")!]);
     const result = await applyNoteMerge(app, plan!, map);
-    expect(result).toEqual({ inlineApplied: 1, inlineSkipped: 0 });
+    expect(result).toEqual({ inlineApplied: 1, inlineSkipped: 0, changed: expect.arrayContaining(["llms"]) });
     const out = await read(app as never, "N.md");
     expect(out).toContain("  - \"llm\"\n  - \"Keep_Me\"");
     expect(out.match(/- "llm"/g)).toHaveLength(1);
@@ -52,7 +52,7 @@ describe("applyNoteMerge", () => {
     const file = app.vault.getAbstractFileByPath("N.md") as unknown as { _content: string };
     file._content = `PADDING ${file._content}`;
     const [plan] = planTagMerges(map, [input]);
-    expect(await applyNoteMerge(app, plan!, map)).toEqual({ inlineApplied: 0, inlineSkipped: 1 });
+    expect(await applyNoteMerge(app, plan!, map)).toEqual({ inlineApplied: 0, inlineSkipped: 1, changed: [] });
     expect(file._content).toContain("#llms");
   });
 
@@ -113,6 +113,14 @@ describe("applyNoteMerge inline-only", () => {
     await applyNoteMerge(app, plan!, map);
     const out = await read(app as never, "N.md");
     expect(out).toBe("---\ntags:\n  - x\nstatus:   open\n---\nsee #llm\n");
+  });
+});
+
+describe("applyNoteMerge failures", () => {
+  it("throws for a note that no longer exists", async () => {
+    const { app } = seeded("x", ["x"]);
+    const plan = { path: "gone.md", before: [], after: [], inline: [] };
+    await expect(applyNoteMerge(app, plan, new Map())).rejects.toThrow();
   });
 });
 

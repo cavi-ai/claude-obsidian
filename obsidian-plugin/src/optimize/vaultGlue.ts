@@ -1,7 +1,7 @@
 import { TFile, type App } from "obsidian";
 import { tagId } from "../tags/vocabulary";
 import { ensureVaultFolder, uniqueNotePath } from "../vault/vaultFiles";
-import { mapTagList, OPTIMIZE_OUTPUT_ROOT, rewriteInlineTags, type NoteMergePlan, type NoteTagInput } from "./mergePlan";
+import { entryId, mapTagList, OPTIMIZE_OUTPUT_ROOT, rewriteInlineTags, type NoteMergePlan, type NoteTagInput } from "./mergePlan";
 
 const TAG_KEY = /^tags?$/i;
 
@@ -31,13 +31,20 @@ export function noteTagInput(app: App, path: string): NoteTagInput | null {
   return { path, frontmatterTags, inline };
 }
 
+export interface NoteMergeResult {
+  inlineApplied: number;
+  inlineSkipped: number;
+  changed: string[];
+}
+
 export async function applyNoteMerge(
   app: App,
   plan: NoteMergePlan,
   map: ReadonlyMap<string, string>,
-): Promise<{ inlineApplied: number; inlineSkipped: number }> {
+): Promise<NoteMergeResult> {
   const file = markdownFile(app, plan.path);
-  if (!file) return { inlineApplied: 0, inlineSkipped: plan.inline.length };
+  if (!file) throw new Error(`Note not found: ${plan.path}`);
+  const changed = new Set<string>();
   let inlineApplied = 0;
   let inlineSkipped = 0;
   if (plan.inline.length > 0) {
@@ -45,6 +52,7 @@ export async function applyNoteMerge(
       const result = rewriteInlineTags(content, plan.inline);
       inlineApplied = result.applied;
       inlineSkipped = result.skipped;
+      for (const from of result.appliedFrom) changed.add(from);
       return result.content;
     });
   }
@@ -56,11 +64,16 @@ export async function applyNoteMerge(
         const entries = Array.isArray(current) ? current : typeof current === "string" ? current.split(/[\s,]+/).filter(Boolean) : null;
         if (!entries) continue;
         const mapped = mapTagList(entries, map);
-        if (mapped.changed) fm[key] = Array.isArray(current) ? mapped.tags : mapped.tags.join(", ");
+        if (!mapped.changed) continue;
+        fm[key] = Array.isArray(current) ? mapped.tags : mapped.tags.join(", ");
+        for (const entry of entries) {
+          const id = entryId(entry);
+          if (id !== null && map.has(id)) changed.add(id);
+        }
       }
     });
   }
-  return { inlineApplied, inlineSkipped };
+  return { inlineApplied, inlineSkipped, changed: [...changed] };
 }
 
 export async function writeOptimizeRunNote(app: App, content: string, now: string): Promise<string> {

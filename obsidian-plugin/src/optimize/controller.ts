@@ -14,7 +14,8 @@ export interface OptimizeDeps {
   tagEntries(): Array<{ path: string; tags: string[] }>;
   noteVectors(): Promise<((path: string) => number[] | null) | null>;
   noteTags(path: string): NoteTagInput | null;
-  rewriteNote(plan: NoteMergePlan, map: ReadonlyMap<string, string>): Promise<{ inlineApplied: number; inlineSkipped: number }>;
+  rewriteNote(plan: NoteMergePlan, map: ReadonlyMap<string, string>): Promise<{ inlineApplied: number; inlineSkipped: number; changed: string[] }>;
+  orderTagTriggers(): Array<{ path: string; tag: string }>;
   writeRunNote(content: string, now: string): Promise<string>;
   getState(): OptimizeState;
   setState(next: OptimizeState): Promise<void>;
@@ -25,13 +26,21 @@ export interface ApplyResult {
   merges: number;
   notes: number;
   inlineSkipped: number;
-  cycles: string[][];
+  failed: string[];
+  unchanged: number;
+  dropped: string[];
+  orders: string[];
   runNote: string | null;
 }
 
 export function formatApplyNotice(result: ApplyResult): string {
-  const base = `Merged ${result.merges} tags across ${result.notes} notes`;
-  return result.inlineSkipped > 0 ? `${base}, ${result.inlineSkipped} inline tags skipped` : base;
+  let text = `Merged ${result.merges} tags across ${result.notes} notes`;
+  if (result.inlineSkipped > 0) text += `, ${result.inlineSkipped} inline tags skipped`;
+  if (result.failed.length > 0) text += `, ${result.failed.length} notes failed`;
+  if (result.unchanged > 0) text += `, ${result.unchanged} notes left unchanged`;
+  if (result.dropped.length > 0) text += `, ${result.dropped.length} merges dropped (cycle: ${result.dropped.join(", ")})`;
+  if (result.orders.length > 0) text += `, ${result.orders.length} standing orders trigger on a merged tag`;
+  return text;
 }
 
 export class OptimizeController {
@@ -58,35 +67,51 @@ export class OptimizeController {
   }
 
   async apply(merges: Array<{ from: string; to: string }>): Promise<ApplyResult> {
-    const { map, cycles } = collapseMerges(merges);
+    const { map, dropped } = collapseMerges(merges);
     const vocab = buildVocabulary(this.deps.tagEntries(), tagId);
     const paths = new Set<string>();
     for (const from of map.keys()) for (const path of vocab.get(from)?.notes ?? []) paths.add(path);
-    const inputs: NoteTagInput[] = [];
+    const byMerge = new Map<string, string[]>();
+    const failed: string[] = [];
+    let inlineSkipped = 0;
+    let unchanged = 0;
+    let notes = 0;
     for (const path of paths) {
       const input = this.deps.noteTags(path);
-      if (input) inputs.push(input);
-    }
-    const plans = planTagMerges(map, inputs);
-    const byMerge = new Map<string, string[]>();
-    let inlineSkipped = 0;
-    for (const plan of plans) {
-      const touched = new Set<string>();
-      for (const tag of plan.before) {
-        const key = tagId(tag);
-        if (map.has(key)) touched.add(key);
+      if (!input) {
+        failed.push(path);
+        continue;
       }
-      for (const edit of plan.inline) touched.add(edit.from);
-      for (const from of touched) byMerge.set(from, [...(byMerge.get(from) ?? []), plan.path]);
-      inlineSkipped += (await this.deps.rewriteNote(plan, map)).inlineSkipped;
+      const plan = planTagMerges(map, [input])[0];
+      if (!plan) {
+        unchanged++;
+        continue;
+      }
+      try {
+        const result = await this.deps.rewriteNote(plan, map);
+        inlineSkipped += result.inlineSkipped;
+        if (result.changed.length === 0) {
+          unchanged++;
+          continue;
+        }
+        notes++;
+        for (const from of result.changed) byMerge.set(from, [...(byMerge.get(from) ?? []), path]);
+      } catch {
+        failed.push(path);
+      }
     }
+    const orders = this.deps.orderTagTriggers().filter((t) => map.has(tagId(t.tag)));
     let runNote: string | null = null;
-    if (plans.length > 0) {
+    if (notes > 0) {
       const applied = [...byMerge].map(([from, notePaths]) => ({ from, to: map.get(from) as string, paths: notePaths }));
       const now = this.deps.now();
-      runNote = await this.deps.writeRunNote(renderRunNote(applied, now), now);
+      try {
+        runNote = await this.deps.writeRunNote(renderRunNote({ applied, failed, orders }, now), now);
+      } catch {
+        runNote = null;
+      }
     }
-    return { merges: byMerge.size, notes: plans.length, inlineSkipped, cycles, runNote };
+    return { merges: byMerge.size, notes, inlineSkipped, failed, unchanged, dropped, orders: orders.map((o) => o.path), runNote };
   }
 
   async dismiss(id: string): Promise<void> {
