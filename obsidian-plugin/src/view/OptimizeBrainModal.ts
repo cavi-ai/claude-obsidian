@@ -1,18 +1,25 @@
 import { App, Modal, Notice, Setting } from "obsidian";
-import type { ApplyResult } from "../optimize/controller";
+import { formatClassifyNotice, type ApplyResult, type ClassifyResult } from "../optimize/controller";
 import type { MergeCandidate } from "../optimize/tagScan";
 import { createOptimizeState, removeRow, selectedMerges, swapRow, toggleRow, type OptimizeViewState } from "./optimizeState";
 
 export interface OptimizeBrainActions {
   apply(merges: Array<{ from: string; to: string }>): Promise<ApplyResult>;
   dismiss(id: string): Promise<void>;
+  classify(): Promise<ClassifyResult>;
+  rescan(): Promise<MergeCandidate[]>;
+  classifierInfo(): Promise<{ label: string; model: string }>;
 }
+
+type ClassifierLine = { text: string; ready: boolean };
 
 /** Review gate for tag merges: nothing is written until Apply. */
 export class OptimizeBrainModal extends Modal {
   private state: OptimizeViewState;
   private settled = false;
   private applying = false;
+  private checking = false;
+  private classifierLine: ClassifierLine | null = null;
 
   constructor(
     app: App,
@@ -27,6 +34,38 @@ export class OptimizeBrainModal extends Modal {
   override onOpen(): void {
     this.contentEl.addClass("cc-optimize-review");
     this.render();
+    void this.actions.classifierInfo().then(
+      (info) => this.setClassifierLine({ text: `Sends tag names and up to 3 note titles per tag to ${info.label} (${info.model}).`, ready: true }),
+      (error: unknown) => this.setClassifierLine({ text: errorMessage(error), ready: false }),
+    );
+  }
+
+  private setClassifierLine(line: ClassifierLine): void {
+    this.classifierLine = line;
+    if (!this.settled) this.render();
+  }
+
+  private runClassify(): void {
+    if (this.checking || this.applying || this.settled) return;
+    this.checking = true;
+    this.render();
+    void (async () => {
+      try {
+        const result = await this.actions.classify();
+        this.state = createOptimizeState(await this.actions.rescan(), this.state);
+        new Notice(formatClassifyNotice(result));
+      } catch (error) {
+        new Notice(`Tag check failed: ${errorMessage(error)}`);
+        try {
+          this.state = createOptimizeState(await this.actions.rescan(), this.state);
+        } catch {
+          // keep the rows already on screen
+        }
+      } finally {
+        this.checking = false;
+        if (!this.settled) this.render();
+      }
+    })();
   }
 
   private render(): void {
@@ -40,7 +79,7 @@ export class OptimizeBrainModal extends Modal {
     for (const row of this.state.rows) {
       const setting = new Setting(contentEl)
         .setName(`${row.from} (${row.fromCount}) → ${row.to} (${row.toCount})`)
-        .setDesc(row.evidence.join(", "));
+        .setDesc(`${row.evidence.join(", ")}${row.verdict ? ` · model: ${row.verdict.verdict}` : ""}`);
       const check = setting.controlEl.createEl("input", { attr: { type: "checkbox" } });
       check.checked = row.checked;
       check.addEventListener("change", () => {
@@ -61,7 +100,9 @@ export class OptimizeBrainModal extends Modal {
           );
         }));
     }
+    if (this.classifierLine) contentEl.createDiv({ text: this.classifierLine.text });
     new Setting(contentEl)
+      .addButton((b) => b.setButtonText("Check with model").setDisabled(this.checking || !this.classifierLine?.ready).onClick(() => this.runClassify()))
       .addButton((b) => b.setButtonText("Cancel").onClick(() => (this.applying ? this.close() : this.finish(null))))
       .addButton((b) => b.setButtonText("Apply selected").setCta().onClick(() => {
         if (this.applying || this.settled) return;

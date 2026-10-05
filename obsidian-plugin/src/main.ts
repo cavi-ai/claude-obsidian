@@ -3860,7 +3860,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return openTagMergeReview({
       scan: () => controller.scan(),
       open: (candidates) =>
-        new OptimizeBrainModal(this.app, candidates, controller, (result) => {
+        new OptimizeBrainModal(this.app, candidates, {
+          apply: (merges) => controller.apply(merges),
+          dismiss: (id) => controller.dismiss(id),
+          classify: () => controller.classify(),
+          rescan: async () => (await controller.scan()).candidates,
+          classifierInfo: () => controller.classifierInfo(),
+        }, (result) => {
           if (result) new Notice(formatApplyNotice(result));
           done();
         }).open(),

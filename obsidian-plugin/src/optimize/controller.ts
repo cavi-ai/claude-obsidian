@@ -82,6 +82,13 @@ function vocabHas(vocab: ReturnType<typeof buildVocabulary>, v: StoredVerdict): 
   return vocab.has(v.a) && vocab.has(v.b);
 }
 
+export function formatClassifyNotice(result: ClassifyResult): string {
+  let text = `Model checked ${count(result.judged, "pair", "pairs")}: ${result.merge} merge, ${result.keep} keep`;
+  if (result.failedBatches > 0) text += `, ${count(result.failedBatches, "batch", "batches")} failed`;
+  if (result.dropped > 0) text += `, ${result.dropped} not checked (limit)`;
+  return text;
+}
+
 export class OptimizeController {
   constructor(private deps: OptimizeDeps) {}
 
@@ -111,6 +118,11 @@ export class OptimizeController {
         return verdict ? { ...c, verdict } : c;
       }),
     };
+  }
+
+  async classifierInfo(): Promise<{ label: string; model: string }> {
+    const { label, model } = await this.deps.classifier();
+    return { label, model };
   }
 
   async classify(opts: { background?: boolean } = {}): Promise<ClassifyResult> {
