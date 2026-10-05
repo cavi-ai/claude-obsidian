@@ -3,12 +3,12 @@ import { normalizeOptimizeState } from "../../src/optimize/state";
 
 describe("normalizeOptimizeState", () => {
   it("returns empty for anything that is not a dismissed list", () => {
-    expect(normalizeOptimizeState(undefined)).toEqual({ dismissed: [] });
-    expect(normalizeOptimizeState({ dismissed: "x" })).toEqual({ dismissed: [] });
+    expect(normalizeOptimizeState(undefined)).toEqual({ dismissed: [], verdicts: {} });
+    expect(normalizeOptimizeState({ dismissed: "x" })).toEqual({ dismissed: [], verdicts: {} });
   });
 
   it("keeps strings only, deduped", () => {
-    expect(normalizeOptimizeState({ dismissed: ["a|b", 4, null, "a|b", "c|d"] })).toEqual({ dismissed: ["a|b", "c|d"] });
+    expect(normalizeOptimizeState({ dismissed: ["a|b", 4, null, "a|b", "c|d"] })).toEqual({ dismissed: ["a|b", "c|d"], verdicts: {} });
   });
 
   it("keeps the newest 2000", () => {
@@ -20,6 +20,27 @@ describe("normalizeOptimizeState", () => {
   });
 
   it("moves a re-dismissed id to the newest position", () => {
-    expect(normalizeOptimizeState({ dismissed: ["a|b", "c|d", "a|b"] })).toEqual({ dismissed: ["c|d", "a|b"] });
+    expect(normalizeOptimizeState({ dismissed: ["a|b", "c|d", "a|b"] })).toEqual({ dismissed: ["c|d", "a|b"], verdicts: {} });
+  });
+
+  const v = (at: string, over: Record<string, unknown> = {}) => ({ verdict: "merge", canonical: "b", a: "a", b: "b", model: "m", at, ...over });
+
+  it("loads state without verdicts as empty and keeps a string lastBackgroundRun only", () => {
+    expect(normalizeOptimizeState({ dismissed: ["a|b"] }).verdicts).toEqual({});
+    expect(normalizeOptimizeState({ lastBackgroundRun: 5 })).not.toHaveProperty("lastBackgroundRun");
+    expect(normalizeOptimizeState({ lastBackgroundRun: "2026-10-05T00:00:00.000Z" }).lastBackgroundRun).toBe("2026-10-05T00:00:00.000Z");
+  });
+
+  it("drops verdict entries with a wrong shape", () => {
+    const out = normalizeOptimizeState({ verdicts: { ok: v("t1"), bad1: v("t1", { verdict: "maybe" }), bad2: v("t1", { a: 1 }), bad3: "x", bad4: v("t1", { canonical: 3 }) } });
+    expect(Object.keys(out.verdicts)).toEqual(["ok"]);
+  });
+
+  it("keeps the newest 2000 verdicts by at", () => {
+    const verdicts = Object.fromEntries(Array.from({ length: 2005 }, (_, i) => [`k${i}`, v(`2026-01-01T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`)]));
+    const out = normalizeOptimizeState({ verdicts }).verdicts;
+    expect(Object.keys(out)).toHaveLength(2000);
+    expect(out.k2004).toBeDefined();
+    expect(out.k0).toBeUndefined();
   });
 });

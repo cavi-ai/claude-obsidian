@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLASSIFY_BATCH, CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, MAX_CLASSIFY_BATCHES, classifyRequest, parseVerdicts, type ClassifyPair } from "../../src/optimize/classify";
+import { CLASSIFY_BATCH, CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, MAX_CLASSIFY_BATCHES, classifyRequest, parseVerdicts, VerdictParseError, type ClassifyPair } from "../../src/optimize/classify";
 
 const pair = (id: string, a: string, b: string, extra: Partial<ClassifyPair> = {}): ClassifyPair => ({
   id, a, b, aCount: 2, bCount: 5, aTitles: [], bTitles: [], ...extra,
@@ -38,7 +38,7 @@ describe("parseVerdicts", () => {
   });
 
   it("throws on non-JSON, non-object, or missing verdicts array", () => {
-    expect(() => parseVerdicts("nope", pairs)).toThrow();
+    expect(() => parseVerdicts("nope", pairs)).toThrow(VerdictParseError);
     expect(() => parseVerdicts("[]", pairs)).toThrow();
     expect(() => parseVerdicts("{}", pairs)).toThrow();
     expect(() => parseVerdicts('{"verdicts":"x"}', pairs)).toThrow();

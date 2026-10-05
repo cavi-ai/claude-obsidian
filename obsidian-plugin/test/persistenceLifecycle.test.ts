@@ -111,11 +111,11 @@ describe("optimize dismissals", () => {
     Object.assign(plugin as unknown as Record<string, unknown>, {
       settings: structuredClone(DEFAULT_SETTINGS),
       convState: { conversations: [], activeId: null },
-      optimizeState: { dismissed: ["a|b"] },
+      optimizeState: { dismissed: ["a|b"], verdicts: { "a|b": { verdict: "keep", a: "a", b: "b", model: "m", at: "t" } } },
       saveData: async (data: unknown) => { raw = JSON.stringify(data); },
     });
     await (plugin as unknown as { persist(): Promise<void> }).persist();
-    expect((JSON.parse(raw) as { optimize?: unknown }).optimize).toEqual({ dismissed: ["a|b"] });
+    expect((JSON.parse(raw) as { optimize?: unknown }).optimize).toEqual({ dismissed: ["a|b"], verdicts: { "a|b": { verdict: "keep", a: "a", b: "b", model: "m", at: "t" } } });
 
     const reloaded = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
     Object.assign(reloaded as unknown as Record<string, unknown>, {
@@ -125,7 +125,7 @@ describe("optimize dismissals", () => {
       saveData: async () => {},
     });
     await reloaded.loadSettings();
-    expect((reloaded as unknown as { optimizeState: unknown }).optimizeState).toEqual({ dismissed: ["a|b"] });
+    expect((reloaded as unknown as { optimizeState: unknown }).optimizeState).toEqual({ dismissed: ["a|b"], verdicts: { "a|b": { verdict: "keep", a: "a", b: "b", model: "m", at: "t" } } });
   });
 });
 

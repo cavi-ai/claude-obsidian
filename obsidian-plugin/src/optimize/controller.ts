@@ -6,7 +6,18 @@ import {
   type NoteMergePlan,
   type NoteTagInput,
 } from "./mergePlan";
-import { normalizeOptimizeState, type OptimizeState } from "./state";
+import {
+  CLASSIFY_BATCH,
+  CLASSIFY_SCHEMA,
+  CLASSIFY_SYSTEM,
+  MAX_CLASSIFY_BATCHES,
+  VerdictParseError,
+  classifyRequest,
+  parseVerdicts,
+  type ClassifyPair,
+  type Verdict,
+} from "./classify";
+import { normalizeOptimizeState, type OptimizeState, type StoredVerdict } from "./state";
 import { tagCentroids } from "./tagCentroids";
 import { scanTags, type TagScanReport } from "./tagScan";
 
@@ -20,7 +31,27 @@ export interface OptimizeDeps {
   getState(): OptimizeState;
   setState(next: OptimizeState): Promise<void>;
   now(): string;
+  /** The only path that sends tag names or titles to a model. Rejects with UtilityUnavailableError. */
+  classifier(): Promise<{
+    local: boolean;
+    label: string;
+    model: string;
+    complete(req: { system: string; user: string; schema: Record<string, unknown> }, parse: (raw: string) => Verdict[]): Promise<Verdict[]>;
+  }>;
 }
+
+export interface ClassifyResult {
+  judged: number;
+  merge: number;
+  keep: number;
+  failedBatches: number;
+  dropped: number;
+  skipped?: "remote" | "recent" | "unavailable";
+}
+
+const BACKGROUND_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MAX_TITLES = 3;
+const basename = (path: string): string => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
 
 export interface ApplyResult {
   merges: number;
@@ -47,6 +78,10 @@ export function formatApplyNotice(result: ApplyResult): string {
   return text;
 }
 
+function vocabHas(vocab: ReturnType<typeof buildVocabulary>, v: StoredVerdict): boolean {
+  return vocab.has(v.a) && vocab.has(v.b);
+}
+
 export class OptimizeController {
   constructor(private deps: OptimizeDeps) {}
 
@@ -67,7 +102,94 @@ export class OptimizeController {
         centroid = undefined;
       }
     }
-    return scanTags({ vocab, ...(centroid ? { centroid } : {}), dismissed: new Set(this.deps.getState().dismissed) });
+    const state = this.deps.getState();
+    const report = scanTags({ vocab, ...(centroid ? { centroid } : {}), dismissed: new Set(state.dismissed) });
+    return {
+      ...report,
+      candidates: report.candidates.map((c) => {
+        const verdict = state.verdicts[c.id];
+        return verdict ? { ...c, verdict } : c;
+      }),
+    };
+  }
+
+  async classify(opts: { background?: boolean } = {}): Promise<ClassifyResult> {
+    const background = opts.background === true;
+    const result: ClassifyResult = { judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0 };
+    let classifier: Awaited<ReturnType<OptimizeDeps["classifier"]>>;
+    try {
+      classifier = await this.deps.classifier();
+    } catch (error) {
+      if (!background) throw error;
+      return { ...result, skipped: "unavailable" };
+    }
+    if (background) {
+      if (!classifier.local) return { ...result, skipped: "remote" };
+      const last = Date.parse(this.deps.getState().lastBackgroundRun ?? "");
+      if (Number.isFinite(last) && Date.parse(this.deps.now()) - last < BACKGROUND_INTERVAL_MS) return { ...result, skipped: "recent" };
+    }
+    const vocab = buildVocabulary(this.deps.tagEntries(), tagId);
+    const titles = (tag: string): string[] => (vocab.get(tag)?.notes ?? []).slice(0, MAX_TITLES).map(basename);
+    const stored: Record<string, StoredVerdict> = {};
+    let failure: unknown = null;
+    try {
+      const report = await this.scan();
+      const pending = report.candidates.filter((c) => !c.verdict && !c.evidence.some((e) => e === "separator" || e === "plural"));
+      const cap = CLASSIFY_BATCH * MAX_CLASSIFY_BATCHES;
+      const sent = pending.slice(0, cap);
+      result.dropped = pending.length - sent.length;
+      for (let i = 0; i < sent.length; i += CLASSIFY_BATCH) {
+        const batch = sent.slice(i, i + CLASSIFY_BATCH);
+        const pairs: ClassifyPair[] = batch.map((c) => ({
+          id: c.id,
+          a: c.from,
+          b: c.to,
+          aCount: c.fromCount,
+          bCount: c.toCount,
+          aTitles: titles(c.from),
+          bTitles: titles(c.to),
+        }));
+        let verdicts: Verdict[];
+        try {
+          verdicts = await classifier.complete(
+            { system: CLASSIFY_SYSTEM, user: classifyRequest(pairs), schema: CLASSIFY_SCHEMA },
+            (raw) => parseVerdicts(raw, pairs),
+          );
+        } catch (error) {
+          if (error instanceof VerdictParseError) {
+            result.failedBatches++;
+            continue;
+          }
+          throw error;
+        }
+        for (const v of verdicts) {
+          const pair = pairs.find((p) => p.id === v.id);
+          if (!pair) continue;
+          stored[v.id] = {
+            verdict: v.verdict,
+            ...(v.verdict === "merge" && v.canonical ? { canonical: v.canonical } : {}),
+            a: pair.a,
+            b: pair.b,
+            model: classifier.model,
+            at: this.deps.now(),
+          };
+          result.judged++;
+          result[v.verdict]++;
+        }
+      }
+    } catch (error) {
+      failure = error;
+    }
+    const state = this.deps.getState();
+    const merged: Record<string, StoredVerdict> = { ...state.verdicts, ...stored };
+    const verdicts = Object.fromEntries(Object.entries(merged).filter(([, v]) => vocabHas(vocab, v)));
+    await this.deps.setState(normalizeOptimizeState({
+      ...state,
+      verdicts,
+      ...(background ? { lastBackgroundRun: this.deps.now() } : {}),
+    }));
+    if (failure && !background) throw failure;
+    return result;
   }
 
   async apply(merges: Array<{ from: string; to: string }>): Promise<ApplyResult> {
@@ -120,6 +242,6 @@ export class OptimizeController {
 
   async dismiss(id: string): Promise<void> {
     const state = this.deps.getState();
-    await this.deps.setState(normalizeOptimizeState({ dismissed: [...state.dismissed, id] }));
+    await this.deps.setState(normalizeOptimizeState({ ...state, dismissed: [...state.dismissed, id] }));
   }
 }

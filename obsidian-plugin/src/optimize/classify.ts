@@ -15,6 +15,13 @@ export interface Verdict {
   canonical?: string;
 }
 
+export class VerdictParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VerdictParseError";
+  }
+}
+
 export const CLASSIFY_BATCH = 20;
 export const MAX_CLASSIFY_BATCHES = 10;
 const MAX_TITLES = 3;
@@ -60,10 +67,15 @@ export function classifyRequest(pairs: ClassifyPair[]): string {
 
 export function parseVerdicts(raw: string, pairs: ClassifyPair[]): Verdict[] {
   const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  const parsed: unknown = JSON.parse(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new VerdictParseError("Reply is not valid JSON");
+  }
   const list = (parsed as { verdicts?: unknown } | null)?.verdicts;
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !Array.isArray(list)) {
-    throw new Error("Reply must be a JSON object with a verdicts array");
+    throw new VerdictParseError("Reply must be a JSON object with a verdicts array");
   }
   const seen = new Set<number>();
   const out: Verdict[] = [];
