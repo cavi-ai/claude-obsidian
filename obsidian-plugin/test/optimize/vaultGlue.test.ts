@@ -104,6 +104,18 @@ describe("applyNoteMerge by vault spelling", () => {
   });
 });
 
+describe("applyNoteMerge inline-only", () => {
+  it("leaves the frontmatter block byte-identical", async () => {
+    const content = "---\ntags:\n  - x\nstatus:   open\n---\nsee #llms\n";
+    const { app } = seeded(content, ["x"]);
+    const map = new Map([["llms", "llm"]]);
+    const [plan] = planTagMerges(map, [noteTagInput(app, "N.md")!]);
+    await applyNoteMerge(app, plan!, map);
+    const out = await read(app as never, "N.md");
+    expect(out).toBe("---\ntags:\n  - x\nstatus:   open\n---\nsee #llm\n");
+  });
+});
+
 describe("writeOptimizeRunNote", () => {
   it("creates the note under Claude/Optimize and never overwrites", async () => {
     const app = new App() as never as import("obsidian").App;

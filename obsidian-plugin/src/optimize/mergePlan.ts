@@ -98,22 +98,29 @@ export function planTagMerges(map: ReadonlyMap<string, string>, notes: NoteTagIn
   return plans;
 }
 
+const TAG_CHAR = /[\p{L}\p{N}\p{M}\p{Extended_Pictographic}_/-]/u;
+
+function endsTag(content: string, end: number): boolean {
+  const cp = content.codePointAt(end);
+  return cp === undefined || !TAG_CHAR.test(String.fromCodePoint(cp));
+}
+
 export function rewriteInlineTags(
   content: string,
   edits: NoteMergePlan["inline"],
-): { content: string; applied: number; skipped: number } {
+): { content: string; applied: number; skipped: number; appliedFrom: string[] } {
   let out = content;
-  let applied = 0;
+  const appliedFrom: string[] = [];
   let skipped = 0;
   for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
-    if (out.slice(edit.start, edit.end).toLowerCase() !== `#${edit.from}`) {
+    if (out.slice(edit.start, edit.end).toLowerCase() !== `#${edit.from}` || !endsTag(out, edit.end)) {
       skipped++;
       continue;
     }
     out = `${out.slice(0, edit.start)}#${edit.to}${out.slice(edit.end)}`;
-    applied++;
+    appliedFrom.push(edit.from);
   }
-  return { content: out, applied, skipped };
+  return { content: out, applied: appliedFrom.length, skipped, appliedFrom };
 }
 
 export function renderRunNote(applied: Array<{ from: string; to: string; paths: string[] }>, now: string): string {

@@ -80,12 +80,29 @@ describe("rewriteInlineTags", () => {
       { start: 2, end: 7, from: "llms", to: "llm" },
       { start: 12, end: 17, from: "llms", to: "llm" },
     ];
-    expect(rewriteInlineTags(content, edits)).toEqual({ content: "x #llm and #llm y", applied: 2, skipped: 0 });
+    expect(rewriteInlineTags(content, edits)).toEqual({ content: "x #llm and #llm y", applied: 2, skipped: 0, appliedFrom: ["llms", "llms"] });
   });
 
   it("skips and counts an occurrence whose text at the offsets is no longer the tag", () => {
     const edits = [{ start: 0, end: 5, from: "llms", to: "llm" }];
-    expect(rewriteInlineTags("moved #llms", edits)).toEqual({ content: "moved #llms", applied: 0, skipped: 1 });
+    expect(rewriteInlineTags("moved #llms", edits)).toEqual({ content: "moved #llms", applied: 0, skipped: 1, appliedFrom: [] });
+  });
+
+  it("skips an edit whose tag continues past the cached end", () => {
+    const edits = [
+      { start: 4, end: 7, from: "ai", to: "artificial-intelligence" },
+      { start: 19, end: 22, from: "ai", to: "artificial-intelligence" },
+    ];
+    const content = "see #ai/agents and #aim";
+    expect(rewriteInlineTags(content, edits)).toEqual({ content, applied: 0, skipped: 2, appliedFrom: [] });
+  });
+
+  it("applies when the tag ends at end of content or before punctuation, skips before a tag character", () => {
+    const edit = (n: number) => [{ start: 2, end: 2 + n, from: "llms", to: "llm" }];
+    expect(rewriteInlineTags("a #llms.", edit(5)).applied).toBe(1);
+    expect(rewriteInlineTags("a #llms", edit(5)).applied).toBe(1);
+    expect(rewriteInlineTags("a #llms🌱", edit(5)).skipped).toBe(1);
+    expect(rewriteInlineTags("a #llms-x", edit(5)).skipped).toBe(1);
   });
 });
 
