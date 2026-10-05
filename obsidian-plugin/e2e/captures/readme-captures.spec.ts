@@ -154,11 +154,10 @@ async function verifyCapture(path: string, name: string): Promise<void> {
 }
 
 async function shoot(target: Locator | Page, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
-  const path = outputPath(name, theme, assetRoot);
-  await mkdir(dirname(path), { recursive: true });
-  await prepareCapture(target);
-  await target.screenshot({ path, scale: "device", animations: "disabled" });
-  await verifyCapture(path, name);
+  const page = await prepareCapture(target);
+  const box = "boundingBox" in target ? await target.boundingBox() : (() => { const size = page.viewportSize(); return size ? { x: 0, y: 0, ...size } : null; })();
+  if (!box) throw new Error(`Failed to measure ${name}`);
+  await captureClip(page, box, name, theme, assetRoot);
 }
 
 async function captureClip(page: Page, clip: { x: number; y: number; width: number; height: number }, name: string, theme: "dark" | "light", assetRoot: string): Promise<void> {
@@ -294,7 +293,7 @@ async function seedConversation(page: Page, messages: SeedMessage[], proposal?: 
       saveChatEditProposal(id: string, proposal: unknown): Promise<void>;
     }> } } }).app;
     const plugin = app.plugins.plugins["claude-companion"]!;
-    const turn = await plugin.beginActiveConversationTurn(null, seed.slice(0, 1), { backend: "anthropic", model: "claude-sonnet-5", mode: "act" });
+    const turn = await plugin.beginActiveConversationTurn(null, seed.slice(0, 1), { backend: "anthropic", model: "claude-sonnet-5-5", mode: "act" });
     await plugin.completeActiveConversationTurn(turn.conversationId, turn.turnId, seed);
     if (edit) await plugin.saveChatEditProposal(turn.conversationId, edit);
   }, { seed: messages, edit: proposal ?? null });
@@ -325,7 +324,7 @@ test.describe("README captures", () => {
         authMode: "oauthToken",
         oauthToken: "sk-ant-oat-e2e",
         chatBackend: "claude",
-        model: "claude-sonnet-5",
+        model: "claude-sonnet-5-5",
         openaiCompatModel: "local-model",
         ollamaHost: "",
         agentModeEnabled: true,
@@ -351,7 +350,7 @@ test.describe("README captures", () => {
       test.skip(theme === "light" && !OUT_ROOT, "README assets are dark");
 
       test("chat-panel.png", async () => {
-        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5-5" });
         const root = await openChat(harness);
         await widen(harness.page, 520);
         const input = root.locator("textarea").first();
@@ -360,12 +359,12 @@ test.describe("README captures", () => {
         const answer = root.locator(".cc-msg.cc-assistant").last();
         await expect(answer).toContainText(CHAT_REPLY_LEAD, { timeout: 15_000 });
         await expect(answer.locator("a.internal-link")).toHaveCount(1);
-        await shootThrough(root, answer, 540, "chat-panel.png", theme, PLUGIN_ASSETS);
+        await shootThrough(root, answer, 386, "chat-panel.png", theme, PLUGIN_ASSETS);
       });
 
       test("composer-320.png", async () => {
         test.skip(!OUT_ROOT, "composer-320 is a comparison-only scene, not a README asset");
-        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5-5" });
         const root = await openChat(harness);
         await setRightSidebarWidth(harness.page, 320);
         // Let the `.cc-controls` container-query reflow settle after the resize.
@@ -386,7 +385,7 @@ test.describe("README captures", () => {
         // LCS-changed region merged only when within MERGE_GAP (3) lines of each
         // other — a changed heading and a changed last task, six unchanged lines
         // apart, stay two separate edits and so two separate .cc-diff-hunk boxes.
-        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5-5" });
         const { page } = harness;
         await page.evaluate(async () => {
           const w = window as unknown as {
@@ -423,7 +422,7 @@ test.describe("README captures", () => {
         if (await hide.count()) await hide.click();
         await expect(desk).not.toContainText("No tracked sections");
         await expect(desk).not.toContainText("Unsupported");
-        await shootThrough(desk, desk.locator(".cc-desk-sources"), 760, "research-desk.png", theme);
+        await shootThrough(desk, desk.locator(".cc-desk-sources"), 666, "research-desk.png", theme);
       });
 
       test("mcp-bridge-settings.png", async () => {
@@ -437,13 +436,13 @@ test.describe("README captures", () => {
       });
 
       test("local-fallback-indicator.png", async () => {
-        await resetScene(theme, { chatBackend: "auto", model: "claude-sonnet-5", openaiCompatModel: "local-model", ollamaHost: "" });
+        await resetScene(theme, { chatBackend: "auto", model: "claude-sonnet-5-5", openaiCompatModel: "local-model", ollamaHost: "" });
         const root = await openChat(harness);
         await widen(harness.page, 420);
         const input = root.locator("textarea").first();
         await input.fill("Summarize my vault in one line.");
         await input.press("Enter");
-        await expect(root.locator(".cc-fallback-note")).toBeVisible({ timeout: 30_000 });
+        await expect(root.locator(".cc-agent-notice", { hasText: "answered locally with local-model" })).toBeVisible({ timeout: 30_000 });
         const answer = root.locator(".cc-msg.cc-assistant").last();
         await expect(answer).toContainText("generated entirely on this device", { timeout: 15_000 });
         await expect(root.locator(".cc-error")).toHaveCount(0);
@@ -451,7 +450,7 @@ test.describe("README captures", () => {
       });
 
       test("agent-tool-chips.png", async () => {
-        await resetScene(theme, { chatBackend: "claude-cli", agentModeEnabled: true, model: "claude-sonnet-5" });
+        await resetScene(theme, { chatBackend: "claude-cli", agentModeEnabled: true, model: "claude-sonnet-5-5" });
         const root = await openChat(harness);
         await widen(harness.page, 520);
         const input = root.locator("textarea").first();
@@ -478,7 +477,7 @@ test.describe("README captures", () => {
       });
 
       test("hero.png", async () => {
-        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5-5" });
         const { page } = harness;
         await collapseSidebars(page, ["left"]);
         await seedConversation(page, [
@@ -518,7 +517,7 @@ test.describe("README captures", () => {
       });
 
       test("session-dropdown.png", async () => {
-        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5-5" });
         const { page } = harness;
         for (const title of SESSION_TITLES) {
           await seedConversation(page, [
