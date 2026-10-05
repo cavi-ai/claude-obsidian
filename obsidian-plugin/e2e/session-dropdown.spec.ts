@@ -44,6 +44,11 @@ async function openDropdown(page: Page) {
 }
 
 async function chooseRowAction(page: Page, action: RegExp): Promise<void> {
+  // macOS defaults to native (OS-drawn) menus, which have no DOM to click.
+  await page.evaluate(() => {
+    const app = (window as unknown as { app: { vault: { setConfig(key: string, value: unknown): void } } }).app;
+    app.vault.setConfig("nativeMenus", false);
+  });
   await page.locator(".cc-session-row").first().locator(".cc-session-more").click();
   await page.locator(".menu .menu-item-title", { hasText: action }).click();
 }
