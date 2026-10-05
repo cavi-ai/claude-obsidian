@@ -105,7 +105,7 @@ export class SystemView extends ItemView {
       }
       row.createSpan({ cls: "cc-system-message", text: item.message });
     }
-    if (section.count > section.items.length) {
+    if (!section.summary && section.count > section.items.length) {
       card.createDiv({ cls: "cc-system-more", text: `+${section.count - section.items.length} more` });
     }
     this.renderActions(card, section);

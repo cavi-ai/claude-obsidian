@@ -45,8 +45,23 @@ const click = (el: FakeElement | null | undefined): void => {
 const button = (view: SystemView, text: string): FakeElement =>
   root(view).querySelectorAll("button").find((b) => b.textContent === text)!;
 
+describe("SystemView more footer", () => {
+  it("is absent for the orphans and tags summary sections and kept for an itemized section", async () => {
+    const { view } = harness([
+      section({ id: "orphans", count: 4, severity: "info", summary: true, items: [{ path: "", message: "4 notes with no links" }] }),
+      section({ id: "tags", count: 4, severity: "info", summary: true, items: [{ path: "", message: "4 merge candidates" }] }),
+      section({ id: "links", count: 4, severity: "warning", items: [{ path: "a.md", message: "1 broken link: X" }] }),
+    ]);
+    await view.onOpen();
+    const card = (id: string): FakeElement => root(view).querySelector(`.cc-system-${id}`)!;
+    expect(card("orphans").querySelector(".cc-system-more")).toBeNull();
+    expect(card("tags").querySelector(".cc-system-more")).toBeNull();
+    expect(card("links").querySelector(".cc-system-more")?.textContent).toBe("+3 more");
+  });
+});
+
 describe("SystemView", () => {
-  const companion = (over: Partial<HealthSection> & Pick<HealthSection, "id">): HealthSection => section({ group: "companion", ...over });
+  const companion =(over: Partial<HealthSection> & Pick<HealthSection, "id">): HealthSection => section({ group: "companion", ...over });
 
   it("renders COMPANION and VAULT groups", async () => {
     const { view } = harness([

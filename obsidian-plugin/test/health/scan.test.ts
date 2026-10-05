@@ -141,7 +141,7 @@ describe("scanVaultHealth", () => {
 
   it("orphans is a vault info section after links, ok when there are none", () => {
     expect(section(base({ orphans: 7 }), "orphans")).toEqual({
-      id: "orphans", group: "vault", title: "Orphan notes", count: 7, severity: "info", items: [{ path: "", message: "7 notes with no links" }],
+      id: "orphans", group: "vault", title: "Orphan notes", count: 7, severity: "info", summary: true, items: [{ path: "", message: "7 notes with no links" }],
     });
     expect(section(base(), "orphans")).toMatchObject({ count: 0, severity: "ok", items: [] });
     const ids = scanVaultHealth(base({ unresolved: { "a.md": { X: 1 } }, orphans: 2, tags: { total: 5, singleUse: 1, candidates: 1 } })).sections.map((s) => s.id);

@@ -5,7 +5,11 @@ export type HealthGroup = "companion" | "vault";
 export type HealthSectionId = "connection" | "activity" | "index" | "bridge" | "clipper" | "ontology" | "links" | "orphans" | "tags" | "research" | "inbox" | "orders";
 export interface HealthItem { path: string; message: string; project?: string }
 export interface HealthAction { id: string; label: string; activityId?: string; path?: string }
-export interface HealthSection { id: HealthSectionId; group: HealthGroup; title: string; count: number; severity: HealthSeverity; items: HealthItem[]; fixable?: number; actions?: HealthAction[] }
+export interface HealthSection {
+  id: HealthSectionId; group: HealthGroup; title: string; count: number; severity: HealthSeverity; items: HealthItem[]; fixable?: number; actions?: HealthAction[];
+  /** One summary row stands for `count`; no "+N more" footer. */
+  summary?: boolean;
+}
 export interface CompanionStatus {
   connection: { backend: string; needsCredential: boolean };
   activity: Array<{ id: string; title: string; failed: number; recovery: Array<{ id: string; label: string }> }>;
@@ -57,14 +61,14 @@ export function scanVaultHealth(input: HealthInput): HealthReport {
   });
 
   sections.push({
-    id: "orphans", group: "vault", title: "Orphan notes", count: input.orphans, severity: input.orphans > 0 ? "info" : "ok",
+    id: "orphans", group: "vault", title: "Orphan notes", count: input.orphans, severity: input.orphans > 0 ? "info" : "ok", summary: true,
     items: input.orphans > 0 ? [{ path: "", message: `${input.orphans} notes with no links` }] : [],
   });
 
   if (input.tags && input.tags.total > 0) {
     const { total, singleUse, candidates } = input.tags;
     sections.push({
-      id: "tags", group: "vault", title: "Tags", count: candidates, severity: candidates > 0 ? "info" : "ok",
+      id: "tags", group: "vault", title: "Tags", count: candidates, severity: candidates > 0 ? "info" : "ok", summary: true,
       items: candidates > 0 ? [{ path: "", message: `${plural(candidates, "merge candidate")} by name · ${singleUse} of ${total} tags used once` }] : [],
     });
   }
