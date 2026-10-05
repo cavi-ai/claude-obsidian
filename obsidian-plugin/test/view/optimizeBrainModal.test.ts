@@ -1,4 +1,4 @@
-import { App, FakeElement } from "obsidian";
+import { App, FakeElement, getNoticeMessages } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
 import type { ApplyResult } from "../../src/optimize/controller";
 import type { MergeCandidate } from "../../src/optimize/tagScan";
@@ -75,6 +75,44 @@ describe("OptimizeBrainModal", () => {
     b.modal.onClose();
     expect(b.onDone).toHaveBeenCalledWith(null);
     expect(b.actions.apply).not.toHaveBeenCalled();
+  });
+
+  it("renders the saved-search description line", () => {
+    const { root } = setup();
+    expect(allText(root())).toContain("Merges rewrite tags in notes. Saved searches, Bases, and queries that name a merged tag are not changed.");
+  });
+
+  it("an apply rejection shows a notice and reports null once", async () => {
+    const { root, actions, onDone } = setup();
+    actions.apply.mockRejectedValueOnce(new Error("boom"));
+    button(root(), "Apply selected").dispatchEvent({ type: "click" });
+    await settle();
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith(null);
+    expect(getNoticeMessages()).toContain("Tag merge failed: boom").toBe(true);
+  });
+
+  it("closing while apply is in flight reports the result once, after it settles", async () => {
+    const { root, actions, onDone, modal } = setup();
+    let release!: (r: ApplyResult) => void;
+    actions.apply.mockImplementationOnce(() => new Promise<ApplyResult>((resolve) => { release = resolve; }));
+    button(root(), "Apply selected").dispatchEvent({ type: "click" });
+    button(root(), "Cancel").dispatchEvent({ type: "click" });
+    modal.onClose();
+    expect(onDone).not.toHaveBeenCalled();
+    release(result);
+    await settle();
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith(result);
+  });
+
+  it("a dismiss rejection shows a notice and keeps the row", async () => {
+    const { root, actions, modal } = setup();
+    actions.dismiss.mockRejectedValueOnce(new Error("nope"));
+    button(root(), "Dismiss").dispatchEvent({ type: "click" });
+    await settle();
+    expect(modal.titleEl.textContent).toBe("Review 2 tag merges");
+    expect(getNoticeMessages()).toContain("Tag dismiss failed: nope").toBe(true);
   });
 
   it("shows the empty state", () => {

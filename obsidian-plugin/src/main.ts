@@ -120,6 +120,7 @@ import { resolveTags } from "./tags/resolve";
 import { vaultTagEntries, vaultVocabulary } from "./tags/vaultTags";
 import { formatApplyNotice, OptimizeController } from "./optimize/controller";
 import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
+import { openTagMergeReview } from "./optimize/review";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
@@ -3823,13 +3824,18 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
 
-  private async reviewTagMerges(done: () => void): Promise<void> {
+  private reviewTagMerges(done: () => void): Promise<void> {
     const controller = this.optimizeController();
-    const report = await controller.scan();
-    new OptimizeBrainModal(this.app, report.candidates, controller, (result) => {
-      if (result) new Notice(formatApplyNotice(result));
-      done();
-    }).open();
+    return openTagMergeReview({
+      scan: () => controller.scan(),
+      open: (candidates) =>
+        new OptimizeBrainModal(this.app, candidates, controller, (result) => {
+          if (result) new Notice(formatApplyNotice(result));
+          done();
+        }).open(),
+      notice: (text) => void new Notice(text),
+      done,
+    });
   }
 
   private healthController(): HealthController {
