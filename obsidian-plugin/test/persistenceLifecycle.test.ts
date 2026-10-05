@@ -129,6 +129,32 @@ describe("optimize dismissals", () => {
   });
 });
 
+describe("optimize link dismissals", () => {
+  it("are written by persist() and survive a reload alongside tag state", async () => {
+    let raw = "";
+    const optimizeState = { dismissed: ["a|b"], verdicts: {}, dismissedLinks: ["a.md\u0000b.md"], lastBackgroundRun: "2026-10-05T00:00:00.000Z" };
+    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    Object.assign(plugin as unknown as Record<string, unknown>, {
+      settings: structuredClone(DEFAULT_SETTINGS),
+      convState: { conversations: [], activeId: null },
+      optimizeState,
+      saveData: async (data: unknown) => { raw = JSON.stringify(data); },
+    });
+    await (plugin as unknown as { persist(): Promise<void> }).persist();
+    expect((JSON.parse(raw) as { optimize?: unknown }).optimize).toEqual(optimizeState);
+
+    const reloaded = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    Object.assign(reloaded as unknown as Record<string, unknown>, {
+      app: new App(),
+      mcpSyncChain: Promise.resolve(),
+      loadData: async () => JSON.parse(raw),
+      saveData: async () => {},
+    });
+    await reloaded.loadSettings();
+    expect((reloaded as unknown as { optimizeState: unknown }).optimizeState).toEqual(optimizeState);
+  });
+});
+
 describe("retired desk preferences", () => {
   it("drops researchDeskPreferences from persisted data on the next write", async () => {
     setApiVersion("1.11.5");

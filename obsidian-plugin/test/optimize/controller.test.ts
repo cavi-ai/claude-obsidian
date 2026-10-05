@@ -548,3 +548,19 @@ describe("OptimizeController.classifierInfo", () => {
     await expect(other.controller.classifierInfo()).rejects.toBeInstanceOf(UtilityUnavailableError);
   });
 });
+
+describe("OptimizeController state writes keep dismissedLinks", () => {
+  it("dismiss and background classify spread the link dismissals through the normalizer", async () => {
+    let state: OptimizeState = { dismissed: [], verdicts: {}, dismissedLinks: ["a.md\u0000b.md"] };
+    const { controller } = setup({
+      getState: () => state,
+      setState: async (next) => { state = next; },
+      classifier: async () => ({ local: true, label: "l", model: "m", complete: async () => [] }),
+    }, NOTES);
+    await controller.dismiss("x|y");
+    expect(state.dismissedLinks).toEqual(["a.md\u0000b.md"]);
+    await controller.classify({ background: true });
+    expect(state.dismissedLinks).toEqual(["a.md\u0000b.md"]);
+    expect(state.dismissed).toEqual(["x|y"]);
+  });
+});

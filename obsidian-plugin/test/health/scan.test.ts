@@ -7,6 +7,7 @@ const base = (over: Partial<HealthInput> = {}): HealthInput => ({
   research: [],
   index: { enabled: true, built: true, failed: [] },
   tags: null,
+  orphans: 0,
   inboxPending: 0,
   companion: { connection: { backend: "claude", needsCredential: false }, activity: [], bridge: { applicable: true, enabled: false, running: false, port: 27124 }, clipper: { applicable: true, status: "current" }, orders: { invalid: [] } },
   now: "2026-10-01T00:00:00.000Z",
@@ -136,5 +137,15 @@ describe("scanVaultHealth", () => {
   it("tags sorts after links within the same severity", () => {
     const ids = scanVaultHealth(base({ unresolved: { "a.md": { X: 1 } }, tags: { total: 5, singleUse: 1, candidates: 1 } })).sections.map((s) => s.id);
     expect(ids.indexOf("links")).toBeLessThan(ids.indexOf("tags"));
+  });
+
+  it("orphans is a vault info section after links, ok when there are none", () => {
+    expect(section(base({ orphans: 7 }), "orphans")).toEqual({
+      id: "orphans", group: "vault", title: "Orphan notes", count: 7, severity: "info", summary: true, items: [{ path: "", message: "7 notes with no links" }],
+    });
+    expect(section(base(), "orphans")).toMatchObject({ count: 0, severity: "ok", items: [] });
+    const ids = scanVaultHealth(base({ unresolved: { "a.md": { X: 1 } }, orphans: 2, tags: { total: 5, singleUse: 1, candidates: 1 } })).sections.map((s) => s.id);
+    expect(ids.indexOf("links")).toBeLessThan(ids.indexOf("orphans"));
+    expect(ids.indexOf("orphans")).toBeLessThan(ids.indexOf("tags"));
   });
 });

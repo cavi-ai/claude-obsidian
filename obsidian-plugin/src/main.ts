@@ -123,7 +123,10 @@ import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { openTagMergeReview } from "./optimize/review";
 import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
-import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController } from "./optimize/linkController";
+import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans, type LinkScanReport } from "./optimize/linkScan";
+import { LinkWeaveModal } from "./view/LinkWeaveModal";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
@@ -586,6 +589,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private published: PublishedItem[] = [];
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeController;
+  private _linkWeave?: LinkWeaveController;
   private _publish?: PublishController;
   private _standingOrders?: OrdersController;
   private ordersRefreshTimer: number | null = null;
@@ -928,6 +932,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       exportClipperTemplates: () => void this.exportClipperTemplates(),
       seedOntology: () => void this.seedOntology(),
       optimizeBrain: () => void this.reviewTagMerges(() => undefined),
+      optimizeLinks: () => void this.reviewOrphanLinks(() => undefined),
       openSetupWizard: () => this.openSetupWizard(),
       publishNote: (file) => void this.publish().publishNote(file.path),
       copyPublishedLink: (file) => void this.publish().copyLink(file.path),
@@ -3870,6 +3875,63 @@ export default class ClaudeCompanionPlugin extends Plugin {
     });
   }
 
+  private linkWeaveController(): LinkWeaveController {
+    return (this._linkWeave ??= new LinkWeaveController({
+      scan: (dismissed, onProgress) => {
+        const indexer = this.indexer();
+        return scanOrphans({
+          ...(onProgress ? { onProgress } : {}),
+          notes: linkScanNotes(this.app, this.ontology()),
+          edges: this.app.metadataCache.resolvedLinks,
+          ontologyFolder: normalizePath(this.settings.ontologyFolder),
+          dismissed,
+          read: async (path) => {
+            const file = this.app.vault.getFileByPath(path);
+            return file ? this.app.vault.cachedRead(file) : "";
+          },
+          neighbours: async (path, accept) => (indexer ? indexer.relatedStored(path, MAX_PROPOSALS_PER_KIND, accept) : []),
+        });
+      },
+      processBody: (path, transform) => processNoteBody(this.app, path, transform),
+      addRelated: (path, entries) => addRelatedLinks(this.app, path, entries),
+      writeRunNote: (content, now) => writeOptimizeRunNote(this.app, content, now, "Link weave"),
+      getState: () => this.optimizeState,
+      setState: async (next) => {
+        this.optimizeState = next;
+        await this.persist();
+      },
+      now: () => new Date().toISOString(),
+    }));
+  }
+
+  private async reviewOrphanLinks(done: () => void): Promise<void> {
+    const controller = this.linkWeaveController();
+    const progress = new Notice("Scanning for orphan notes…", 0);
+    try {
+      let report: LinkScanReport;
+      try {
+        report = await controller.scan((read, total) => progress.setMessage(`Scanning for orphan notes… ${read}/${total}`));
+      } finally {
+        progress.hide();
+      }
+      if (report.groups.length === 0) {
+        new Notice(formatLinkScanEmptyNotice(report));
+        done();
+        return;
+      }
+      new LinkWeaveModal(this.app, report, {
+        apply: (selected) => controller.apply(selected, report.contents),
+        dismiss: (proposal) => controller.dismiss(proposal),
+      }, (result) => {
+        if (result) new Notice(formatLinkApplyNotice(result));
+        done();
+      }).open();
+    } catch (error) {
+      new Notice(`Orphan scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      done();
+    }
+  }
+
   private healthController(): HealthController {
     const repo = (): ResearchRepository => this.researchRepository();
     return new HealthController({
@@ -3894,6 +3956,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const report = await this.optimizeController().scan({ semantic: false });
         return { total: report.totalTags, singleUse: report.singleUse, candidates: report.candidates.length };
       },
+      orphanCount: () => findOrphans(linkScanNotes(this.app, this.ontology()), this.app.metadataCache.resolvedLinks, normalizePath(this.settings.ontologyFolder)).length,
       inboxPending: () => this.inboxPendingCount(),
       companion: () => ({
         connection: { backend: this.router().chatBackend, needsCredential: needsCredentialSetup(this.credentialSetupInputs()) },
@@ -3926,6 +3989,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         return chrome.runActivityRecovery ? chrome.runActivityRecovery(activityId, id) : chrome.run({ id, page: "system", activityId });
       },
       reviewTagMerges: (done) => void this.reviewTagMerges(done),
+      connectOrphans: (done) => void this.reviewOrphanLinks(done),
       reviewSafeFixes: (fixes, done) => new SafeFixModal(this.app, fixes, async (path, patch) => {
         const file = this.app.vault.getFileByPath(path);
         if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => { Object.assign(fm, patch); });

@@ -254,6 +254,11 @@ export class SemanticIndexer {
       .slice(0, k);
   }
 
+  /** Never embeds: neighbours of an indexed note from stored vectors; [] when the note is not indexed. */
+  async relatedStored(path: string, k: number, accept?: (path: string) => boolean): Promise<SearchHit[]> {
+    return (await this.ensureLoaded()).related(path, k, accept);
+  }
+
   /** Chunks + change hash for one file: markdown notes directly, PDFs via page extraction. */
   private async prepare(path: string): Promise<{ hash: string; chunks: Chunk[] } | null> {
     if (path.toLowerCase().endsWith(".pdf")) {

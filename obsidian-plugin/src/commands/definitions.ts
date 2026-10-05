@@ -51,6 +51,7 @@ export interface CommandActions {
   exportClipperTemplates(): void;
   seedOntology(): void;
   optimizeBrain(): void;
+  optimizeLinks(): void;
   openSetupWizard(): void;
   publishNote(file: TFile): void;
   copyPublishedLink(file: TFile): void;
@@ -174,6 +175,7 @@ export function companionCommands(actions: CommandActions): Command[] {
     { id: "open-system", name: "Open system status", callback: () => actions.openSystem() },
     whenEnabled("export-clipper-templates", "Export Web Clipper templates (typed clipping)", () => actions.sourceCaptureEnabled(), () => actions.exportClipperTemplates()),
     { id: "optimize-brain", name: "Optimize brain: review tag merges", callback: () => actions.optimizeBrain() },
+    { id: "optimize-links", name: "Optimize brain: connect orphan notes", callback: () => actions.optimizeLinks() },
     whenEnabled("seed-ontology", "Seed ontology (default type schemas)", () => actions.ontologyEnabled(), () => actions.seedOntology()),
     { id: "open-setup-wizard", name: "Open setup wizard", callback: () => actions.openSetupWizard() },
   );
