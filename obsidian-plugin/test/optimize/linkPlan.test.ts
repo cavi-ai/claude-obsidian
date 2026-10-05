@@ -65,6 +65,18 @@ describe("planLinkWeave", () => {
     expect(planLinkWeave([], new Map([["a.md", "x"]]))).toEqual([]);
   });
 
+  it("moves every row of a note with more edits than one plan accepts to unlinked and plans nothing for it", () => {
+    const names = Array.from({ length: 21 }, (_, i) => `Topic${String(i).padStart(2, "0")}`);
+    const content = names.map((n) => `Line about ${n}.`).join("\n\n");
+    const targets = names.map((n) => `${n}.md`);
+    const rows = [...targets.slice(0, 20).map((t) => body("outbound", "a.md", content, targets.slice(0, 20), t)), body("outbound", "a.md", content, targets.slice(1), targets[20] as string)];
+    const [plan] = planLinkWeave(rows, new Map([["a.md", content]]));
+    expect(plan?.body).toBeNull();
+    expect(plan?.linked).toEqual([]);
+    expect(plan?.unlinked).toHaveLength(21);
+    expect(plan?.unlinked.every((u) => u.message === "too many edits in one note")).toBe(true);
+  });
+
   it("reports body rows whose scan content is missing", () => {
     const content = "Alpha here.";
     const row = body("outbound", "a.md", content, ["Alpha.md"], "Alpha.md");
@@ -93,6 +105,14 @@ describe("mergeRelated", () => {
     const nfd = "[[Café]]";
     const out = mergeRelated(["[[Old|alias]]", "[[Sec#head]]", "[[Note.md]]", nfd], ["[[old]]", "[[Sec]]", "[[note]]", "[[Café]]", "[[New]]", "[[new]]"]);
     expect(out).toEqual({ ok: true, value: ["[[Old|alias]]", "[[Sec#head]]", "[[Note.md]]", nfd, "[[New]]"], added: ["[[New]]"] });
+  });
+
+  it("keeps a bare string as a value without letting it swallow the same link", () => {
+    expect(mergeRelated("Twin", ["[[Twin]]"])).toEqual({ ok: true, value: ["Twin", "[[Twin]]"], added: ["[[Twin]]"] });
+  });
+
+  it("counts the one-element array an unquoted YAML [[Twin]] parses to as the link", () => {
+    expect(mergeRelated([["Twin"]], ["[[Twin]]"])).toEqual({ ok: true, value: [["Twin"]], added: [] });
   });
 
   it("keeps path link text distinct from the bare basename", () => {

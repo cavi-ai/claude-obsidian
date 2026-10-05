@@ -72,7 +72,11 @@ export function mergeRelated(existing: unknown, add: string[]): RelatedMerge {
   else if (typeof existing === "string") kept = [existing];
   else if (Array.isArray(existing)) kept = [...(existing as unknown[])];
   else return { ok: false, message: "related is not a list" };
-  const seen = new Set(kept.filter((e): e is string => typeof e === "string").map(wikiTarget));
+  const seen = new Set<string>();
+  for (const e of kept) {
+    if (typeof e === "string" && e.trimStart().startsWith("[[")) seen.add(wikiTarget(e));
+    else if (Array.isArray(e) && e.length === 1 && typeof e[0] === "string") seen.add(wikiTarget(e[0]));
+  }
   const added: string[] = [];
   for (const entry of add) {
     const key = wikiTarget(entry);

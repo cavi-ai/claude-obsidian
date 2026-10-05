@@ -99,6 +99,19 @@ describe("LinkWeaveController.apply", () => {
     expect(ctx.frontmatter["o.md"]?.related).toBe("[[p|alias]]");
   });
 
+  it("puts an approved related row whose write added nothing in failed", async () => {
+    const ctx = setup({}, { "o.md": "[[p|alias]]" });
+    const result = await ctx.controller.apply([relatedRow("o.md", "p.md", "p")], new Map());
+    expect(result.failed).toEqual([{ path: "o.md", message: "p.md: already in related" }]);
+  });
+
+  it("links an approved row next to a plain-text value of the same name", async () => {
+    const ctx = setup({}, { "o.md": "p" });
+    const result = await ctx.controller.apply([relatedRow("o.md", "p.md", "p")], new Map());
+    expect(result).toMatchObject({ links: 1, failed: [] });
+    expect(ctx.frontmatter["o.md"]?.related).toEqual(["p", "[[p]]"]);
+  });
+
   it("isolates a failing note and still applies the others", async () => {
     const a = "Alpha here.";
     const b = "Beta here.";

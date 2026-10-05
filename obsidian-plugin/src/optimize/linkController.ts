@@ -73,7 +73,10 @@ export class LinkWeaveController {
           continue;
         }
         const added = new Set(write.added);
-        for (const r of plan.related) if (added.has(`[[${r.linktext}]]`)) applied.push({ source: r.source, target: r.target, kind: "related" });
+        for (const r of plan.related) {
+          if (added.has(`[[${r.linktext}]]`)) applied.push({ source: r.source, target: r.target, kind: "related" });
+          else failed.push({ path: plan.path, message: `${r.target}: already in related` });
+        }
       } catch (error) {
         failed.push({ path: plan.path, message: error instanceof Error ? error.message : String(error) });
       }
