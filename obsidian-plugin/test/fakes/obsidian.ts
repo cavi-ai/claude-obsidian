@@ -276,6 +276,36 @@ export class Notice {
   hide(): void { this.hidden = true; }
   setMessage(message: string): void { this.message = message; }
 }
+export class FakeMenuItem {
+  title = "";
+  icon = "";
+  warning = false;
+  clickCb: (() => void) | null = null;
+  setTitle(title: string): this { this.title = title; return this; }
+  setIcon(icon: string): this { this.icon = icon; return this; }
+  setWarning(warning: boolean): this { this.warning = warning; return this; }
+  onClick(cb: () => void): this { this.clickCb = cb; return this; }
+  click(): void { this.clickCb?.(); }
+}
+const menus: Menu[] = [];
+export function getMenus(): readonly Menu[] { return menus; }
+export function getLastMenu(): Menu | undefined { return menus[menus.length - 1]; }
+export function clearMenus(): void { menus.length = 0; }
+export class Menu {
+  items: FakeMenuItem[] = [];
+  separators = 0;
+  position: { x: number; y: number } | null = null;
+  hidden = false;
+  constructor() { menus.push(this); }
+  addItem(cb: (item: FakeMenuItem) => void): this { const item = new FakeMenuItem(); cb(item); this.items.push(item); return this; }
+  addSeparator(): this { this.separators++; return this; }
+  showAtMouseEvent(_event: unknown): this { this.position = { x: 0, y: 0 }; return this; }
+  showAtPosition(position: { x: number; y: number }): this { this.position = position; return this; }
+  hide(): this { this.hidden = true; return this; }
+  onHide(_cb: () => void): void {}
+  titles(): string[] { return this.items.map((item) => item.title); }
+  item(title: string): FakeMenuItem | undefined { return this.items.find((item) => item.title === title); }
+}
 export class FileSystemAdapter {
   constructor(private readonly basePath = "") {}
   getBasePath(): string { return this.basePath; }
@@ -319,6 +349,15 @@ export class FakeElement {
   createDiv(options: any = {}): FakeElement { return this.createEl("div", options); }
   createSpan(options: any = {}): FakeElement { return this.createEl("span", options); }
   addEventListener(type: string, listener: (event: any) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
+  removeEventListener(type: string, listener: (event: any) => void): void { this.listeners.set(type, (this.listeners.get(type) ?? []).filter((l) => l !== listener)); }
+  rect = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+  getBoundingClientRect(): typeof this.rect { return this.rect; }
+  contains(node: unknown): boolean { return node === this || this.walk().includes(node as FakeElement); }
+  closest(selector: string): FakeElement | null {
+    if (matches(this, selector)) return this;
+    return this.parent?.closest(selector) ?? null;
+  }
+  scrollIntoView(): void {}
   dispatchEvent(event: any): boolean { for (const listener of this.listeners.get(event.type) ?? []) listener(event); return true; }
   focus(): void { this.attributes.set("data-focused", "true"); }
   selectionStart = 0;
