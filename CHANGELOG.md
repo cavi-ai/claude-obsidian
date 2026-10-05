@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Archive, and Delete. Archived chats sit behind Show archived and are kept
   out of history pruning. Distill writes one `type: chat-summary` note; Save
   chat to vault and `/save` become Distill this chat.
+- **Optimize brain: orphan notes.** "Optimize brain: connect orphan notes"
+  (command, or Connect orphan notes in the System page's new Orphan notes
+  section) finds notes with no links in or out and proposes links: another
+  note's unlinked mention of the orphan, the orphan's unlinked mention of
+  another note, and up to three semantic-index neighbours as `related`
+  frontmatter. Each proposal can be checked or dismissed; dismissals persist.
+  Apply edits only checked rows, skips notes changed since the scan, and
+  writes a run note under `Claude/Optimize/`. No model or network call.
 
 ### Changed
 - **New tags reuse vault tags.** The tagger, `/frontmatter`, Tidy, chat
