@@ -491,25 +491,35 @@ describe("ProviderRouter.classifierSelection", () => {
   });
 });
 
-describe("ProviderRouter.classifierRunsLocally", () => {
-  const local = async (o: Partial<PluginSettings>, resolver?: () => Promise<{ provider: Provider; model: string; endpoint?: string }>) =>
-    new ProviderRouter(settings(o), resolver).classifierRunsLocally({ isMobile: false });
-
-  it("true for loopback and LAN, false for remote", async () => {
-    expect(await local({ classifierBackend: "ollama", ollamaHost: "http://localhost:11434" })).toBe(true);
-    expect(await local({ classifierBackend: "ollama", ollamaHost: "http://10.0.0.4:11434" })).toBe(true);
-    expect(await local({ classifierBackend: "custom", openaiCompatHost: "https://models.example.com/v1" })).toBe(false);
+describe("ProviderRouter.selectionRunsLocally", () => {
+  it("judges the host the provider was built with, not the live settings string", async () => {
+    const o = settings({ classifierBackend: "ollama", ollamaHost: "https://ollama.remote.example" });
+    const r = new ProviderRouter(o);
+    o.ollamaHost = "http://localhost:11434";
+    const selection = await r.classifierSelection({ isMobile: false });
+    expect(r.selectionRunsLocally(selection)).toBe(false);
+    expect(selection.endpoint).toBe("https://ollama.remote.example");
   });
 
-  it("false for the Anthropic utility provider and when unavailable", async () => {
-    const r = new ProviderRouter(settings({ classifierBackend: "utility" }));
-    expect(await local({ classifierBackend: "utility" }, async () => ({ provider: r.anthropic, model: "m", endpoint: "http://localhost:1" }))).toBe(false);
-    expect(await local({ classifierBackend: "utility" }, async () => { throw new Error("x"); })).toBe(false);
-    expect(await local({ classifierBackend: "custom", openaiCompatHost: "" })).toBe(false);
+  it("true for a loopback or private-range literal on this router's own provider", async () => {
+    const loop = new ProviderRouter(settings({ classifierBackend: "ollama", ollamaHost: "http://localhost:11434" }));
+    expect(loop.selectionRunsLocally(await loop.classifierSelection({ isMobile: false }))).toBe(true);
+    const lan = new ProviderRouter(settings({ classifierBackend: "custom", openaiCompatHost: "http://10.0.0.4:1234" }));
+    expect(lan.selectionRunsLocally(await lan.classifierSelection({ isMobile: false }))).toBe(true);
   });
 
-  it("true for a utility selection on a local Ollama", async () => {
-    const r = new ProviderRouter(settings({}));
-    expect(await local({ classifierBackend: "utility" }, async () => ({ provider: r.ollama, model: "m", endpoint: "http://localhost:11434" }))).toBe(true);
+  it("false for a host name that merely looks local and for remote hosts", async () => {
+    const fake = new ProviderRouter(settings({ classifierBackend: "custom", openaiCompatHost: "https://127.example.com/v1" }));
+    expect(fake.selectionRunsLocally(await fake.classifierSelection({ isMobile: false }))).toBe(false);
+    const remote = new ProviderRouter(settings({ classifierBackend: "custom", openaiCompatHost: "https://models.example.com/v1" }));
+    expect(remote.selectionRunsLocally(await remote.classifierSelection({ isMobile: false }))).toBe(false);
+  });
+
+  it("false for a selection from another router instance and for the Anthropic provider", async () => {
+    const o = settings({ classifierBackend: "ollama", ollamaHost: "http://localhost:11434" });
+    const a = new ProviderRouter(o);
+    const b = new ProviderRouter(o);
+    expect(a.selectionRunsLocally(await b.classifierSelection({ isMobile: false }))).toBe(false);
+    expect(a.selectionRunsLocally({ provider: a.anthropic, model: "m", endpoint: "http://localhost:1" })).toBe(false);
   });
 });

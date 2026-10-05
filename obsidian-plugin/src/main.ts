@@ -3826,7 +3826,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       classifier: async () => {
         const router = this.router();
         const selection = await router.classifierSelection({ isMobile: Platform.isMobile });
-        const local = await router.classifierRunsLocally({ isMobile: Platform.isMobile });
+        const local = router.selectionRunsLocally(selection);
         const generation = this.utilityLifecycleGeneration ?? 0;
         return {
           local,

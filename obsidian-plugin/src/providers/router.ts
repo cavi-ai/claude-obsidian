@@ -14,7 +14,7 @@ import { resolveModelId } from "../claude/models";
 import {
   resolveUtilityForRuntime as applyUtilityRuntimePolicy,
   sanitizeEndpointForDisplay,
-  classifyEndpoint,
+  isLiteralLocalEndpoint,
   UtilityUnavailableError,
   type UnavailableUtilityResolution,
   type UtilityFallbackApproval,
@@ -308,28 +308,21 @@ export class ProviderRouter {
   async classifierSelection(input: { isMobile: boolean }): Promise<ProviderSelection> {
     const backend = this.settings.classifierBackend;
     if (backend === "utility") return this.utilitySelection();
-    const host = backend === "ollama" ? this.settings.ollamaHost : this.settings.openaiCompatHost;
+    const provider = backend === "ollama" ? this.ollama : this.openaiCompat;
+    const host = provider.resolvedEndpoint();
     const resolution = applyUtilityRuntimePolicy({ backend, endpoint: host, isMobile: input.isMobile, claudeAvailable: false });
     if (resolution.state !== "configured-provider") {
       throw new UtilityUnavailableError("The tag classifier endpoint is unavailable and does not fall back to Claude.", resolution as UnavailableUtilityResolution);
     }
     const override = this.settings.classifierModel.trim();
-    const provider = backend === "ollama" ? this.ollama : this.openaiCompat;
     const model = override || (backend === "ollama" ? this.ollamaUtilityModel() : this.settings.openaiCompatModel);
     return { provider, model, endpoint: sanitizeEndpointForDisplay(host) };
   }
 
-  /** True only when the classifier is a non-Anthropic provider on a loopback, wildcard-local or LAN host. */
-  async classifierRunsLocally(input: { isMobile: boolean }): Promise<boolean> {
-    try {
-      const selection = await this.classifierSelection(input);
-      if (selection.provider.id === "anthropic" || !selection.endpoint) return false;
-      const kind = classifyEndpoint(selection.endpoint);
-      return kind === "loopback" || kind === "wildcard-local" || kind === "lan";
-    } catch (e) {
-      console.debug("Claude Companion: classifier unavailable", e);
-      return false;
-    }
+  /** True only for this router's own Ollama or OpenAI-compatible provider whose own host is a literal local address. */
+  selectionRunsLocally(selection: ProviderSelection): boolean {
+    const own = selection.provider === this.ollama ? this.ollama : selection.provider === this.openaiCompat ? this.openaiCompat : null;
+    return own !== null && isLiteralLocalEndpoint(own.resolvedEndpoint());
   }
 
   /**
