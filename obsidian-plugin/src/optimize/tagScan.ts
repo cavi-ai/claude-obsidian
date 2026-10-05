@@ -71,7 +71,7 @@ function mostUsed(a: TagStat, b: TagStat): boolean {
 
 function looseForms(word: string): string[] {
   const forms = [word];
-  if (word.length > 3) {
+  if (word.length >= 3 && !word.endsWith("ss")) {
     if (word.endsWith("s")) forms.push(word.slice(0, -1));
     if (word.endsWith("es")) forms.push(word.slice(0, -2));
   }
@@ -199,22 +199,36 @@ export function scanTags(input: TagScanInput): TagScanReport {
     if (plain && owners.length === 1) add(plain, owners[0] as TagStat, "leaf", SCORES.leaf);
   }
 
-  const prefixBuckets = new Map<string, TagStat[]>();
+  const deletionIndex = new Map<string, TagStat[]>();
   for (const s of stats) {
     if (s.tag.length < 6) continue;
-    const key = s.tag.slice(0, 3);
-    const list = prefixBuckets.get(key);
-    if (list) list.push(s);
-    else prefixBuckets.set(key, [s]);
+    const chars = [...s.tag];
+    const forms = new Set([s.tag]);
+    for (let i = 0; i < chars.length; i++) forms.add(chars.slice(0, i).join("") + chars.slice(i + 1).join(""));
+    for (const form of forms) {
+      const list = deletionIndex.get(form);
+      if (list) list.push(s);
+      else deletionIndex.set(form, [s]);
+    }
   }
-  for (const bucket of prefixBuckets.values()) {
+  const typoSeen = new Set<string>();
+  const sharesForm = (a: TagStat, b: TagStat): boolean => {
+    const plural = new Set((keys.get(a.tag) as { plural: string[] }).plural);
+    if ((keys.get(b.tag) as { plural: string[] }).plural.some((k) => plural.has(k))) return true;
+    const loose = new Set(looseKeys(a.tag));
+    return looseKeys(b.tag).some((k) => loose.has(k));
+  };
+  for (const bucket of deletionIndex.values()) {
     for (let i = 0; i < bucket.length; i++) {
       for (let j = i + 1; j < bucket.length; j++) {
         const a = bucket[i] as TagStat;
         const b = bucket[j] as TagStat;
-        if (!withinOneEdit(a.tag, b.tag) || has(a, b, "plural", "plural-loose")) continue;
-        const toCount = Math.max(a.count, b.count);
-        if (toCount >= 2) add(a, b, "typo", SCORES.typo);
+        const id = pairKey(a.tag, b.tag);
+        if (typoSeen.has(id)) continue;
+        typoSeen.add(id);
+        if (!withinOneEdit(a.tag, b.tag) || a.tag.replace(/\d/g, "") === b.tag.replace(/\d/g, "")) continue;
+        if (has(a, b, "plural", "plural-loose") || sharesForm(a, b)) continue;
+        if (Math.max(a.count, b.count) >= 2) add(a, b, "typo", SCORES.typo);
       }
     }
   }
@@ -234,7 +248,7 @@ export function scanTags(input: TagScanInput): TagScanReport {
       for (const target of established) {
         if (target.tag === low.tag) continue;
         const vec = centroid(target.tag);
-        if (!vec) continue;
+        if (!vec || vec.length !== lowVec.length) continue;
         const cos = cosineSimilarity(lowVec, vec);
         if (cos >= bestScore) {
           best = target;

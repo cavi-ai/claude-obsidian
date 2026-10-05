@@ -43,6 +43,14 @@ describe("scanTags", () => {
     expect(find(report, "css", "cs")).toBeUndefined();
   });
 
+  it("strips a trailing s from three-character words that do not end in ss", () => {
+    const report = scanTags({ vocab: vocabOf({ prs: 1, pr: 4 }) });
+    expect(find(report, "prs", "pr")?.evidence).toContain("plural-loose");
+    const keyes = scanTags({ vocab: vocabOf({ "api-key": 3, "api-keyes": 1, llm: 4, llms: 2 }) });
+    expect(find(keyes, "api-key", "api-keyes")?.evidence).toEqual(["plural-loose"]);
+    expect(find(keyes, "llm", "llms")?.evidence).not.toContain("plural-loose");
+  });
+
   it("flags token-order, not separator-only differences", () => {
     const report = scanTags({ vocab: vocabOf({ "design-system": 4, "system-design": 1 }) });
     expect(find(report, "design-system", "system-design")).toMatchObject({ evidence: ["token-order"], score: 0.8 });
@@ -72,6 +80,41 @@ describe("scanTags", () => {
   it("does not report a typo on a pair that already has plural", () => {
     const report = scanTags({ vocab: vocabOf({ database: 3, databases: 1 }) });
     expect(find(report, "database", "databases")?.evidence).toEqual(["plural"]);
+  });
+
+  it("finds typos through single-character deletions, including first-character and transposition typos", () => {
+    const report = scanTags({ vocab: vocabOf({ frontend: 4, fronted: 1, networking: 3, netwroking: 1, database: 3, katabase: 1 }) });
+    expect(find(report, "frontend", "fronted")?.evidence).toContain("typo");
+    expect(find(report, "networking", "netwroking")?.evidence).toContain("typo");
+    expect(find(report, "database", "katabase")?.evidence).toContain("typo");
+  });
+
+  it("scans 8,000 eligible tags sharing one prefix in under a second and still finds a typo", () => {
+    const counts: Record<string, number> = { frontend: 3, fronted: 1 };
+    for (let i = 0; i < 8000; i++) counts[`proj-${(i * 2654435761 % 4294967296).toString(36)}-${i.toString(36)}`] = 1;
+    const vocab = vocabOf(counts);
+    const start = performance.now();
+    const report = scanTags({ vocab });
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(find(report, "frontend", "fronted")?.evidence).toContain("typo");
+  });
+
+  it("does not call tags that differ only in digits typos", () => {
+    const counts: Record<string, number> = {};
+    for (let d = 1; d <= 28; d++) counts[`2024/05/${String(d).padStart(2, "0")}`] = 2;
+    expect(scanTags({ vocab: vocabOf(counts) }).candidates).toEqual([]);
+    expect(scanTags({ vocab: vocabOf({ "chapter-1": 3, "chapter-2": 2 }) }).candidates).toEqual([]);
+  });
+
+  it("does not add typo evidence to a pair that shares a plural form", () => {
+    const report = scanTags({ vocab: vocabOf({ "ml-models": 1, "ml-model": 2, mlmodel: 5 }) });
+    expect(find(report, "ml-model", "ml-models")?.evidence ?? []).not.toContain("typo");
+  });
+
+  it("skips a semantic comparison between centroids of different lengths", () => {
+    const vocab = vocabOf({ ml: 1, "machine-learning": 4 });
+    const vecs: Record<string, number[]> = { ml: [1, 0], "machine-learning": [1, 0, 50, 50] };
+    expect(scanTags({ vocab, centroid: (t) => vecs[t] ?? null }).candidates).toEqual([]);
   });
 
   it("adds semantic candidates only when a centroid is given, one per low-consumer tag", () => {
