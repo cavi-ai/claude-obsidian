@@ -14,7 +14,7 @@ export interface LinkApplyResult {
 export type RelatedWrite = { ok: true; added: string[] } | { ok: false; message: string };
 
 export interface LinkWeaveDeps {
-  scan(dismissed: ReadonlySet<string>): Promise<LinkScanReport>;
+  scan(dismissed: ReadonlySet<string>, onProgress?: (done: number, total: number) => void): Promise<LinkScanReport>;
   /** `vault.process`: the transform sees the current content. */
   processBody(path: string, transform: (current: string) => string): Promise<void>;
   /** `processFrontMatter` with `mergeRelated`; the `[[…]]` strings it really added. */
@@ -34,11 +34,17 @@ export function formatLinkApplyNotice(result: LinkApplyResult): string {
   return text;
 }
 
+/** The notice for a scan with nothing to review. */
+export function formatLinkScanEmptyNotice(report: Pick<LinkScanReport, "orphanCount">): string {
+  if (report.orphanCount === 0) return "No orphan notes to connect.";
+  return `${count(report.orphanCount, "orphan note", "orphan notes")}, none with a link to propose.`;
+}
+
 export class LinkWeaveController {
   constructor(private deps: LinkWeaveDeps) {}
 
-  scan(): Promise<LinkScanReport> {
-    return this.deps.scan(new Set(this.deps.getState().dismissedLinks ?? []));
+  scan(onProgress?: (done: number, total: number) => void): Promise<LinkScanReport> {
+    return this.deps.scan(new Set(this.deps.getState().dismissedLinks ?? []), onProgress);
   }
 
   async dismiss(proposal: Pick<LinkProposal, "source" | "target">): Promise<void> {

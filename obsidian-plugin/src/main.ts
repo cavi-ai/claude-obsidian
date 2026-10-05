@@ -124,8 +124,8 @@ import { openTagMergeReview } from "./optimize/review";
 import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "./optimize/vaultGlue";
-import { formatLinkApplyNotice, LinkWeaveController } from "./optimize/linkController";
-import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans } from "./optimize/linkScan";
+import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController } from "./optimize/linkController";
+import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans, type LinkScanReport } from "./optimize/linkScan";
 import { LinkWeaveModal } from "./view/LinkWeaveModal";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
@@ -3877,9 +3877,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private linkWeaveController(): LinkWeaveController {
     return (this._linkWeave ??= new LinkWeaveController({
-      scan: (dismissed) => {
+      scan: (dismissed, onProgress) => {
         const indexer = this.indexer();
         return scanOrphans({
+          onProgress,
           notes: linkScanNotes(this.app, this.ontology()),
           edges: this.app.metadataCache.resolvedLinks,
           ontologyFolder: normalizePath(this.settings.ontologyFolder),
@@ -3905,10 +3906,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private async reviewOrphanLinks(done: () => void): Promise<void> {
     const controller = this.linkWeaveController();
+    const progress = new Notice("Scanning for orphan notes…", 0);
     try {
-      const report = await controller.scan();
+      let report: LinkScanReport;
+      try {
+        report = await controller.scan((read, total) => progress.setMessage(`Scanning for orphan notes… ${read}/${total}`));
+      } finally {
+        progress.hide();
+      }
       if (report.groups.length === 0) {
-        new Notice("No orphan notes to connect.");
+        new Notice(formatLinkScanEmptyNotice(report));
         done();
         return;
       }

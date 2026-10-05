@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findUnlinkedMentions, withLinktext } from "../../src/links/unlinkedMentions";
-import { formatLinkApplyNotice, LinkWeaveController, type LinkWeaveDeps, type RelatedWrite } from "../../src/optimize/linkController";
+import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController, type LinkWeaveDeps, type RelatedWrite } from "../../src/optimize/linkController";
 import { mergeRelated } from "../../src/optimize/linkPlan";
 import { dismissalKey, type LinkProposal, type LinkScanReport } from "../../src/optimize/linkScan";
 import { normalizeOptimizeState, type OptimizeState } from "../../src/optimize/state";
@@ -187,6 +187,14 @@ describe("LinkWeaveController dismissals and state", () => {
     expect(ctx.processed).toEqual([]);
     expect(ctx.runNotes).toEqual([]);
     expect(ctx.files).toEqual({ "a.md": "x" });
+  });
+});
+
+describe("formatLinkScanEmptyNotice", () => {
+  it("separates no orphans from orphans without a proposal", () => {
+    expect(formatLinkScanEmptyNotice({ orphanCount: 0 })).toBe("No orphan notes to connect.");
+    expect(formatLinkScanEmptyNotice({ orphanCount: 1 })).toBe("1 orphan note, none with a link to propose.");
+    expect(formatLinkScanEmptyNotice({ orphanCount: 4 })).toBe("4 orphan notes, none with a link to propose.");
   });
 });
 

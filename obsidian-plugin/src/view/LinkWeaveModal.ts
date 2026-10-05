@@ -51,7 +51,8 @@ export class LinkWeaveModal extends Modal {
       check.addEventListener("change", () => {
         this.state = toggleRow(this.state, p.id, check.checked);
       });
-      setting.addButton((b) => b.setButtonText("Dismiss").onClick(() => {
+      setting.addButton((b) => b.setButtonText("Dismiss").setDisabled(this.applying).onClick(() => {
+        if (this.applying) return;
         void this.actions.dismiss(p).then(
           () => {
             this.state = removeRow(this.state, p.id);
@@ -62,7 +63,7 @@ export class LinkWeaveModal extends Modal {
       }));
     }
     if (this.state.remaining > 0) {
-      contentEl.createDiv({ text: `${this.state.remaining} more orphan ${this.state.remaining === 1 ? "note has" : "notes have"} proposals. Apply, then run this again.` });
+      contentEl.createDiv({ text: `${this.state.remaining} more orphan ${this.state.remaining === 1 ? "note" : "notes"} not shown. Apply, then run this again.` });
     }
     new Setting(contentEl)
       .addButton((b) => b.setButtonText("Cancel").onClick(() => (this.applying ? this.close() : this.finish(null))))

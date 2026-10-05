@@ -50,6 +50,10 @@ export interface LinkScanInput {
   read(path: string): Promise<string>;
   /** Stored vectors only; `accept` filters candidate paths before the top-k cut. */
   neighbours(path: string, accept: (path: string) => boolean): Promise<NeighbourHit[]>;
+  /** Awaited after every `YIELD_EVERY` notes read; defaults to a macrotask turn. */
+  yieldEvery?: () => Promise<void>;
+  /** Notes read so far of the notes to read at most. */
+  onProgress?: (done: number, total: number) => void;
 }
 
 export interface LinkScanReport {
@@ -63,6 +67,8 @@ export interface LinkScanReport {
 export const MAX_ORPHANS_PER_REVIEW = 50;
 export const MAX_PROPOSALS_PER_KIND = 3;
 export const RELATED_FLOOR = 0.5;
+export const MAX_NEIGHBOUR_LOOKUPS = 200;
+export const YIELD_EVERY = 50;
 
 const NON_TARGET_NAME = [/^untitled\b/i, /^\d{4}-\d{2}-\d{2}/, /^\d+$/];
 
@@ -115,11 +121,18 @@ export async function scanOrphans(input: LinkScanInput): Promise<LinkScanReport>
   };
 
   const sources = notes.filter((n) => !isExcluded(n, ontologyFolder)).sort((a, b) => b.mtime - a.mtime || a.path.localeCompare(b.path));
+  const yieldTurn = input.yieldEvery ?? ((): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0)));
+  let reads = 0;
   for (const note of sources) {
     const isOrphan = orphanPaths.has(note.path);
     const pool = isOrphan ? outboundCandidates : [...inboundPending.values()];
     if (pool.length === 0) continue;
     const content = await input.read(note.path);
+    reads += 1;
+    if (reads % YIELD_EVERY === 0) {
+      input.onProgress?.(reads, sources.length);
+      await yieldTurn();
+    }
     const mentions = findUnlinkedMentions(content, pool, note.path).filter((m) => !dismissed.has(dismissalKey(note.path, m.path)));
     let kept = false;
     if (isOrphan) {
@@ -140,35 +153,40 @@ export async function scanOrphans(input: LinkScanInput): Promise<LinkScanReport>
     if (kept) contents.set(note.path, content);
   }
 
-  for (const path of orphanPaths) {
+  const mentionCount = (path: string): number => proposals.get(path)?.length ?? 0;
+  const order = [...orphanPaths].sort((a, b) => mentionCount(b) - mentionCount(a) || (byPath.get(b)?.mtime ?? 0) - (byPath.get(a)?.mtime ?? 0) || a.localeCompare(b));
+  const groups: OrphanReview[] = [];
+  let lookups = 0;
+  for (const path of order) {
+    if (groups.length >= MAX_ORPHANS_PER_REVIEW) break;
     const orphan = byPath.get(path);
-    if (!orphan?.acceptsRelated) continue;
-    const bodyLinked = new Set((proposals.get(path) ?? []).filter((p) => p.kind === "outbound").map((p) => p.target));
-    const accept = (candidate: string): boolean => {
-      const target = byPath.get(candidate);
-      return !!target && candidate !== path && !bodyLinked.has(candidate) && !isExcluded(target, ontologyFolder) && !dismissed.has(dismissalKey(path, candidate));
-    };
-    const hits = (await input.neighbours(path, accept))
-      .filter((h) => h.score >= RELATED_FLOOR && accept(h.path))
-      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
-      .slice(0, MAX_PROPOSALS_PER_KIND);
-    for (const h of hits) {
-      add(path, {
-        id: proposalId("related", path, h.path), kind: "related", orphan: path, source: path, target: h.path,
-        linktext: linktexts.get(h.path)?.linktext ?? h.path, score: h.score, checked: false,
-      });
+    if (orphan?.acceptsRelated && lookups < MAX_NEIGHBOUR_LOOKUPS) {
+      lookups += 1;
+      const bodyLinked = new Set((proposals.get(path) ?? []).filter((p) => p.kind === "outbound").map((p) => p.target));
+      const accept = (candidate: string): boolean => {
+        const target = byPath.get(candidate);
+        return !!target && candidate !== path && !bodyLinked.has(candidate) && !isExcluded(target, ontologyFolder) && !dismissed.has(dismissalKey(path, candidate));
+      };
+      const hits = (await input.neighbours(path, accept))
+        .filter((h) => h.score >= RELATED_FLOOR && accept(h.path))
+        .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+        .slice(0, MAX_PROPOSALS_PER_KIND);
+      for (const h of hits) {
+        add(path, {
+          id: proposalId("related", path, h.path), kind: "related", orphan: path, source: path, target: h.path,
+          linktext: linktexts.get(h.path)?.linktext ?? h.path, score: h.score, checked: false,
+        });
+      }
     }
+    const list = proposals.get(path);
+    if (list && list.length > 0) groups.push({ path, proposals: list });
   }
 
-  const ranked = [...proposals.entries()]
-    .map(([path, list]) => ({ path, proposals: list }))
-    .sort((a, b) => b.proposals.length - a.proposals.length || a.path.localeCompare(b.path));
-  const groups = ranked.slice(0, MAX_ORPHANS_PER_REVIEW);
   const used = new Set(groups.flatMap((g) => g.proposals.filter((p) => p.mention).map((p) => p.source)));
   return {
     orphanCount: orphanPaths.size,
     groups,
-    remaining: ranked.length - groups.length,
+    remaining: orphanPaths.size - groups.length,
     contents: new Map([...contents].filter(([path]) => used.has(path))),
   };
 }

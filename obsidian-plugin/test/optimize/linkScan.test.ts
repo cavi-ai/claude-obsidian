@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dismissalKey, findOrphans, scanOrphans, type LinkScanInput, type LinkScanNote, type NeighbourHit } from "../../src/optimize/linkScan";
+import { dismissalKey, findOrphans, MAX_NEIGHBOUR_LOOKUPS, scanOrphans, type LinkScanInput, type LinkScanNote, type NeighbourHit } from "../../src/optimize/linkScan";
 
 const note = (path: string, over: Partial<LinkScanNote> = {}): LinkScanNote => ({
   path,
@@ -180,7 +180,7 @@ describe("scanOrphans", () => {
     expect(report.groups[0]?.proposals.map((p) => p.kind)).toEqual(["outbound"]);
   });
 
-  it("keeps orphans with at least one proposal, ranked by count then path, capped at 50 with the rest counted", async () => {
+  it("keeps orphans with at least one proposal, ranked by mention count, mtime then path, capped at 50 with the rest counted", async () => {
     const orphans = Array.from({ length: 53 }, (_, i) => note(`o${String(i).padStart(2, "0")}.md`));
     const notes = [...orphans, note("hub.md")];
     const neighbours = async (path: string, accept: (p: string) => boolean): Promise<NeighbourHit[]> => {
@@ -191,9 +191,60 @@ describe("scanOrphans", () => {
     const report = await scanOrphans(setup(notes, {}, { neighbours }).input);
     expect(report.orphanCount).toBe(54);
     expect(report.groups).toHaveLength(50);
-    expect(report.groups[0]?.path).toBe("o52.md");
-    expect(report.groups[1]?.path).toBe("o00.md");
-    expect(report.remaining).toBe(3);
+    expect(report.groups[0]?.path).toBe("o00.md");
+    expect(report.groups[0]?.proposals.map((p) => p.target)).toEqual(["hub.md"]);
+    expect(report.remaining).toBe(4);
+  });
+
+  it("reviews orphans with mention proposals before related-only ones, then newest first", async () => {
+    const notes = [note("old.md", { mtime: 1 }), note("new.md", { mtime: 9 }), note("Mentioned.md", { mtime: 5 }), note("hub.md"), note("daily.md", { mtime: 2 })];
+    const edges = { "daily.md": { "hub.md": 1 } };
+    const looked: string[] = [];
+    const neighbours = async (path: string): Promise<NeighbourHit[]> => {
+      looked.push(path);
+      return [{ path: "hub.md", score: 0.9 }];
+    };
+    const report = await scanOrphans(setup(notes, { "daily.md": "see Mentioned here" }, { edges, neighbours }).input);
+    expect(report.groups.map((g) => g.path)).toEqual(["Mentioned.md", "new.md", "old.md"]);
+    expect(looked).toEqual(["Mentioned.md", "new.md", "old.md"]);
+    expect(report.remaining).toBe(0);
+  });
+
+  it("stops neighbour lookups once 50 groups are filled", async () => {
+    const notes = [...Array.from({ length: 120 }, (_, i) => note(`o${String(i).padStart(3, "0")}.md`)), note("hub.md"), note("side.md")];
+    let calls = 0;
+    const neighbours = async (): Promise<NeighbourHit[]> => {
+      calls += 1;
+      return [{ path: "hub.md", score: 0.9 }];
+    };
+    const report = await scanOrphans(setup(notes, {}, { edges: { "hub.md": { "side.md": 1 } }, neighbours }).input);
+    expect(report.groups).toHaveLength(50);
+    expect(calls).toBe(50);
+    expect(report.remaining).toBe(70);
+  });
+
+  it("never exceeds 200 neighbour lookups when most orphans have nothing to propose", async () => {
+    const notes = Array.from({ length: 500 }, (_, i) => note(`o${String(i).padStart(3, "0")}.md`));
+    let calls = 0;
+    const neighbours = async (): Promise<NeighbourHit[]> => {
+      calls += 1;
+      return [];
+    };
+    const report = await scanOrphans(setup(notes, {}, { neighbours }).input);
+    expect(calls).toBe(MAX_NEIGHBOUR_LOOKUPS);
+    expect(report.groups).toEqual([]);
+    expect(report.remaining).toBe(500);
+  });
+
+  it("yields once per 50 notes read and reports progress", async () => {
+    const notes = Array.from({ length: 120 }, (_, i) => note(`n${String(i).padStart(3, "0")}.md`));
+    const edges = Object.fromEntries(notes.slice(1).map((n, i) => [n.path, { [notes[1 + ((i + 1) % 119)]!.path]: 1 }]));
+    let yields = 0;
+    const progress: Array<[number, number]> = [];
+    const report = await scanOrphans(setup(notes, {}, { edges, yieldEvery: async () => void (yields += 1), onProgress: (d, t) => progress.push([d, t]) }).input);
+    expect(report.orphanCount).toBe(1);
+    expect(yields).toBe(2);
+    expect(progress).toEqual([[50, 120], [100, 120]]);
   });
 
   it("reads nothing when the vault has no orphan", async () => {
@@ -202,14 +253,31 @@ describe("scanOrphans", () => {
     expect(reads).toEqual([]);
   });
 
-  it("scans 5,000 notes with one read each", async () => {
-    const notes = Array.from({ length: 5000 }, (_, i) => note(`n${i}.md`));
-    const edges = Object.fromEntries(notes.slice(100).map((n, i) => [n.path, { [notes[100 + ((i + 1) % 4900)]!.path]: 1 }]));
-    const { input, reads } = setup(notes, {}, { edges });
+  it("scans 5,000 notes with 2 KB bodies in one read each, bounded neighbour lookups and under 10 s", async () => {
+    const orphanNames = Array.from({ length: 500 }, (_, i) => `Zorb${String(i).padStart(4, "0")}`);
+    const plainNames = Array.from({ length: 4500 }, (_, i) => `Plain${String(i).padStart(4, "0")}`);
+    const notes = [...orphanNames.map((n) => note(`${n}.md`)), ...plainNames.map((n) => note(`${n}.md`))];
+    const filler = "lorem ipsum dolor sit amet consectetur adipiscing elit ".repeat(37);
+    const files: Record<string, string> = {};
+    for (const n of orphanNames) files[`${n}.md`] = filler;
+    plainNames.forEach((n, i) => {
+      files[`${n}.md`] = i < 1000 ? `${filler}\nRelated to ${orphanNames[i % 500]} today.` : filler;
+    });
+    const edges = Object.fromEntries(plainNames.map((n, i) => [`${n}.md`, { [`${plainNames[(i + 1) % 4500]}.md`]: 1 }]));
+    let lookups = 0;
+    const neighbours = async (): Promise<NeighbourHit[]> => {
+      lookups += 1;
+      return [0, 1, 2].map((i) => ({ path: `${plainNames[i]}.md`, score: 0.9 - i / 100 }));
+    };
+    const { input, reads } = setup(notes, files, { edges, neighbours, yieldEvery: async () => undefined });
     const started = Date.now();
     const report = await scanOrphans(input);
-    expect(report.orphanCount).toBe(100);
-    expect(new Set(reads).size).toBe(reads.length);
-    expect(Date.now() - started).toBeLessThan(10_000);
+    const elapsed = Date.now() - started;
+    expect(report.orphanCount).toBe(500);
+    expect(reads).toHaveLength(5000);
+    expect(new Set(reads).size).toBe(5000);
+    expect(lookups).toBeLessThanOrEqual(MAX_NEIGHBOUR_LOOKUPS);
+    expect(report.groups).toHaveLength(50);
+    expect(elapsed).toBeLessThan(10_000);
   });
 });

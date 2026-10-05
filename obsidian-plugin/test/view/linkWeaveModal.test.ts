@@ -114,9 +114,24 @@ describe("LinkWeaveModal", () => {
     expect(onDone).toHaveBeenCalledWith(result);
   });
 
+  it("disables Dismiss while apply runs and a click then does nothing", async () => {
+    const { root, actions } = setup();
+    let release!: (r: LinkApplyResult) => void;
+    actions.apply.mockImplementationOnce(() => new Promise<LinkApplyResult>((resolve) => { release = resolve; }));
+    button(root(), "Apply selected").dispatchEvent({ type: "click" });
+    const dismiss = root().querySelectorAll("button").filter((b) => b.textContent === "Dismiss");
+    expect(dismiss.length).toBeGreaterThan(0);
+    expect(dismiss.every((b) => (b as unknown as { disabled: boolean }).disabled)).toBe(true);
+    for (const b of dismiss) b.dispatchEvent({ type: "click" });
+    await settle();
+    expect(actions.dismiss).not.toHaveBeenCalled();
+    release(result);
+    await settle();
+  });
+
   it("states how many more orphans remain and shows the empty state", () => {
-    expect(allText(setup(groups, 3).root())).toContain("3 more orphan notes have proposals. Apply, then run this again.");
-    expect(allText(setup(groups, 1).root())).toContain("1 more orphan note has proposals.");
+    expect(allText(setup(groups, 3).root())).toContain("3 more orphan notes not shown. Apply, then run this again.");
+    expect(allText(setup(groups, 1).root())).toContain("1 more orphan note not shown.");
     expect(allText(setup([]).root())).toContain("No orphan notes to connect.");
   });
 });
