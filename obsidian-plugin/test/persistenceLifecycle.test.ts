@@ -104,6 +104,31 @@ describe("credentials never reach data.json", () => {
   });
 });
 
+describe("optimize dismissals", () => {
+  it("are written by persist() and survive a reload through loadSettings", async () => {
+    let raw = "";
+    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    Object.assign(plugin as unknown as Record<string, unknown>, {
+      settings: structuredClone(DEFAULT_SETTINGS),
+      convState: { conversations: [], activeId: null },
+      optimizeState: { dismissed: ["a|b"] },
+      saveData: async (data: unknown) => { raw = JSON.stringify(data); },
+    });
+    await (plugin as unknown as { persist(): Promise<void> }).persist();
+    expect((JSON.parse(raw) as { optimize?: unknown }).optimize).toEqual({ dismissed: ["a|b"] });
+
+    const reloaded = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    Object.assign(reloaded as unknown as Record<string, unknown>, {
+      app: new App(),
+      mcpSyncChain: Promise.resolve(),
+      loadData: async () => JSON.parse(raw),
+      saveData: async () => {},
+    });
+    await reloaded.loadSettings();
+    expect((reloaded as unknown as { optimizeState: unknown }).optimizeState).toEqual({ dismissed: ["a|b"] });
+  });
+});
+
 describe("retired desk preferences", () => {
   it("drops researchDeskPreferences from persisted data on the next write", async () => {
     setApiVersion("1.11.5");

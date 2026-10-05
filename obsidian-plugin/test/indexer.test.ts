@@ -429,4 +429,17 @@ describe("SemanticIndexer", () => {
     expect(saves).toBe(2);
     expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["b.md", "c.md"]);
   });
+
+  it("noteVectors reads indexed vectors and never embeds", async () => {
+    const ctx = makeDeps({ "a.md": "cat", "b.md": "dog" });
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.build();
+    ctx.embedCalls.length = 0;
+    const vectors = await ix.noteVectors();
+    expect(vectors("a.md")).toEqual([1, 0, 0, 0, 0, 0]);
+    expect(vectors("missing.md")).toBeNull();
+    expect(ctx.embedCalls).toEqual([]);
+    const empty = await new SemanticIndexer(makeDeps({}).deps).noteVectors();
+    expect(empty("a.md")).toBeNull();
+  });
 });

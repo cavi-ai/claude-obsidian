@@ -63,7 +63,7 @@ class FakeEventSource {
 }
 
 interface FileCache {
-  tags?: Array<{ tag: string }>;
+  tags?: Array<{ tag: string; position?: { start: { offset: number }; end: { offset: number } } }>;
   frontmatter?: Record<string, unknown>;
 }
 
@@ -84,14 +84,17 @@ class FakeVault extends FakeEventSource {
   tags = new Map<string, string[]>();
   /** path -> frontmatter object */
   frontmatters = new Map<string, Record<string, unknown>>();
+  /** path -> inline tags with offsets (tag without #) */
+  inlineTags = new Map<string, Array<{ tag: string; start: number; end: number }>>();
 
   /** Test helper: seed a note. */
-  seed(path: string, content: string, opts: { mtime?: number; tags?: string[]; frontmatter?: Record<string, unknown> } = {}): TFile {
+  seed(path: string, content: string, opts: { mtime?: number; tags?: string[]; frontmatter?: Record<string, unknown>; inlineTags?: Array<{ tag: string; start: number; end: number }> } = {}): TFile {
     const p = normalizePath(path);
     const file = new TFile(p, content, opts.mtime ?? Date.now());
     this.files.set(p, file);
     if (opts.tags?.length) this.tags.set(p, opts.tags);
     if (opts.frontmatter) this.frontmatters.set(p, opts.frontmatter);
+    if (opts.inlineTags?.length) this.inlineTags.set(p, opts.inlineTags);
     const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
     if (dir) this.folders.add(dir);
     return file;
@@ -177,9 +180,15 @@ class FakeMetadataCache extends FakeEventSource {
   getFileCache(file: TFile): FileCache | null {
     const tags = this.vault.tags.get(file.path);
     const frontmatter = this.vault.frontmatters.get(file.path);
-    if (!tags && !frontmatter) return null;
+    const inline = this.vault.inlineTags.get(file.path);
+    if (!tags && !frontmatter && !inline) return null;
     const cache: FileCache = {};
-    if (tags) cache.tags = tags.map((t) => ({ tag: t.startsWith("#") ? t : `#${t}` }));
+    if (tags || inline) {
+      cache.tags = [
+        ...(tags ?? []).map((t) => ({ tag: t.startsWith("#") ? t : `#${t}` })),
+        ...(inline ?? []).map((t) => ({ tag: `#${t.tag}`, position: { start: { offset: t.start }, end: { offset: t.end } } })),
+      ];
+    }
     if (frontmatter) cache.frontmatter = frontmatter;
     return cache;
   }
