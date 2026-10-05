@@ -975,11 +975,11 @@ function str(v: unknown): string {
   if (typeof v !== "string" || v.length === 0) throw new Error("Expected a non-empty string argument.");
   return v;
 }
-/** Array.isArray narrows to any[]; this keeps the narrowed elements unknown. */
 function splitTagList(content: string): string[] {
   return content.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
 }
 
+/** Array.isArray narrows to any[]; this keeps the narrowed elements unknown. */
 function isUnknownArray(v: unknown): v is unknown[] {
   return Array.isArray(v);
 }
