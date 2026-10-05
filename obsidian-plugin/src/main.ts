@@ -3880,7 +3880,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       scan: (dismissed, onProgress) => {
         const indexer = this.indexer();
         return scanOrphans({
-          onProgress,
+          ...(onProgress ? { onProgress } : {}),
           notes: linkScanNotes(this.app, this.ontology()),
           edges: this.app.metadataCache.resolvedLinks,
           ontologyFolder: normalizePath(this.settings.ontologyFolder),
