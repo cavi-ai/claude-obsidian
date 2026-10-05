@@ -10,7 +10,6 @@ describe("FrontmatterModal", () => {
   it("marks tags new to the vault in the tags row", () => {
     const modal = new FrontmatterModal(new App(), "Note", { tags: ["llm", "brand-new"], newTags: ["brand-new"] }, "local", () => undefined);
     modal.onOpen();
-    const root = modal.contentEl as unknown as FakeElement;
     expect(texts(modal)).toContain("llm, brand-new (new)");
   });
 
