@@ -26,6 +26,7 @@ function harness(sections: HealthSection[]): { view: SystemView; deps: SystemVie
     catchUpIndex: vi.fn(async () => undefined),
     openInbox: vi.fn(async () => undefined),
     reviewSafeFixes: vi.fn(),
+    reviewTagMerges: vi.fn(),
     openSetupWizard: vi.fn(),
     openSettings: vi.fn(),
     openClipperSetup: vi.fn(),
@@ -176,5 +177,20 @@ describe("SystemView", () => {
     release({ sections: [section({ id: "links", title: "Broken links", count: 9, severity: "warning", items: [] })], scannedAt: "2026-10-01T00:00:00.000Z" });
     await first;
     expect(root(view).querySelector(".cc-system-links")).toBeNull();
+  });
+
+  it("tags section offers Review tag merges only when there are candidates, and refreshes after", async () => {
+    const withCandidates = harness([section({ id: "tags", title: "Tags", count: 2, severity: "info", items: [{ path: "", message: "2 merge candidates by name · 1 of 5 tags used once" }] })]);
+    await withCandidates.view.onOpen();
+    click(button(withCandidates.view, "Review tag merges"));
+    expect(withCandidates.deps.reviewTagMerges).toHaveBeenCalledTimes(1);
+    const done = (withCandidates.deps.reviewTagMerges as ReturnType<typeof vi.fn>).mock.calls[0]![0] as () => void;
+    done();
+    await settle();
+    expect(withCandidates.scan).toHaveBeenCalledTimes(2);
+
+    const none = harness([section({ id: "tags", title: "Tags", count: 0 })]);
+    await none.view.onOpen();
+    expect(root(none.view).querySelectorAll("button").find((b) => b.textContent === "Review tag merges")).toBeUndefined();
   });
 });

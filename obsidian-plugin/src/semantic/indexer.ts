@@ -76,6 +76,12 @@ export class SemanticIndexer {
     return this.store;
   }
 
+  /** Never embeds: reads vectors already in the index. */
+  async noteVectors(): Promise<(path: string) => number[] | null> {
+    const store = await this.ensureLoaded();
+    return (path) => store.noteVector(path);
+  }
+
   async stats(): Promise<{ notes: number; chunks: number }> {
     return (await this.ensureLoaded()).stats();
   }

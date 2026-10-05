@@ -117,7 +117,12 @@ import { normalizePublished, type PublishedItem } from "./publish/registry";
 import { CloudDispatchModal } from "./view/CloudDispatchModal";
 import { normalizeTags } from "./indexing/frontmatter";
 import { resolveTags } from "./tags/resolve";
-import { vaultVocabulary } from "./tags/vaultTags";
+import { vaultTagEntries, vaultVocabulary } from "./tags/vaultTags";
+import { formatApplyNotice, OptimizeController } from "./optimize/controller";
+import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
+import { openTagMergeReview } from "./optimize/review";
+import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
+import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
@@ -208,6 +213,7 @@ interface PersistedData {
   standingOrders?: unknown;
   orderEditQueue?: unknown;
   published?: unknown;
+  optimize?: unknown;
 }
 
 type UtilityFallbackConsentKey = Pick<UtilityFallbackConsentContext, "identity" | "destinationFingerprint">;
@@ -576,6 +582,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private ordersState: OrdersState = {};
   private orderEditQueue: QueuedEdit[] = [];
   private published: PublishedItem[] = [];
+  private optimizeState: OptimizeState = { dismissed: [] };
+  private _optimize?: OptimizeController;
   private _publish?: PublishController;
   private _standingOrders?: OrdersController;
   private ordersRefreshTimer: number | null = null;
@@ -917,6 +925,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       openSystem: () => void this.activateSystem(),
       exportClipperTemplates: () => void this.exportClipperTemplates(),
       seedOntology: () => void this.seedOntology(),
+      optimizeBrain: () => void this.reviewTagMerges(() => undefined),
       openSetupWizard: () => this.openSetupWizard(),
       publishNote: (file) => void this.publish().publishNote(file.path),
       copyPublishedLink: (file) => void this.publish().copyLink(file.path),
@@ -2215,6 +2224,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.ordersState = normalizeOrdersState(isNamespacedData(raw) ? raw.standingOrders : undefined);
     this.orderEditQueue = normalizeEditQueue(isNamespacedData(raw) ? raw.orderEditQueue : undefined);
     this.published = normalizePublished(isNamespacedData(raw) ? raw.published : undefined);
+    this.optimizeState = normalizeOptimizeState(isNamespacedData(raw) ? raw.optimize : undefined);
 
     // Any plaintext credential still in data.json moves to the secret store now,
     // then the file is rewritten without it. Must run after buildRuns is restored:
@@ -2242,6 +2252,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       standingOrders: this.ordersState,
       orderEditQueue: this.orderEditQueue,
       published: this.published,
+      optimize: this.optimizeState,
       ...this.build().serializeState(),
     })) as PersistedData;
     const result = (this.persistChain ?? Promise.resolve()).catch(() => {}).then(() => this.saveData(data));
@@ -3796,6 +3807,37 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (leaf) await workspace.revealLeaf(leaf);
   }
 
+  private optimizeController(): OptimizeController {
+    return (this._optimize ??= new OptimizeController({
+      tagEntries: () => vaultTagEntries(this.app),
+      noteVectors: async () => (await this.indexer()?.noteVectors()) ?? null,
+      noteTags: (path) => noteTagInput(this.app, path),
+      rewriteNote: (plan, map) => applyNoteMerge(this.app, plan, map),
+      orderTagTriggers: () => this.standingOrders().tagTriggers(),
+      writeRunNote: (content, now) => writeOptimizeRunNote(this.app, content, now),
+      getState: () => this.optimizeState,
+      setState: async (next) => {
+        this.optimizeState = next;
+        await this.persist();
+      },
+      now: () => new Date().toISOString(),
+    }));
+  }
+
+  private reviewTagMerges(done: () => void): Promise<void> {
+    const controller = this.optimizeController();
+    return openTagMergeReview({
+      scan: () => controller.scan(),
+      open: (candidates) =>
+        new OptimizeBrainModal(this.app, candidates, controller, (result) => {
+          if (result) new Notice(formatApplyNotice(result));
+          done();
+        }).open(),
+      notice: (text) => void new Notice(text),
+      done,
+    });
+  }
+
   private healthController(): HealthController {
     const repo = (): ResearchRepository => this.researchRepository();
     return new HealthController({
@@ -3815,6 +3857,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
           built: indexer ? (await indexer.stats()).notes > 0 : false,
           failed: failed.map((d) => ({ path: d.label, message: d.message })),
         };
+      },
+      tags: async () => {
+        const report = await this.optimizeController().scan({ semantic: false });
+        return { total: report.totalTags, singleUse: report.singleUse, candidates: report.candidates.length };
       },
       inboxPending: () => this.inboxPendingCount(),
       companion: () => ({
@@ -3847,6 +3893,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const chrome = this.companionChrome();
         return chrome.runActivityRecovery ? chrome.runActivityRecovery(activityId, id) : chrome.run({ id, page: "system", activityId });
       },
+      reviewTagMerges: (done) => void this.reviewTagMerges(done),
       reviewSafeFixes: (fixes, done) => new SafeFixModal(this.app, fixes, async (path, patch) => {
         const file = this.app.vault.getFileByPath(path);
         if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => { Object.assign(fm, patch); });

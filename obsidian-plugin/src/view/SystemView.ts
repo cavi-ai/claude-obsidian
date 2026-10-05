@@ -15,6 +15,7 @@ export interface SystemViewDeps {
   catchUpIndex(): Promise<void>;
   openInbox(): Promise<void>;
   reviewSafeFixes(fixes: SafeFix[], done: () => void): void;
+  reviewTagMerges(done: () => void): void;
   openSetupWizard(): void;
   openSettings(): void;
   openClipperSetup(): void;
@@ -143,6 +144,9 @@ export class SystemView extends ItemView {
         return;
       case "inbox":
         action("Open Inbox", () => this.deps.openInbox());
+        return;
+      case "tags":
+        if (section.count > 0) action("Review tag merges", () => this.deps.reviewTagMerges(() => void this.render()));
         return;
       case "links":
         return;
