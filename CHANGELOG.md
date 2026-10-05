@@ -4,6 +4,40 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] — 2026-10-05
+
+### Added
+- **Optimize brain: tag merges.** "Optimize brain: review tag merges" (command,
+  or Review tag merges in the System page's Tags section) scans the vault's
+  tags for near-duplicates by separator, plural, word order, nested leaf,
+  typo, and semantic-index neighbours. Each proposed merge can be checked,
+  swapped, or dismissed; dismissals persist. Apply rewrites frontmatter tag
+  lists and inline tags, changes only merged entries, and writes a run note
+  under `Claude/Optimize/`.
+- **Model check for tag merges.** Check with model sends uncertain merges to
+  a classifier model; merges it confirms start checked. Settings: Tag
+  classifier backend (same as utility tasks, Ollama, or an OpenAI-compatible
+  endpoint) and Tag classifier model. A request carries tag names and up to
+  three note titles per tag. With a local classifier the check also runs
+  after source enrichment, at most once a day, and shows one notice when it
+  proposes merges.
+- **Session dropdown.** History opens a dropdown with search and keyboard
+  navigation. Each chat's menu has Rename, Fork, Fork from summary, Distill,
+  Archive, and Delete. Archived chats sit behind Show archived and are kept
+  out of history pruning. Distill writes one `type: chat-summary` note; Save
+  chat to vault and `/save` become Distill this chat.
+
+### Changed
+- **New tags reuse vault tags.** The tagger, `/frontmatter`, Tidy, chat
+  auto-tag, source enrichment, and the MCP `note_create`, `update_frontmatter`,
+  and `note_patch` tools map a tag new to the vault onto an existing separator
+  or plural variant (`llms` → `llm`). Existing tags are never remapped.
+  Review modals mark tags new to the vault `(new)`.
+
+### Fixed
+- The ontology health check skips plugin-generated triage boards, standing
+  order run notes, and Optimize brain run notes.
+
 ## [0.40.0] — 2026-10-02
 
 ### Added
