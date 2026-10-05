@@ -1,4 +1,5 @@
 import { App, TFile, normalizePath, getAllTags, requestUrl, parseYaml } from "obsidian";
+import { vaultTagEntries } from "../tags/vaultTags";
 import type { McpToolDef } from "./protocol";
 import { tokenize } from "../context/search";
 import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from "../context/hybridSearch";
@@ -663,13 +664,8 @@ export class VaultTools {
 
   private async tags(): Promise<string> {
     const counts = new Map<string, number>();
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const cache = this.app.metadataCache.getFileCache(file);
-      if (!cache) continue;
-      for (const t of getAllTags(cache) ?? []) {
-        const tag = t.replace(/^#/, "");
-        counts.set(tag, (counts.get(tag) ?? 0) + 1);
-      }
+    for (const entry of vaultTagEntries(this.app)) {
+      for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
     if (counts.size === 0) return "No tags in the vault yet.";
     return Array.from(counts.entries())

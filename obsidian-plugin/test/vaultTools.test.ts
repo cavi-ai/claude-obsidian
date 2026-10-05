@@ -725,3 +725,17 @@ describe("memory_record", () => {
     expect(read(app)).toContain("Second fact");
   });
 });
+
+describe("vault_tags output", () => {
+  it("lists tags by descending note count, one line each, raw casing kept", async () => {
+    const { app, vt } = tools(false);
+    app.vault.seed("T/A.md", "a", { tags: ["llm", "Rust"] });
+    app.vault.seed("T/B.md", "b", { tags: ["llm"] });
+    app.vault.seed("T/C.md", "c", { frontmatter: { tags: ["llm", "solo"] } });
+    expect(await vt.call("vault_tags", {})).toBe("- #llm (3)\n- #Rust (1)\n- #solo (1)");
+  });
+
+  it("says so when the vault has no tags", async () => {
+    expect(await tools(false).vt.call("vault_tags", {})).toBe("No tags in the vault yet.");
+  });
+});
