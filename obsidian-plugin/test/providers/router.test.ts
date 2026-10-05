@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, it, expect, vi } from "vitest";
 import { ProviderRouter, migrateUtilityBackend } from "../../src/providers/router";
+import { UtilityUnavailableError } from "../../src/providers/endpointPolicy";
 import { resolveModelId } from "../../src/claude/models";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import type { Provider } from "../../src/providers/types";
@@ -439,5 +440,76 @@ describe("ProviderRouter research model", () => {
     const api = new ProviderRouter(settings({ researchModel: "claude", model: "claude-sonnet-4-6" }));
     expect(api.researchStatus()).toEqual({ model: "claude", providerLabel: "Claude API", modelId: resolveModelId("claude-sonnet-4-6", ""), available: true });
     expect(new ProviderRouter(settings({ researchModel: "off" })).researchStatus().model).toBe("off");
+  });
+});
+
+describe("ProviderRouter.classifierSelection", () => {
+  it("utility backend returns exactly the utility selection (no second path)", async () => {
+    const r0 = settings({ classifierBackend: "utility", classifierModel: "ignored" });
+    const pinned = { provider: new ProviderRouter(r0).ollama, model: "pinned" };
+    const resolver = vi.fn(async () => pinned);
+    const r = new ProviderRouter(r0, resolver);
+    expect(await r.classifierSelection({ isMobile: false })).toBe(pinned);
+    expect(resolver).toHaveBeenCalledTimes(1);
+  });
+
+  it("utility backend surfaces the utility resolver rejection", async () => {
+    const r = new ProviderRouter(settings({ classifierBackend: "utility" }), async () => { throw new Error("gated"); });
+    await expect(r.classifierSelection({ isMobile: true })).rejects.toThrow("gated");
+  });
+
+  it("ollama uses classifierModel when set, else the utility model, else the chat model", async () => {
+    const base = { classifierBackend: "ollama" as const, ollamaModel: "chat", ollamaUtilityModel: "util" };
+    const set = new ProviderRouter(settings({ ...base, classifierModel: "  big:7b " }));
+    expect((await set.classifierSelection({ isMobile: false })).model).toBe("big:7b");
+    const util = new ProviderRouter(settings(base));
+    expect((await util.classifierSelection({ isMobile: false })).model).toBe("util");
+    const chat = new ProviderRouter(settings({ ...base, ollamaUtilityModel: "" }));
+    const sel = await chat.classifierSelection({ isMobile: false });
+    expect(sel.model).toBe("chat");
+    expect(sel.provider.id).toBe("ollama");
+  });
+
+  it("custom uses classifierModel or the endpoint model", async () => {
+    const base = { classifierBackend: "custom" as const, openaiCompatHost: "http://localhost:1234", openaiCompatModel: "mlx" };
+    expect((await new ProviderRouter(settings(base)).classifierSelection({ isMobile: false })).model).toBe("mlx");
+    const sel = await new ProviderRouter(settings({ ...base, classifierModel: "other" })).classifierSelection({ isMobile: false });
+    expect(sel.model).toBe("other");
+    expect(sel.provider.id).toBe("openai-compat");
+  });
+
+  it("ollama/custom never fall back to Claude: mobile loopback and invalid hosts throw", async () => {
+    const mobileLoop = new ProviderRouter(settings({ classifierBackend: "ollama", ollamaHost: "http://localhost:11434" }));
+    await expect(mobileLoop.classifierSelection({ isMobile: true })).rejects.toBeInstanceOf(UtilityUnavailableError);
+    const invalid = new ProviderRouter(settings({ classifierBackend: "custom", openaiCompatHost: "" }));
+    await expect(invalid.classifierSelection({ isMobile: false })).rejects.toBeInstanceOf(UtilityUnavailableError);
+  });
+
+  it("mobile with a LAN host is allowed", async () => {
+    const r = new ProviderRouter(settings({ classifierBackend: "ollama", ollamaHost: "http://192.168.1.5:11434" }));
+    expect((await r.classifierSelection({ isMobile: true })).endpoint).toBe("http://192.168.1.5:11434");
+  });
+});
+
+describe("ProviderRouter.classifierRunsLocally", () => {
+  const local = async (o: Partial<PluginSettings>, resolver?: () => Promise<{ provider: Provider; model: string; endpoint?: string }>) =>
+    new ProviderRouter(settings(o), resolver).classifierRunsLocally({ isMobile: false });
+
+  it("true for loopback and LAN, false for remote", async () => {
+    expect(await local({ classifierBackend: "ollama", ollamaHost: "http://localhost:11434" })).toBe(true);
+    expect(await local({ classifierBackend: "ollama", ollamaHost: "http://10.0.0.4:11434" })).toBe(true);
+    expect(await local({ classifierBackend: "custom", openaiCompatHost: "https://models.example.com/v1" })).toBe(false);
+  });
+
+  it("false for the Anthropic utility provider and when unavailable", async () => {
+    const r = new ProviderRouter(settings({ classifierBackend: "utility" }));
+    expect(await local({ classifierBackend: "utility" }, async () => ({ provider: r.anthropic, model: "m", endpoint: "http://localhost:1" }))).toBe(false);
+    expect(await local({ classifierBackend: "utility" }, async () => { throw new Error("x"); })).toBe(false);
+    expect(await local({ classifierBackend: "custom", openaiCompatHost: "" })).toBe(false);
+  });
+
+  it("true for a utility selection on a local Ollama", async () => {
+    const r = new ProviderRouter(settings({}));
+    expect(await local({ classifierBackend: "utility" }, async () => ({ provider: r.ollama, model: "m", endpoint: "http://localhost:11434" }))).toBe(true);
   });
 });

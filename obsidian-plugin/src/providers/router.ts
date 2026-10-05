@@ -14,6 +14,9 @@ import { resolveModelId } from "../claude/models";
 import {
   resolveUtilityForRuntime as applyUtilityRuntimePolicy,
   sanitizeEndpointForDisplay,
+  classifyEndpoint,
+  UtilityUnavailableError,
+  type UnavailableUtilityResolution,
   type UtilityFallbackApproval,
   type UtilityRuntimeResolution,
 } from "./endpointPolicy";
@@ -299,6 +302,34 @@ export class ProviderRouter {
       throw new Error("Utility completion requires a runtime resolver; use completeResolved with an explicitly approved selection.");
     }
     return this.utilitySelectionResolver();
+  }
+
+  /** Classifier model: the utility selection, or a dedicated local backend that never falls back to Claude. */
+  async classifierSelection(input: { isMobile: boolean }): Promise<ProviderSelection> {
+    const backend = this.settings.classifierBackend;
+    if (backend === "utility") return this.utilitySelection();
+    const host = backend === "ollama" ? this.settings.ollamaHost : this.settings.openaiCompatHost;
+    const resolution = applyUtilityRuntimePolicy({ backend, endpoint: host, isMobile: input.isMobile, claudeAvailable: false });
+    if (resolution.state !== "configured-provider") {
+      throw new UtilityUnavailableError("The tag classifier endpoint is unavailable and does not fall back to Claude.", resolution as UnavailableUtilityResolution);
+    }
+    const override = this.settings.classifierModel.trim();
+    const provider = backend === "ollama" ? this.ollama : this.openaiCompat;
+    const model = override || (backend === "ollama" ? this.ollamaUtilityModel() : this.settings.openaiCompatModel);
+    return { provider, model, endpoint: sanitizeEndpointForDisplay(host) };
+  }
+
+  /** True only when the classifier is a non-Anthropic provider on a loopback, wildcard-local or LAN host. */
+  async classifierRunsLocally(input: { isMobile: boolean }): Promise<boolean> {
+    try {
+      const selection = await this.classifierSelection(input);
+      if (selection.provider.id === "anthropic" || !selection.endpoint) return false;
+      const kind = classifyEndpoint(selection.endpoint);
+      return kind === "loopback" || kind === "wildcard-local" || kind === "lan";
+    } catch (e) {
+      console.debug("Claude Companion: classifier unavailable", e);
+      return false;
+    }
   }
 
   /**
