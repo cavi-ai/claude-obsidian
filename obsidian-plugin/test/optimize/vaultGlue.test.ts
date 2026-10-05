@@ -69,6 +69,41 @@ describe("applyNoteMerge", () => {
   });
 });
 
+describe("applyNoteMerge by vault spelling", () => {
+  it("rewrites a capitalized Tags key", async () => {
+    const { app } = seeded("---\nTags:\n  - llms\n---\nbody\n", undefined);
+    (app.vault as never as { frontmatters: Map<string, unknown> }).frontmatters.set("N.md", { Tags: ["llms"] });
+    const map = new Map([["llms", "llm"]]);
+    const [plan] = planTagMerges(map, [noteTagInput(app, "N.md")!]);
+    await applyNoteMerge(app, plan!, map);
+    const out = await read(app as never, "N.md");
+    expect(out).toContain("Tags:");
+    expect(out).toContain("\"llm\"");
+    expect(out).not.toContain("llms");
+  });
+
+  it("keeps null and numeric list entries untouched", async () => {
+    const { app } = seeded("body\n", undefined);
+    const fm: Record<string, unknown> = { tags: ["llms", null, 2024] };
+    (app.vault as never as { frontmatters: Map<string, unknown> }).frontmatters.set("N.md", fm);
+    (app.fileManager as never as { processFrontMatter: unknown }).processFrontMatter = async (_f: unknown, fn: (o: Record<string, unknown>) => void) => fn(fm);
+    const map = new Map([["llms", "llm"]]);
+    const [plan] = planTagMerges(map, [noteTagInput(app, "N.md")!]);
+    await applyNoteMerge(app, plan!, map);
+    expect(fm.tags).toEqual(["llm", null, 2024]);
+  });
+
+  it("rewrites an inline emoji tag by its own spelling", async () => {
+    const content = "see #📚books here\n";
+    const { app } = seeded(content, undefined);
+    (app.vault as never as { inlineTags: Map<string, unknown> }).inlineTags.set("N.md", [{ tag: "📚books", start: 4, end: 4 + "#📚books".length }]);
+    const map = new Map([["📚books", "📚book"]]);
+    const [plan] = planTagMerges(map, [noteTagInput(app, "N.md")!]);
+    await applyNoteMerge(app, plan!, map);
+    expect(await read(app as never, "N.md")).toBe("see #📚book here\n");
+  });
+});
+
 describe("writeOptimizeRunNote", () => {
   it("creates the note under Claude/Optimize and never overwrites", async () => {
     const app = new App() as never as import("obsidian").App;

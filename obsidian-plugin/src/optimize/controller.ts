@@ -1,5 +1,4 @@
-import { normalizeTag } from "../indexing/frontmatter";
-import { buildVocabulary } from "../tags/vocabulary";
+import { buildVocabulary, tagId } from "../tags/vocabulary";
 import {
   collapseMerges,
   planTagMerges,
@@ -39,7 +38,7 @@ export class OptimizeController {
   constructor(private deps: OptimizeDeps) {}
 
   async scan(opts: { semantic?: boolean } = {}): Promise<TagScanReport> {
-    const vocab = buildVocabulary(this.deps.tagEntries());
+    const vocab = buildVocabulary(this.deps.tagEntries(), tagId);
     let centroid: ((tag: string) => number[] | null) | undefined;
     if (opts.semantic !== false) {
       try {
@@ -60,7 +59,7 @@ export class OptimizeController {
 
   async apply(merges: Array<{ from: string; to: string }>): Promise<ApplyResult> {
     const { map, cycles } = collapseMerges(merges);
-    const vocab = buildVocabulary(this.deps.tagEntries());
+    const vocab = buildVocabulary(this.deps.tagEntries(), tagId);
     const paths = new Set<string>();
     for (const from of map.keys()) for (const path of vocab.get(from)?.notes ?? []) paths.add(path);
     const inputs: NoteTagInput[] = [];
@@ -74,7 +73,7 @@ export class OptimizeController {
     for (const plan of plans) {
       const touched = new Set<string>();
       for (const tag of plan.before) {
-        const key = normalizeTag(tag);
+        const key = tagId(tag);
         if (map.has(key)) touched.add(key);
       }
       for (const edit of plan.inline) touched.add(edit.from);

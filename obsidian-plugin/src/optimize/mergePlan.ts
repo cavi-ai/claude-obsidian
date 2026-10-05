@@ -1,4 +1,5 @@
-import { buildFrontmatter, normalizeTag } from "../indexing/frontmatter";
+import { buildFrontmatter } from "../indexing/frontmatter";
+import { tagId } from "../tags/vocabulary";
 
 export interface NoteTagInput {
   path: string;
@@ -19,8 +20,8 @@ const wikiTarget = (path: string) => path.replace(/\.md$/i, "");
 export function collapseMerges(merges: Array<{ from: string; to: string }>): { map: Map<string, string>; cycles: string[][] } {
   const direct = new Map<string, string>();
   for (const m of merges) {
-    const from = normalizeTag(m.from);
-    const to = normalizeTag(m.to);
+    const from = tagId(m.from);
+    const to = tagId(m.to);
     if (!from || !to || from === to || direct.has(from)) continue;
     direct.set(from, to);
   }
@@ -52,19 +53,30 @@ export function collapseMerges(merges: Array<{ from: string; to: string }>): { m
   return { map, cycles };
 }
 
-export function mapTagList(tags: string[], map: ReadonlyMap<string, string>): { tags: string[]; changed: boolean } {
-  const out: string[] = [];
-  const seen = new Set<string>();
+function entryId(entry: unknown): string | null {
+  return typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean" ? tagId(String(entry)) : null;
+}
+
+export function mapTagList(entries: unknown[], map: ReadonlyMap<string, string>): { tags: unknown[]; changed: boolean } {
+  const keep = new Set<string>();
+  for (const entry of entries) {
+    const id = entryId(entry);
+    if (id !== null && !map.has(id)) keep.add(id);
+  }
+  const out: unknown[] = [];
+  const emitted = new Set<string>();
   let changed = false;
-  for (const entry of tags) {
-    const key = normalizeTag(entry);
-    const target = map.get(key);
-    if (target !== undefined) changed = true;
-    const value = target ?? entry;
-    const norm = target ?? key;
-    if (seen.has(norm)) continue;
-    seen.add(norm);
-    out.push(value);
+  for (const entry of entries) {
+    const id = entryId(entry);
+    if (id === null || !map.has(id)) {
+      out.push(entry);
+      continue;
+    }
+    changed = true;
+    const target = map.get(id) as string;
+    if (keep.has(target) || emitted.has(target)) continue;
+    emitted.add(target);
+    out.push(target);
   }
   return { tags: out, changed };
 }
@@ -73,14 +85,15 @@ export function planTagMerges(map: ReadonlyMap<string, string>, notes: NoteTagIn
   const plans: NoteMergePlan[] = [];
   for (const note of notes) {
     const mapped = mapTagList(note.frontmatterTags, map);
+    const after = mapped.tags as string[];
     const inline: NoteMergePlan["inline"] = [];
     for (const t of note.inline) {
-      const from = normalizeTag(t.tag);
+      const from = tagId(t.tag);
       const to = map.get(from);
       if (to !== undefined) inline.push({ start: t.start, end: t.end, from, to });
     }
     if (!mapped.changed && inline.length === 0) continue;
-    plans.push({ path: note.path, before: note.frontmatterTags, after: mapped.tags, inline });
+    plans.push({ path: note.path, before: note.frontmatterTags, after, inline });
   }
   return plans;
 }

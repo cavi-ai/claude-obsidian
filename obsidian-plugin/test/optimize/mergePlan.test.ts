@@ -40,12 +40,22 @@ describe("mapTagList", () => {
     expect(mapTagList(["llms", "llm", "My_Tag"], map)).toEqual({ tags: ["llm", "My_Tag"], changed: true });
   });
 
-  it("looks up by normalized value", () => {
+  it("looks up by tag id", () => {
     expect(mapTagList(["#LLMs"], map)).toEqual({ tags: ["llm"], changed: true });
   });
 
-  it("reports unchanged when nothing is mapped, even with duplicate unmapped entries", () => {
-    expect(mapTagList(["Foo", "foo"], map)).toEqual({ tags: ["Foo"], changed: false });
+  it("never removes or retypes an unmapped entry", () => {
+    expect(mapTagList(["llms", "🌱", "📥"], map)).toEqual({ tags: ["llm", "🌱", "📥"], changed: true });
+    expect(mapTagList(["LLMs", "x", "x"], map)).toEqual({ tags: ["llm", "x", "x"], changed: true });
+    expect(mapTagList(["llms", null, 2024], map)).toEqual({ tags: ["llm", null, 2024], changed: true });
+    expect(mapTagList(["a", "b"], map)).toEqual({ tags: ["a", "b"], changed: false });
+    expect(mapTagList(["Foo", "foo"], map)).toEqual({ tags: ["Foo", "foo"], changed: false });
+  });
+
+  it("drops a mapped entry whose target is kept or already emitted", () => {
+    expect(mapTagList(["llms", "llm"], map)).toEqual({ tags: ["llm"], changed: true });
+    const two = new Map([["llms", "llm"], ["llmz", "llm"]]);
+    expect(mapTagList(["llms", "llmz"], two)).toEqual({ tags: ["llm"], changed: true });
   });
 });
 

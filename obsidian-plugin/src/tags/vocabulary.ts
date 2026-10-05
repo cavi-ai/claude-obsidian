@@ -8,11 +8,18 @@ export interface TagStat {
 
 export type Vocabulary = ReadonlyMap<string, TagStat>;
 
-export function buildVocabulary(files: Array<{ path: string; tags: string[] }>): Vocabulary {
+export function tagId(raw: string): string {
+  return raw.trim().replace(/^#+/, "").toLowerCase();
+}
+
+export function buildVocabulary(
+  files: Array<{ path: string; tags: string[] }>,
+  key: (raw: string) => string = normalizeTag,
+): Vocabulary {
   const notes = new Map<string, Set<string>>();
   for (const file of files) {
     for (const raw of file.tags) {
-      const tag = normalizeTag(raw);
+      const tag = key(raw);
       if (tag.length === 0) continue;
       let set = notes.get(tag);
       if (!set) notes.set(tag, (set = new Set()));

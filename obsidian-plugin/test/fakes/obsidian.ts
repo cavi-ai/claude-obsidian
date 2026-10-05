@@ -72,8 +72,11 @@ export function getAllTags(cache: FileCache | null): string[] | null {
   if (!cache) return null;
   const out: string[] = [];
   for (const t of cache.tags ?? []) out.push(t.tag);
-  const fm = cache.frontmatter?.tags;
-  if (Array.isArray(fm)) for (const t of fm) out.push(String(t).startsWith("#") ? String(t) : `#${t}`);
+  for (const [key, value] of Object.entries(cache.frontmatter ?? {})) {
+    if (!/^tags?$/i.test(key)) continue;
+    const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[\s,]+/).filter(Boolean) : [];
+    for (const t of list) out.push(String(t).startsWith("#") ? String(t) : `#${t}`);
+  }
   return out;
 }
 

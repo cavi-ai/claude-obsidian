@@ -1,7 +1,9 @@
 import { TFile, type App } from "obsidian";
-import { normalizeTag } from "../indexing/frontmatter";
+import { tagId } from "../tags/vocabulary";
 import { ensureVaultFolder, uniqueNotePath } from "../vault/vaultFiles";
 import { mapTagList, OPTIMIZE_OUTPUT_ROOT, rewriteInlineTags, type NoteMergePlan, type NoteTagInput } from "./mergePlan";
+
+const TAG_KEY = /^tags?$/i;
 
 function tagValues(value: unknown): string[] | null {
   if (Array.isArray(value)) return value.map(String);
@@ -19,7 +21,8 @@ export function noteTagInput(app: App, path: string): NoteTagInput | null {
   if (!file) return null;
   const cache = app.metadataCache.getFileCache(file);
   const fm = cache?.frontmatter as Record<string, unknown> | undefined;
-  const frontmatterTags = [...(tagValues(fm?.tags) ?? []), ...(tagValues(fm?.tag) ?? [])];
+  const frontmatterTags: string[] = [];
+  for (const [key, value] of Object.entries(fm ?? {})) if (TAG_KEY.test(key)) frontmatterTags.push(...(tagValues(value) ?? []));
   const inline: NoteTagInput["inline"] = [];
   for (const t of cache?.tags ?? []) {
     if (!t.position) continue;
@@ -45,13 +48,14 @@ export async function applyNoteMerge(
       return result.content;
     });
   }
-  if (plan.before.some((t) => map.has(normalizeTag(t)))) {
+  if (plan.before.some((t) => map.has(tagId(t)))) {
     await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-      for (const key of ["tags", "tag"]) {
+      for (const key of Object.keys(fm)) {
+        if (!TAG_KEY.test(key)) continue;
         const current = fm[key];
-        const values = tagValues(current);
-        if (!values) continue;
-        const mapped = mapTagList(values, map);
+        const entries = Array.isArray(current) ? current : typeof current === "string" ? current.split(/[\s,]+/).filter(Boolean) : null;
+        if (!entries) continue;
+        const mapped = mapTagList(entries, map);
         if (mapped.changed) fm[key] = Array.isArray(current) ? mapped.tags : mapped.tags.join(", ");
       }
     });

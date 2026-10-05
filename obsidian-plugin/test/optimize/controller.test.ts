@@ -71,6 +71,55 @@ describe("OptimizeController.scan", () => {
   });
 });
 
+describe("OptimizeController tag identity", () => {
+  const many = (tag: string, n: number, prefix: string) =>
+    Object.fromEntries(Array.from({ length: n }, (_, i) => [`${prefix}${i}.md`, { fm: [tag] }]));
+
+  it("pairs emoji tags by their own spelling", async () => {
+    const { controller } = setup({}, { ...many("📚book", 4, "b"), ...many("📚books", 1, "s") });
+    const report = await controller.scan();
+    expect(report.candidates).toMatchObject([{ from: "📚books", to: "📚book", evidence: ["plural"] }]);
+  });
+
+  it("does not pair unrelated non-latin tags", async () => {
+    const { controller } = setup({}, { ...many("हिंदी", 3, "h"), ...many("हद", 1, "d") });
+    expect((await controller.scan()).candidates).toEqual([]);
+  });
+
+  it("keeps a numeric-looking tag's own spelling", async () => {
+    const { controller } = setup({}, { ...many("2024-01", 3, "h"), ...many("2024_01", 1, "d") });
+    expect((await controller.scan()).candidates).toMatchObject([{ from: "2024_01", to: "2024-01" }]);
+  });
+
+  it("every candidate side is the tagId of some entry tag", async () => {
+    const notes = { ...many("📚book", 4, "b"), ...many("#LLMs", 1, "l"), ...many("llm", 3, "m"), ...many("2024_01", 1, "d"), ...many("2024-01", 3, "e") };
+    const { controller } = setup({}, notes);
+    const ids = new Set(["📚book", "llms", "llm", "2024_01", "2024-01"]);
+    const report = await controller.scan();
+    expect(report.candidates.length).toBeGreaterThan(0);
+    for (const c of report.candidates) {
+      expect(ids.has(c.from)).toBe(true);
+      expect(ids.has(c.to)).toBe(true);
+    }
+  });
+
+  it("plans the written spelling for a merge selected from the scan", async () => {
+    const plans: string[][] = [];
+    const { controller } = setup(
+      {
+        noteTags: (path) => ({ path, frontmatterTags: ["📚books"], inline: [] }),
+        rewriteNote: async (plan) => {
+          plans.push(plan.after);
+          return { inlineApplied: 0, inlineSkipped: 0 };
+        },
+      },
+      { "s0.md": { fm: ["📚books"] } },
+    );
+    await controller.apply([{ from: "📚books", to: "📚book" }]);
+    expect(plans).toEqual([["📚book"]]);
+  });
+});
+
 describe("OptimizeController.apply", () => {
   it("rewrites the union of the from-tags' notes, writes one run note, reports counts", async () => {
     const { controller, rewritten, writes } = setup({}, NOTES);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildVocabulary, selectPromptTags } from "../../src/tags/vocabulary";
+import { buildVocabulary, selectPromptTags, tagId } from "../../src/tags/vocabulary";
 
 describe("buildVocabulary", () => {
   it("keys by normalized tag and counts distinct notes", () => {
@@ -12,6 +12,17 @@ describe("buildVocabulary", () => {
     expect(vocab.get("machine-learning")?.count).toBe(1);
     expect(vocab.has("")).toBe(false);
     expect(vocab.size).toBe(2);
+  });
+});
+
+describe("tagId", () => {
+  it("only trims, strips leading hashes, and lowercases", () => {
+    expect(tagId("#LLMs ")).toBe("llms");
+  });
+
+  it("keeps spellings normalizeTag would collapse as separate vocabulary keys", () => {
+    const vocab = buildVocabulary([{ path: "a.md", tags: ["📚books", "📚book"] }], tagId);
+    expect([...vocab.keys()].sort()).toEqual(["📚book", "📚books"]);
   });
 });
 
