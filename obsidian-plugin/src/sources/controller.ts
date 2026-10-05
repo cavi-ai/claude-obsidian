@@ -41,6 +41,7 @@ export function sourceActivityDetail(value: string): string {
 
 export interface SourceEnrichmentControllerDeps {
   settings: () => PluginSettings;
+  resolveTags: (tags: string[]) => string[];
   saveSettings: () => Promise<void>;
   isMobile: boolean;
   mobileSourceNoteMaxBytes: number;
@@ -236,7 +237,7 @@ export class SourceEnrichmentController {
         summary: enrichment.summary,
         ...(enrichment.key_claims ? { key_claims: enrichment.key_claims } : {}),
         ...(enrichment.topics ? { topics: enrichment.topics } : {}),
-        tags: [...this.deps.settings().sourceBaseTags, ...(enrichment.topics ?? [])],
+        tags: [...this.deps.settings().sourceBaseTags, ...this.resolveTopics(enrichment.topics ?? [])],
         enriched_by: enrichDeps.enrichedBy,
       });
       this.deps.assertUtilityLifecycleActive(lifecycleGeneration);
@@ -411,6 +412,10 @@ export class SourceEnrichmentController {
     this.enrichRecentlyWrittenExpiryTimers.set(path, timer);
   }
 
+  private resolveTopics(topics: string[]): string[] {
+    return topics.length === 0 ? [] : this.deps.resolveTags(topics);
+  }
+
   buildEnrichDeps(
     selection: ProviderSelection,
     lifecycleGeneration = this.deps.utilityLifecycleGeneration(),
@@ -434,6 +439,7 @@ export class SourceEnrichmentController {
       },
       overrides: this.deps.settings().sourceSchemaOverrides,
       baseTags: this.deps.settings().sourceBaseTags,
+      resolveTags: this.deps.resolveTags,
       enrichedBy: selection.provider.id === "anthropic" ? "claude" : "local",
       now: () => new Date().toISOString(),
       assertActive: () => this.deps.assertUtilityLifecycleActive(lifecycleGeneration),
