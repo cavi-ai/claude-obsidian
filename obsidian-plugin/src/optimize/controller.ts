@@ -50,7 +50,7 @@ export class OptimizeController {
         centroid = undefined;
       }
     }
-    return scanTags({ vocab, centroid, dismissed: new Set(this.deps.getState().dismissed) });
+    return scanTags({ vocab, ...(centroid ? { centroid } : {}), dismissed: new Set(this.deps.getState().dismissed) });
   }
 
   async apply(merges: Array<{ from: string; to: string }>): Promise<ApplyResult> {
