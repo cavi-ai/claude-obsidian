@@ -526,6 +526,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       assertUtilityLifecycleActive: (g) => this.assertUtilityLifecycleActive(g),
       utilityLifecycleEnded: () => this.utilityLifecycleEnded,
       utilityLifecycleGeneration: () => this.utilityLifecycleGeneration ?? 0,
+      onEnrichQueueIdle: () => void this.checkTagMergesInBackground(),
       notice: (msg, timeout) => new Notice(msg, timeout),
       openChoiceModal: (opts) => { const m = new ChoiceModal(this.app, opts); m.open(); return m; },
     }));
@@ -3853,6 +3854,17 @@ export default class ClaudeCompanionPlugin extends Plugin {
         };
       },
     }));
+  }
+
+  private async checkTagMergesInBackground(): Promise<void> {
+    try {
+      const result = await this.optimizeController().classify({ background: true });
+      if (result.merge > 0) {
+        new Notice(`Tag check: ${result.merge} ${result.merge === 1 ? "merge" : "merges"} proposed. Run "Optimize brain: review tag merges".`);
+      }
+    } catch (error) {
+      console.debug("Claude Companion: background tag check failed", error);
+    }
   }
 
   private reviewTagMerges(done: () => void): Promise<void> {

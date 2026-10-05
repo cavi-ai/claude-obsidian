@@ -70,6 +70,7 @@ export interface SourceEnrichmentControllerDeps {
   utilityLifecycleEnded: () => boolean;
   utilityLifecycleGeneration: () => number;
 
+  onEnrichQueueIdle: () => void;
   notice: (msg: string, timeout?: number) => void;
   openChoiceModal: (opts: {
     title: string;
@@ -168,6 +169,13 @@ export class SourceEnrichmentController {
       release();
       this.enrichQueueRunning = false;
       if (!this.deps.utilityLifecycleEnded() && this.enrichPending.size > 0) void this.drainEnrichQueue();
+      else if (!this.deps.utilityLifecycleEnded()) {
+        try {
+          this.deps.onEnrichQueueIdle();
+        } catch (error) {
+          console.debug("[companion] enrichment idle hook failed", error);
+        }
+      }
     }
   }
 
