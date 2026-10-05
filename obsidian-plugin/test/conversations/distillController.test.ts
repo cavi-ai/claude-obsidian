@@ -24,6 +24,7 @@ function harness(c: Conversation | undefined, replies: Array<string | Error>, fi
       return next;
     },
     exists: (p) => files.has(p),
+    resolveLink: (link) => (link === "Note" ? "Projects/Note.md" : null),
     write: async (existing, folder, title, content, created) => {
       writes.push({ existing, folder, title, content, created });
       const path = existing ?? `${folder}/${created} — ${title}.md`;
@@ -63,8 +64,27 @@ describe("DistillController", () => {
     const key = `sk-ant-api03-${"a".repeat(40)}`;
     const h = harness(convo({ messages: [{ role: "user", content: key }] }), [reply]);
     await h.controller.distill("c1");
-    expect(h.notices[0]).toMatch(/ · 1 secrets redacted$/);
+    expect(h.notices[0]).toMatch(/ · 1 secret redacted$/);
     expect(h.calls[0]?.user).not.toContain("sk-ant-");
+  });
+
+  it("pluralizes the redaction count", async () => {
+    const key = (c: string) => `sk-ant-api03-${c.repeat(40)}`;
+    const h = harness(convo({ messages: [{ role: "user", content: `${key("a")} ${key("b")}` }] }), [reply]);
+    await h.controller.distill("c1");
+    expect(h.notices[0]).toMatch(/ · 2 secrets redacted$/);
+  });
+
+  it("disables thinking on the request and the retry", async () => {
+    const h = harness(convo(), ["not json", reply]);
+    await h.controller.distill("c1");
+    expect(h.calls.map((c) => c.thinking)).toEqual([{ type: "disabled" }, { type: "disabled" }]);
+  });
+
+  it("lists notes the chat linked by bare wikilink under their resolved path", async () => {
+    const h = harness(convo({ messages: [{ role: "user", content: "see [[Note]]" }] }), [reply]);
+    await h.controller.distill("c1");
+    expect(h.writes[0]?.content).toContain("[[Projects/Note]]");
   });
 
   it("re-distill overwrites the existing note in place", async () => {

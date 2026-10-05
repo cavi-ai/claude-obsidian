@@ -74,10 +74,13 @@ describe("parseDistill", () => {
 });
 
 describe("notesTouched", () => {
-  const existing = new Set(["Notes/A.md", "Notes/B.md", "Notes/C.md"]);
-  const exists = (p: string): boolean => existing.has(p);
+  const files = new Map([["Notes/A", "Notes/A.md"], ["Notes/B", "Notes/B.md"], ["Notes/C", "Notes/C.md"], ["Note", "Projects/Note.md"]]);
+  const resolve = (link: string): string | null => {
+    const bare = link.replace(/\.md$/, "");
+    return files.get(bare) ?? (link.endsWith(".md") && [...files.values()].includes(link) ? link : null);
+  };
 
-  it("collects tool paths and wikilinks, existing only, deduped", () => {
+  it("collects tool paths and wikilinks through resolve, existing only, deduped", () => {
     const messages: ChatMessage[] = [
       {
         role: "assistant",
@@ -90,12 +93,26 @@ describe("notesTouched", () => {
         ],
       },
     ];
-    expect(notesTouched(messages, exists)).toEqual(["Notes/A.md", "Notes/C.md", "Notes/B.md"]);
+    expect(notesTouched(messages, resolve)).toEqual(["Notes/A.md", "Notes/C.md", "Notes/B.md"]);
+  });
+
+  it("resolves a bare wikilink to a subfolder note's full path and drops unresolvable links", () => {
+    const messages: ChatMessage[] = [{ role: "assistant", content: "[[Note]] [[Nowhere]] [[Note#Heading]]" }];
+    expect(notesTouched(messages, resolve)).toEqual(["Projects/Note.md"]);
+  });
+
+  it("passes wikilink text without .md and tool paths as-is", () => {
+    const seen: string[] = [];
+    notesTouched(
+      [{ role: "assistant", content: "[[Notes/A.md]]", toolTrace: [{ name: "note_read", argsSummary: '{"path":"Notes/B.md"}', resultPreview: "", ok: true }] }],
+      (link) => { seen.push(link); return null; },
+    );
+    expect(seen).toEqual(["Notes/B.md", "Notes/A"]);
   });
 
   it("caps at 30", () => {
     const messages: ChatMessage[] = [{ role: "assistant", content: Array.from({ length: 40 }, (_, i) => `[[N${i}]]`).join(" ") }];
-    expect(notesTouched(messages, () => true)).toHaveLength(30);
+    expect(notesTouched(messages, (link) => `${link}.md`)).toHaveLength(30);
   });
 });
 

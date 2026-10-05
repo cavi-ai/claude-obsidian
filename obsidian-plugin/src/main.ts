@@ -254,6 +254,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       get: (id) => this.listConversations().find((c) => c.id === id),
       complete: async (req) => (await this.router().complete("utility", req)).text,
       exists: (path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
+      resolveLink: (link) => this.app.metadataCache.getFirstLinkpathDest(link.replace(/\.md$/, ""), "")?.path ?? (this.app.vault.getAbstractFileByPath(link) instanceof TFile ? link : null),
       write: async (existing, folder, title, content, created) => {
         const file = existing === null ? null : this.app.vault.getAbstractFileByPath(existing);
         if (file instanceof TFile) {

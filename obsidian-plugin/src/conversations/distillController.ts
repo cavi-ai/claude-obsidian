@@ -12,12 +12,15 @@ export interface DistillRequest {
   temperature: number;
   responseFormat: "json";
   responseSchema: Record<string, unknown>;
+  thinking: { type: "disabled" };
 }
 
 export interface DistillDeps {
   get(id: string): Conversation | undefined;
   complete(req: DistillRequest): Promise<string>;
   exists(path: string): boolean;
+  /** A vault path or wikilink target to its vault path, or null when no such note exists. */
+  resolveLink(linkOrPath: string): string | null;
   /** `existing` is the previously distilled note path that still exists, else null. */
   write(existing: string | null, folder: string, title: string, content: string, created: string): Promise<string>;
   setDistilledNote(id: string, path: string): void | Promise<void>;
@@ -65,7 +68,7 @@ export class DistillController {
     const content = renderDistilledNote(distilled, {
       conversationId: convo.id,
       created,
-      notes: notesTouched(convo.messages, (path) => deps.exists(path)),
+      notes: notesTouched(convo.messages, (link) => deps.resolveLink(link)),
       tags: normalizeTags(chatBaseTags),
     });
     const existing = convo.distilledNote !== undefined && deps.exists(convo.distilledNote) ? convo.distilledNote : null;
@@ -77,7 +80,7 @@ export class DistillController {
       deps.notice(`Couldn't distill ${convo.title}: ${reasonOf(error)}`);
       return null;
     }
-    deps.notice(`Distilled → ${path}${input.redactions > 0 ? ` · ${input.redactions} secrets redacted` : ""}`);
+    deps.notice(`Distilled → ${path}${input.redactions > 0 ? ` · ${input.redactions} ${input.redactions === 1 ? "secret" : "secrets"} redacted` : ""}`);
     return path;
   }
 
@@ -89,6 +92,7 @@ export class DistillController {
       temperature: 0,
       responseFormat: "json",
       responseSchema: DISTILL_SCHEMA,
+      thinking: { type: "disabled" },
     };
     const raw = await this.deps.complete(request);
     try {

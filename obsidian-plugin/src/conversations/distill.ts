@@ -125,13 +125,14 @@ function pathsOfArgs(argsSummary: string): string[] {
   return [argsSummary];
 }
 
-/** Existing vault notes the chat read, wrote, or linked, deduped in first-use order. */
-export function notesTouched(messages: ChatMessage[], exists: (path: string) => boolean): string[] {
+/** Existing vault notes the chat read, wrote, or linked, deduped in first-use order; `resolve` maps a path or link to a vault path, or null. */
+export function notesTouched(messages: ChatMessage[], resolve: (linkOrPath: string) => string | null): string[] {
   const out: string[] = [];
   const add = (candidate: string): void => {
-    const path = candidate.trim();
-    if (path.length === 0 || out.includes(path) || out.length >= NOTES_MAX || !exists(path)) return;
-    out.push(path);
+    const raw = candidate.trim();
+    if (raw.length === 0 || out.length >= NOTES_MAX) return;
+    const path = resolve(raw);
+    if (path !== null && !out.includes(path)) out.push(path);
   };
   for (const message of messages) {
     for (const entry of message.toolTrace ?? []) {
@@ -139,7 +140,7 @@ export function notesTouched(messages: ChatMessage[], exists: (path: string) => 
     }
     for (const match of message.content.matchAll(WIKILINK_RE)) {
       const target = (match[1] ?? "").trim();
-      if (target.length > 0) add(target.endsWith(".md") ? target : `${target}.md`);
+      add(target.replace(/\.md$/, ""));
     }
   }
   return out;
