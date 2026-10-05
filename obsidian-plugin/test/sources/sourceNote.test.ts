@@ -37,4 +37,16 @@ describe("buildSidecarNote", () => {
     expect(md).toContain("Monthly sales.");
     expect(md).toContain("![[sales.csv]]");
   });
+
+  it("resolves topics into tags but never the base tags, and leaves topics raw", () => {
+    const withTopics: SourceRecord = { ...record, fields: { ...record.fields, topics: ["LLMs", "New Thing"] } };
+    const seen: string[][] = [];
+    const fm = sourceFrontmatter(withTopics, ["source", "llms"], (tags) => {
+      seen.push(tags);
+      return tags.map((t) => (t === "LLMs" ? "llm" : t.toLowerCase()));
+    });
+    expect(seen).toEqual([["LLMs", "New Thing"]]);
+    expect(fm.tags).toEqual(["source", "llms", "llm", "new-thing"]);
+    expect(fm.topics).toEqual(["LLMs", "New Thing"]);
+  });
 });

@@ -739,3 +739,35 @@ describe("vault_tags output", () => {
     expect(await tools(false).vt.call("vault_tags", {})).toBe("No tags in the vault yet.");
   });
 });
+
+describe("agent tag resolution", () => {
+  function tagged() {
+    const { app, vt } = tools(true);
+    app.vault.seed("T/A.md", "a", { tags: ["llm"] });
+    app.vault.seed("T/B.md", "b", { tags: ["llm"] });
+    return { app, vt };
+  }
+
+  it("note_create maps a variant to the existing tag and says so on the last line", async () => {
+    const { app, vt } = tagged();
+    const out = await vt.call("note_create", { title: "N", content: "c", tags: ["llms", "brand-new"] });
+    expect(out.split("\n").pop()).toBe("Tags mapped to existing: llms → llm");
+    const path = out.split("\n")[0]!.replace("Created note: ", "");
+    const written = await app.vault.read(app.vault.getAbstractFileByPath(path) as never);
+    expect(written).toContain('tags:\n  - "claude"\n  - "llm"\n  - "brand-new"\n');
+  });
+
+  it("note_create adds no mapped line when nothing was mapped", async () => {
+    const { vt } = tagged();
+    const out = await vt.call("note_create", { title: "N2", content: "c", tags: ["llm", "brand-new"] });
+    expect(out).not.toContain("Tags mapped");
+  });
+
+  it("update_frontmatter maps agent tags and reports the mapping", async () => {
+    const { app, vt } = tagged();
+    app.vault.seed("Notes/Tagged.md", "---\ntitle: Tagged\ntags:\n  - a\n---\n\nbody\n");
+    const out = await vt.call("update_frontmatter", { path: "Notes/Tagged.md", tags: ["LLMs"] });
+    expect(out.split("\n").pop()).toBe("Tags mapped to existing: llms → llm");
+    expect(await vt.call("note_read", { path: "Notes/Tagged.md" })).toContain('  - "llm"\n');
+  });
+});

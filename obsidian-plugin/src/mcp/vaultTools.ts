@@ -1,5 +1,6 @@
 import { App, TFile, normalizePath, getAllTags, requestUrl, parseYaml } from "obsidian";
-import { vaultTagEntries } from "../tags/vaultTags";
+import { vaultTagEntries, vaultVocabulary } from "../tags/vaultTags";
+import { resolveTags } from "../tags/resolve";
 import type { McpToolDef } from "./protocol";
 import { tokenize } from "../context/search";
 import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from "../context/hybridSearch";
@@ -674,16 +675,26 @@ export class VaultTools {
       .join("\n");
   }
 
+  private resolveAgentTags(raw: string[]): { tags: string[]; note: string } {
+    const resolved = resolveTags(raw, vaultVocabulary(this.app));
+    const mapped = resolved.filter((r) => r.match === "variant");
+    return {
+      tags: resolved.map((r) => r.tag),
+      note: mapped.length > 0 ? `\nTags mapped to existing: ${mapped.map((r) => `${r.input} → ${r.tag}`).join(", ")}` : "",
+    };
+  }
+
   private async create(
     title: string,
     content: string,
     folder: string | undefined,
-    tags: string[],
+    rawTags: string[],
     typeName?: string,
     properties?: Record<string, unknown>,
   ): Promise<string> {
     const dir = assertVaultPath((folder ?? this.opts.defaultFolder).trim());
     await this.ensureFolder(dir);
+    const { tags, note: mappedNote } = this.resolveAgentTags(rawTags);
     const base: FrontmatterData = {
       title,
       created: new Date().toISOString().slice(0, 10),
@@ -713,7 +724,7 @@ export class VaultTools {
     const body = `${buildFrontmatter(data)}\n\n# ${title}\n\n${content}\n`;
     const path = await this.uniquePath(dir, title);
     const file = await this.app.vault.create(path, body);
-    return `Created note: ${file.path}${conformance}`;
+    return `Created note: ${file.path}${conformance}${mappedNote}`;
   }
 
   private ontologyGet(type: string | undefined): string {
@@ -827,8 +838,9 @@ export class VaultTools {
     return `Patched ${where} in ${file.path} (${op})${await this.conformanceLine(file)}`;
   }
 
-  private async updateFrontmatter(path: string, tags: string[], fields: unknown): Promise<string> {
+  private async updateFrontmatter(path: string, rawTags: string[], fields: unknown): Promise<string> {
     const file = this.resolveFile(path);
+    const { tags, note: mappedNote } = this.resolveAgentTags(rawTags);
     const scalars: Record<string, string | number | boolean> = {};
     if (fields && typeof fields === "object") {
       for (const [k, v] of Object.entries(fields as Record<string, unknown>)) {
@@ -856,7 +868,7 @@ export class VaultTools {
       }
       for (const [k, v] of Object.entries(scalars)) fm[k] = v;
     });
-    return `${plan ? `${plan.summaries.join(" ")} ` : ""}Updated frontmatter of ${file.path}${await this.conformanceLine(file)}`;
+    return `${plan ? `${plan.summaries.join(" ")} ` : ""}Updated frontmatter of ${file.path}${await this.conformanceLine(file)}${mappedNote}`;
   }
 
   private async researchRecordOf(file: TFile): Promise<ResearchRecord | undefined> {

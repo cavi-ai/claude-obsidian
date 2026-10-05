@@ -253,6 +253,83 @@ describe("source enrichment wiring", () => {
     expect(read).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves model topics into tags against the vault vocabulary and writes topics raw", async () => {
+    const { app, file, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "https://models.example.com/v1",
+      openaiCompatModel: "remote-model",
+      sourceBaseTags: ["source"],
+    });
+    app.vault.seed("Notes/Existing.md", "x", { tags: ["llm"] });
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+      title: "Private note",
+      site: "Vault",
+      summary: "Private content.",
+      topics: ["LLMs", "brand-new"],
+    }));
+
+    await expect(plugin.enrichInboxItem(file, { inline: true, refreshInboxViews: false }))
+      .resolves.toEqual({ status: "enriched" });
+
+    const written = await app.vault.read(file);
+    expect(written).toContain("topics:\n  - LLMs\n  - brand-new\n");
+    expect(written).toContain("tags:\n  - source\n  - llm\n  - brand-new\n");
+  });
+
+  it("resolves research-source topics into tags and keeps topics raw", async () => {
+    const { app, plugin, router } = mobilePlugin({
+      utilityBackend: "custom",
+      openaiCompatHost: "https://models.example.com/v1",
+      openaiCompatModel: "remote-model",
+      sourceBaseTags: ["source"],
+    });
+    app.vault.seed("Notes/Existing.md", "x", { tags: ["llm"] });
+    const body = "x".repeat(400);
+    const note = app.vault.seed(
+      "Research/Source.md",
+      `---\ntitle: Test\ntype: research-source\n---\n\n## Captured content\n\n<!-- cavi:capture version=1 chars=${body.length} -->\n${body}\n<!-- cavi:capture:end -->\n`,
+    );
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue(JSON.stringify({
+      summary: "A summary.",
+      key_claims: ["c"],
+      topics: ["LLMs", "brand-new"],
+    }));
+
+    await expect(enrichmentController(plugin).enrichResearchSource(note)).resolves.toEqual({ status: "enriched" });
+
+    const written = await app.vault.read(note);
+    expect(written).toContain("topics:\n  - LLMs\n  - brand-new\n");
+    expect(written).toContain("tags:\n  - source\n  - llm\n  - brand-new\n");
+  });
+
+  it("/frontmatter resolves suggested tags against the vault and marks new ones in the review modal", async () => {
+    const { app, plugin, router } = mobilePlugin({ utilityBackend: "custom", openaiCompatHost: "https://models.example.com/v1", openaiCompatModel: "remote-model" });
+    app.vault.seed("Notes/Existing.md", "x", { tags: ["llm"] });
+    const active = app.vault.seed("Notes/Active.md", "Some content about models.");
+    app.workspace = { getActiveFile: () => active, getLeavesOfType: () => [] } as never;
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue("TYPE: -\nTAGS: LLMs, brand-new\nSUMMARY: s");
+
+    await plugin.suggestFrontmatterForActiveNote();
+
+    const modal = getLastOpenedModal() as unknown as { contentEl: FakeElement };
+    const collect = (e: FakeElement): string => [e.textContent, ...e.children.map(collect)].join("\n");
+    expect(collect(modal.contentEl)).toContain("llm, brand-new (new)");
+  });
+
+  it("Tidy proposes resolved tags and lists only the new ones as new", async () => {
+    const { app, plugin, router } = mobilePlugin({ utilityBackend: "custom", openaiCompatHost: "https://models.example.com/v1", openaiCompatModel: "remote-model" });
+    app.vault.seed("Notes/Existing.md", "x", { tags: ["llm"] });
+    const note = app.vault.seed("Notes/Active.md", "Some content about models.");
+    vi.spyOn(router.openaiCompat, "complete").mockResolvedValue("TITLE: T\nTAGS: LLMs, brand-new\nSUMMARY: s");
+
+    const proposal = (await (plugin as unknown as PrivateEnrich).buildEnrichProposal(note, { rename: false, frontmatter: true, links: false, lint: false })) as {
+      frontmatter: { tags: string[]; addedTags: string[]; newTags: string[] };
+    };
+
+    expect(proposal.frontmatter.addedTags).toEqual(["llm", "brand-new"]);
+    expect(proposal.frontmatter.newTags).toEqual(["brand-new"]);
+  });
+
   it("reads a CSV once and preserves derived columns and rows through the public enrichment path", async () => {
     Platform.isMobile = true;
     Platform.isDesktop = false;
@@ -417,7 +494,7 @@ describe("source enrichment wiring", () => {
     const claudeComplete = vi.spyOn(router.anthropic, "complete").mockResolvedValue("unsafe");
     const opened = vi.spyOn(ChoiceModal.prototype, "open");
 
-    const pending = summarizeAndTag(router, "Private note content.", []);
+    const pending = summarizeAndTag(router, "Private note content.", new Map());
     await settle();
 
     expect(opened).toHaveBeenCalledTimes(1);

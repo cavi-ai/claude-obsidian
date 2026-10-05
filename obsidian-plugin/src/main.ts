@@ -116,7 +116,9 @@ import { PublishController, publishConfirmMessage } from "./publish/controller";
 import { normalizePublished, type PublishedItem } from "./publish/registry";
 import { CloudDispatchModal } from "./view/CloudDispatchModal";
 import { normalizeTags } from "./indexing/frontmatter";
-import { existingVaultTags } from "./indexing/autoTagger";
+import { resolveTags } from "./tags/resolve";
+import { vaultVocabulary } from "./tags/vaultTags";
+import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
 import { SemanticIndexer } from "./semantic/indexer";
@@ -468,6 +470,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       activity: () => this.activity,
       enrichDiagnostics: () => this.enrichDiagnostics,
       router: () => this.router(),
+      resolveTags: (tags) => resolveTags(tags, vaultVocabulary(this.app)).map((r) => r.tag),
       suspendReindex: () => this.suspendReindex(),
       isUtilityLifecycleActive: (g) => this.isUtilityLifecycleActive(g),
       assertUtilityLifecycleActive: (g) => this.assertUtilityLifecycleActive(g),
@@ -1553,7 +1556,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       suggestTags: async (content) => {
         try {
-          const { tags } = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
+          const { tags } = await summarizeAndTag(this.router(), content, vaultVocabulary(this.app));
           return tags;
         } catch (e) {
           console.warn("[companion] source tagging failed", e);
@@ -2891,10 +2894,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const content = await this.app.vault.cachedRead(file);
     const proposal: EnrichProposal = { path: file.path };
 
-    let tagResult: { title: string; tags: string[]; summary: string } | null = null;
+    let tagResult: { title: string; tags: string[]; newTags: string[]; summary: string } | null = null;
     if (options.rename || options.frontmatter) {
       try {
-        tagResult = await summarizeAndTag(this.router(), content, existingVaultTags(this.app));
+        tagResult = await summarizeAndTag(this.router(), content, vaultVocabulary(this.app));
       } catch (e) {
         if (e instanceof UtilityUnavailableError) throw e;
         // Tagging is best-effort — links/lint still run.
@@ -2941,8 +2944,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const existing: string[] = Array.isArray(fm?.tags) ? fm.tags.map(String) : typeof fm?.tags === "string" ? [fm.tags] : [];
       const merged = normalizeTags([...existing, ...tagResult.tags]);
       const addedTags = merged.filter((t) => !existing.includes(t));
+      const newTags = addedTags.filter((t) => tagResult.newTags.includes(t));
       const summary = typeof fm?.summary === "string" && fm.summary.trim() ? "" : tagResult.summary;
-      if (addedTags.length > 0 || summary) proposal.frontmatter = { tags: merged, summary, addedTags };
+      if (addedTags.length > 0 || summary) proposal.frontmatter = { tags: merged, summary, addedTags, newTags };
     }
 
     return proposal;
@@ -3923,7 +3927,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
 
-    const existingTags = existingVaultTags(this.app);
+    const vocab = vaultVocabulary(this.app);
+    const existingTags = selectPromptTags(vocab, content);
     const typeOptions = this.settings.ontologyEnabled ? [...(this.ontology()?.resolved().keys() ?? [])] : [];
     const notice = new Notice("Suggesting frontmatter…", 0);
     try {
@@ -3939,9 +3944,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       // Merge additively against what's already in the note's frontmatter.
       const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
       const currentTags = Array.isArray(fm.tags) ? fm.tags.map(String) : typeof fm.tags === "string" ? [fm.tags] : [];
+      const resolved = resolveTags(suggestion.tags, vocab);
+      const tags = normalizeTags([...currentTags, ...resolved.map((r) => r.tag)]);
       const proposal = {
         ...(suggestion.type && !fm.type ? { type: suggestion.type } : {}),
-        tags: normalizeTags([...currentTags, ...suggestion.tags]),
+        tags,
+        newTags: resolved.filter((r) => r.match === "new" && !currentTags.includes(r.tag)).map((r) => r.tag),
         ...(suggestion.summary && !fm.summary ? { summary: suggestion.summary } : {}),
       };
       notice.hide();

@@ -575,8 +575,9 @@ export class Transcript {
   private async maybeIndex(content: string): Promise<{ tags: string[]; summary?: string; title?: string }> {
     if (!this.plugin.settings.autoTagOnSave) return { tags: [] };
     try {
-      const { summarizeAndTag, existingVaultTags } = await import("../../indexing/autoTagger");
-      const res = await summarizeAndTag(this.plugin.router(), content, existingVaultTags(this.app));
+      const { summarizeAndTag } = await import("../../indexing/autoTagger");
+      const { vaultVocabulary } = await import("../../tags/vaultTags");
+      const res = await summarizeAndTag(this.plugin.router(), content, vaultVocabulary(this.app));
       return {
         tags: res.tags,
         ...(res.summary ? { summary: res.summary } : {}),

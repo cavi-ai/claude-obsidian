@@ -71,7 +71,7 @@ export function resolveTags(raw: string[], vocab: Vocabulary): ResolvedTag[] {
       } else {
         const wk = variantKeys(winner!.tag);
         const via = RULES.find((rule) => wk[rule] === keys[rule]);
-        resolved = { input, tag: winner!.tag, match: "variant", via };
+        resolved = via ? { input, tag: winner!.tag, match: "variant", via } : { input, tag: winner!.tag, match: "variant" };
       }
     }
     if (seen.has(resolved.tag)) continue;
