@@ -142,6 +142,9 @@ import {
   type ChatTurnMode,
 } from "./conversations/store";
 import { ConversationsController } from "./conversations/controller";
+import { DistillController } from "./conversations/distillController";
+import { SessionActions } from "./conversations/sessionActions";
+import { saveSummaryNote } from "./artifacts/artifactStore";
 import type { ChatMessage } from "./types";
 import { getAllTags, normalizePath, TFile, TFolder, type Editor } from "obsidian";
 import { inboxItems, typedInboxItems, type InboxFileEntry } from "./sources/inbox";
@@ -245,6 +248,46 @@ export default class ClaudeCompanionPlugin extends Plugin {
       persist: () => this.persist(),
       activity: () => this.activity,
       settings: () => this.settings,
+    }));
+  }
+  private _distiller?: DistillController;
+  private distiller(): DistillController {
+    return (this._distiller ??= new DistillController({
+      get: (id) => this.listConversations().find((c) => c.id === id),
+      complete: async (req) => (await this.router().complete("utility", req)).text,
+      exists: (path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
+      resolveLink: (link) => this.app.metadataCache.getFirstLinkpathDest(link.replace(/\.md$/, ""), "")?.path ?? (this.app.vault.getAbstractFileByPath(link) instanceof TFile ? link : null),
+      write: async (existing, folder, title, content, created) => {
+        const file = existing === null ? null : this.app.vault.getAbstractFileByPath(existing);
+        if (file instanceof TFile) {
+          await this.app.vault.modify(file, content);
+          return file.path;
+        }
+        return (await saveSummaryNote(this.app, folder, title, content, created)).path;
+      },
+      setDistilledNote: (id, path) => this.conversations().setDistilledNote(id, path),
+      notice: (text) => new Notice(text),
+      settings: () => this.settings,
+    }));
+  }
+  private _sessionActions?: SessionActions;
+  private sessionActions(): SessionActions {
+    return (this._sessionActions ??= new SessionActions({
+      find: (id) => this.listConversations().find((c) => c.id === id),
+      archive: (id) => this.conversations().archive(id),
+      fork: (id) => this.conversations().fork(id),
+      createSeeded: (title, seed, projectId) => this.conversations().createSeeded(title, seed, projectId),
+      distill: (id) => this.distiller().distill(id),
+      readNote: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
+      },
+      openInNewTab: async (conversationId) => {
+        const { workspace } = this.app;
+        const leaf = workspace.getLeaf("tab");
+        await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true, state: { conversationId } });
+        await workspace.revealLeaf(leaf);
+      },
     }));
   }
   private _turnService?: ChatTurnService;
@@ -2303,6 +2346,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   async deleteConversation(id: string): Promise<void> {
     return this.conversations().delete(id);
+  }
+
+  async renameConversation(id: string, title: string): Promise<void> {
+    return this.conversations().rename(id, title);
+  }
+
+  async unarchiveConversation(id: string): Promise<void> {
+    return this.conversations().unarchive(id);
+  }
+
+  /** Distill a conversation into a summary note; resolves the note path or null. */
+  async distillConversation(id: string): Promise<string | null> {
+    return this.distiller().distill(id);
+  }
+
+  async archiveConversation(id: string): Promise<void> {
+    return this.sessionActions().archive(id);
+  }
+
+  async forkConversation(id: string): Promise<void> {
+    return this.sessionActions().fork(id);
+  }
+
+  async forkFromSummary(id: string): Promise<void> {
+    return this.sessionActions().forkFromSummary(id);
   }
 
   private async browseConversations(): Promise<void> {
