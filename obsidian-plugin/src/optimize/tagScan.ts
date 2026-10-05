@@ -1,6 +1,7 @@
 import { cosineSimilarity } from "../semantic/similarity";
 import { variantKeys } from "../tags/resolve";
 import type { TagStat, Vocabulary } from "../tags/vocabulary";
+import type { StoredVerdict } from "./state";
 
 export type MergeEvidence = "separator" | "plural" | "plural-loose" | "token-order" | "leaf" | "typo" | "semantic";
 export interface MergeCandidate {
@@ -11,6 +12,7 @@ export interface MergeCandidate {
   score: number;
   fromCount: number;
   toCount: number;
+  verdict?: StoredVerdict;
 }
 export interface TagScanLimits {
   maxCandidates: number;

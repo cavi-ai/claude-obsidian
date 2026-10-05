@@ -121,6 +121,7 @@ import { vaultTagEntries, vaultVocabulary } from "./tags/vaultTags";
 import { formatApplyNotice, OptimizeController } from "./optimize/controller";
 import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { openTagMergeReview } from "./optimize/review";
+import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
@@ -525,6 +526,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       assertUtilityLifecycleActive: (g) => this.assertUtilityLifecycleActive(g),
       utilityLifecycleEnded: () => this.utilityLifecycleEnded,
       utilityLifecycleGeneration: () => this.utilityLifecycleGeneration ?? 0,
+      onEnrichQueueIdle: () => void this.checkTagMergesInBackground(),
       notice: (msg, timeout) => new Notice(msg, timeout),
       openChoiceModal: (opts) => { const m = new ChoiceModal(this.app, opts); m.open(); return m; },
     }));
@@ -582,7 +584,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private ordersState: OrdersState = {};
   private orderEditQueue: QueuedEdit[] = [];
   private published: PublishedItem[] = [];
-  private optimizeState: OptimizeState = { dismissed: [] };
+  private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeController;
   private _publish?: PublishController;
   private _standingOrders?: OrdersController;
@@ -3821,7 +3823,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
         await this.persist();
       },
       now: () => new Date().toISOString(),
+      classifier: createClassifier({
+        router: () => this.router(),
+        backend: () => this.settings.classifierBackend,
+        isMobile: Platform.isMobile,
+        passiveUtilitySelection: () => {
+          const selection = this.runtimeUtilitySelection();
+          if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
+          throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
+        },
+        assertActive: () => {
+          if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the tag check was running; no further content was sent.");
+        },
+      }),
     }));
+  }
+
+  private async checkTagMergesInBackground(): Promise<void> {
+    try {
+      const result = await this.optimizeController().classify({ background: true });
+      if (result.merge > 0) {
+        new Notice(`Tag check: ${result.merge} ${result.merge === 1 ? "merge" : "merges"} proposed. Run "Optimize brain: review tag merges".`);
+      }
+    } catch (error) {
+      console.debug("Claude Companion: background tag check failed", error);
+    }
   }
 
   private reviewTagMerges(done: () => void): Promise<void> {
@@ -3829,7 +3855,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return openTagMergeReview({
       scan: () => controller.scan(),
       open: (candidates) =>
-        new OptimizeBrainModal(this.app, candidates, controller, (result) => {
+        new OptimizeBrainModal(this.app, candidates, {
+          apply: (merges) => controller.apply(merges),
+          dismiss: (id) => controller.dismiss(id),
+          classify: (signal) => controller.classify({ signal }),
+          rescan: async () => (await controller.scan()).candidates,
+          classifierInfo: () => controller.classifierInfo(),
+        }, (result) => {
           if (result) new Notice(formatApplyNotice(result));
           done();
         }).open(),

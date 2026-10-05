@@ -45,6 +45,7 @@ function controllerHarness(
     assertUtilityLifecycleActive: () => {},
     utilityLifecycleEnded: () => false,
     utilityLifecycleGeneration: () => 0,
+    onEnrichQueueIdle: () => {},
     notice: () => {},
     openChoiceModal: () => ({ close() {} }),
     ...overrides,
@@ -1157,5 +1158,40 @@ describe("source enrichment wiring", () => {
     expect(state.enrichRecentlyWritten.size).toBe(0);
     expect(state.enrichRecentlyWrittenExpiryTimers.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("background tag check wiring", () => {
+  const idleHook = (classify: ReturnType<typeof vi.fn>) => {
+    const { plugin } = mobilePlugin();
+    Object.assign(plugin, { _optimize: { classify } });
+    const controller = enrichmentController(plugin) as unknown as { deps: { onEnrichQueueIdle(): void } };
+    return controller.deps.onEnrichQueueIdle;
+  };
+
+  it("runs classify in background mode and posts one notice when merges were proposed", async () => {
+    clearNotices();
+    const classify = vi.fn(async () => ({ judged: 3, merge: 2, keep: 1, failedBatches: 0, dropped: 0 }));
+    idleHook(classify)();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(classify).toHaveBeenCalledWith({ background: true });
+    expect(getNoticeMessages()).toEqual(['Tag check: 2 merges proposed. Run "Optimize brain: review tag merges".']);
+  });
+
+  it("stays silent when nothing was proposed or the run was skipped", async () => {
+    clearNotices();
+    idleHook(vi.fn(async () => ({ judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0, skipped: "remote" })))();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getNoticeMessages()).toEqual([]);
+  });
+
+  it("catches a rejection without a notice", async () => {
+    clearNotices();
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    idleHook(vi.fn(async () => { throw new Error("boom"); }))();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getNoticeMessages()).toEqual([]);
+    expect(debug).toHaveBeenCalled();
+    debug.mockRestore();
   });
 });

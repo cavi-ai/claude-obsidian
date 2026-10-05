@@ -3,9 +3,14 @@ import { formatApplyNotice, type ApplyResult, OptimizeController, type OptimizeD
 import { tagId } from "../../src/tags/vocabulary";
 import { pairKey } from "../../src/optimize/tagScan";
 import type { NoteTagInput } from "../../src/optimize/mergePlan";
+import type { OptimizeState } from "../../src/optimize/state";
+import { UtilityUnavailableError } from "../../src/providers/endpointPolicy";
+import { VerdictParseError, type Verdict } from "../../src/optimize/classify";
+import { ClassifierStoppedError } from "../../src/optimize/classifierGlue";
+import type { MergeCandidate } from "../../src/optimize/tagScan";
 
 function setup(over: Partial<OptimizeDeps> = {}, notes: Record<string, { fm: string[]; inline?: Array<{ tag: string; start: number; end: number }> }> = {}) {
-  let state = { dismissed: [] as string[] };
+  let state: OptimizeState = { dismissed: [], verdicts: {} };
   const rewritten: string[] = [];
   const writes: Array<{ content: string; now: string }> = [];
   const entries = Object.entries(notes).map(([path, n]) => ({ path, tags: [...n.fm, ...(n.inline ?? []).map((i) => i.tag)] }));
@@ -32,6 +37,7 @@ function setup(over: Partial<OptimizeDeps> = {}, notes: Record<string, { fm: str
       state = next;
     },
     now: () => "2026-10-05T10:00:00.000Z",
+    classifier: async () => { throw new UtilityUnavailableError("off", { state: "unavailable-without-Claude", backend: "ollama", endpoint: "", reason: "claude-unavailable" }); },
     ...over,
   };
   return { controller: new OptimizeController(deps), rewritten, writes, getState: () => state };
@@ -255,4 +261,290 @@ describe("formatApplyNotice", () => {
     expect(formatApplyNotice({ ...r, merges: 0, notes: 0 })).toBe("Merged 0 tags across 0 notes");
   });
 });
+});
+
+type Classifier = Awaited<ReturnType<OptimizeDeps["classifier"]>>;
+const fakeClassifier = (
+  complete: Classifier["complete"],
+  over: Partial<Classifier> = {},
+): OptimizeDeps["classifier"] => async () => ({ local: true, label: "Ollama", model: "m1", complete, ...over });
+
+const cand = (i: number, evidence: MergeCandidate["evidence"] = ["semantic"]): MergeCandidate => ({
+  id: `a${i}|b${i}`, from: `a${i}`, to: `b${i}`, evidence, score: 0.9, fromCount: 1, toCount: 2,
+});
+const CLASSIFY_NOTES = {
+  "x/One.md": { fm: ["ml", "machine-learning"] },
+  "y/Two.md": { fm: ["ml"] },
+  "z/Three.md": { fm: ["machine-learning"] },
+};
+
+describe("OptimizeController.classify", () => {
+  it("sends only uncertain candidates (no separator/plural evidence, no stored verdict) with titles", async () => {
+    const seen: string[] = [];
+    const { controller } = setup({
+      classifier: fakeClassifier(async (req) => { seen.push(req.user); return []; }),
+    }, {});
+    vi.spyOn(controller, "scan").mockResolvedValue({
+      totalTags: 4, singleUse: 0, dropped: 0,
+      candidates: [cand(1, ["separator"]), cand(2, ["plural"]), { ...cand(3), verdict: { verdict: "keep", a: "a3", b: "b3", model: "m", at: "t" } }, cand(4)],
+    });
+    const res = await controller.classify();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("a4");
+    expect(seen[0]).not.toMatch(/a1|a2|a3/);
+    expect(res.judged).toBe(0);
+  });
+
+  it("includes up to 3 note basenames per tag", async () => {
+    let user = "";
+    const notes = Object.fromEntries(["A", "B", "C", "D"].map((n) => [`f/${n}.md`, { fm: ["ml", "machine-learning"] }]));
+    const { controller } = setup({ classifier: fakeClassifier(async (req) => { user = req.user; return []; }) }, notes);
+    vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 2, singleUse: 0, dropped: 0, candidates: [{ ...cand(1), id: "ml|machine-learning", from: "ml", to: "machine-learning" }] });
+    await controller.classify();
+    expect(user).toContain('"A"');
+    expect(user).toContain('"C"');
+    expect(user).not.toContain('"D"');
+    expect(user).not.toContain("f/");
+  });
+
+  it("caps at 10 calls of 20: 450 pending -> 200 judged, 250 dropped", async () => {
+    const calls: number[] = [];
+    const entries: Record<string, { fm: string[] }> = { "n.md": { fm: [] } };
+    const candidates = Array.from({ length: 450 }, (_, i) => cand(i));
+    for (const c of candidates) entries["n.md"]!.fm.push(c.from, c.to);
+    const { controller, getState } = setup({
+      classifier: fakeClassifier(async (req) => {
+        const lines = req.user.split("\n");
+        calls.push(lines.length);
+        return lines.map((l) => {
+          const id = l.match(/A: "(a\d+)"/)?.[1] ?? "";
+          return { id: `${id}|b${id.slice(1)}`, verdict: "keep" } as Verdict;
+        });
+      }),
+    }, entries);
+    vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 900, singleUse: 0, dropped: 0, candidates });
+    const res = await controller.classify();
+    expect(calls).toHaveLength(10);
+    expect(calls.every((n) => n === 20)).toBe(true);
+    expect(res.judged).toBe(200);
+    expect(res.dropped).toBe(250);
+    expect(Object.keys(getState().verdicts)).toHaveLength(200);
+  });
+
+  it("stores verdicts with model and time, counts merge/keep, and scan attaches them", async () => {
+    const { controller, getState } = setup({
+      classifier: fakeClassifier(async (_req, _parse) => [{ id: pairKey("machine-learning", "ml"), verdict: "merge", canonical: "machine-learning" }]),
+    }, CLASSIFY_NOTES);
+    vi.spyOn(controller, "scan").mockResolvedValueOnce({
+      totalTags: 2, singleUse: 0, dropped: 0,
+      candidates: [{ ...cand(1), id: pairKey("machine-learning", "ml"), from: "ml", to: "machine-learning" }],
+    });
+    const res = await controller.classify();
+    expect(res).toMatchObject({ judged: 1, merge: 1, keep: 0, failedBatches: 0, dropped: 0 });
+    const stored = getState().verdicts[pairKey("machine-learning", "ml")];
+    expect(stored).toEqual({ verdict: "merge", canonical: "machine-learning", a: "ml", b: "machine-learning", model: "m1", at: "2026-10-05T10:00:00.000Z" });
+  });
+
+  it("attaches stored verdicts to scan candidates by id", async () => {
+    const { controller } = setup({}, NOTES);
+    const id = pairKey("llm", "llms");
+    await controller.dismiss("zz|yy");
+    const first = await controller.scan();
+    expect(first.candidates[0]?.verdict).toBeUndefined();
+    const state = { dismissed: [], verdicts: { [id]: { verdict: "keep" as const, a: "llms", b: "llm", model: "m", at: "t" } } };
+    const withVerdict = setup({ getState: () => state }, NOTES).controller;
+    expect((await withVerdict.scan()).candidates[0]?.verdict?.verdict).toBe("keep");
+  });
+
+  it("counts a parse failure as one failed batch and continues; other errors end the run keeping stored verdicts", async () => {
+    let n = 0;
+    const candidates = Array.from({ length: 45 }, (_, i) => cand(i));
+    const fm = candidates.flatMap((c) => [c.from, c.to]);
+    const make = (third: unknown) => fakeClassifier(async (req) => {
+      n++;
+      if (n === 1) throw new VerdictParseError("bad");
+      if (n === 3) throw third;
+      const id = req.user.match(/"(a\d+)"/)?.[1] ?? "";
+      return [{ id: `${id}|b${id.slice(1)}`, verdict: "keep" } as Verdict];
+    });
+    const a = setup({ classifier: make(new Error("network down")) }, { "n.md": { fm } });
+    vi.spyOn(a.controller, "scan").mockResolvedValue({ totalTags: 90, singleUse: 0, dropped: 0, candidates });
+    await expect(a.controller.classify()).rejects.toThrow("network down");
+    expect(Object.keys(a.getState().verdicts)).toEqual(["a20|b20"]);
+
+    n = 0;
+    const b = setup({ classifier: make(new VerdictParseError("again")) }, { "n.md": { fm } });
+    vi.spyOn(b.controller, "scan").mockResolvedValue({ totalTags: 90, singleUse: 0, dropped: 0, candidates });
+    const res = await b.controller.classify();
+    expect(res.failedBatches).toBe(2);
+    expect(res.judged).toBe(1);
+  });
+
+  it("explicit run propagates a classifier() rejection", async () => {
+    const { controller } = setup({}, NOTES);
+    await expect(controller.classify()).rejects.toBeInstanceOf(UtilityUnavailableError);
+  });
+
+  it("never rewrites notes or writes a run note", async () => {
+    const { controller, rewritten, writes } = setup({
+      classifier: fakeClassifier(async () => [{ id: pairKey("llm", "llms"), verdict: "merge", canonical: "llm" }]),
+    }, NOTES);
+    vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 2, singleUse: 0, dropped: 0, candidates: [{ ...cand(1), id: pairKey("llm", "llms"), from: "llms", to: "llm" }] });
+    await controller.classify();
+    expect(rewritten).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("prunes verdicts whose tags no longer both exist", async () => {
+    const stale = { verdict: "keep" as const, a: "gone", b: "llm", model: "m", at: "2026-10-01T00:00:00.000Z" };
+    const { controller, getState } = setup({ classifier: fakeClassifier(async () => []) }, NOTES);
+    await controller["deps"].setState({ dismissed: [], verdicts: { "gone|llm": stale } });
+    await controller.classify();
+    expect(getState().verdicts).toEqual({});
+  });
+
+  it("keeps dismissals and verdicts when dismissing", async () => {
+    const { controller, getState } = setup({}, NOTES);
+    const v = { verdict: "keep" as const, a: "llm", b: "llms", model: "m", at: "t" };
+    await controller["deps"].setState({ dismissed: [], verdicts: { "llm|llms": v } });
+    await controller.dismiss("q|r");
+    expect(getState().verdicts["llm|llms"]).toEqual(v);
+  });
+});
+
+describe("OptimizeController.classify background", () => {
+  const bg = (over: Partial<Classifier>, extra: Partial<OptimizeDeps> = {}) => {
+    const complete = vi.fn(async () => [] as Verdict[]);
+    const s = setup({ classifier: fakeClassifier(complete, over), ...extra }, NOTES);
+    return { ...s, complete };
+  };
+
+  it("resolves skipped:unavailable when classifier() rejects, never throws", async () => {
+    const { controller } = setup({}, NOTES);
+    expect(await controller.classify({ background: true })).toMatchObject({ skipped: "unavailable" });
+  });
+
+  it("skips a non-local classifier without calling it or stamping", async () => {
+    const { controller, complete, getState } = bg({ local: false });
+    expect(await controller.classify({ background: true })).toMatchObject({ skipped: "remote" });
+    expect(complete).not.toHaveBeenCalled();
+    expect(getState().lastBackgroundRun).toBeUndefined();
+  });
+
+  it("skips within 24h of the last run, runs after, and stamps even with zero pending", async () => {
+    const { controller, getState } = bg({});
+    await controller["deps"].setState({ dismissed: [], verdicts: {}, lastBackgroundRun: "2026-10-04T12:00:00.000Z" });
+    expect(await controller.classify({ background: true })).toMatchObject({ skipped: "recent" });
+    await controller["deps"].setState({ dismissed: [], verdicts: {}, lastBackgroundRun: "2026-10-04T09:00:00.000Z" });
+    const res = await controller.classify({ background: true });
+    expect(res.skipped).toBeUndefined();
+    expect(getState().lastBackgroundRun).toBe("2026-10-05T10:00:00.000Z");
+  });
+
+  it("swallows a mid-run error", async () => {
+    const { controller } = setup({ classifier: fakeClassifier(async () => { throw new Error("down"); }) }, NOTES);
+    vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 2, singleUse: 0, dropped: 0, candidates: [cand(1)] });
+    await expect(controller.classify({ background: true })).resolves.toMatchObject({ judged: 0 });
+  });
+});
+
+describe("OptimizeController.classify lifecycle", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => cand(i));
+  const withCandidates = (over: Partial<OptimizeDeps>, n: number) => {
+    const candidates = many(n);
+    const s = setup(over, { "n.md": { fm: candidates.flatMap((c) => [c.from, c.to]) } });
+    vi.spyOn(s.controller, "scan").mockResolvedValue({ totalTags: n * 2, singleUse: 0, dropped: 0, candidates });
+    return s;
+  };
+  const keepAll = (req: { user: string }): Verdict[] =>
+    req.user.split("\n").map((l) => {
+      const id = l.match(/A: "(a\d+)"/)?.[1] ?? "";
+      return { id: `${id}|b${id.slice(1)}`, verdict: "keep" } as Verdict;
+    });
+
+  it("two overlapping background calls make one classifier call and the second is skipped:recent", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const classifier = vi.fn(fakeClassifier(async () => { await gate; return []; }));
+    const { controller } = withCandidates({ classifier }, 1);
+    const first = controller.classify({ background: true });
+    const second = await controller.classify({ background: true });
+    expect(second).toMatchObject({ skipped: "recent" });
+    release();
+    await first;
+    expect(classifier).toHaveBeenCalledTimes(1);
+  });
+
+  it("an explicit call during a run returns the same in-flight result", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const classifier = vi.fn(fakeClassifier(async () => { await gate; return []; }));
+    const { controller } = withCandidates({ classifier }, 1);
+    const first = controller.classify({ background: true });
+    const explicit = controller.classify();
+    release();
+    expect(await explicit).toBe(await first);
+    expect(classifier).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stamp later than now counts as no stamp", async () => {
+    const complete = vi.fn(async () => [] as Verdict[]);
+    const { controller } = setup({ classifier: fakeClassifier(complete) }, NOTES);
+    vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 2, singleUse: 0, dropped: 0, candidates: [cand(1)] });
+    await controller["deps"].setState({ dismissed: [], verdicts: {}, lastBackgroundRun: "2027-01-01T00:00:00.000Z" });
+    const res = await controller.classify({ background: true });
+    expect(res.skipped).toBeUndefined();
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("an abort after batch 1 of 3 stops with that batch's verdicts stored", async () => {
+    const ac = new AbortController();
+    const complete = vi.fn(async (req: { user: string }) => {
+      ac.abort();
+      return keepAll(req);
+    });
+    const { controller, getState } = withCandidates({ classifier: fakeClassifier(complete as Classifier["complete"]) }, 50);
+    const res = await controller.classify({ signal: ac.signal });
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(res.judged).toBe(20);
+    expect(Object.keys(getState().verdicts)).toHaveLength(20);
+  });
+
+  it("a ClassifierStoppedError on batch 2 writes no state; explicit rejects, background skips as stopped", async () => {
+    const make = () => {
+      let n = 0;
+      return fakeClassifier(async (req) => {
+        if (++n === 2) throw new ClassifierStoppedError("settings changed");
+        return keepAll(req);
+      });
+    };
+    const setStateSpy = vi.fn(async () => {});
+    const explicit = withCandidates({ classifier: make(), setState: setStateSpy }, 50);
+    await expect(explicit.controller.classify()).rejects.toBeInstanceOf(ClassifierStoppedError);
+    const bgSet = vi.fn(async () => {});
+    const background = withCandidates({ classifier: make(), setState: bgSet }, 50);
+    expect(await background.controller.classify({ background: true })).toMatchObject({ skipped: "stopped" });
+    expect(setStateSpy).not.toHaveBeenCalled();
+    expect(bgSet).not.toHaveBeenCalled();
+  });
+
+  it("passes interactive from the call kind", async () => {
+    const classifier = vi.fn(fakeClassifier(async () => []));
+    const { controller } = setup({ classifier }, NOTES);
+    await controller.classify();
+    await controller.classify({ background: true });
+    expect(classifier.mock.calls.map((c) => c[0])).toEqual([{ interactive: true }, { interactive: false }]);
+  });
+});
+
+describe("OptimizeController.classifierInfo", () => {
+  it("returns label and model, needsConfirmation for unavailable-loopback, and rethrows anything else", async () => {
+    const ok = setup({ classifier: fakeClassifier(async () => []) }, NOTES);
+    expect(await ok.controller.classifierInfo()).toEqual({ label: "Ollama", model: "m1" });
+    const loop = new UtilityUnavailableError("x", { state: "unavailable-loopback", backend: "ollama", endpoint: "http://localhost:11434" });
+    const gated = setup({ classifier: async () => { throw loop; } }, NOTES);
+    expect(await gated.controller.classifierInfo()).toEqual({ needsConfirmation: true });
+    const other = setup({}, NOTES);
+    await expect(other.controller.classifierInfo()).rejects.toBeInstanceOf(UtilityUnavailableError);
+  });
 });

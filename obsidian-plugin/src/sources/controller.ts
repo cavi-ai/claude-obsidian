@@ -70,6 +70,7 @@ export interface SourceEnrichmentControllerDeps {
   utilityLifecycleEnded: () => boolean;
   utilityLifecycleGeneration: () => number;
 
+  onEnrichQueueIdle: () => void;
   notice: (msg: string, timeout?: number) => void;
   openChoiceModal: (opts: {
     title: string;
@@ -84,6 +85,7 @@ export class SourceEnrichmentController {
   private enrichTimers = new Map<string, number>();
   private enrichPending = new Map<string, FileRef>();
   private enrichQueueRunning = false;
+  private enrichedSinceIdle = false;
   private _coordinator: KeyedSerialQueue<string, EnrichRunOutcome> | undefined;
   private enrichRecentlyWritten = new Set<string>();
   private enrichRecentlyWrittenExpiryTimers = new Map<string, number>();
@@ -141,7 +143,8 @@ export class SourceEnrichmentController {
         const [path, file] = next;
         this.enrichPending.delete(path);
         try {
-          await this.enrichFile(file);
+          const outcome = await this.enrichFile(file);
+          if (outcome.status === "enriched") this.enrichedSinceIdle = true;
         } catch (error) {
           if (!this.deps.isUtilityLifecycleActive(this.deps.utilityLifecycleGeneration())) continue;
           const detail = sourceActivityDetail(error instanceof Error ? error.message : String(error));
@@ -168,6 +171,14 @@ export class SourceEnrichmentController {
       release();
       this.enrichQueueRunning = false;
       if (!this.deps.utilityLifecycleEnded() && this.enrichPending.size > 0) void this.drainEnrichQueue();
+      else if (!this.deps.utilityLifecycleEnded() && this.enrichedSinceIdle) {
+        this.enrichedSinceIdle = false;
+        try {
+          this.deps.onEnrichQueueIdle();
+        } catch (error) {
+          console.debug("[companion] enrichment idle hook failed", error);
+        }
+      }
     }
   }
 
