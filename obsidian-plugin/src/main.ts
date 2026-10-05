@@ -121,8 +121,8 @@ import { vaultTagEntries, vaultVocabulary } from "./tags/vaultTags";
 import { formatApplyNotice, OptimizeController } from "./optimize/controller";
 import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { openTagMergeReview } from "./optimize/review";
+import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
-import { completeJsonWithRepair } from "./providers/jsonRepair";
 import { applyNoteMerge, noteTagInput, writeOptimizeRunNote } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
@@ -3823,36 +3823,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
         await this.persist();
       },
       now: () => new Date().toISOString(),
-      classifier: async () => {
-        const router = this.router();
-        const selection = await router.classifierSelection({ isMobile: Platform.isMobile });
-        const local = router.selectionRunsLocally(selection);
-        const generation = this.utilityLifecycleGeneration ?? 0;
-        return {
-          local,
-          label: router.providerLabel(selection.provider),
-          model: selection.model,
-          complete: async (req, parse) => {
-            this.assertUtilityLifecycleActive(generation);
-            const { response } = await completeJsonWithRepair(
-              selection.provider,
-              {
-                system: req.system,
-                messages: [{ role: "user", content: req.user }],
-                model: selection.model,
-                maxTokens: 900,
-                temperature: 0,
-                responseFormat: "json",
-                responseSchema: req.schema,
-                thinking: { type: "disabled" },
-              },
-              parse,
-            );
-            this.assertUtilityLifecycleActive(generation);
-            return response;
-          },
-        };
-      },
+      classifier: createClassifier({
+        router: () => this.router(),
+        backend: () => this.settings.classifierBackend,
+        isMobile: Platform.isMobile,
+        passiveUtilitySelection: () => {
+          const selection = this.runtimeUtilitySelection();
+          if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
+          throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
+        },
+        assertActive: () => {
+          if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the tag check was running; no further content was sent.");
+        },
+      }),
     }));
   }
 

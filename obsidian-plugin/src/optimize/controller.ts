@@ -32,7 +32,7 @@ export interface OptimizeDeps {
   setState(next: OptimizeState): Promise<void>;
   now(): string;
   /** The only path that sends tag names or titles to a model. Rejects with UtilityUnavailableError. */
-  classifier(): Promise<{
+  classifier(opts: { interactive: boolean }): Promise<{
     local: boolean;
     label: string;
     model: string;
@@ -121,7 +121,7 @@ export class OptimizeController {
   }
 
   async classifierInfo(): Promise<{ label: string; model: string }> {
-    const { label, model } = await this.deps.classifier();
+    const { label, model } = await this.deps.classifier({ interactive: false });
     return { label, model };
   }
 
@@ -130,7 +130,7 @@ export class OptimizeController {
     const result: ClassifyResult = { judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0 };
     let classifier: Awaited<ReturnType<OptimizeDeps["classifier"]>>;
     try {
-      classifier = await this.deps.classifier();
+      classifier = await this.deps.classifier({ interactive: !background });
     } catch (error) {
       if (!background) throw error;
       return { ...result, skipped: "unavailable" };
