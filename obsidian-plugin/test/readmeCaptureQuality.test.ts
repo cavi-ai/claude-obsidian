@@ -20,6 +20,30 @@ const captures: CaptureContract[] = [
     maxHeightToWidth: 0.5,
   },
   {
+    path: join(plugin, "assets", "hero.png"),
+    width: 1600,
+    height: 1000,
+    maxHeightToWidth: 0.65,
+  },
+  {
+    path: join(plugin, "..", "assets", "session-dropdown.png"),
+    width: 880,
+    height: 1120,
+    maxHeightToWidth: 1.3,
+  },
+  {
+    path: join(plugin, "..", "assets", "system-page.png"),
+    width: 1040,
+    height: 1400,
+    maxHeightToWidth: 1.4,
+  },
+  {
+    path: join(plugin, "..", "assets", "optimize-tags.png"),
+    width: 1200,
+    height: 1040,
+    maxHeightToWidth: 0.9,
+  },
+  {
     path: join(plugin, "assets", "chat-panel.png"),
     width: 1040,
     height: 662,

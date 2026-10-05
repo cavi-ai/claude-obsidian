@@ -12,9 +12,117 @@ const PLUGIN_ASSETS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", 
 const THEMES = (process.env.CC_E2E_CAPTURE_THEME ?? "both") === "both" ? (["dark", "light"] as const) : [process.env.CC_E2E_CAPTURE_THEME as "dark" | "light"];
 const OUT_ROOT = process.env.CC_E2E_CAPTURE_DIR;
 const CAPTURE_SCALE = 2;
-const CHAT_REPLY = "Your research draft is grounded in three reviewed evidence notes. Resolve the stale citation next, then continue drafting.";
+const CHAT_REPLY = [
+  "Review the proposed passage on page 8 first. It is the only evidence that challenges [[Continuity claim]], and the claim still needs a limitation that answers it.",
+  "Then extend the white paper: its first section is drafted, and the next one can reuse the two reviewed passages that already support the claim.",
+  "Finish by running the audit so the draft and its sources stay in sync.",
+].join("\n\n");
+const CHAT_REPLY_LEAD = "Review the proposed passage on page 8 first.";
+const DRAFT_SENTENCE = "Provenance keeps each passage traceable to its source, so continuity survives edits [@source-continuity-study].";
+const DRAFT_REPLY = JSON.stringify({
+  markdown: DRAFT_SENTENCE,
+  support: [{
+    passage: DRAFT_SENTENCE,
+    claimPath: "Research/Alpha/Claims/Continuity claim.md",
+    evidencePaths: ["Research/Alpha/Evidence/Stale result.md", "Research/Alpha/Evidence/Replication result.md"],
+    citationKeys: ["source-continuity-study"],
+  }],
+  gaps: [],
+});
 const ORIGINAL_PLAN = "# Build plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it\n";
 const ENRICHED_PLAN = "# Build Plan\n\nNotes for implementation.\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Write tests\n- [ ] Ship it to users\n";
+function note(frontmatter: string, body: string): string { return `---\n${frontmatter}\n---\n\n${body}\n`; }
+
+function fnv1aHex(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) { hash ^= text.charCodeAt(index); hash = Math.imul(hash, 0x01000193); }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+const ALPHA = "Research/Alpha";
+const ALPHA_EVIDENCE = [`${ALPHA}/Evidence/Stale result.md`, `${ALPHA}/Evidence/Replication result.md`];
+const DRAFT_ENVELOPE = {
+  id: "continuity-claim",
+  claimPaths: [`${ALPHA}/Claims/Continuity claim.md`],
+  evidence: ALPHA_EVIDENCE.map((path) => ({ path, fingerprint: "sha256:new" })),
+  citations: [{ key: "source-continuity-study", sourcePath: `${ALPHA}/Sources/Study.md` }],
+  provider: "companion",
+  model: "evidence-outline-v1",
+  generatedAt: "outline",
+};
+const DRAFT_SEED = "Provenance preserves continuity.";
+const DRAFT_SECTION = `<!-- cavi:draft-section version=1 meta=${encodeURIComponent(JSON.stringify(DRAFT_ENVELOPE))} fingerprint=fnv1a-${fnv1aHex(DRAFT_SEED)} -->\n${DRAFT_SEED}\n<!-- cavi:draft-section:end id=${DRAFT_ENVELOPE.id} -->`;
+
+const WEEKLY_REVIEW = "# Weekly review\n\n## Progress\n\n- Finished the source import for the continuity study.\n- Reviewed two passages against their sources.\n\n## Next\n\n- Draft the white paper introduction.\n- Resolve the open question about mechanism.\n";
+const WEEKLY_EDITS = [
+  { old_str: "- Finished the source import for the continuity study.", new_str: "- Imported the continuity study and checked its fingerprint." },
+  { old_str: "- Draft the white paper introduction.", new_str: "- Draft the white paper introduction by Friday." },
+];
+const WEEKLY_ASK = "Tighten my weekly review and make the next steps specific.";
+const WEEKLY_REPLY = "I made two changes to Weekly review: the import line now says what was checked, and the first next step has a due day. Both are waiting for your review in the note.";
+
+const SESSION_TITLES = [
+  "Plan the launch checklist",
+  "Tidy the meeting notes",
+  "Draft the white paper introduction",
+  "Review the stale evidence",
+  "Summarize the Build plan",
+  "Narrow the continuity claim",
+];
+
+const TAGGED_NOTES: Record<string, string[]> = {
+  "Notes/Kickoff meeting.md": ["meeting-notes", "workflow", "research"],
+  "Notes/Review meeting.md": ["meeting-notes", "evidence-review", "provenance"],
+  "Notes/Planning meeting.md": ["meeting-notes", "workflow", "planning"],
+  "Notes/Retro meeting.md": ["meeting-notes", "evidence-review", "draft"],
+  "Notes/Sync meeting.md": ["meeting_notes", "workflows", "review-evidence"],
+  "Notes/Source audit.md": ["provenance", "evidence-review", "workflow", "research"],
+  "Notes/Citation check.md": ["provenance", "provenence", "research", "planning"],
+  "Notes/Draft outline.md": ["draft", "research"],
+};
+
+const TASK_SCHEMA = [
+  "---", "ontology: type", "type_name: task", "version: 1", "---", "",
+  "```yaml", "properties:", "  - key: status", "    type: \"string\"", "    required: true", "```", "",
+  "Edit the yaml block above to change the `task` schema.", "",
+].join("\n");
+
+const DASHBOARD_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Continuity research status</title><style>
+:root{--ivory:#FAF9F5;--slate:#141413;--clay:#D97757;--olive:#788C5D;--gray-150:#F0EEE6;--gray-300:#D1CFC5;--gray-500:#87867F;--gray-700:#3D3D3A;--serif:ui-serif,Georgia,serif;--sans:system-ui,-apple-system,sans-serif;--mono:Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--ivory);color:var(--gray-700);font:14px/1.5 var(--sans)}
+.page{padding:24px 28px}.eyebrow{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--gray-500)}
+h1{font:500 26px var(--serif);letter-spacing:-.01em;color:var(--slate);margin:4px 0 16px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.tile{background:#fff;border:1.5px solid var(--gray-300);border-radius:12px;padding:12px 14px}
+.num{font:500 28px var(--serif);color:var(--slate)}.num.key{color:var(--clay)}.lbl{font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--gray-500)}
+.cols{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-top:14px}.card{background:var(--gray-150);border:1.5px solid var(--gray-300);border-radius:12px;padding:14px 16px}
+h2{font:500 15px var(--serif);color:var(--slate);margin:0 0 10px}.bar{display:grid;grid-template-columns:84px 1fr 24px;gap:8px;align-items:center;margin:7px 0;font-size:12px}
+.track{height:9px;background:#fff;border-radius:999px;overflow:hidden}.fill{display:block;height:100%;border-radius:999px;background:var(--olive)}.fill.clay{background:var(--clay)}.val{font:600 11px var(--mono);color:var(--gray-500);text-align:right}
+ul{list-style:none;margin:0;padding:0}li{display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12.5px}.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--gray-300);background:#fff}.dot.done{background:var(--olive);border-color:var(--olive)}.dot.now{background:var(--clay);border-color:var(--clay)}
+</style></head><body><div class="page"><div class="eyebrow">Project status</div><h1>Continuity research</h1>
+<div class="tiles"><div class="tile"><div class="num">1</div><div class="lbl">Source</div></div><div class="tile"><div class="num">3</div><div class="lbl">Passages</div></div><div class="tile"><div class="num">1</div><div class="lbl">Claim</div></div><div class="tile"><div class="num key">1 of 1</div><div class="lbl">Sections drafted</div></div></div>
+<div class="cols"><div class="card"><h2>Passages by review state</h2>
+<div class="bar"><span>Reviewed</span><span class="track"><span class="fill" style="width:67%"></span></span><span class="val">2</span></div>
+<div class="bar"><span>Proposed</span><span class="track"><span class="fill clay" style="width:33%"></span></span><span class="val">1</span></div>
+<div class="bar"><span>Challenging</span><span class="track"><span class="fill clay" style="width:33%"></span></span><span class="val">1</span></div></div>
+<div class="card"><h2>Where the project stands</h2><ul>
+<li><span class="dot done"></span>Frame the question</li><li><span class="dot done"></span>Capture sources</li><li><span class="dot done"></span>Review passages</li><li><span class="dot now"></span>Draft the white paper</li><li><span class="dot"></span>Audit the argument</li></ul></div></div></div></body></html>`;
+const PROJECT_STATUS = `# Project status\n\nA snapshot of the Continuity research project.\n\n\`\`\`claude-html height=400\n${DASHBOARD_HTML}\n\`\`\`\n`;
+
+const SCENE_FILES: Record<string, string> = {
+  "Build plan.md": ORIGINAL_PLAN,
+  "Weekly review.md": WEEKLY_REVIEW,
+  "Notes/Project status.md": PROJECT_STATUS,
+  "Notes/Meeting 2026-03-04.md": "# Meeting 2026-03-04\n\nFollow-ups: [[Budget outline]] and [[Vendor list]].\n",
+  "Notes/Linked.md": "# Linked\n\nSee [[Missing note]].\n",
+  "Ontology/task.md": TASK_SCHEMA,
+  "Notes/Task one.md": "---\ntype: task\n---\n# Task one\n",
+  ...Object.fromEntries(Object.entries(TAGGED_NOTES).map(([path, tags]) => [path, `---\ntags: [${tags.join(", ")}]\n---\n\n# ${path.slice(6, -3)}\n\nStandalone working note.\n`])),
+  [`${ALPHA}/Evidence/Stale result.md`]: note('title: "Provenance links hold"\ntype: "evidence"\nproject: "[[Research/Alpha/Project.md]]"\nsource: "[[Research/Alpha/Sources/Study.md]]"\nsource_fingerprint: "sha256:new"\nlocator_kind: page\nlocator_value: "4"\nreview_state: reviewed', "> Continuity improves with provenance."),
+  [`${ALPHA}/Evidence/Replication result.md`]: note('title: "Replication result"\ntype: "evidence"\nproject: "[[Research/Alpha/Project.md]]"\nsource: "[[Research/Alpha/Sources/Study.md]]"\nsource_fingerprint: "sha256:new"\nlocator_kind: page\nlocator_value: "12"\nreview_state: reviewed', "> The replication kept continuity when source links stayed intact."),
+  [`${ALPHA}/Claims/Continuity claim.md`]: note('title: "Continuity claim"\ntype: "claim"\nproject: "[[Research/Alpha/Project.md]]"\nproposition: "Provenance preserves continuity."\nconfidence: moderate\nreview_state: reviewed\nsupports:\n  - "[[Research/Alpha/Evidence/Stale result.md]]"\n  - "[[Research/Alpha/Evidence/Replication result.md]]"\nchallenges:\n  - "[[Research/Alpha/Evidence/Challenge.md]]"\ncontextualizes: []\nlimitations:\n  - "One workflow was studied"', "# Claim"),
+  [`${ALPHA}/Documents/Draft.md`]: note('title: "White paper"\ntype: "research-document"\nproject: "[[Research/Alpha/Project.md]]"\ndocument_kind: draft\nclaims:\n  - "[[Research/Alpha/Claims/Continuity claim.md]]"', `# White paper\n\n${DRAFT_SECTION}`),
+};
+
 let harness: Rig;
 let baselineSettings: Record<string, unknown>;
 
@@ -53,13 +161,7 @@ async function shoot(target: Locator | Page, name: string, theme: "dark" | "ligh
   await verifyCapture(path, name);
 }
 
-async function shootThrough(root: Locator, end: Locator, cssHeight: number, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
-  const page = await prepareCapture(root);
-  const rootBox = await root.boundingBox();
-  const endBox = await end.boundingBox();
-  if (!rootBox || !endBox) throw new Error(`Failed to measure ${name}`);
-  expect(endBox.y + endBox.height - rootBox.y + 12, `${name} content must fit its fixed crop`).toBeLessThanOrEqual(cssHeight);
-
+async function captureClip(page: Page, clip: { x: number; y: number; width: number; height: number }, name: string, theme: "dark" | "light", assetRoot: string): Promise<void> {
   const path = outputPath(name, theme, assetRoot);
   await mkdir(dirname(path), { recursive: true });
   // Playwright screenshots a CDP-attached Electron page at 1x; capture through CDP and correct to a fixed 2x.
@@ -67,16 +169,43 @@ async function shootThrough(root: Locator, end: Locator, cssHeight: number, name
   try {
     const shot = async (scale: number): Promise<Buffer> => Buffer.from((await cdp.send("Page.captureScreenshot", {
       format: "png",
-      clip: { x: rootBox.x, y: rootBox.y, width: rootBox.width, height: cssHeight, scale },
+      clip: { ...clip, scale },
     })).data, "base64");
     let png = await shot(1);
-    const native = png.readUInt32BE(16) / rootBox.width;
+    const native = png.readUInt32BE(16) / clip.width;
     if (Math.abs(native - CAPTURE_SCALE) > 0.01) png = await shot(CAPTURE_SCALE / native);
     await writeFile(path, png);
   } finally {
     await cdp.detach();
   }
   await verifyCapture(path, name);
+}
+
+async function shootThrough(root: Locator, end: Locator, cssHeight: number, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
+  const page = await prepareCapture(root);
+  const rootBox = await root.boundingBox();
+  const endBox = await end.boundingBox();
+  if (!rootBox || !endBox) throw new Error(`Failed to measure ${name}`);
+  expect(endBox.y + endBox.height - rootBox.y + 12, `${name} content must fit its fixed crop`).toBeLessThanOrEqual(cssHeight);
+  await captureClip(page, { x: rootBox.x, y: rootBox.y, width: rootBox.width, height: cssHeight }, name, theme, assetRoot);
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+async function boxOf(page: Page, selector: string): Promise<Box> {
+  const box = await page.locator(selector).first().boundingBox();
+  if (!box) throw new Error(`Failed to measure ${selector}`);
+  return box;
+}
+
+// A fixed-size window crop: "dock" ends at the right edge of the right sidebar, "center" is centered on the editor area.
+async function shootWindow(page: Page, anchor: "dock" | "center", width: number, height: number, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
+  await prepareCapture(page);
+  const rightSplit = await boxOf(page, ".workspace-split.mod-right-split");
+  const root = await boxOf(page, ".workspace-split.mod-root");
+  const x = anchor === "dock" ? rightSplit.x + rightSplit.width - width : root.x + (root.width - width) / 2;
+  expect(x, `${name} window crop must start inside the app window`).toBeGreaterThanOrEqual(0);
+  await captureClip(page, { x, y: root.y, width, height }, name, theme, assetRoot);
 }
 
 async function run(page: Page, id: string): Promise<void> {
@@ -99,13 +228,13 @@ async function resetScene(theme: "dark" | "light", settings: Record<string, unkn
     }
     if (candidate !== harness.page && !candidate.isClosed()) await candidate.close();
   }
-  await harness.page.evaluate(async ({ nextTheme, nextSettings, defaults, originalPlan }) => {
+  await harness.page.evaluate(async ({ nextTheme, nextSettings, defaults, restore }) => {
     document.body.classList.remove("theme-light", "theme-dark");
     document.body.classList.add(nextTheme === "dark" ? "theme-dark" : "theme-light");
     const app = (window as unknown as {
       app: {
         plugins: { plugins: Record<string, { settings: Record<string, unknown>; saveSettings(): Promise<void>; startNewConversation(): Promise<void> }> };
-        workspace: { getLeavesOfType(type: string): Array<{ detach(): void }> };
+        workspace: { getLeavesOfType(type: string): Array<{ detach(): void }>; leftSplit: { expand(): void }; rightSplit: { expand(): void; containerEl: HTMLElement } };
         vault: { getAbstractFileByPath(path: string): unknown; modify(file: unknown, data: string): Promise<void> };
       };
     }).app;
@@ -113,12 +242,62 @@ async function resetScene(theme: "dark" | "light", settings: Record<string, unkn
     Object.assign(plugin.settings, defaults, nextSettings);
     await plugin.saveSettings();
     await plugin.startNewConversation();
-    const plan = app.vault.getAbstractFileByPath("Build plan.md");
-    if (plan) await app.vault.modify(plan, originalPlan);
-    for (const type of ["claude-companion-chat", "claude-research-desk", "markdown"]) {
+    for (const type of ["claude-companion-chat", "claude-research-desk", "claude-system", "markdown"]) {
       for (const leaf of app.workspace.getLeavesOfType(type)) leaf.detach();
     }
-  }, { nextTheme: theme, nextSettings: settings, defaults: baselineSettings, originalPlan: ORIGINAL_PLAN });
+    for (const [path, content] of Object.entries(restore)) {
+      const file = app.vault.getAbstractFileByPath(path);
+      if (file) await app.vault.modify(file, content);
+    }
+    app.workspace.leftSplit.expand();
+    app.workspace.rightSplit.expand();
+    for (const property of ["display", "position", "inset", "width", "min-width", "max-width", "flex", "flex-basis", "z-index"]) {
+      app.workspace.rightSplit.containerEl.style.removeProperty(property);
+    }
+  }, { nextTheme: theme, nextSettings: settings, defaults: baselineSettings, restore: { "Build plan.md": ORIGINAL_PLAN, "Weekly review.md": WEEKLY_REVIEW } });
+}
+
+async function collapseSidebars(page: Page, sides: Array<"left" | "right">): Promise<void> {
+  await page.evaluate((which) => {
+    const workspace = (window as unknown as { app: { workspace: { leftSplit: { collapse(): void }; rightSplit: { collapse(): void } } } }).app.workspace;
+    if (which.includes("left")) workspace.leftSplit.collapse();
+    if (which.includes("right")) workspace.rightSplit.collapse();
+  }, sides);
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
+async function openNote(page: Page, link: string, mode: "source" | "preview" = "source"): Promise<void> {
+  await page.evaluate(async ({ target, viewMode }) => {
+    const app = (window as unknown as {
+      app: {
+        metadataCache: { getFirstLinkpathDest(link: string, source: string): unknown };
+        workspace: { getLeaf(kind: string): { openFile(file: unknown, state?: unknown): Promise<void> } };
+      };
+    }).app;
+    const file = app.metadataCache.getFirstLinkpathDest(target, "");
+    if (!file) throw new Error(`Note not found: ${target}`);
+    await app.workspace.getLeaf("tab").openFile(file, { state: { mode: viewMode } });
+  }, { target: link, viewMode: mode });
+}
+
+interface SeedMessage {
+  role: "user" | "assistant";
+  content: string;
+  toolTrace?: Array<{ name: string; argsSummary: string; resultPreview: string; ok: boolean }>;
+}
+
+async function seedConversation(page: Page, messages: SeedMessage[], proposal?: { path: string; description: string; edits: Array<{ old_str: string; new_str: string }> }): Promise<void> {
+  await page.evaluate(async ({ seed, edit }) => {
+    const app = (window as unknown as { app: { plugins: { plugins: Record<string, {
+      beginActiveConversationTurn(id: string | null, messages: unknown[], input: { backend: string; model: string; mode: string }): Promise<{ conversationId: string; turnId: string }>;
+      completeActiveConversationTurn(id: string, turnId: string, messages: unknown[]): Promise<void>;
+      saveChatEditProposal(id: string, proposal: unknown): Promise<void>;
+    }> } } }).app;
+    const plugin = app.plugins.plugins["claude-companion"]!;
+    const turn = await plugin.beginActiveConversationTurn(null, seed.slice(0, 1), { backend: "anthropic", model: "claude-sonnet-5", mode: "act" });
+    await plugin.completeActiveConversationTurn(turn.conversationId, turn.turnId, seed);
+    if (edit) await plugin.saveChatEditProposal(turn.conversationId, edit);
+  }, { seed: messages, edit: proposal ?? null });
 }
 
 // Widen the right sidebar past the `.cc-controls` 360px container-query
@@ -135,9 +314,10 @@ test.describe("README captures", () => {
       claudeCli: true,
       endpointModels: ["local-model"],
       endpointReply: "Your vault summary is ready — generated entirely on this device.",
-      extraFiles: { "Build plan.md": ORIGINAL_PLAN },
+      extraFiles: SCENE_FILES,
       providerReply: [
         { match: "copyeditor", flags: "i", replies: [ENRICHED_PLAN] },
+        { match: "Draft one research-document section", replies: [DRAFT_REPLY] },
         { match: "What should I work on next?", replies: [CHAT_REPLY] },
       ],
       providerFail: [{ match: "Summarize my vault in one line.", status: 503 }],
@@ -178,8 +358,9 @@ test.describe("README captures", () => {
         await input.fill("What should I work on next?");
         await input.press("Enter");
         const answer = root.locator(".cc-msg.cc-assistant").last();
-        await expect(answer).toContainText(CHAT_REPLY, { timeout: 15_000 });
-        await shootThrough(root, answer, 331, "chat-panel.png", theme, PLUGIN_ASSETS);
+        await expect(answer).toContainText(CHAT_REPLY_LEAD, { timeout: 15_000 });
+        await expect(answer.locator("a.internal-link")).toHaveCount(1);
+        await shootThrough(root, answer, 540, "chat-panel.png", theme, PLUGIN_ASSETS);
       });
 
       test("composer-320.png", async () => {
@@ -231,6 +412,17 @@ test.describe("README captures", () => {
         const desk = harness.page.locator('.workspace-leaf-content[data-type="claude-research-desk"]');
         await setRightSidebarWidth(harness.page, 760);
         await expect.poll(async () => (await desk.boundingBox())?.width ?? 0).toBeCloseTo(760, 0);
+        const progress = desk.locator(".cc-desk-document-progress");
+        await expect(progress).toBeVisible();
+        if (/^0 of/.test(await progress.innerText())) {
+          await desk.locator(".cc-desk-step", { hasText: 'Draft "Continuity claim"' }).click();
+          await desk.getByRole("button", { name: "Accept section", exact: true }).click();
+        }
+        await expect(progress).toContainText("1 of 1 section drafted");
+        const hide = desk.getByRole("button", { name: "Hide sections", exact: true });
+        if (await hide.count()) await hide.click();
+        await expect(desk).not.toContainText("No tracked sections");
+        await expect(desk).not.toContainText("Unsupported");
         await shootThrough(desk, desk.locator(".cc-desk-sources"), 760, "research-desk.png", theme);
       });
 
@@ -283,6 +475,114 @@ test.describe("README captures", () => {
         });
         const bubble = root.locator(".cc-msg.cc-assistant").last();
         await shootThrough(root, bubble, 476, "agent-tool-chips.png", theme);
+      });
+
+      test("hero.png", async () => {
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        const { page } = harness;
+        await collapseSidebars(page, ["left"]);
+        await seedConversation(page, [
+          { role: "user", content: WEEKLY_ASK },
+          {
+            role: "assistant",
+            content: WEEKLY_REPLY,
+            toolTrace: [
+              { name: "note_read", argsSummary: "Weekly review.md", resultPreview: "# Weekly review", ok: true },
+              { name: "propose_note_edit", argsSummary: "Weekly review.md · 2 edits", resultPreview: "2 edits proposed", ok: true },
+            ],
+          },
+        ], { path: "Weekly review.md", description: "Make the import line and first next step specific", edits: WEEKLY_EDITS });
+        await openNote(page, "Weekly review");
+        const root = await openChat(harness);
+        // The hero is the whole 800x500 window, so the editor pane is exactly as narrow as the crop.
+        await page.setViewportSize({ width: 800, height: 500 });
+        try {
+          await widen(page, 400);
+          await expect(root.locator(".cc-tool-chip")).toHaveCount(2);
+          await root.getByRole("button", { name: "Review proposed edit", exact: true }).click();
+          await expect(page.locator(".cc-inline-add").first()).toBeVisible({ timeout: 15_000 });
+          await prepareCapture(page);
+          await captureClip(page, { x: 0, y: 0, width: 800, height: 500 }, "hero.png", theme, PLUGIN_ASSETS);
+        } finally {
+          await page.setViewportSize({ width: 1600, height: 1000 });
+        }
+      });
+
+      test("artifact-inline.png", async () => {
+        await resetScene(theme);
+        const { page } = harness;
+        await collapseSidebars(page, ["left", "right"]);
+        await openNote(page, "Project status", "preview");
+        await expect(page.frameLocator("iframe.cc-artifact-frame").locator("h1")).toHaveText("Continuity research", { timeout: 20_000 });
+        await shootWindow(page, "center", 800, 600, "artifact-inline.png", theme, PLUGIN_ASSETS);
+      });
+
+      test("session-dropdown.png", async () => {
+        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5" });
+        const { page } = harness;
+        for (const title of SESSION_TITLES) {
+          await seedConversation(page, [
+            { role: "user", content: title },
+            { role: "assistant", content: "Here is where that stands. Open the note to continue from this point." },
+          ]);
+        }
+        await openChat(harness);
+        await widen(page, 440);
+        // macOS defaults to native (OS-drawn) menus, which have no DOM to capture.
+        await page.evaluate(() => {
+          (window as unknown as { app: { vault: { setConfig(key: string, value: unknown): void } } }).app.vault.setConfig("nativeMenus", false);
+        });
+        await page.locator('[aria-label="Resume a past conversation"]:visible').first().click();
+        const dropdown = page.locator(".cc-session-dropdown");
+        await expect(dropdown).toBeVisible();
+        const rows = dropdown.locator(".cc-session-row");
+        await expect(rows).toHaveCount(SESSION_TITLES.length);
+        await rows.last().locator(".cc-session-more").click();
+        await page.locator(".menu .menu-item-title", { hasText: /^Archive$/ }).click();
+        await expect(rows).toHaveCount(SESSION_TITLES.length - 1);
+        await expect(dropdown.locator(".cc-session-archive-toggle")).toHaveText("Show archived (1)");
+        await rows.nth(1).locator(".cc-session-more").click();
+        const menu = page.locator(".menu");
+        await expect(menu).toBeVisible();
+        const split = await boxOf(page, ".workspace-split.mod-right-split");
+        const dropBox = await dropdown.boundingBox();
+        const menuBox = await menu.boundingBox();
+        if (!dropBox || !menuBox) throw new Error("Failed to measure the session dropdown");
+        expect(Math.max(dropBox.y + dropBox.height, menuBox.y + menuBox.height) - split.y + 12, "dropdown and menu must fit the fixed crop").toBeLessThanOrEqual(560);
+        expect(menuBox.x, "the row menu must sit inside the crop").toBeGreaterThanOrEqual(split.x + split.width - 440);
+        await shootWindow(page, "dock", 440, 560, "session-dropdown.png", theme);
+      });
+
+      test("system-page.png", async () => {
+        await resetScene(theme);
+        const { page } = harness;
+        await page.evaluate(async () => {
+          const app = (window as unknown as { app: { plugins: { plugins: Record<string, { ontology(): { load(): Promise<unknown> } | null }> } } }).app;
+          await app.plugins.plugins["claude-companion"]!.ontology()?.load();
+        });
+        await run(page, "claude-companion:open-system");
+        await widen(page, 520);
+        const view = page.locator(".cc-system-view:visible").first();
+        await expect(async () => {
+          await view.locator(".cc-system-refresh").click();
+          for (const id of ["links", "orphans", "tags", "ontology"]) await expect(view.locator(`.cc-system-${id}`)).toBeVisible({ timeout: 1000 });
+        }).toPass({ timeout: 30_000 });
+        await shootThrough(view, view.locator(".cc-system-settings"), 700, "system-page.png", theme);
+      });
+
+      test("optimize-tags.png", async () => {
+        await resetScene(theme);
+        const { page } = harness;
+        await run(page, "claude-companion:optimize-brain");
+        const modal = page.locator(".modal:has(.cc-optimize-review)");
+        await expect(modal).toBeVisible();
+        const rows = modal.locator(".setting-item:has(input[type=checkbox])");
+        await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+        expect(await rows.count(), "the review should list 3 to 5 merges").toBeGreaterThanOrEqual(3);
+        expect(await rows.count(), "the review should list 3 to 5 merges").toBeLessThanOrEqual(5);
+        await expect(modal.getByRole("button", { name: "Check with model", exact: true })).toBeEnabled({ timeout: 15_000 });
+        await modal.evaluate((el) => { el.style.width = "600px"; el.style.maxWidth = "600px"; });
+        await shootThrough(modal, modal.locator(".setting-item").last(), 520, "optimize-tags.png", theme);
       });
     });
   }
