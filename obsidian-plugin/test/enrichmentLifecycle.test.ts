@@ -224,6 +224,46 @@ describe("enrichment lifecycle", () => {
     expect((controller as unknown as ControllerPrivates).enrichQueueRunning).toBe(false);
   });
 
+  it("does not fire onEnrichQueueIdle for a drain that enriched nothing", async () => {
+    vi.useFakeTimers();
+    const app = new App();
+    const first = app.vault.seed("Clippings/skip-1.md", "One");
+    const second = app.vault.seed("Clippings/skip-2.md", "Two");
+    const idle = vi.fn();
+    const controller = new SourceEnrichmentController(testControllerDeps({ onEnrichQueueIdle: idle }));
+    vi.spyOn(controller, "enrichFile")
+      .mockResolvedValueOnce({ status: "skipped", reason: "not eligible" })
+      .mockResolvedValueOnce({ status: "failed", error: new Error("no") });
+    controller.queueEnrich(first);
+    controller.queueEnrich(second);
+    await vi.advanceTimersByTimeAsync(1500);
+    await settle(24);
+    expect(idle).not.toHaveBeenCalled();
+  });
+
+  it("fires onEnrichQueueIdle once, after the last file settles, when one of two was enriched", async () => {
+    vi.useFakeTimers();
+    const app = new App();
+    const first = app.vault.seed("Clippings/mix-1.md", "One");
+    const second = app.vault.seed("Clippings/mix-2.md", "Two");
+    const events: string[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const controller = new SourceEnrichmentController(testControllerDeps({ onEnrichQueueIdle: () => { events.push("idle"); } }));
+    vi.spyOn(controller, "enrichFile").mockImplementation(async (file) => {
+      events.push(`start:${file.path}`);
+      await gate;
+      events.push(`done:${file.path}`);
+      return file.path === first.path ? { status: "enriched" } : { status: "skipped", reason: "no" };
+    });
+    controller.queueEnrich(first);
+    controller.queueEnrich(second);
+    await vi.advanceTimersByTimeAsync(1500);
+    open();
+    await settle(24);
+    expect(events).toEqual([`start:${first.path}`, `done:${first.path}`, `start:${second.path}`, `done:${second.path}`, "idle"]);
+  });
+
   it("does not fire onEnrichQueueIdle once the utility lifecycle has ended", async () => {
     vi.useFakeTimers();
     const app = new App();
