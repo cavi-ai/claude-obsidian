@@ -20,9 +20,9 @@ const setup = (list = candidates) => {
   const actions = {
     apply: vi.fn(async () => result),
     dismiss: vi.fn(async () => undefined),
-    classify: vi.fn(async (): Promise<ClassifyResult> => ({ judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0 })),
+    classify: vi.fn(async (_signal: AbortSignal): Promise<ClassifyResult> => ({ judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0 })),
     rescan: vi.fn(async (): Promise<MergeCandidate[]> => list),
-    classifierInfo: vi.fn(async () => ({ label: "Ollama", model: "qwen3:1.7b" })),
+    classifierInfo: vi.fn(async (): Promise<{ label: string; model: string } | { needsConfirmation: true }> => ({ label: "Ollama", model: "qwen3:1.7b" })),
   };
   const onDone = vi.fn();
   const modal = new OptimizeBrainModal(new App(), list, actions, onDone);
@@ -193,5 +193,55 @@ describe("OptimizeBrainModal", () => {
     await settle();
     expect(getNoticeMessages()).toContain("Tag check failed: boom");
     expect((button(root(), "Check with model") as unknown as { disabled: boolean }).disabled).toBe(false);
+  });
+
+  it("ignores Apply while a check is running", async () => {
+    const { root, actions } = setup();
+    await settle();
+    actions.classify.mockImplementationOnce(() => new Promise<ClassifyResult>(() => {}));
+    button(root(), "Check with model").dispatchEvent({ type: "click" });
+    button(root(), "Apply selected").dispatchEvent({ type: "click" });
+    await settle();
+    expect(actions.apply).not.toHaveBeenCalled();
+    expect((button(root(), "Apply selected") as unknown as { disabled: boolean }).disabled).toBe(true);
+  });
+
+  it("closing during a check aborts its signal and the late resolution posts no notice", async () => {
+    const { root, actions, modal } = setup();
+    await settle();
+    let signal!: AbortSignal;
+    let release!: (r: ClassifyResult) => void;
+    actions.classify.mockImplementationOnce((s: AbortSignal) => {
+      signal = s;
+      return new Promise<ClassifyResult>((resolve) => { release = resolve; });
+    });
+    button(root(), "Check with model").dispatchEvent({ type: "click" });
+    const before = getNoticeMessages().length;
+    modal.onClose();
+    expect(signal.aborted).toBe(true);
+    release({ judged: 1, merge: 1, keep: 0, failedBatches: 0, dropped: 0 });
+    await settle();
+    expect(getNoticeMessages()).toHaveLength(before);
+    expect(actions.rescan).not.toHaveBeenCalled();
+  });
+
+  it("ignores Check with model while Apply is running", async () => {
+    const { root, actions } = setup();
+    await settle();
+    actions.apply.mockImplementationOnce(() => new Promise<ApplyResult>(() => {}));
+    button(root(), "Apply selected").dispatchEvent({ type: "click" });
+    button(root(), "Check with model").dispatchEvent({ type: "click" });
+    await settle();
+    expect(actions.classify).not.toHaveBeenCalled();
+  });
+
+  it("states the confirmation disclosure and keeps the button enabled when the utility needs confirmation", async () => {
+    const b = setup();
+    const c = new OptimizeBrainModal(new App(), candidates, { ...b.actions, classifierInfo: async () => ({ needsConfirmation: true as const }) }, vi.fn());
+    c.onOpen();
+    await settle();
+    const el = c.contentEl as unknown as FakeElement;
+    expect(allText(el)).toContain("Sends tag names and up to 3 note titles per tag to your utility model. You will be asked before Claude is used instead.");
+    expect((button(el, "Check with model") as unknown as { disabled: boolean }).disabled).toBe(false);
   });
 });

@@ -6,9 +6,9 @@ import { createOptimizeState, removeRow, selectedMerges, swapRow, toggleRow, typ
 export interface OptimizeBrainActions {
   apply(merges: Array<{ from: string; to: string }>): Promise<ApplyResult>;
   dismiss(id: string): Promise<void>;
-  classify(): Promise<ClassifyResult>;
+  classify(signal: AbortSignal): Promise<ClassifyResult>;
   rescan(): Promise<MergeCandidate[]>;
-  classifierInfo(): Promise<{ label: string; model: string }>;
+  classifierInfo(): Promise<{ label: string; model: string } | { needsConfirmation: true }>;
 }
 
 type ClassifierLine = { text: string; ready: boolean };
@@ -19,6 +19,7 @@ export class OptimizeBrainModal extends Modal {
   private settled = false;
   private applying = false;
   private checking = false;
+  private checkAbort: AbortController | null = null;
   private classifierLine: ClassifierLine | null = null;
 
   constructor(
@@ -35,7 +36,12 @@ export class OptimizeBrainModal extends Modal {
     this.contentEl.addClass("cc-optimize-review");
     this.render();
     void this.actions.classifierInfo().then(
-      (info) => this.setClassifierLine({ text: `Sends tag names and up to 3 note titles per tag to ${info.label} (${info.model}).`, ready: true }),
+      (info) =>
+        this.setClassifierLine(
+          "needsConfirmation" in info
+            ? { text: "Sends tag names and up to 3 note titles per tag to your utility model. You will be asked before Claude is used instead.", ready: true }
+            : { text: `Sends tag names and up to 3 note titles per tag to ${info.label} (${info.model}).`, ready: true },
+        ),
       (error: unknown) => this.setClassifierLine({ text: errorMessage(error), ready: false }),
     );
   }
@@ -47,14 +53,18 @@ export class OptimizeBrainModal extends Modal {
 
   private runClassify(): void {
     if (this.checking || this.applying || this.settled) return;
+    const control = new AbortController();
+    this.checkAbort = control;
     this.checking = true;
     this.render();
     void (async () => {
       try {
-        const result = await this.actions.classify();
+        const result = await this.actions.classify(control.signal);
+        if (control.signal.aborted) return;
         this.state = createOptimizeState(await this.actions.rescan(), this.state);
-        new Notice(formatClassifyNotice(result));
+        if (!control.signal.aborted) new Notice(formatClassifyNotice(result));
       } catch (error) {
+        if (control.signal.aborted) return;
         new Notice(`Tag check failed: ${errorMessage(error)}`);
         try {
           this.state = createOptimizeState(await this.actions.rescan(), this.state);
@@ -63,7 +73,8 @@ export class OptimizeBrainModal extends Modal {
         }
       } finally {
         this.checking = false;
-        if (!this.settled) this.render();
+        if (this.checkAbort === control) this.checkAbort = null;
+        if (!this.settled && !control.signal.aborted) this.render();
       }
     })();
   }
@@ -102,11 +113,12 @@ export class OptimizeBrainModal extends Modal {
     }
     if (this.classifierLine) contentEl.createDiv({ text: this.classifierLine.text });
     new Setting(contentEl)
-      .addButton((b) => b.setButtonText("Check with model").setDisabled(this.checking || !this.classifierLine?.ready).onClick(() => this.runClassify()))
+      .addButton((b) => b.setButtonText("Check with model").setDisabled(this.checking || this.applying || !this.classifierLine?.ready).onClick(() => this.runClassify()))
       .addButton((b) => b.setButtonText("Cancel").onClick(() => (this.applying ? this.close() : this.finish(null))))
-      .addButton((b) => b.setButtonText("Apply selected").setCta().onClick(() => {
-        if (this.applying || this.settled) return;
+      .addButton((b) => b.setButtonText("Apply selected").setCta().setDisabled(this.checking || this.applying).onClick(() => {
+        if (this.applying || this.checking || this.settled) return;
         this.applying = true;
+        this.render();
         void this.actions.apply(selectedMerges(this.state)).then(
           (result) => this.finish(result),
           (error: unknown) => {
@@ -127,6 +139,7 @@ export class OptimizeBrainModal extends Modal {
   }
 
   override onClose(): void {
+    this.checkAbort?.abort();
     if (!this.settled && !this.applying) {
       this.settled = true;
       this.onDone(null);
