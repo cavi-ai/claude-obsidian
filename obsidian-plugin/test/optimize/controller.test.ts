@@ -6,6 +6,7 @@ import type { NoteTagInput } from "../../src/optimize/mergePlan";
 import type { OptimizeState } from "../../src/optimize/state";
 import { UtilityUnavailableError } from "../../src/providers/endpointPolicy";
 import { VerdictParseError, type Verdict } from "../../src/optimize/classify";
+import { ClassifierStoppedError } from "../../src/optimize/classifierGlue";
 import type { MergeCandidate } from "../../src/optimize/tagScan";
 
 function setup(over: Partial<OptimizeDeps> = {}, notes: Record<string, { fm: string[]; inline?: Array<{ tag: string; start: number; end: number }> }> = {}) {
@@ -313,17 +314,21 @@ describe("OptimizeController.classify", () => {
     for (const c of candidates) entries["n.md"]!.fm.push(c.from, c.to);
     const { controller, getState } = setup({
       classifier: fakeClassifier(async (req) => {
-        const n = req.user.split("\n").length;
-        calls.push(n);
-        return [];
+        const lines = req.user.split("\n");
+        calls.push(lines.length);
+        return lines.map((l) => {
+          const id = l.match(/A: "(a\d+)"/)?.[1] ?? "";
+          return { id: `${id}|b${id.slice(1)}`, verdict: "keep" } as Verdict;
+        });
       }),
     }, entries);
     vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 900, singleUse: 0, dropped: 0, candidates });
     const res = await controller.classify();
     expect(calls).toHaveLength(10);
     expect(calls.every((n) => n === 20)).toBe(true);
+    expect(res.judged).toBe(200);
     expect(res.dropped).toBe(250);
-    expect(getState().verdicts).toEqual({});
+    expect(Object.keys(getState().verdicts)).toHaveLength(200);
   });
 
   it("stores verdicts with model and time, counts merge/keep, and scan attaches them", async () => {
@@ -440,5 +445,106 @@ describe("OptimizeController.classify background", () => {
     const { controller } = setup({ classifier: fakeClassifier(async () => { throw new Error("down"); }) }, NOTES);
     vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 2, singleUse: 0, dropped: 0, candidates: [cand(1)] });
     await expect(controller.classify({ background: true })).resolves.toMatchObject({ judged: 0 });
+  });
+});
+
+describe("OptimizeController.classify lifecycle", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => cand(i));
+  const withCandidates = (over: Partial<OptimizeDeps>, n: number) => {
+    const candidates = many(n);
+    const s = setup(over, { "n.md": { fm: candidates.flatMap((c) => [c.from, c.to]) } });
+    vi.spyOn(s.controller, "scan").mockResolvedValue({ totalTags: n * 2, singleUse: 0, dropped: 0, candidates });
+    return s;
+  };
+  const keepAll = (req: { user: string }): Verdict[] =>
+    req.user.split("\n").map((l) => {
+      const id = l.match(/A: "(a\d+)"/)?.[1] ?? "";
+      return { id: `${id}|b${id.slice(1)}`, verdict: "keep" } as Verdict;
+    });
+
+  it("two overlapping background calls make one classifier call and the second is skipped:recent", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const classifier = vi.fn(fakeClassifier(async () => { await gate; return []; }));
+    const { controller } = withCandidates({ classifier }, 1);
+    const first = controller.classify({ background: true });
+    const second = await controller.classify({ background: true });
+    expect(second).toMatchObject({ skipped: "recent" });
+    release();
+    await first;
+    expect(classifier).toHaveBeenCalledTimes(1);
+  });
+
+  it("an explicit call during a run returns the same in-flight result", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const classifier = vi.fn(fakeClassifier(async () => { await gate; return []; }));
+    const { controller } = withCandidates({ classifier }, 1);
+    const first = controller.classify({ background: true });
+    const explicit = controller.classify();
+    release();
+    expect(await explicit).toBe(await first);
+    expect(classifier).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stamp later than now counts as no stamp", async () => {
+    const complete = vi.fn(async () => [] as Verdict[]);
+    const { controller } = setup({ classifier: fakeClassifier(complete) }, NOTES);
+    vi.spyOn(controller, "scan").mockResolvedValue({ totalTags: 2, singleUse: 0, dropped: 0, candidates: [cand(1)] });
+    await controller["deps"].setState({ dismissed: [], verdicts: {}, lastBackgroundRun: "2027-01-01T00:00:00.000Z" });
+    const res = await controller.classify({ background: true });
+    expect(res.skipped).toBeUndefined();
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("an abort after batch 1 of 3 stops with that batch's verdicts stored", async () => {
+    const ac = new AbortController();
+    const complete = vi.fn(async (req: { user: string }) => {
+      ac.abort();
+      return keepAll(req);
+    });
+    const { controller, getState } = withCandidates({ classifier: fakeClassifier(complete as Classifier["complete"]) }, 50);
+    const res = await controller.classify({ signal: ac.signal });
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(res.judged).toBe(20);
+    expect(Object.keys(getState().verdicts)).toHaveLength(20);
+  });
+
+  it("a ClassifierStoppedError on batch 2 writes no state; explicit rejects, background skips as stopped", async () => {
+    const make = () => {
+      let n = 0;
+      return fakeClassifier(async (req) => {
+        if (++n === 2) throw new ClassifierStoppedError("settings changed");
+        return keepAll(req);
+      });
+    };
+    const setStateSpy = vi.fn(async () => {});
+    const explicit = withCandidates({ classifier: make(), setState: setStateSpy }, 50);
+    await expect(explicit.controller.classify()).rejects.toBeInstanceOf(ClassifierStoppedError);
+    const bgSet = vi.fn(async () => {});
+    const background = withCandidates({ classifier: make(), setState: bgSet }, 50);
+    expect(await background.controller.classify({ background: true })).toMatchObject({ skipped: "stopped" });
+    expect(setStateSpy).not.toHaveBeenCalled();
+    expect(bgSet).not.toHaveBeenCalled();
+  });
+
+  it("passes interactive from the call kind", async () => {
+    const classifier = vi.fn(fakeClassifier(async () => []));
+    const { controller } = setup({ classifier }, NOTES);
+    await controller.classify();
+    await controller.classify({ background: true });
+    expect(classifier.mock.calls.map((c) => c[0])).toEqual([{ interactive: true }, { interactive: false }]);
+  });
+});
+
+describe("OptimizeController.classifierInfo", () => {
+  it("returns label and model, needsConfirmation for unavailable-loopback, and rethrows anything else", async () => {
+    const ok = setup({ classifier: fakeClassifier(async () => []) }, NOTES);
+    expect(await ok.controller.classifierInfo()).toEqual({ label: "Ollama", model: "m1" });
+    const loop = new UtilityUnavailableError("x", { state: "unavailable-loopback", backend: "ollama", endpoint: "http://localhost:11434" });
+    const gated = setup({ classifier: async () => { throw loop; } }, NOTES);
+    expect(await gated.controller.classifierInfo()).toEqual({ needsConfirmation: true });
+    const other = setup({}, NOTES);
+    await expect(other.controller.classifierInfo()).rejects.toBeInstanceOf(UtilityUnavailableError);
   });
 });

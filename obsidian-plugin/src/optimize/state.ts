@@ -1,3 +1,6 @@
+import { tagId } from "../tags/vocabulary";
+import { pairKey } from "./tagScan";
+
 export interface StoredVerdict {
   verdict: "merge" | "keep";
   canonical?: string;
@@ -16,12 +19,14 @@ export interface OptimizeState {
 const MAX_DISMISSED = 2000;
 const MAX_VERDICTS = 2000;
 
-function storedVerdict(raw: unknown): StoredVerdict | null {
+function storedVerdict(id: string, raw: unknown): StoredVerdict | null {
   if (typeof raw !== "object" || raw === null) return null;
   const v = raw as Record<string, unknown>;
   if (v.verdict !== "merge" && v.verdict !== "keep") return null;
   if (typeof v.a !== "string" || typeof v.b !== "string" || typeof v.model !== "string" || typeof v.at !== "string") return null;
   if (v.canonical !== undefined && typeof v.canonical !== "string") return null;
+  if (pairKey(tagId(v.a), tagId(v.b)) !== id) return null;
+  if (v.verdict === "merge" && (typeof v.canonical !== "string" || ![tagId(v.a), tagId(v.b)].includes(tagId(v.canonical)))) return null;
   return {
     verdict: v.verdict,
     ...(v.canonical !== undefined ? { canonical: v.canonical } : {}),
@@ -36,7 +41,7 @@ function normalizeVerdicts(raw: unknown): Record<string, StoredVerdict> {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
   const valid: Array<[string, StoredVerdict]> = [];
   for (const [id, entry] of Object.entries(raw)) {
-    const verdict = storedVerdict(entry);
+    const verdict = storedVerdict(id, entry);
     if (verdict) valid.push([id, verdict]);
   }
   valid.sort((x, y) => (x[1].at < y[1].at ? 1 : x[1].at > y[1].at ? -1 : 0));

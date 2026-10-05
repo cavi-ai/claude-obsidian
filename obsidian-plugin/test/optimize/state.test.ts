@@ -32,15 +32,28 @@ describe("normalizeOptimizeState", () => {
   });
 
   it("drops verdict entries with a wrong shape", () => {
-    const out = normalizeOptimizeState({ verdicts: { ok: v("t1"), bad1: v("t1", { verdict: "maybe" }), bad2: v("t1", { a: 1 }), bad3: "x", bad4: v("t1", { canonical: 3 }) } });
-    expect(Object.keys(out.verdicts)).toEqual(["ok"]);
+    const out = normalizeOptimizeState({ verdicts: { "a|b": v("t1"), bad1: v("t1", { verdict: "maybe" }), bad2: v("t1", { a: 1 }), bad3: "x", bad4: v("t1", { canonical: 3 }) } });
+    expect(Object.keys(out.verdicts)).toEqual(["a|b"]);
+  });
+
+  it("drops entries whose pair does not match the key or whose merge has no canonical inside the pair", () => {
+    const out = normalizeOptimizeState({
+      verdicts: {
+        "x|y": v("t1", { canonical: "zzz", a: "p", b: "q" }),
+        "p|q": v("t1", { canonical: undefined, a: "p", b: "q" }),
+        "p|r": v("t2", { canonical: "zzz", a: "p", b: "r" }),
+        "a|b": v("t3"),
+        "k|l": v("t4", { verdict: "keep", canonical: undefined, a: "l", b: "k" }),
+      },
+    });
+    expect(Object.keys(out.verdicts).sort()).toEqual(["a|b", "k|l"]);
   });
 
   it("keeps the newest 2000 verdicts by at", () => {
-    const verdicts = Object.fromEntries(Array.from({ length: 2005 }, (_, i) => [`k${i}`, v(`2026-01-01T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`)]));
+    const verdicts = Object.fromEntries(Array.from({ length: 2005 }, (_, i) => [`k${i}|l${i}`, v(`2026-01-01T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`, { a: `k${i}`, b: `l${i}`, canonical: `k${i}` })]));
     const out = normalizeOptimizeState({ verdicts }).verdicts;
     expect(Object.keys(out)).toHaveLength(2000);
-    expect(out.k2004).toBeDefined();
-    expect(out.k0).toBeUndefined();
+    expect(out["k2004|l2004"]).toBeDefined();
+    expect(out["k0|l0"]).toBeUndefined();
   });
 });

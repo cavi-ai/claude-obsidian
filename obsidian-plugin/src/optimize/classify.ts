@@ -24,7 +24,7 @@ export class VerdictParseError extends Error {
 
 export const CLASSIFY_BATCH = 20;
 export const MAX_CLASSIFY_BATCHES = 10;
-const MAX_TITLES = 3;
+export const MAX_TITLES = 3;
 
 export const CLASSIFY_SYSTEM = [
   "You judge pairs of tags from one personal note vault.",

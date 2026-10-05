@@ -1,3 +1,4 @@
+import { UtilityUnavailableError } from "../providers/endpointPolicy";
 import { buildVocabulary, tagId } from "../tags/vocabulary";
 import {
   collapseMerges,
@@ -11,12 +12,14 @@ import {
   CLASSIFY_SCHEMA,
   CLASSIFY_SYSTEM,
   MAX_CLASSIFY_BATCHES,
+  MAX_TITLES,
   VerdictParseError,
   classifyRequest,
   parseVerdicts,
   type ClassifyPair,
   type Verdict,
 } from "./classify";
+import { ClassifierStoppedError } from "./classifierGlue";
 import { normalizeOptimizeState, type OptimizeState, type StoredVerdict } from "./state";
 import { tagCentroids } from "./tagCentroids";
 import { scanTags, type TagScanReport } from "./tagScan";
@@ -46,11 +49,10 @@ export interface ClassifyResult {
   keep: number;
   failedBatches: number;
   dropped: number;
-  skipped?: "remote" | "recent" | "unavailable";
+  skipped?: "remote" | "recent" | "unavailable" | "stopped";
 }
 
 const BACKGROUND_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const MAX_TITLES = 3;
 const basename = (path: string): string => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
 
 export interface ApplyResult {
@@ -90,6 +92,8 @@ export function formatClassifyNotice(result: ClassifyResult): string {
 }
 
 export class OptimizeController {
+  private inflight: Promise<ClassifyResult> | null = null;
+
   constructor(private deps: OptimizeDeps) {}
 
   async scan(opts: { semantic?: boolean } = {}): Promise<TagScanReport> {
@@ -120,12 +124,29 @@ export class OptimizeController {
     };
   }
 
-  async classifierInfo(): Promise<{ label: string; model: string }> {
-    const { label, model } = await this.deps.classifier({ interactive: false });
-    return { label, model };
+  async classifierInfo(): Promise<{ label: string; model: string } | { needsConfirmation: true }> {
+    try {
+      const { label, model } = await this.deps.classifier({ interactive: false });
+      return { label, model };
+    } catch (error) {
+      if (error instanceof UtilityUnavailableError && error.resolution.state === "unavailable-loopback") return { needsConfirmation: true };
+      throw error;
+    }
   }
 
-  async classify(opts: { background?: boolean } = {}): Promise<ClassifyResult> {
+  classify(opts: { background?: boolean; signal?: AbortSignal } = {}): Promise<ClassifyResult> {
+    if (this.inflight) {
+      if (opts.background === true) return Promise.resolve({ judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0, skipped: "recent" });
+      return this.inflight;
+    }
+    const run = this.runClassify(opts).finally(() => {
+      if (this.inflight === run) this.inflight = null;
+    });
+    this.inflight = run;
+    return run;
+  }
+
+  private async runClassify(opts: { background?: boolean; signal?: AbortSignal }): Promise<ClassifyResult> {
     const background = opts.background === true;
     const result: ClassifyResult = { judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0 };
     let classifier: Awaited<ReturnType<OptimizeDeps["classifier"]>>;
@@ -138,12 +159,14 @@ export class OptimizeController {
     if (background) {
       if (!classifier.local) return { ...result, skipped: "remote" };
       const last = Date.parse(this.deps.getState().lastBackgroundRun ?? "");
-      if (Number.isFinite(last) && Date.parse(this.deps.now()) - last < BACKGROUND_INTERVAL_MS) return { ...result, skipped: "recent" };
+      const elapsed = Date.parse(this.deps.now()) - last;
+      if (Number.isFinite(last) && elapsed >= 0 && elapsed < BACKGROUND_INTERVAL_MS) return { ...result, skipped: "recent" };
     }
     const vocab = buildVocabulary(this.deps.tagEntries(), tagId);
     const titles = (tag: string): string[] => (vocab.get(tag)?.notes ?? []).slice(0, MAX_TITLES).map(basename);
     const stored: Record<string, StoredVerdict> = {};
     let failure: Error | null = null;
+    let stopped: ClassifierStoppedError | null = null;
     try {
       const report = await this.scan();
       const pending = report.candidates.filter((c) => !c.verdict && !c.evidence.some((e) => e === "separator" || e === "plural"));
@@ -151,6 +174,7 @@ export class OptimizeController {
       const sent = pending.slice(0, cap);
       result.dropped = pending.length - sent.length;
       for (let i = 0; i < sent.length; i += CLASSIFY_BATCH) {
+        if (opts.signal?.aborted) break;
         const batch = sent.slice(i, i + CLASSIFY_BATCH);
         const pairs: ClassifyPair[] = batch.map((c) => ({
           id: c.id,
@@ -190,7 +214,12 @@ export class OptimizeController {
         }
       }
     } catch (error) {
-      failure = error instanceof Error ? error : new Error(String(error));
+      if (error instanceof ClassifierStoppedError) stopped = error;
+      else failure = error instanceof Error ? error : new Error(String(error));
+    }
+    if (stopped) {
+      if (!background) throw stopped;
+      return { ...result, skipped: "stopped" };
     }
     const state = this.deps.getState();
     const merged: Record<string, StoredVerdict> = { ...state.verdicts, ...stored };
