@@ -115,7 +115,7 @@ returning nothing.
 (384-dimension vectors) inside Obsidian via transformers.js, on WebGPU where
 available and WASM otherwise. Works on **every platform, including mobile**.
 
-It needs one explicit download: ~23 MB of q8 weights from `huggingface.co` plus
+It needs one explicit download: ~24 MB of q8 weights and tokenizer/config files from `huggingface.co` plus
 ~23 MB of ONNX runtime from `cdn.jsdelivr.net`. Nothing downloads until you click
 **Download**; afterwards it's cached and runs fully on-device. A **Clear** button
 removes the cached model.
@@ -126,7 +126,26 @@ removes the cached model.
 **OpenAI-compatible endpoint** — embeds against the endpoint configured under
 *Local models*, using its embedding model.
 
-The built-in worker uses WebGPU or WASM; it does not use native MLX/Metal or Android LiteRT. Chat models run through the API or your configured endpoint. The default stays Arctic XS to keep on-device weights small. Its query encoding uses Snowflake's search instruction; document vectors remain compatible.
+The built-in worker uses WebGPU or WASM; it does not use native MLX/Metal or Android LiteRT. Chat models run through the API or your configured endpoint. Arctic XS is the mobile recommendation because it has the smallest download and vector dimensions in this catalog. Download size is not peak runtime memory, and retrieval quality depends on the vault.
+
+| Built-in model | q8 model assets (decimal MB) | Vector dimensions |
+|---|---|---|
+| [Arctic XS](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs) | ~24 | 384 |
+| [Arctic S](https://huggingface.co/Snowflake/snowflake-arctic-embed-s) | ~35 | 384 |
+| [Arctic M-long](https://huggingface.co/Snowflake/snowflake-arctic-embed-m-long) | ~140 | 768 |
+
+Each download uses an immutable publisher revision. All three use CLS pooling,
+normalized vectors, Snowflake's search instruction for queries, and unprefixed
+documents. The tokenizer caps each input at 512 tokens, including the query
+instruction, on desktop and mobile; M-long's longer native context is deliberately
+bounded here to limit inference allocations. The index records the repository,
+revision, dtype, pooling, dimensions, token ceiling, and both prefixes.
+
+Upgrading from an index without this encoding contract requires an explicit
+**Download** of the pinned assets and **Rebuild index**. Existing floating-revision
+cache entries cannot satisfy the new download check. This does not edit your notes
+or automatically download weights; keyword search remains available while the
+semantic index is unavailable.
 
 One pinned default on every platform means one index format, so a desktop-built
 index syncs to mobile and stays usable there within the mobile memory budget.
@@ -140,7 +159,8 @@ Mobile indexing caps the persisted index at 8 MiB and retained chunks at 400. It
 Indexing traverses the vault, chunks each note, embeds the chunks, and stores the
 vectors locally. Use **Rebuild index** after switching engines or models — vectors
 from different models aren't comparable, which is why the built-in model's index
-key is namespaced (`builtin:…`) so it can never collide with an Ollama model name.
+key includes its encoding contract, so it cannot collide with an Ollama model name
+or silently reuse vectors encoded with different model settings.
 
 **PDFs are indexed too** (the **Index PDF text** toggle, on by default): text is
 extracted with pdf.js, chunked without ever crossing a page boundary, and every

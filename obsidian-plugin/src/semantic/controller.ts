@@ -127,7 +127,8 @@ export class SemanticController {
         if (!(await this.canEmbedWithoutDownload())) {
           throw new Error("Built-in embedding model not downloaded — download it in Companion settings.");
         }
-        return this.runEmbedding(embedder, input);
+        const prefix = s.embeddingEngine === "builtin" ? builtinModelById(s.builtinEmbeddingModel).documentPrefix : "";
+        return this.runEmbedding(embedder, input.map((text) => prefix + text));
       },
       embedQuery: async (query: string) => {
         if (!(await this.canEmbedWithoutDownload())) throw new Error("Start semantic search from embedding settings on this device.");

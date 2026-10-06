@@ -46,19 +46,20 @@ function isBuiltinEngineEntry(url: string): boolean {
  * or unreadable.
  */
 export async function hasCachedModel(cachesLike: CachesLike | undefined, hfRepo: string): Promise<boolean> {
-  if (!cachesLike) return false;
+  const model = BUILTIN_EMBEDDING_MODELS.find((m) => m.hfRepo === hfRepo);
+  if (!cachesLike || !model) return false;
   try {
     const cache = await cachesLike.open(TRANSFORMERS_CACHE_NAME);
     const keys = await cache.keys();
     const files = new Set(keys.flatMap((k) => {
       try {
         const parsed = new URL(k.url);
-        const prefix = `/${hfRepo}/resolve/main/`;
+        const prefix = `/${hfRepo}/resolve/${model.revision}/`;
         return parsed.hostname === "huggingface.co" && parsed.pathname.startsWith(prefix)
           ? [parsed.pathname.slice(prefix.length)] : [];
       } catch { return []; }
     }));
-    return ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model_quantized.onnx"].every((file) => files.has(file));
+    return model.assets.every((asset) => files.has(asset.path));
   } catch {
     return false;
   }
