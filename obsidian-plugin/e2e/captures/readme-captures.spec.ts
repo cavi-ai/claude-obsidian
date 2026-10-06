@@ -53,13 +53,13 @@ const DRAFT_ENVELOPE = {
 const DRAFT_SEED = "Provenance preserves continuity.";
 const DRAFT_SECTION = `<!-- cavi:draft-section version=1 meta=${encodeURIComponent(JSON.stringify(DRAFT_ENVELOPE))} fingerprint=fnv1a-${fnv1aHex(DRAFT_SEED)} -->\n${DRAFT_SEED}\n<!-- cavi:draft-section:end id=${DRAFT_ENVELOPE.id} -->`;
 
-const WEEKLY_REVIEW = "# Weekly review\n\n## Progress\n\n- Finished the source import for the continuity study.\n- Reviewed two passages against their sources.\n\n## Next\n\n- Draft the white paper introduction.\n- Resolve the open question about mechanism.\n";
+const WEEKLY_REVIEW = "## Progress\n\n- Finished the source import for the continuity study.\n- Reviewed two passages against their sources.\n\n## Next\n\n- Draft the white paper introduction.\n- Resolve the open question about mechanism.\n";
 const WEEKLY_EDITS = [
   { old_str: "- Finished the source import for the continuity study.", new_str: "- Imported the continuity study and checked its fingerprint." },
   { old_str: "- Draft the white paper introduction.", new_str: "- Draft the white paper introduction by Friday." },
 ];
-const WEEKLY_ASK = "Tighten my weekly review and make the next steps specific.";
-const WEEKLY_REPLY = "I made two changes to Weekly review: the import line now says what was checked, and the first next step has a due day. Both are waiting for your review in the note.";
+const WEEKLY_ASK = "Make my next steps specific.";
+const WEEKLY_REPLY = "Two edits are ready for your review in the note.";
 
 const SESSION_TITLES = [
   "Plan the launch checklist",
@@ -101,12 +101,13 @@ ul{list-style:none;margin:0;padding:0}li{display:flex;gap:8px;align-items:center
 </style></head><body><div class="page"><div class="eyebrow">Project status</div><h1>Continuity research</h1>
 <div class="tiles"><div class="tile"><div class="num">1</div><div class="lbl">Source</div></div><div class="tile"><div class="num">3</div><div class="lbl">Passages</div></div><div class="tile"><div class="num">1</div><div class="lbl">Claim</div></div><div class="tile"><div class="num key">1 of 1</div><div class="lbl">Sections drafted</div></div></div>
 <div class="cols"><div class="card"><h2>Passages by review state</h2>
+<div class="bar"><span>Supporting</span><span class="track"><span class="fill" style="width:67%"></span></span><span class="val">2</span></div>
 <div class="bar"><span>Reviewed</span><span class="track"><span class="fill" style="width:67%"></span></span><span class="val">2</span></div>
 <div class="bar"><span>Proposed</span><span class="track"><span class="fill clay" style="width:33%"></span></span><span class="val">1</span></div>
 <div class="bar"><span>Challenging</span><span class="track"><span class="fill clay" style="width:33%"></span></span><span class="val">1</span></div></div>
 <div class="card"><h2>Where the project stands</h2><ul>
 <li><span class="dot done"></span>Frame the question</li><li><span class="dot done"></span>Capture sources</li><li><span class="dot done"></span>Review passages</li><li><span class="dot now"></span>Draft the white paper</li><li><span class="dot"></span>Audit the argument</li></ul></div></div></div></body></html>`;
-const PROJECT_STATUS = `# Project status\n\nA snapshot of the Continuity research project.\n\n\`\`\`claude-html height=400\n${DASHBOARD_HTML}\n\`\`\`\n`;
+const PROJECT_STATUS = `A snapshot of the Continuity research project.\n\n\`\`\`claude-html height=370\n${DASHBOARD_HTML}\n\`\`\`\n`;
 
 const SCENE_FILES: Record<string, string> = {
   "Build plan.md": ORIGINAL_PLAN,
@@ -133,12 +134,13 @@ function outputPath(name: string, theme: "dark" | "light", assetRoot = ASSETS): 
 async function prepareCapture(target: Locator | Page): Promise<Page> {
   const targetPage = "page" in target && typeof (target as Locator).page === "function" ? (target as Locator).page() : (target as Page);
   await targetPage.evaluate(() => {
-    document.querySelectorAll(".notice").forEach((n) => n.remove());
+    document.querySelectorAll(".notice, .cc-turn-complete-status").forEach((n) => n.remove());
     // A wide row (e.g. the usage bar) can leave an ancestor mid-horizontal-scroll;
     // pin every scrollable element back to its left edge before cropping.
     document.querySelectorAll<HTMLElement>("*").forEach((el) => {
-      if (el.scrollWidth > el.clientWidth) el.scrollLeft = 0;
+      if (el.scrollWidth > el.clientWidth) el.scrollTo({ left: 0, behavior: "instant" });
     });
+    return new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
   return targetPage;
 }
@@ -426,12 +428,13 @@ test.describe("README captures", () => {
         if (await hide.count()) await hide.click();
         await expect(desk).not.toContainText("No tracked sections");
         await expect(desk).not.toContainText("Unsupported");
-        await shootThrough(desk, desk.locator(".cc-desk-sources"), 666, "research-desk.png", theme);
+        await shootThrough(desk, desk.locator(".cc-desk-sources"), 658, "research-desk.png", theme);
       });
 
       test("mcp-bridge-settings.png", async () => {
         await resetScene(theme, { mcpEnabled: true, mcpPort: 22360, mcpToken: "3f9c1b7e2a6d4c8f9e0b1a2c3d4e5f60" });
         const settingsPage = await harness.openSettings();
+        await settingsPage.setViewportSize({ width: 1000, height: 760 });
         const tab = settingsPage.locator(".vertical-tab-content-container .vertical-tab-content").last();
         const header = tab.getByText("Agent bridge — MCP server (desktop)", { exact: true });
         await header.click();
@@ -450,7 +453,7 @@ test.describe("README captures", () => {
         const answer = root.locator(".cc-msg.cc-assistant").last();
         await expect(answer).toContainText("generated entirely on this device", { timeout: 15_000 });
         await expect(root.locator(".cc-error")).toHaveCount(0);
-        await shootThrough(root, answer, 376, "local-fallback-indicator.png", theme);
+        await shootThrough(root, answer, 292, "local-fallback-indicator.png", theme);
       });
 
       test("agent-tool-chips.png", async () => {
@@ -477,7 +480,7 @@ test.describe("README captures", () => {
           window.scrollTo(0, 0);
         });
         const bubble = root.locator(".cc-msg.cc-assistant").last();
-        await shootThrough(root, bubble, 476, "agent-tool-chips.png", theme);
+        await shootThrough(root, bubble, 446, "agent-tool-chips.png", theme);
       });
 
       test("hero.png", async () => {
@@ -497,15 +500,15 @@ test.describe("README captures", () => {
         ], { path: "Weekly review.md", description: "Make the import line and first next step specific", edits: WEEKLY_EDITS });
         await openNote(page, "Weekly review");
         const root = await openChat(harness);
-        // The hero is the whole 800x500 window, so the editor pane is exactly as narrow as the crop.
-        await page.setViewportSize({ width: 800, height: 500 });
+        // The hero is the whole 800x640 window, so the editor pane is exactly as narrow as the crop.
+        await page.setViewportSize({ width: 800, height: 640 });
         try {
           await widen(page, 400);
           await expect(root.locator(".cc-tool-chip")).toHaveCount(2);
           await root.getByRole("button", { name: "Review proposed edit", exact: true }).click();
           await expect(page.locator(".cc-inline-add").first()).toBeVisible({ timeout: 15_000 });
           await prepareCapture(page);
-          await captureClip(page, { x: 0, y: 0, width: 800, height: 500 }, "hero.png", theme, PLUGIN_ASSETS);
+          await captureClip(page, { x: 0, y: 0, width: 800, height: 640 }, "hero.png", theme, PLUGIN_ASSETS);
         } finally {
           await page.setViewportSize({ width: 1600, height: 1000 });
         }
@@ -516,7 +519,7 @@ test.describe("README captures", () => {
         const { page } = harness;
         await collapseSidebars(page, ["left", "right"]);
         await openNote(page, "Project status", "preview");
-        await expect(page.frameLocator("iframe.cc-artifact-frame").locator("h1")).toHaveText("Continuity research", { timeout: 20_000 });
+        await expect(page.frameLocator("iframe.cc-artifact-frame").first().locator("h1")).toHaveText("Continuity research", { timeout: 20_000 });
         await shootWindow(page, "center", 800, 600, "artifact-inline.png", theme, PLUGIN_ASSETS);
       });
 

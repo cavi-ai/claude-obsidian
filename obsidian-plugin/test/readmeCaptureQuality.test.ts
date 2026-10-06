@@ -22,8 +22,8 @@ const captures: CaptureContract[] = [
   {
     path: join(plugin, "assets", "hero.png"),
     width: 1600,
-    height: 1000,
-    maxHeightToWidth: 0.65,
+    height: 1280,
+    maxHeightToWidth: 0.85,
   },
   {
     path: join(plugin, "..", "assets", "session-dropdown.png"),
