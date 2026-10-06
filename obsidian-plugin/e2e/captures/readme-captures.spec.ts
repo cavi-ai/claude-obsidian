@@ -371,7 +371,11 @@ test.describe("README captures", () => {
         await harness.page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         const controls = root.locator(".cc-controls");
         // Capture regardless of the fit assertions below so a wrap is still evidenced.
-        await shoot(root, "composer-320.png", theme);
+        const rootBox = await root.boundingBox();
+        if (!rootBox) throw new Error("Failed to measure composer-320");
+        // Full-height 320px pane exceeds the 1600px output cap at 2x; the composer sits at the bottom.
+        const cropHeight = Math.min(rootBox.height, 640);
+        await captureClip(harness.page, { x: rootBox.x, y: rootBox.y + rootBox.height - cropHeight, width: rootBox.width, height: cropHeight }, "composer-320.png", theme, ASSETS);
         const metrics = await controls.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, height: el.getBoundingClientRect().height }));
         console.log(`composer-320 (${theme}) metrics: scrollWidth=${metrics.scrollWidth} clientWidth=${metrics.clientWidth} height=${metrics.height}`);
         expect(metrics.scrollWidth, `control row must not overflow horizontally at 320px: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(metrics.clientWidth);
