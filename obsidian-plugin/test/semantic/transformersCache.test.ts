@@ -23,11 +23,16 @@ function fakeCaches(urls: string[], opened: string[] = [], deleted: string[] = [
 }
 
 describe("hasCachedModel", () => {
+  it("does not mistake fp16 weights for the selected q8 model", async () => {
+    await expect(hasCachedModel(fakeCaches([`https://huggingface.co/${repo}/resolve/main/onnx/model_fp16.onnx`]), repo)).resolves.toBe(false);
+  });
   it("true when the repo's onnx weights are cached", async () => {
     const opened: string[] = [];
     const caches = fakeCaches(
       [
         `https://huggingface.co/${repo}/resolve/main/config.json`,
+        `https://huggingface.co/${repo}/resolve/main/tokenizer.json`,
+        `https://huggingface.co/${repo}/resolve/main/tokenizer_config.json`,
         `https://huggingface.co/${repo}/resolve/main/onnx/model_quantized.onnx`,
       ],
       opened,

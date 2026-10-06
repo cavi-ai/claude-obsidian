@@ -20,6 +20,21 @@
 import "./forceWebEnv"; // MUST precede the transformers import — see that file
 import { pipeline, env } from "@huggingface/transformers";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
+import { TRANSFORMERS_CACHE_NAME } from "./cache";
+
+// Enforce consent at the network boundary, including ORT sidecars. A partial
+// cache must fail closed instead of silently downloading missing assets.
+const networkFetch = globalThis.fetch.bind(globalThis);
+let allowNetwork = false;
+const guardedFetch: typeof fetch = async (input, init) => {
+  if (allowNetwork) return networkFetch(input, init);
+  const url = input instanceof Request ? input.url : String(input);
+  const cached = typeof caches === "undefined" ? undefined : await (await caches.open(TRANSFORMERS_CACHE_NAME)).match(url);
+  if (cached) return cached;
+  throw new Error("Embedding assets missing from cache — download the model in Companion settings.");
+};
+globalThis.fetch = guardedFetch;
+env.fetch = guardedFetch;
 
 // The dedicated-worker global, narrowed to what this file uses. (A plain
 // `declare const self` would collide with lib.dom's declaration.)
@@ -88,6 +103,14 @@ function makeExtractor(device: "webgpu" | "wasm", id: number, repo: string): Pro
 }
 
 async function doLoad(id: number, repo: string, pooling: "cls" | "mean"): Promise<void> {
+  if (!allowNetwork) {
+    // ORT may import its factory URL directly after a failed preload, bypassing
+    // fetch. Require its exact current sidecars before constructing the session.
+    const paths = (env.backends.onnx as { wasm?: { wasmPaths?: { wasm?: string; mjs?: string } } }).wasm?.wasmPaths;
+    for (const url of [paths?.wasm, paths?.mjs]) {
+      if (url && !url.startsWith("blob:")) await guardedFetch(url);
+    }
+  }
   const gen = generation;
   let candidate: Extractor | null = null;
   let chosen = "wasm";
@@ -218,7 +241,10 @@ ctx.onmessage = (e) => {
       type: "error",
       message: err instanceof Error ? err.message : String(err),
     });
-  if (msg.type === "load") void load(msg.id, msg.repo, msg.pooling).catch(fail);
+  if (msg.type === "load") {
+    if (msg.allowDownload === true) allowNetwork = true;
+    void load(msg.id, msg.repo, msg.pooling).catch(fail);
+  }
   else if (msg.type === "embed") void embed(msg.id, msg.texts).catch(fail);
   else if (msg.type === "dispose") {
     generation++; // cancels any in-flight load (see doLoad)

@@ -1,3 +1,4 @@
+import { chatBackendForRuntime, chatBackendOptions } from "./providers/runtimeBackend";
 import { researchModelOptions } from "./research/researchModel";
 import { App, Notice, Platform, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinition, type SettingDefinitionItem, type SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
@@ -321,6 +322,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
   override getControlValue(key: string): unknown {
     const codec = CODECS[key];
     const s = this.plugin.settings;
+    if (key === "chatBackend") return chatBackendForRuntime(s.chatBackend, Platform.isMobile);
     return codec ? codec.read(s) : (s as unknown as Record<string, unknown>)[key];
   }
 
@@ -416,7 +418,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         heading: "Vault intelligence",
         items: [
           { type: "page", name: "Semantic search (local embeddings)", items: this.semanticItems() },
-          { type: "page", name: "Local models (Ollama & endpoints)", visible: () => !Platform.isMobile, desc: `${PAGE_DESC.localModels} ${PAGE_DESC.openaiCompat}`, items: this.localModelsItems() },
+          { type: "page", name: "Local models (Ollama & endpoints)", desc: `${PAGE_DESC.localModels} ${PAGE_DESC.openaiCompat}`, items: this.localModelsItems() },
           { type: "page", name: "Source capture (typed clips)", desc: PAGE_DESC.sourceCapture, items: this.sourceCaptureItems() },
           { type: "page", name: "Vault ontology (typed notes & relations)", items: this.ontologyItems() },
           { type: "page", name: "Research Desk & discovery", desc: PAGE_DESC.discovery, items: this.discoveryItems() },
@@ -486,7 +488,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         render: (setting) => {
           const callout = setting.settingEl.createDiv({ cls: "cc-connect-callout" });
           const p = callout.createEl("p");
-          const backend = this.plugin.router().chatBackend;
+          const backend = chatBackendForRuntime(this.plugin.settings.chatBackend, Platform.isMobile);
           const cliBackends: Record<string, CliBackend> = { "claude-cli": claudeBackend, "codex-cli": codexBackend, "opencode-cli": opencodeBackend };
           const cli = cliBackends[backend];
           if (cli) {
@@ -500,6 +502,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       },
       {
         name: "Desktop integrations",
+        visible: () => !Platform.isMobile,
         desc: "Install the CAVI marketplace plugin and merge the Claude Desktop config.",
         aliases: ["marketplace", "claude desktop", "obsidian-agent"],
         render: (setting) => {
@@ -656,31 +659,25 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       },
       {
         name: "Chat backend",
-        desc: "Where chat runs. Auto keeps using Claude but transparently falls back to your local model when Claude is offline or out of usage — so you never lose chat on a plane or when tokens run out. Claude Code, Codex, and OpenCode each use the CLI already signed in on this computer — no key needed; chat only.",
+        desc: "Where chat runs. Auto starts with Claude and can fall back to a reachable local endpoint. Desktop CLI backends use the CLI signed in on that computer. Mobile uses the Claude API or a reachable endpoint; a remote endpoint needs a network connection.",
         control: {
           type: "dropdown",
           key: "chatBackend",
-          options: {
-            claude: "Claude only",
-            "claude-cli": "Claude Code — your subscription (desktop)",
-            "codex-cli": "Codex — your subscription (desktop)",
-            "opencode-cli": "OpenCode — your subscription (desktop)",
-            auto: "Auto (Claude, fall back to local)",
-            local: "Local only — Ollama (offline)",
-            custom: "Local only — OpenAI-compatible endpoint",
-          },
+          options: chatBackendOptions(Platform.isMobile),
         },
       },
-      ...this.cliStatusItems(claudeBackend, (r) => r.claudeCli),
-      ...this.cliStatusItems(codexBackend, (r) => r.codexCli),
+      ...(Platform.isMobile ? [] : this.cliStatusItems(claudeBackend, (r) => r.claudeCli)),
+      ...(Platform.isMobile ? [] : this.cliStatusItems(codexBackend, (r) => r.codexCli)),
       {
         name: "Codex model",
+        visible: () => !Platform.isMobile,
         desc: "Optional model id passed as -m to codex exec. Leave blank to use Codex's own default.",
         control: { type: "text", key: "codexModel", placeholder: "e.g. gpt-5.1-codex" },
       },
-      ...this.cliStatusItems(opencodeBackend, (r) => r.opencodeCli),
+      ...(Platform.isMobile ? [] : this.cliStatusItems(opencodeBackend, (r) => r.opencodeCli)),
       {
         name: "OpenCode model",
+        visible: () => !Platform.isMobile,
         desc: "Optional model id passed as -m to opencode run (e.g. anthropic/claude-sonnet-5). Leave blank to use OpenCode's own default.",
         control: { type: "text", key: "opencodeModel", placeholder: "e.g. anthropic/claude-sonnet-5" },
       },
