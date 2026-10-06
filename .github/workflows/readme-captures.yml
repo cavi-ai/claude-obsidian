@@ -1,12 +1,8 @@
 name: README captures
 
+# Generator only; CI e2e and readmeCaptureQuality are the gates.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "obsidian-plugin/e2e/captures/**"
-      - "assets/CAPTURE.md"
-      - ".github/workflows/readme-captures.yml"
 
 permissions:
   contents: read

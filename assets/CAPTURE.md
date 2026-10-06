@@ -13,7 +13,7 @@ CC_E2E_CAPTURE=1 CC_E2E_CAPTURE_THEME=dark pnpm run e2e:captures
 ```
 
 The `readme-captures` workflow runs the same command on a macOS runner
-(`workflow_dispatch`, or a pull request touching the capture files) and uploads
+(`workflow_dispatch` only) and uploads
 the PNGs as the `readme-captures` artifact.
 
 Set `CC_E2E_CAPTURE_DIR=/absolute/output/path` and
