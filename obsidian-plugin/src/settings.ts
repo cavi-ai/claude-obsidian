@@ -1095,7 +1095,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       { name: "Enable semantic search", desc: "Build a local vector index so the vault is searchable by meaning, not just keywords. Private and on-device. Powers the “Search vault” context and Ask-your-vault.", control: { type: "toggle", key: "semanticEnabled" } },
       {
         name: "Embedding engine",
-        desc: "Built-in runs a small model inside Obsidian on every platform (one-time download). Ollama uses your local Ollama server (desktop). Endpoint uses the OpenAI-compatible server from Local models.",
+        desc: "Built-in runs inside Obsidian on every platform (one-time download). Ollama uses a reachable server; mobile needs a LAN or remote address. Endpoint uses the OpenAI-compatible server from Local models.",
         visible: enabled,
         render: (setting) => {
           setting.addDropdown((dd) => {
@@ -1116,12 +1116,13 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       },
       {
         name: "Built-in model",
-        desc: "Larger models index more accurately at a slower speed and bigger download. Switching rebuilds the index.",
+        desc: "Arctic XS is recommended on mobile for its smaller memory footprint. Larger models use more memory; retrieval quality depends on your notes. Use Rebuild index after switching.",
         visible: () => enabled() && this.plugin.settings.embeddingEngine === "builtin",
         render: (setting) => {
           setting.addDropdown((dd) => {
             for (const m of BUILTIN_EMBEDDING_MODELS) {
-              dd.addOption(m.id, `${m.hfRepo.split("/")[1]} · ${m.dim}d · ~${m.approxDownloadMB} MB`);
+              const recommendation = Platform.isMobile && m.id === BUILTIN_EMBEDDING_MODELS[0]?.id ? " · recommended on mobile" : "";
+              dd.addOption(m.id, `${m.hfRepo.split("/")[1]} · ${m.dim}d · ~${m.approxDownloadMB} MB${recommendation}`);
             }
             dd.setValue(builtinModelById(this.plugin.settings.builtinEmbeddingModel).id).onChange(async (v) => {
               if (v === this.plugin.settings.builtinEmbeddingModel) return;
@@ -1142,7 +1143,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         render: (setting) => {
           const model = builtinModelById(this.plugin.settings.builtinEmbeddingModel);
           const backend = this.plugin.builtinEmbedder().backend();
-          setting.setDesc(`${model.hfRepo} (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net, one-time; cached and fully on-device afterwards).`);
+          setting.setDesc(`${model.hfRepo} (~${model.approxDownloadMB} MB from huggingface.co + ~23 MB ONNX runtime from cdn.jsdelivr.net; cached and on-device afterwards). Updated model assets require an explicit download and index rebuild.`);
           const status = setting.settingEl.createDiv({ cls: "cc-conn-status setting-item-description" });
           status.setText(backend ? `Model ready · ${backend === "webgpu" ? "WebGPU" : "WASM"}` : "Model not downloaded yet.");
 
@@ -1212,7 +1213,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
             // load) from "never downloaded" (network download needing consent).
             void this.plugin.builtinModelCached().then((cached) => {
               if (!cached || running || this.plugin.builtinEmbedder().backend()) return;
-              status.setText("Model cached — loads on first use.");
+              status.setText(Platform.isMobile ? "Model cached — choose Load or Rebuild index to start this session." : "Model cached — loads on first use.");
               mainBtn?.setButtonText("Load");
               clearBtn?.buttonEl.show();
             });

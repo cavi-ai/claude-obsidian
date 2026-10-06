@@ -66,7 +66,7 @@ export class TransformersEmbedder implements Embedder {
   private ensureLoaded(onProgress?: (p: ProgressEvent) => void, allowDownload = false): Promise<void> {
     if (!this.loaded) {
       const req = this.tracker.create<number[][]>(onProgress);
-      this.post({ id: req.id, type: "load", repo: this.model.hfRepo, pooling: this.model.pooling, allowDownload });
+      this.post({ id: req.id, type: "load", repo: this.model.hfRepo, pooling: this.model.pooling, revision: this.model.revision, dtype: this.model.dtype, maxTokens: this.model.maxTokens, dim: this.model.dim, allowDownload });
       const loadPromise = req.promise.then(() => undefined).catch((e: unknown) => {
         if (this.loaded === loadPromise) this.loaded = null; // allow retry after a failed load
         throw e;
