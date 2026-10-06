@@ -1,10 +1,13 @@
 # Local models & semantic search
 
-Two independent local-first paths:
+Independent local-first paths:
 
 - **Chat and utility work on a local LLM** via Ollama — optional. A loopback
   server is desktop-only; mobile utility work can use a LAN or remote endpoint.
 - **Semantic search on an on-device embedding model** — every platform, on by default, no external runtime.
+- **Native iPhone writing tasks** — the source-built [Companion Local app](../native-ios/README.md)
+  uses MLX and Metal through an explicit selection handoff. It requires its own
+  installation and model download; generation runs in the foreground.
 
 You don't need the first to get the second.
 
@@ -126,7 +129,7 @@ removes the cached model.
 **OpenAI-compatible endpoint** — embeds against the endpoint configured under
 *Local models*, using its embedding model.
 
-The built-in worker uses WebGPU or WASM; it does not use native MLX/Metal or Android LiteRT. Chat models run through the API or your configured endpoint. Arctic XS is the mobile recommendation because it has the smallest download and vector dimensions in this catalog. Download size is not peak runtime memory, and retrieval quality depends on the vault.
+The built-in embedding worker uses WebGPU or WASM; it does not use native MLX/Metal or Android LiteRT. Chat models run through the API or your configured endpoint. The separate Companion Local iPhone workflow runs selected writing tasks with native MLX/Metal; it does not replace the embedding worker or chat provider. Arctic XS is the mobile recommendation because it has the smallest download and vector dimensions in this catalog. Download size is not peak runtime memory, and retrieval quality depends on the vault.
 
 | Built-in model | q8 model assets (decimal MB) | Vector dimensions |
 |---|---|---|
