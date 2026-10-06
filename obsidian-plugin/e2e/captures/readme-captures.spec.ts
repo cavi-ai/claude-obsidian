@@ -202,8 +202,8 @@ async function boxOf(page: Page, selector: string): Promise<Box> {
 // A fixed-size window crop: "dock" ends at the right edge of the right sidebar, "center" is centered on the editor area.
 async function shootWindow(page: Page, anchor: "dock" | "center", width: number, height: number, name: string, theme: "dark" | "light", assetRoot = ASSETS): Promise<void> {
   await prepareCapture(page);
-  const rightSplit = await boxOf(page, ".workspace-split.mod-right-split");
   const root = await boxOf(page, ".workspace-split.mod-root");
+  const rightSplit = anchor === "dock" ? await boxOf(page, ".workspace-split.mod-right-split") : root;
   const x = anchor === "dock" ? rightSplit.x + rightSplit.width - width : root.x + (root.width - width) / 2;
   expect(x, `${name} window crop must start inside the app window`).toBeGreaterThanOrEqual(0);
   await captureClip(page, { x, y: root.y, width, height }, name, theme, assetRoot);
@@ -507,15 +507,15 @@ test.describe("README captures", () => {
         ], { path: "Weekly review.md", description: "Make the import line and first next step specific", edits: WEEKLY_EDITS });
         await openNote(page, "Weekly review");
         const root = await openChat(harness);
-        // The hero is the whole 800x640 window, so the editor pane is exactly as narrow as the crop.
-        await page.setViewportSize({ width: 800, height: 640 });
+        // The hero is the whole 800x480 window, so the editor pane is exactly as narrow as the crop.
+        await page.setViewportSize({ width: 800, height: 480 });
         try {
           await widen(page, 400);
           await expect(root.locator(".cc-tool-chip")).toHaveCount(2);
           await root.getByRole("button", { name: "Review proposed edit", exact: true }).click();
           await expect(page.locator(".cc-inline-add").first()).toBeVisible({ timeout: 15_000 });
           await prepareCapture(page);
-          await captureClip(page, { x: 0, y: 0, width: 800, height: 640 }, "hero.png", theme, PLUGIN_ASSETS);
+          await captureClip(page, { x: 0, y: 0, width: 800, height: 480 }, "hero.png", theme, PLUGIN_ASSETS);
         } finally {
           await page.setViewportSize({ width: 1600, height: 1000 });
         }
