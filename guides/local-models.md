@@ -115,21 +115,27 @@ returning nothing.
 (384-dimension vectors) inside Obsidian via transformers.js, on WebGPU where
 available and WASM otherwise. Works on **every platform, including mobile**.
 
-It needs one explicit download: ~45 MB of weights from `huggingface.co` plus
+It needs one explicit download: ~23 MB of q8 weights from `huggingface.co` plus
 ~23 MB of ONNX runtime from `cdn.jsdelivr.net`. Nothing downloads until you click
 **Download**; afterwards it's cached and runs fully on-device. A **Clear** button
 removes the cached model.
 
 **Ollama** — uses your local Ollama server for embeddings instead
-(`nomic-embed-text` by default). Desktop only.
+(`nomic-embed-text` by default). On mobile, use a reachable LAN or remote server; localhost points to the phone.
 
 **OpenAI-compatible endpoint** — embeds against the endpoint configured under
 *Local models*, using its embedding model.
 
+The built-in worker uses WebGPU or WASM; it does not use native MLX/Metal or Android LiteRT. Chat models run through the API or your configured endpoint. The default stays Arctic XS to keep on-device weights small. Its query encoding uses Snowflake's search instruction; document vectors remain compatible.
+
 One pinned default on every platform means one index format, so a desktop-built
-index syncs to mobile and stays usable there.
+index syncs to mobile and stays usable there within the mobile memory budget.
 
 ### Building the index
+
+On mobile, each launch starts with embedding inference paused. Search remains keyword-only until you explicitly choose **Download** or **Rebuild index** in embedding settings. Cached weights do not trigger startup indexing. Disabling semantic search or unloading Companion stops the worker and cancels pending indexing. An engine failure pauses inference until an explicit retry.
+
+Mobile indexing caps the persisted index at 8 MiB and retained chunks at 400. It checks the saved file size before reading it and preserves oversized saved indexes. PDF extraction is limited to 200 pages and 256,000 characters, in addition to the input file limits. These are conservative allocation bounds, not a measured guarantee for every device. Use keyword search or desktop indexing when a limit is reached.
 
 Indexing traverses the vault, chunks each note, embeds the chunks, and stores the
 vectors locally. Use **Rebuild index** after switching engines or models — vectors
@@ -151,9 +157,9 @@ chunk, so a brand-new note isn't invisible while the index catches up.
 |---|---|---|
 | Chat, artifacts, agent mode | Yes | Yes |
 | Built-in semantic search + index build | Yes | Yes |
-| Ollama chat | Yes | No — localhost cannot be reached from mobile |
+| Ollama chat | Yes | Reachable LAN/remote endpoint |
 | Ollama utility work | Yes | Yes — with a reachable LAN/remote HTTP(S) endpoint |
-| Ollama embeddings | Yes | No — use the built-in mobile engine |
+| Ollama embeddings | Yes | Reachable LAN/remote endpoint |
 | MCP bridge | Yes | No — use cloud sessions |
 | Session capture from Claude Code transcripts | Yes | No — browsing captured memory works |
 

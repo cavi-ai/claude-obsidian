@@ -11,6 +11,8 @@ export interface BuiltinModel {
   hfRepo: string;
   /** Pooling per the model card. */
   pooling: "cls" | "mean";
+  /** Search-only instruction; document embeddings keep their original identity. */
+  queryPrefix: string;
   /** Expected vector dimension. */
   dim: number;
   /** Shown in the download button/disclosure copy. */
@@ -22,13 +24,15 @@ export const BUILTIN_EMBEDDING_MODELS: readonly BuiltinModel[] = [
     id: "builtin:snowflake-arctic-embed-xs",
     hfRepo: "Snowflake/snowflake-arctic-embed-xs",
     pooling: "cls",
+    queryPrefix: "Represent this sentence for searching relevant passages: ",
     dim: 384,
-    approxDownloadMB: 45,
+    approxDownloadMB: 23,
   },
   {
     id: "builtin:snowflake-arctic-embed-s",
     hfRepo: "Snowflake/snowflake-arctic-embed-s",
     pooling: "cls",
+    queryPrefix: "Represent this sentence for searching relevant passages: ",
     dim: 384,
     approxDownloadMB: 60,
   },
@@ -36,6 +40,7 @@ export const BUILTIN_EMBEDDING_MODELS: readonly BuiltinModel[] = [
     id: "builtin:snowflake-arctic-embed-m",
     hfRepo: "Snowflake/snowflake-arctic-embed-m-long",
     pooling: "cls",
+    queryPrefix: "Represent this sentence for searching relevant passages: ",
     dim: 768,
     approxDownloadMB: 140,
   },

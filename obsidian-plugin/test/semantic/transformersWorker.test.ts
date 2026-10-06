@@ -14,6 +14,23 @@ const transformers = vi.hoisted(() => ({
 vi.mock("@huggingface/transformers", () => transformers);
 
 describe("built-in embedding worker", () => {
+  it("refuses uncached assets without fetching until an explicit download request", async () => {
+    const network = vi.fn(async () => new Response("download"));
+    vi.stubGlobal("fetch", network);
+    vi.stubGlobal("caches", { open: async () => ({ match: async () => undefined }) });
+    transformers.pipeline.mockImplementation(async () => { await globalThis.fetch("https://huggingface.co/missing/model.onnx"); return async () => ({ tolist: () => [] }); });
+    const responses: WorkerResponse[] = [];
+    const scope = { onmessage: null as ((e: { data: WorkerRequest }) => void) | null, postMessage: (m: WorkerResponse) => responses.push(m) };
+    vi.stubGlobal("self", scope);
+    vi.stubGlobal("navigator", {});
+    await import("../../src/semantic/transformers/worker");
+    scope.onmessage?.({ data: { id: 1, type: "load", repo: "test", pooling: "cls" } });
+    await vi.waitFor(() => expect(responses[0]?.type).toBe("error"));
+    expect(network).not.toHaveBeenCalled();
+    scope.onmessage?.({ data: { id: 2, type: "load", repo: "test", pooling: "cls", allowDownload: true } });
+    await vi.waitFor(() => expect(responses.at(-1)?.type).toBe("result"));
+    expect(network).toHaveBeenCalledTimes(1);
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
