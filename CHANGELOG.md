@@ -4,6 +4,25 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.1] — 2026-10-06
+
+### Changed
+- **Mobile semantic search starts lighter.** On mobile, embedding inference
+  waits for an explicit model download or index rebuild instead of running at
+  startup. Index size, retained chunks, and PDF extraction are bounded.
+- **Pinned embedding models.** Built-in model downloads are pinned to
+  publisher revisions, and inputs are capped at 512 tokens. Mobile recommends
+  Arctic XS; listed download sizes are about 24, 35, and 140 MB. An index built
+  with an earlier model asks for a download and rebuild; keyword search keeps
+  working meanwhile.
+- Desktop-only CLI backends and their controls are hidden on mobile; synced
+  desktop preferences are left unchanged.
+- Production dependency override: sharp 0.35.5.
+
+### Fixed
+- Artifacts embedded in a note show their toolbar in the Companion palette;
+  in dark themes the bar was transparent and its buttons unreadable.
+
 ## [0.41.0] — 2026-10-05
 
 ### Added
