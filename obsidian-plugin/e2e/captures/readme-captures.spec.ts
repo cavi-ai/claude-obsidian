@@ -439,7 +439,14 @@ test.describe("README captures", () => {
         const header = tab.getByText("Agent bridge — MCP server (desktop)", { exact: true });
         await header.click();
         await expect(tab.getByText(/✓ Running at /)).toBeVisible({ timeout: 15_000 });
-        await shoot(tab, "mcp-bridge-settings.png", theme);
+        await settingsPage.addStyleTag({ content: "*::-webkit-scrollbar { display: none; }" });
+        await prepareCapture(settingsPage);
+        const tabBox = await tab.boundingBox();
+        if (!tabBox) throw new Error("Failed to measure mcp-bridge-settings");
+        // Skip the back chevron at the tab's left edge; end on a divider between settings rows.
+        expect(tabBox.height, "settings tab must be tall enough for the fixed crop").toBeGreaterThanOrEqual(712);
+        expect(tabBox.width, "settings tab must be wide enough for the fixed crop").toBeGreaterThanOrEqual(692);
+        await captureClip(settingsPage, { x: tabBox.x + 12, y: tabBox.y, width: 680, height: 712 }, "mcp-bridge-settings.png", theme, ASSETS);
       });
 
       test("local-fallback-indicator.png", async () => {
@@ -453,7 +460,7 @@ test.describe("README captures", () => {
         const answer = root.locator(".cc-msg.cc-assistant").last();
         await expect(answer).toContainText("generated entirely on this device", { timeout: 15_000 });
         await expect(root.locator(".cc-error")).toHaveCount(0);
-        await shootThrough(root, answer, 292, "local-fallback-indicator.png", theme);
+        await shootThrough(root, answer, 296, "local-fallback-indicator.png", theme);
       });
 
       test("agent-tool-chips.png", async () => {
