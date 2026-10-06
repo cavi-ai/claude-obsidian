@@ -61,15 +61,6 @@ const WEEKLY_EDITS = [
 const WEEKLY_ASK = "Make my next steps specific.";
 const WEEKLY_REPLY = "Two edits are ready for your review in the note.";
 
-const SESSION_TITLES = [
-  "Plan the launch checklist",
-  "Tidy the meeting notes",
-  "Draft the white paper introduction",
-  "Review the stale evidence",
-  "Summarize the Build plan",
-  "Narrow the continuity claim",
-];
-
 const TAGGED_NOTES: Record<string, string[]> = {
   "Notes/Kickoff meeting.md": ["meeting-notes", "workflow", "research"],
   "Notes/Review meeting.md": ["meeting-notes", "evidence-review", "provenance"],
@@ -528,74 +519,6 @@ test.describe("README captures", () => {
         await openNote(page, "Project status", "preview");
         await expect(page.frameLocator("iframe.cc-artifact-frame").first().locator("h1")).toHaveText("Continuity research", { timeout: 20_000 });
         await shootWindow(page, "center", 800, 600, "artifact-inline.png", theme, PLUGIN_ASSETS);
-      });
-
-      test("session-dropdown.png", async () => {
-        await resetScene(theme, { chatBackend: "claude", model: "claude-sonnet-5-5" });
-        const { page } = harness;
-        for (const title of SESSION_TITLES) {
-          await seedConversation(page, [
-            { role: "user", content: title },
-            { role: "assistant", content: "Here is where that stands. Open the note to continue from this point." },
-          ]);
-        }
-        await openChat(harness);
-        await widen(page, 440);
-        // macOS defaults to native (OS-drawn) menus, which have no DOM to capture.
-        await page.evaluate(() => {
-          (window as unknown as { app: { vault: { setConfig(key: string, value: unknown): void } } }).app.vault.setConfig("nativeMenus", false);
-        });
-        await page.locator('[aria-label="Resume a past conversation"]:visible').first().click();
-        const dropdown = page.locator(".cc-session-dropdown");
-        await expect(dropdown).toBeVisible();
-        const rows = dropdown.locator(".cc-session-row");
-        await expect(rows).toHaveCount(SESSION_TITLES.length);
-        await rows.last().locator(".cc-session-more").click();
-        await page.locator(".menu .menu-item-title", { hasText: /^Archive$/ }).click();
-        await expect(rows).toHaveCount(SESSION_TITLES.length - 1);
-        await expect(dropdown.locator(".cc-session-archive-toggle")).toHaveText("Show archived (1)");
-        await rows.nth(1).locator(".cc-session-more").click();
-        const menu = page.locator(".menu");
-        await expect(menu).toBeVisible();
-        const split = await boxOf(page, ".workspace-split.mod-right-split");
-        const dropBox = await dropdown.boundingBox();
-        const menuBox = await menu.boundingBox();
-        if (!dropBox || !menuBox) throw new Error("Failed to measure the session dropdown");
-        expect(Math.max(dropBox.y + dropBox.height, menuBox.y + menuBox.height) - split.y + 12, "dropdown and menu must fit the fixed crop").toBeLessThanOrEqual(560);
-        expect(menuBox.x, "the row menu must sit inside the crop").toBeGreaterThanOrEqual(split.x + split.width - 440);
-        await shootWindow(page, "dock", 440, 560, "session-dropdown.png", theme);
-      });
-
-      test("system-page.png", async () => {
-        await resetScene(theme);
-        const { page } = harness;
-        await page.evaluate(async () => {
-          const app = (window as unknown as { app: { plugins: { plugins: Record<string, { ontology(): { load(): Promise<unknown> } | null }> } } }).app;
-          await app.plugins.plugins["claude-companion"]!.ontology()?.load();
-        });
-        await run(page, "claude-companion:open-system");
-        await widen(page, 520);
-        const view = page.locator(".cc-system-view:visible").first();
-        await expect(async () => {
-          await view.locator(".cc-system-refresh").click();
-          for (const id of ["links", "orphans", "tags", "ontology"]) await expect(view.locator(`.cc-system-${id}`)).toBeVisible({ timeout: 1000 });
-        }).toPass({ timeout: 30_000 });
-        await shootThrough(view, view.locator(".cc-system-settings"), 700, "system-page.png", theme);
-      });
-
-      test("optimize-tags.png", async () => {
-        await resetScene(theme);
-        const { page } = harness;
-        await run(page, "claude-companion:optimize-brain");
-        const modal = page.locator(".modal:has(.cc-optimize-review)");
-        await expect(modal).toBeVisible();
-        const rows = modal.locator(".setting-item:has(input[type=checkbox])");
-        await expect(rows.first()).toBeVisible({ timeout: 15_000 });
-        expect(await rows.count(), "the review should list 3 to 5 merges").toBeGreaterThanOrEqual(3);
-        expect(await rows.count(), "the review should list 3 to 5 merges").toBeLessThanOrEqual(5);
-        await expect(modal.getByRole("button", { name: "Check with model", exact: true })).toBeEnabled({ timeout: 15_000 });
-        await modal.evaluate((el) => { el.style.width = "600px"; el.style.maxWidth = "600px"; });
-        await shootThrough(modal, modal.locator(".setting-item").last(), 520, "optimize-tags.png", theme);
       });
     });
   }

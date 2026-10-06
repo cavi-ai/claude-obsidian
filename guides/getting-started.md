@@ -68,7 +68,6 @@ Companion trims attached context to a character budget (default 24,000
 characters, 6 notes) so a big vault can't blow up a request. Both are adjustable
 under *Settings → Companion for Claude → Behavior*.
 
-![The session list with titled conversations, an archived count, and the row actions menu](../assets/session-dropdown.png)
 
 ## 4. Your first artifact
 

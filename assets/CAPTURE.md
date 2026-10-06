@@ -72,9 +72,6 @@ Regenerate it any time with `python3 demo-vault/_generate-demo-vault.py demo-vau
 |---|---|---|
 | `hero.png` | Window scene: a demo note with pending inline edit marks beside the Companion chat that proposed them (user ask, tool chips, reply, "Review proposed edit"). | Root README · plugin README |
 | `chat-panel.png` | Companion chat crop with a multi-paragraph, vault-grounded next-action reply and a wikilink citation. | `guides/getting-started.md` §3 |
-| `session-dropdown.png` | Chat pane with the session list open over six titled conversations, one archived behind "Show archived", and the row actions menu open. | `guides/getting-started.md` §3 |
-| `system-page.png` | System page with broken links, orphan notes, tag merge candidates, and ontology issues populated. | `guides/faq.md` |
-| `optimize-tags.png` | Tag merge review modal with proposed merges. | `guides/faq.md` |
 | `artifact-inline.png` | Window scene: a demo note in reading view whose `claude-html` block renders a project-status dashboard in the clay/olive palette. | `guides/getting-started.md` §4 · `guides/artifacts.md` |
 | `manifest-roadmap.png` | Legacy `manifest-pm` roadmap example retained for the asset archive. | Not currently embedded |
 | `working-map.png` | Legacy working-map example retained for the asset archive. | Not currently embedded |

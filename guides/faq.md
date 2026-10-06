@@ -116,7 +116,6 @@ If Claude is asked to write with writes off, it's instructed to say so plainly
 rather than pasting note content into chat as though it had been saved. See
 [agent-mode.md](agent-mode.md#the-guardrails).
 
-![The tag merge review listing proposed merges, each with a checkbox, Swap, and Dismiss](../assets/optimize-tags.png)
 
 ## Store version or BRAT?
 
@@ -126,7 +125,6 @@ Use the community store — that's the released, reviewed build. Use
 
 ## Something's broken — where do I report it?
 
-![The System page listing broken links, orphan notes, tag merge candidates, and ontology issues](../assets/system-page.png)
 
 Bugs and feature requests: a GitHub issue. Suspected vulnerabilities: **not** a
 public issue — follow [`SECURITY.md`](../SECURITY.md).
