@@ -12,7 +12,7 @@ work forward.
 · [Quick start](#quick-start)
 · [Read the guides](#guides)
 
-![Companion giving a grounded next action from the active research project](obsidian-plugin/assets/chat-panel.png)
+![Companion in Obsidian: a note with pending inline edits and the chat that proposed them](obsidian-plugin/assets/hero.png)
 
 ## Quick start
 
