@@ -1,4 +1,5 @@
 import { chatBackendOptions } from "./providers/runtimeBackend";
+import { registerNativeHandoff } from "./native/controller";
 import { App, FileSystemAdapter, MarkdownView, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
@@ -655,6 +656,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     this.registerContextMenus();
     for (const command of companionCommands(this.commandActions())) this.addCommand(command);
+    registerNativeHandoff(this);
     this.addCommand({
       id: "set-chat-project",
       name: "Chat: choose project",

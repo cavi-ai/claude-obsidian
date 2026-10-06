@@ -1,0 +1,36 @@
+name: Native iPhone CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["native-ios/**", ".github/workflows/native-ios-ci.yml"]
+  pull_request:
+    paths: ["native-ios/**", ".github/workflows/native-ios-ci.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: native-ios
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check generated project
+        run: |
+          python3 tools/generate-project.py
+          git diff --exit-code -- CompanionLocal.xcodeproj
+      - name: Test handoff policy
+        run: swift test
+      - name: Build native iPhone app
+        run: >-
+          xcodebuild -project CompanionLocal.xcodeproj -scheme CompanionLocal
+          -destination 'generic/platform=iOS' -derivedDataPath DerivedData
+          -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO build
