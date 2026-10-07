@@ -24,7 +24,27 @@ test("slash commands align at the left and keep extended commands searchable", a
   }
 });
 
-test("native touch scrolling leaves slash commands open until an intentional tap", async ({ rig }) => {
+test("mouse clicks select without submitting and Enter explicitly runs the command", async ({ rig }) => {
+  const { page } = await rig.reset();
+  await page.evaluate(async () => {
+    await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-chat");
+  });
+  const input = page.locator(".cc-chat-root textarea");
+  await input.fill("/brainstorm");
+  const menu = page.locator(".cc-slash-menu:not(.cc-at-menu)");
+  await menu.locator(".cc-slash-item").click();
+  await expect(menu).toBeVisible();
+  await expect(input).toHaveValue("/brainstorm");
+  expect(await rig.providerRequests()).toBe(0);
+  await input.press("Tab");
+  await expect(input).toHaveValue("/brainstorm");
+  await input.fill("/brainstorm");
+  await input.press("Enter");
+  await expect(menu).toBeHidden();
+  await expect(input).toHaveValue("Brainstorm strong, concrete ideas for: ");
+});
+
+test("native touch scrolling and selection keep slash commands open until Run", async ({ rig }) => {
   const harness = await rig.reset();
   const { page } = harness;
   const cdp = await page.context().newCDPSession(page);
@@ -56,9 +76,17 @@ test("native touch scrolling leaves slash commands open until an intentional tap
     const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(page.locator(".cc-slash-menu:not(.cc-at-menu)")).toBeVisible();
+    await expect(option).toHaveAttribute("aria-pressed", "true");
+    await expect(input).toHaveValue("/brainstorm");
+    expect(await rig.providerRequests()).toBe(0);
+    await page.screenshot({ path: test.info().outputPath("slash-selection.png") });
+    const run = page.getByRole("button", { name: "Run selected command" });
+    const runBox = (await run.boundingBox())!;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: runBox.x + runBox.width / 2, y: runBox.y + runBox.height / 2 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(page.locator(".cc-slash-menu:not(.cc-at-menu)")).toBeHidden();
     await expect(input).toHaveValue("Brainstorm strong, concrete ideas for: ");
-    await page.screenshot({ path: test.info().outputPath("slash-touch.png") });
   } finally {
     await cdp.detach();
     await harness.close();

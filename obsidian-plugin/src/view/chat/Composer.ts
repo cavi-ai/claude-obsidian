@@ -135,7 +135,7 @@ export class Composer {
       if (this.slashMenu.isOpen()) {
         if (e.key === "ArrowDown") { e.preventDefault(); this.slashMenu.move(1); return; }
         if (e.key === "ArrowUp") { e.preventDefault(); this.slashMenu.move(-1); return; }
-        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); this.slashMenu.choose(); return; }
+        if (e.key === "Enter") { e.preventDefault(); this.slashMenu.choose(); return; }
         if (e.key === "Escape") { e.preventDefault(); this.slashMenu.hide(); return; }
       }
       // Desktop: Enter sends, Shift+Enter breaks a line. Mobile soft keyboards

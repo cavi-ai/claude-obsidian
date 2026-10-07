@@ -8,6 +8,7 @@ import { type SlashCommand, filterCommands, moveSelection } from "./slashCommand
 export class SlashMenu {
   private el: HTMLElement;
   private listEl: HTMLElement;
+  private selectedEl: HTMLElement;
   private matches: SlashCommand[] = [];
   private selected = 0;
   private open = false;
@@ -21,6 +22,11 @@ export class SlashMenu {
     this.el = parent.createDiv({ cls: "cc-slash-menu" });
     this.el.setCssStyles({ display: "none" });
     this.listEl = this.el.createDiv({ cls: "cc-slash-list" });
+    const footer = this.el.createDiv({ cls: "cc-slash-footer" });
+    this.selectedEl = footer.createSpan({ cls: "cc-slash-selected" });
+    const run = footer.createEl("button", { cls: "cc-slash-run mod-cta", text: "Run", attr: { type: "button", "aria-label": "Run selected command" } });
+    run.addEventListener("mousedown", (event) => event.preventDefault());
+    run.addEventListener("click", () => this.choose());
   }
 
   isOpen(): boolean {
@@ -66,7 +72,11 @@ export class SlashMenu {
   }
 
   private highlight(): void {
-    Array.from(this.listEl.children).forEach((row, i) => row.toggleClass("is-selected", i === this.selected));
+    Array.from(this.listEl.children).forEach((row, i) => {
+      row.toggleClass("is-selected", i === this.selected);
+      row.setAttr("aria-pressed", String(i === this.selected));
+    });
+    this.selectedEl.setText(`Selected: /${this.matches[this.selected]?.name ?? ""}`);
   }
 
   /** Commit the current selection. */
@@ -90,10 +100,6 @@ export class SlashMenu {
       row.setAttr("title", `/${cmd.name} — ${cmd.description}${aliasNote}`);
       row.createSpan({ cls: "cc-slash-name", text: `/${cmd.name}` });
       row.createSpan({ cls: "cc-slash-desc", text: cmd.description });
-      row.addEventListener("mouseenter", () => {
-        this.selected = i;
-        this.highlight();
-      });
       row.addEventListener("pointerdown", (e) => {
         this.gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, scroll: this.listEl.scrollTop, moved: false };
         // Preserve desktop input focus without blocking native touch scrolling.
@@ -112,9 +118,10 @@ export class SlashMenu {
         this.gesture = undefined;
         if (gesture && (gesture.moved || gesture.scroll !== this.listEl.scrollTop)) return;
         this.selected = i;
-        this.choose();
+        this.highlight();
       });
     });
+    this.highlight();
   }
 
   destroy(): void {
