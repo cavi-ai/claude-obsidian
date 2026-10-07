@@ -3904,7 +3904,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
 
-  private async loadedOntology(): Promise<OntologyRegistry | null> {
+  async loadedOntology(): Promise<OntologyRegistry | null> {
     return loadedOntology(this.ontology());
   }
 

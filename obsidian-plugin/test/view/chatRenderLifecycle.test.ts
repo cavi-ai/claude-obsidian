@@ -73,6 +73,7 @@ describe("Chat render lifecycle", () => {
       interruptActiveConversationTurn: vi.fn(async () => undefined),
       composeSystemPrompt: () => "system",
       semanticSearch: async () => [],
+      loadedOntology: vi.fn(async () => null),
       turnService: () => new ChatTurnService(),
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
@@ -104,6 +105,7 @@ describe("Chat render lifecycle", () => {
     releasePersist();
     await running;
     expect(stream).toHaveBeenCalledOnce();
+    expect(plugin.loadedOntology).toHaveBeenCalledOnce();
   });
 
   it("keeps a turn running (and persisting) after the view closes, and replays it once on reopen", async () => {
@@ -141,6 +143,7 @@ describe("Chat render lifecycle", () => {
       interruptActiveConversationTurn: vi.fn(async () => undefined),
       composeSystemPrompt: () => "system",
       semanticSearch: async () => [],
+      loadedOntology: vi.fn(async () => null),
       turnService: () => turnService,
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
@@ -432,6 +435,7 @@ describe("Chat render lifecycle", () => {
       }),
       composeSystemPrompt: () => "system",
       semanticSearch: async () => [],
+      loadedOntology: vi.fn(async () => null),
       beginActiveConversationTurn: vi.fn(async () => ({ conversationId: "conversation-1", turnId: "turn-1" })),
       registerActiveChatTurn: vi.fn(() => () => undefined),
       completeActiveConversationTurn: vi.fn(async () => undefined),

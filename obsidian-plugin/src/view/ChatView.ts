@@ -952,6 +952,7 @@ export class ChatView extends ItemView {
       [...this.attachedPaths, ...pinnedPaths],
       this.attachedPages,
       searchScope,
+      await this.plugin.loadedOntology(),
     );
     if (controller.signal.aborted) return true;
     // A resumed Claude Code session already owns its history. Sending the whole
