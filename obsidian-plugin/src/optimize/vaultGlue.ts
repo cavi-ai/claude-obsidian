@@ -6,7 +6,7 @@ import type { RelatedWrite } from "./linkController";
 import { mergeRelated } from "./linkPlan";
 import type { LinkScanNote } from "./linkScan";
 import type { TypeWrite } from "./typeController";
-import type { TypeScanNote } from "./typeScan";
+import { isTyped, type TypeScanNote } from "./typeScan";
 import { entryId, mapTagList, OPTIMIZE_OUTPUT_ROOT, rewriteInlineTags, type NoteMergePlan, type NoteTagInput } from "./mergePlan";
 
 const TAG_KEY = /^tags?$/i;
@@ -128,14 +128,14 @@ export function typeScanNotes(app: App): TypeScanNote[] {
   });
 }
 
-/** Sets only `type`, and only while the note's `type` is still not a string. */
+/** Sets only `type`, and only while the note's `type` is absent or null. */
 export async function setNoteType(app: App, path: string, type: string): Promise<TypeWrite> {
   const file = markdownFile(app, path);
   if (!file) throw new Error(`Note not found: ${path}`);
-  if (typeof app.metadataCache.getFileCache(file)?.frontmatter?.type === "string") return { written: false };
+  if (isTyped(app.metadataCache.getFileCache(file)?.frontmatter)) return { written: false };
   let written = false;
   await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-    if (typeof fm.type === "string") return;
+    if (isTyped(fm)) return;
     fm.type = type;
     written = true;
   });

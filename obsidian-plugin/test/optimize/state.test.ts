@@ -99,7 +99,9 @@ describe("normalizeOptimizeState type weave fields", () => {
     const out = normalizeOptimizeState({
       typeVerdicts: {
         "Café 🧠.md": tv(),
-        "none.md": tv({ type: null }),
+        "none.md": tv({ type: null, types: "person,project" }),
+        "noneNoTypes.md": tv({ type: null }),
+        "noneBadTypes.md": tv({ type: null, types: 3 }),
         "badType.md": tv({ type: 3 }),
         "noModel.md": tv({ model: 1 }),
         "noAt.md": tv({ at: undefined }),
@@ -111,7 +113,7 @@ describe("normalizeOptimizeState type weave fields", () => {
       },
     });
     expect(Object.keys(out.typeVerdicts ?? {}).sort()).toEqual(["Café 🧠.md", "none.md"]);
-    expect(out.typeVerdicts?.["none.md"]).toEqual({ type: null, model: "m", at: "2026-10-07T10:00:00.000Z", mtime: 5 });
+    expect(out.typeVerdicts?.["none.md"]).toEqual({ type: null, model: "m", at: "2026-10-07T10:00:00.000Z", mtime: 5, types: "person,project" });
   });
 
   it("strips unknown keys from a type verdict", () => {

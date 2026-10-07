@@ -260,12 +260,27 @@ describe("setNoteType", () => {
     expect(fm).toEqual({ type: "project", keep: "me" });
   });
 
-  it("overwrites a non-string type (number, list) and touches no other key", async () => {
-    for (const bad of [3, ["project"], null]) {
-      const fm: Record<string, unknown> = { type: bad, keep: "me" };
+  it("never overwrites a present non-null type (number, list, object, empty string), cache or file", async () => {
+    for (const present of [3, ["project"], {}, ""]) {
+      for (const cacheLags of [false, true]) {
+        const fm: Record<string, unknown> = { type: present, keep: "me" };
+        const app = {
+          vault: { getAbstractFileByPath: () => new TFile("n.md", "x", 1) },
+          metadataCache: { getFileCache: () => ({ frontmatter: cacheLags ? {} : { type: present } }) },
+          fileManager: { processFrontMatter: async (_f: unknown, fn: (fm: Record<string, unknown>) => void) => fn(fm) },
+        };
+        expect(await setNoteType(app as never, "n.md", "person")).toEqual({ written: false });
+        expect(fm).toEqual({ type: present, keep: "me" });
+      }
+    }
+  });
+
+  it("writes over type: null and an absent type, touching no other key", async () => {
+    for (const initial of [{ type: null, keep: "me" }, { keep: "me" }]) {
+      const fm: Record<string, unknown> = { ...initial };
       const app = {
         vault: { getAbstractFileByPath: () => new TFile("n.md", "x", 1) },
-        metadataCache: { getFileCache: () => ({ frontmatter: { type: bad } }) },
+        metadataCache: { getFileCache: () => ({ frontmatter: { ...initial } }) },
         fileManager: { processFrontMatter: async (_f: unknown, fn: (fm: Record<string, unknown>) => void) => fn(fm) },
       };
       expect(await setNoteType(app as never, "n.md", "person")).toEqual({ written: true });

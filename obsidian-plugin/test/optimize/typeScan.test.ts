@@ -53,24 +53,26 @@ describe("proposableTypes", () => {
 });
 
 describe("scanUntyped status", () => {
-  it("reports no registry, an empty registry, and a registry with no proposable type", () => {
+  it("reports no registry only when the ontology is off; an empty or non-proposable registry is no-types", () => {
     expect(scan([note("a.md")], { registry: null }).status).toBe("no-registry");
-    expect(scan([note("a.md")], { registry: registryOf([]) }).status).toBe("no-registry");
+    expect(scan([note("a.md")], { registry: registryOf([]) }).status).toBe("no-types");
     expect(scan([note("a.md")], { registry: registryOf([entity, def("claim"), def("triage")]) }).status).toBe("no-types");
   });
 });
 
 describe("candidates", () => {
-  it("treats a missing type, an empty frontmatter, a number, a list and no frontmatter as untyped; a string (even empty) as typed", () => {
+  it("treats a missing type, an empty frontmatter, no frontmatter and type: null as candidates; any other value as typed", () => {
     const report = scan([
       note("none.md"),
       note("nofm.md", { frontmatter: {} }),
+      typed("null.md", null),
       typed("num.md", 3),
       typed("list.md", ["project"]),
+      typed("obj.md", {}),
       typed("empty.md", ""),
       typed("str.md", "project"),
     ]);
-    expect(report.candidates).toBe(4);
+    expect(report.candidates).toBe(3);
   });
 
   it("excludes the ontology folder, Claude/Optimize, and dismissed paths", () => {
@@ -185,11 +187,18 @@ describe("stored model verdicts", () => {
     }
   });
 
-  it("a null verdict gives no row and is not re-sent while valid", () => {
-    const report = scan([note("a.md", { mtime: 5 })], { verdicts: { "a.md": verdict({ type: null }) } });
+  it("a null verdict gives no row and is not re-sent while the proposable list is unchanged", () => {
+    const report = scan([note("a.md", { mtime: 5 })], { verdicts: { "a.md": verdict({ type: null, types: "concept,person,project" }) } });
     expect(report.proposals).toEqual([]);
     expect(report.pending).toEqual([]);
     expect(report.noProposal).toBe(1);
+  });
+
+  it("a null verdict is stale once types were seeded, or when it recorded none", () => {
+    for (const types of ["concept,person", "", undefined]) {
+      const report = scan([note("a.md", { mtime: 5 })], { verdicts: { "a.md": verdict({ type: null, ...(types !== undefined ? { types } : {}) }) } });
+      expect(report.pending.map((p) => p.path)).toEqual(["a.md"]);
+    }
   });
 
   it("deterministic evidence wins over a stored verdict", () => {

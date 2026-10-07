@@ -1,4 +1,5 @@
 import { buildFrontmatter } from "../indexing/frontmatter";
+import { sanitize } from "../memory/sanitize";
 import { UtilityUnavailableError } from "../providers/endpointPolicy";
 import { ClassifierStoppedError, type ClassifierHandle } from "./classifierGlue";
 import { normalizeOptimizeState, type OptimizeState, type StoredTypeVerdict } from "./state";
@@ -15,10 +16,10 @@ import {
   type TypeChoice,
   type TypeRequestNote,
 } from "./typeClassify";
-import { isExcludedPath, isTyped, proposableTypes, scanUntyped, type TypeRegistry, type TypeScanNote, type TypeScanReport } from "./typeScan";
+import { isExcludedPath, isTyped, proposableTypes, scanUntyped, typesKeyOf, type TypeRegistry, type TypeScanNote, type TypeScanReport } from "./typeScan";
 
 export interface TypeWrite {
-  /** False when the note already had a string `type`; nothing was written. */
+  /** False when the note already had a `type` (anything but absent or null); nothing was written. */
   written: boolean;
 }
 
@@ -28,7 +29,7 @@ export interface TypeWeaveDeps {
   registry(): Promise<TypeRegistry | null>;
   ontologyFolder(): string;
   read(path: string): Promise<string>;
-  /** `processFrontMatter`: sets `type` only while `fm.type` is not a string. Throws for a missing note. */
+  /** `processFrontMatter`: sets `type` only while `fm.type` is absent or null. Throws for a missing note. */
   setNoteType(path: string, type: string): Promise<TypeWrite>;
   writeRunNote(content: string, now: string): Promise<string>;
   getState(): OptimizeState;
@@ -97,7 +98,7 @@ export function renderTypeRunNote(input: { applied: Array<{ path: string; type: 
 }
 
 export class TypeWeaveController {
-  private inflight: Promise<TypeClassifyResult> | null = null;
+  private inflight: { promise: Promise<TypeClassifyResult>; signal: AbortSignal | undefined } | null = null;
 
   constructor(private deps: TypeWeaveDeps) {}
 
@@ -126,24 +127,28 @@ export class TypeWeaveController {
     }
   }
 
-  /** Explicit user action only; a second call while one runs joins it. */
+  /** Explicit user action only; a call while a live run is in flight joins it, one while an aborted run winds down starts after it. */
   classify(opts: { signal?: AbortSignal } = {}): Promise<TypeClassifyResult> {
-    if (this.inflight) return this.inflight;
-    const run = this.runClassify(opts).finally(() => {
-      if (this.inflight === run) this.inflight = null;
+    const current = this.inflight;
+    if (current && !current.signal?.aborted) return current.promise;
+    const winding = current?.promise;
+    const run: Promise<TypeClassifyResult> = (async () => {
+      if (winding) await winding.catch(() => undefined);
+      return this.runClassify(opts);
+    })().finally(() => {
+      if (this.inflight?.promise === run) this.inflight = null;
     });
-    this.inflight = run;
+    this.inflight = { promise: run, signal: opts.signal };
     return run;
   }
 
   private async runClassify(opts: { signal?: AbortSignal }): Promise<TypeClassifyResult> {
     const result: TypeClassifyResult = { judged: 0, typed: 0, none: 0, failedBatches: 0, notChecked: 0 };
-    const classifier = await this.deps.classifier({ interactive: true });
     const registry = await this.deps.registry();
-    const notes = this.deps.notes();
-    const report = this.scanNotes(notes, registry);
-    if (report.status !== "ok" || !registry) return result;
-    const byPath = new Map(notes.map((n) => [n.path, n]));
+    const report = this.scanNotes(this.deps.notes(), registry);
+    if (report.status !== "ok" || !registry || report.pending.length === 0) return result;
+    const typesKey = typesKeyOf(report.proposable);
+    const classifier = await this.deps.classifier({ interactive: true });
     const choices: TypeChoice[] = report.proposable.map((name) => {
       const keys = (registry.resolve(name)?.properties ?? []).slice(0, MAX_DESCRIBED_PROPERTIES).map((p) => p.key);
       return keys.length > 0 ? { name, description: `properties: ${keys.join(", ")}` } : { name };
@@ -156,23 +161,26 @@ export class TypeWeaveController {
     try {
       for (let i = 0; i < sent.length; i += TYPE_BATCH) {
         if (opts.signal?.aborted) break;
+        const live = new Map(this.deps.notes().map((n) => [n.path, n]));
+        const dismissed = new Set(this.deps.getState().dismissedTypes ?? []);
+        const folder = this.deps.ontologyFolder();
         const batch: Array<{ path: string; mtime: number; request: TypeRequestNote }> = [];
         for (const item of sent.slice(i, i + TYPE_BATCH)) {
-          const note = byPath.get(item.path);
-          if (!note || isTyped(note.frontmatter)) continue;
+          const note = live.get(item.path);
+          if (!note || isTyped(note.frontmatter) || dismissed.has(item.path) || isExcludedPath(item.path, folder)) continue;
           let content: string;
           try {
-            content = await this.deps.read(item.path);
+            content = sanitize(await this.deps.read(item.path));
           } catch {
             continue;
           }
           batch.push({
             path: item.path,
-            mtime: item.mtime,
+            mtime: note.mtime,
             request: {
-              title: basename(item.path),
-              folder: folderOf(item.path),
-              tags: note.tags.map((t) => t.replace(/^#+/, "")).filter(Boolean),
+              title: sanitize(basename(item.path)),
+              folder: sanitize(folderOf(item.path)),
+              tags: note.tags.map((t) => sanitize(t.replace(/^#+/, ""))).filter(Boolean),
               headings: noteHeadings(content),
               excerpt: noteExcerpt(content),
             },
@@ -195,7 +203,7 @@ export class TypeWeaveController {
         for (const v of verdicts) {
           const item = batch.find((b) => b.path === v.path);
           if (!item) continue;
-          stored[v.path] = { type: v.type, model: classifier.model, at: this.deps.now(), mtime: item.mtime };
+          stored[v.path] = { type: v.type, model: classifier.model, at: this.deps.now(), mtime: item.mtime, types: typesKey };
           result.judged++;
           if (v.type === null) result.none++;
           else result.typed++;

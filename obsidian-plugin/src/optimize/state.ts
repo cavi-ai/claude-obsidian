@@ -17,6 +17,8 @@ export interface StoredTypeVerdict {
   at: string;
   /** The note's `stat.mtime` when it was judged. */
   mtime: number;
+  /** The proposable type names, comma-joined, at judging time; a `null` verdict is valid only while it matches. */
+  types?: string;
 }
 
 export interface OptimizeState {
@@ -68,7 +70,8 @@ function storedTypeVerdict(raw: unknown): StoredTypeVerdict | null {
   const v = raw as Record<string, unknown>;
   if (v.type !== null && typeof v.type !== "string") return null;
   if (typeof v.model !== "string" || typeof v.at !== "string" || typeof v.mtime !== "number" || !Number.isFinite(v.mtime)) return null;
-  return { type: v.type, model: v.model, at: v.at, mtime: v.mtime };
+  if (v.type === null && typeof v.types !== "string") return null;
+  return { type: v.type, model: v.model, at: v.at, mtime: v.mtime, ...(typeof v.types === "string" ? { types: v.types } : {}) };
 }
 
 function normalizeTypeVerdicts(raw: unknown): Record<string, StoredTypeVerdict> {

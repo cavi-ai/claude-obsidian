@@ -89,7 +89,8 @@ export interface TypeScanReport {
   pending: TypePending[];
 }
 
-export const isTyped = (frontmatter: Record<string, unknown> | undefined): boolean => typeof frontmatter?.type === "string";
+/** Any `type` value other than absent or null is the user's; only those two are candidates. */
+export const isTyped = (frontmatter: Record<string, unknown> | undefined): boolean => frontmatter?.type !== undefined && frontmatter.type !== null;
 
 export function proposableTypes(registry: TypeRegistry | null): string[] {
   if (!registry) return [];
@@ -97,6 +98,9 @@ export function proposableTypes(registry: TypeRegistry | null): string[] {
     .filter((name) => name !== ROOT_TYPE && !GENERATED_NOTE_TYPES.has(name) && !PLUGIN_OWNED_TYPES.has(name))
     .sort((a, b) => a.localeCompare(b));
 }
+
+/** Identifies the proposable list a "no fitting type" verdict was judged against. */
+export const typesKeyOf = (proposable: readonly string[]): string => proposable.join(",");
 
 export function isExcludedPath(path: string, ontologyFolder: string): boolean {
   return (ontologyFolder !== "" && path.startsWith(`${ontologyFolder}/`)) || path.startsWith(`${OPTIMIZE_OUTPUT_ROOT}/`);
@@ -154,18 +158,20 @@ export function verdictIsValid(
   verdict: StoredTypeVerdict | undefined,
   mtime: number,
   proposable: ReadonlySet<string>,
+  typesKey: string,
 ): verdict is StoredTypeVerdict {
   if (!verdict || verdict.mtime !== mtime) return false;
-  return verdict.type === null || proposable.has(verdict.type);
+  return verdict.type === null ? verdict.types === typesKey : proposable.has(verdict.type);
 }
 
 export function scanUntyped(input: TypeScanInput): TypeScanReport {
   const empty = (status: TypeScanStatus): TypeScanReport => ({ status, proposable: [], candidates: 0, proposals: [], notShown: 0, noProposal: 0, pending: [] });
   const { registry } = input;
-  if (!registry || registry.resolved().size === 0) return empty("no-registry");
+  if (!registry) return empty("no-registry");
   const proposable = proposableTypes(registry);
   if (proposable.length === 0) return empty("no-types");
   const proposableSet = new Set(proposable);
+  const typesKey = typesKeyOf(proposable);
 
   const typedByFolder = new Map<string, string[]>();
   for (const n of input.notes) {
@@ -203,7 +209,7 @@ export function scanUntyped(input: TypeScanInput): TypeScanReport {
       continue;
     }
     const verdict = input.verdicts[note.path];
-    if (verdictIsValid(verdict, note.mtime, proposableSet)) {
+    if (verdictIsValid(verdict, note.mtime, proposableSet, typesKey)) {
       if (verdict.type !== null) modelRows.push(rowFor(note, verdict.type, [{ kind: "model", model: verdict.model }]));
       continue;
     }

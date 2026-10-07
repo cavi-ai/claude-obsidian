@@ -157,8 +157,8 @@ describe("classify", () => {
     expect(ctx.classifierCalls).toEqual([{ interactive: true }]);
     expect(result).toEqual({ judged: 2, typed: 1, none: 1, failedBatches: 0, notChecked: 0 });
     expect(ctx.getState().typeVerdicts).toEqual({
-      "a.md": { type: "person", model: "m1", at: "2026-10-07T10:00:00.000Z", mtime: 7 },
-      "b.md": { type: null, model: "m1", at: "2026-10-07T10:00:00.000Z", mtime: 3 },
+      "a.md": { type: "person", model: "m1", at: "2026-10-07T10:00:00.000Z", mtime: 7, types: "person,project" },
+      "b.md": { type: null, model: "m1", at: "2026-10-07T10:00:00.000Z", mtime: 3, types: "person,project" },
     });
   });
 
@@ -174,7 +174,7 @@ describe("classify", () => {
       note("b.md", { mtime: 4 }),
       note("c.md", { mtime: 6 }),
     ];
-    const ctx = setup(notes, { state: { dismissed: [], verdicts: {}, typeVerdicts: { "b.md": { type: null, model: "m", at: "t", mtime: 4 } } }, replies: [reply({ n: 1, type: "person" })] });
+    const ctx = setup(notes, { state: { dismissed: [], verdicts: {}, typeVerdicts: { "b.md": { type: null, model: "m", at: "t", mtime: 4, types: "person,project" } } }, replies: [reply({ n: 1, type: "person" })] });
     await ctx.controller.classify();
     expect(ctx.reads).toEqual(["c.md"]);
   });
@@ -220,7 +220,7 @@ describe("classify", () => {
   });
 
   it("allows a new run after one finished", async () => {
-    const ctx = setup([note("a.md")], { replies: [reply({ n: 1, type: "person" })] });
+    const ctx = setup([note("a.md")]);
     await ctx.controller.classify();
     await ctx.controller.classify();
     expect(ctx.classifierCalls).toHaveLength(1 + 1);
@@ -303,6 +303,93 @@ describe("classify", () => {
     });
     await ctx.controller.classify();
     expect(Object.keys(ctx.getState().typeVerdicts ?? {})).toEqual(["b.md"]);
+  });
+
+  it("with nothing pending, never builds the classifier", async () => {
+    const none = setup([note("typed.md", { frontmatter: { type: "project" } }), note("v.md", { mtime: 3 })], {
+      state: { dismissed: [], verdicts: {}, typeVerdicts: { "v.md": { type: null, model: "m", at: "t", mtime: 3, types: "person,project" } } },
+    });
+    await none.controller.classify();
+    expect(none.classifierCalls).toEqual([]);
+    const off = setup([note("a.md")], { registry: null });
+    await off.controller.classify();
+    expect(off.classifierCalls).toEqual([]);
+  });
+
+  it("a note typed while batch 1 is at the model is never read or sent in batch 2", async () => {
+    const notes = Array.from({ length: 21 }, (_, i) => note(`n${i}.md`, { mtime: 100 - i }));
+    let calls = 0;
+    const ctx = setup(notes, { over: { notes: () => (calls++ === 0 ? notes : notes.map((n) => (n.path === "n20.md" ? { ...n, frontmatter: { type: "project" } } : n))) } });
+    await ctx.controller.classify();
+    expect(ctx.reads).not.toContain("n20.md");
+    expect(ctx.sent.join("\n")).not.toContain("n20");
+  });
+
+  it("a note dismissed while batch 1 is at the model is not read in batch 2", async () => {
+    const notes = Array.from({ length: 21 }, (_, i) => note(`n${i}.md`, { mtime: 100 - i }));
+    let state: OptimizeState = { dismissed: [], verdicts: {} };
+    const ctx = setup(notes, { over: { getState: () => state, setState: async (next) => { state = next; }, read: async (p) => { if (p === "n0.md") state = { ...state, dismissedTypes: ["n20.md"] }; return "x"; } } });
+    await ctx.controller.classify();
+    expect(ctx.sent).toHaveLength(1);
+  });
+
+  it("stores the live mtime from the read, not the scan's", async () => {
+    let mtime = 5;
+    const ctx = setup([], { replies: [reply({ n: 1, type: "person" })], over: { notes: () => [note("a.md", { mtime: mtime++ })] } });
+    await ctx.controller.classify();
+    expect(ctx.getState().typeVerdicts?.["a.md"]?.mtime).toBe(6);
+  });
+
+  it("a run aborted by one caller and joined by a fresh one finishes for the fresh caller", async () => {
+    const notes = Array.from({ length: 45 }, (_, i) => note(`n${i}.md`, { mtime: 100 - i }));
+    const first = new AbortController();
+    let second: Promise<TypeClassifyResult> | undefined;
+    let calls = 0;
+    let state: OptimizeState = { dismissed: [], verdicts: {} };
+    const controller = new TypeWeaveController({
+      notes: () => notes,
+      registry: async () => registry,
+      ontologyFolder: () => "Ontology",
+      read: async () => "x",
+      setNoteType: async () => ({ written: true }),
+      writeRunNote: async () => "",
+      getState: () => state,
+      setState: async (next) => { state = next; },
+      now: () => "t",
+      classifier: async () => ({
+        local: true,
+        label: "l",
+        model: "m",
+        complete: async <T,>(_req: unknown, parse: (raw: string) => T): Promise<T> => {
+          calls++;
+          if (calls === 1) {
+            first.abort();
+            second = controller.classify();
+          }
+          return parse(reply({ n: 1, type: "person" }));
+        },
+      }),
+    });
+    const a = await controller.classify({ signal: first.signal });
+    const b = await second;
+    expect(a.judged).toBe(1);
+    expect(calls).toBe(4);
+    expect(b?.judged).toBe(3);
+    expect(Object.keys(state.typeVerdicts ?? {})).toHaveLength(4);
+  });
+
+  it("sanitizes title, folder, tags, headings and excerpt before they enter the request", async () => {
+    const key = "sk-ant-abcdefghij1234567890";
+    const ctx = setup([note(`${key}/${key}.md`, { tags: [`#${key}`] })], {
+      files: { [`${key}/${key}.md`]: `# Heading ${key}\nExcerpt text ${key} end` },
+      replies: [reply({ n: 1, type: "person" })],
+    });
+    await ctx.controller.classify();
+    expect(ctx.sent[0]).toContain("‹REDACTED›");
+    expect(ctx.sent[0]).not.toContain("sk-ant");
+    const parsed = JSON.parse((ctx.sent[0] as string).split("\n").pop()!.replace(/^1\. /, "")) as { headings: string[]; excerpt: string };
+    expect(parsed.headings[0]).toContain("‹REDACTED›");
+    expect(parsed.excerpt).toContain("‹REDACTED›");
   });
 
   it("propagates an unavailable utility before reading any note", async () => {
@@ -406,7 +493,7 @@ describe("state writes keep every field", () => {
     await ctx.controller.classify();
     expect(ctx.getState()).toEqual({
       ...full,
-      typeVerdicts: { ...full.typeVerdicts, "a.md": { type: "project", model: "m1", at: "2026-10-07T10:00:00.000Z", mtime: 2 } },
+      typeVerdicts: { ...full.typeVerdicts, "a.md": { type: "project", model: "m1", at: "2026-10-07T10:00:00.000Z", mtime: 2, types: "person,project" } },
     });
   });
 
