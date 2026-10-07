@@ -10,6 +10,15 @@ export interface StoredVerdict {
   at: string;
 }
 
+export interface StoredTypeVerdict {
+  /** `null`: the model found no fitting type. */
+  type: string | null;
+  model: string;
+  at: string;
+  /** The note's `stat.mtime` when it was judged. */
+  mtime: number;
+}
+
 export interface OptimizeState {
   dismissed: string[];
   /** `<source>\u0000<target>` pairs the user dismissed in the link weave review. */
