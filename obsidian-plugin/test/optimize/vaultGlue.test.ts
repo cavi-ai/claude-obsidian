@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { App } from "obsidian";
 import { collapseMerges, planTagMerges } from "../../src/optimize/mergePlan";
-import { acceptsRelated, addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "../../src/optimize/vaultGlue";
+import { OntologyRegistry } from "../../src/ontology/registry";
+import { acceptsRelated, addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, writeOptimizeRunNote } from "../../src/optimize/vaultGlue";
 import { SEED_TYPES } from "../../src/ontology/seed";
 import { resolveTypes } from "../../src/ontology/schema";
 import type { ResolvedType } from "../../src/ontology/types";
@@ -184,6 +185,24 @@ describe("linkScanNotes", () => {
       { path: "b.md", basename: "b", aliases: ["Bee"], mtime: 6, acceptsRelated: true },
       { path: "c.md", basename: "c", aliases: [], mtime: 7, acceptsRelated: true },
     ]);
+  });
+});
+
+describe("loadedOntology", () => {
+  it("loads a registry created after startup before acceptsRelated reads it", async () => {
+    const app = new App();
+    app.vault.seed("a.md", "x", { mtime: 1, frontmatter: { type: "island" } });
+    const registryNotes = [{ path: "Ontology/island.md", frontmatter: { ontology: "type", type_name: "island" }, body: "" }];
+    const reg = new OntologyRegistry({ listSchemaNotes: async () => registryNotes, parseYaml: () => ({}) });
+    expect(linkScanNotes(app as never, reg)[0]?.acceptsRelated).toBe(true);
+    const loaded = await loadedOntology(reg);
+    expect(loaded).toBe(reg);
+    expect(reg.resolved().has("island")).toBe(true);
+    expect(linkScanNotes(app as never, loaded)[0]?.acceptsRelated).toBe(false);
+  });
+
+  it("passes null through without loading", async () => {
+    expect(await loadedOntology(null)).toBeNull();
   });
 });
 

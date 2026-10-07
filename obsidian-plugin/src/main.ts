@@ -125,7 +125,7 @@ import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { openTagMergeReview } from "./optimize/review";
 import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
-import { addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, writeOptimizeRunNote } from "./optimize/vaultGlue";
 import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController } from "./optimize/linkController";
 import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans, type LinkScanReport } from "./optimize/linkScan";
 import { LinkWeaveModal } from "./view/LinkWeaveModal";
@@ -592,6 +592,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private published: PublishedItem[] = [];
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeController;
+  private _classifier?: ReturnType<typeof createClassifier>;
   private _linkWeave?: LinkWeaveController;
   private _publish?: PublishController;
   private _standingOrders?: OrdersController;
@@ -3836,20 +3837,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
         await this.persist();
       },
       now: () => new Date().toISOString(),
-      classifier: createClassifier({
-        router: () => this.router(),
-        backend: () => this.settings.classifierBackend,
-        isMobile: Platform.isMobile,
-        passiveUtilitySelection: () => {
-          const selection = this.runtimeUtilitySelection();
-          if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
-          throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
-        },
-        assertActive: () => {
-          if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the tag check was running; no further content was sent.");
-        },
-      }),
+      classifier: this.classifier(),
     }));
+  }
+
+  private classifier(): ReturnType<typeof createClassifier> {
+    return (this._classifier ??= createClassifier({
+      router: () => this.router(),
+      backend: () => this.settings.classifierBackend,
+      isMobile: Platform.isMobile,
+      passiveUtilitySelection: () => {
+        const selection = this.runtimeUtilitySelection();
+        if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
+        throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
+      },
+      assertActive: () => {
+        if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the model check was running; no further content was sent.");
+      },
+    }));
+  }
+
+  private async loadedOntology(): Promise<OntologyRegistry | null> {
+    return loadedOntology(this.ontology());
   }
 
   private async checkTagMergesInBackground(): Promise<void> {
@@ -3885,11 +3894,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private linkWeaveController(): LinkWeaveController {
     return (this._linkWeave ??= new LinkWeaveController({
-      scan: (dismissed, onProgress) => {
+      scan: async (dismissed, onProgress) => {
         const indexer = this.indexer();
+        const registry = await this.loadedOntology();
         return scanOrphans({
           ...(onProgress ? { onProgress } : {}),
-          notes: linkScanNotes(this.app, this.ontology()),
+          notes: linkScanNotes(this.app, registry),
           edges: this.app.metadataCache.resolvedLinks,
           ontologyFolder: normalizePath(this.settings.ontologyFolder),
           dismissed,

@@ -93,6 +93,12 @@ export interface RelationRegistry {
   resolved(): ReadonlyMap<string, ResolvedType>;
 }
 
+/** `ontology()` constructs lazily without loading; every scan reads the registry through this. */
+export async function loadedOntology<R extends { load(): Promise<unknown> }>(registry: R | null): Promise<R | null> {
+  if (registry) await registry.load();
+  return registry;
+}
+
 /** Whether `conform` would accept a `related` key on a note of this type. */
 export function acceptsRelated(type: string | undefined, registry: RelationRegistry | null): boolean {
   if (type === undefined || !registry || registry.resolved().size === 0) return true;
