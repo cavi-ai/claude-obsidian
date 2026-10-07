@@ -220,7 +220,7 @@ export class VaultTools {
       });
     }
 
-    if (this.opts.memoryRecord?.enabled()) {
+    if (this.opts.allowWrites && this.opts.memoryRecord?.enabled()) {
       defs.push({
         name: "memory_record",
         description: "Record one durable, still-true fact about the user's work (a decision, preference, or project state) in the vault's 'What Claude Knows' memory note. Not for transient chatter. Pass `source` as your agent name (e.g. 'claude-code', 'codex').",

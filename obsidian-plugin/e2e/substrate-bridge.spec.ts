@@ -65,7 +65,9 @@ test("typed search, related notes and substrate resources over the live bridge",
   const memory = await rpc("resources/read", { uri: "obsidian://memory" });
   expect(JSON.stringify(memory.result)).toContain("e2e memory");
 
-  await rpc("tools/call", { name: "memory_record", arguments: { fact: "Prefers terse answers", source: "e2e" } });
-  const recorded = await rpc("tools/call", { name: "note_read", arguments: { path: "Claude/Sessions/What Claude Knows.md" } });
-  expect(JSON.stringify(recorded.result)).toContain("· e2e · Prefers terse answers");
+  const refused = await rpc("tools/call", { name: "memory_record", arguments: { fact: "Prefers terse answers", source: "e2e" } });
+  expect(refused.result).toMatchObject({ isError: true });
+  expect(JSON.stringify(refused.result)).toContain("Write tools are disabled");
+  const unchanged = await rpc("tools/call", { name: "note_read", arguments: { path: "Claude/Sessions/What Claude Knows.md" } });
+  expect(JSON.stringify(unchanged.result)).not.toContain("Prefers terse answers");
 });
