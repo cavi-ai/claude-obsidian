@@ -3,6 +3,7 @@
 // note the desk can act on. Pure.
 
 import { stripFrontmatter } from "../markdown/frontmatter";
+import { isJsonObject, replyJson } from "../providers/replyJson";
 
 export interface TriageNote {
   path: string;
@@ -92,18 +93,8 @@ export function buildTriageUser(notes: TriageNote[]): string {
 
 /** Parse the model's grouping, dropping unknown paths, empty groups, and duplicates. */
 export function parseTriageResponse(raw: string, validPaths: Set<string>): TriageGroup[] {
-  let text = raw.trim();
-  const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/.exec(text);
-  if (fenced) text = fenced[1]!.trim();
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new Error("Triage response was not JSON.");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    throw new Error("Triage response was not valid JSON.");
-  }
+  const parsed = replyJson(raw, isJsonObject);
+  if (parsed === undefined) throw new Error("Triage response was not valid JSON.");
   const groups = (parsed as { groups?: unknown }).groups;
   if (!Array.isArray(groups)) throw new Error("Triage response had no groups array.");
 

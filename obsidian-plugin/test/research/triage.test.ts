@@ -55,9 +55,14 @@ describe("parseTriageResponse", () => {
   });
 
   it("rejects non-JSON responses", () => {
-    expect(() => parseTriageResponse("no json here", valid)).toThrow(/not JSON/);
+    expect(() => parseTriageResponse("no json here", valid)).toThrow(/not valid JSON/);
     expect(() => parseTriageResponse("{ broken }", valid)).toThrow(/not valid JSON/);
     expect(() => parseTriageResponse("{\"other\":[]}", valid)).toThrow(/no groups/);
+  });
+
+  it("reads groups from a reply wrapped in prose", () => {
+    const parsed = parseTriageResponse(`Here are the themes:\n{"groups":[{"theme":"T","summary":"S","researchIdea":"R","paths":["${[...valid][0]}"]}]}\nLet me know.`, valid);
+    expect(parsed.map((g) => g.theme)).toEqual(["T"]);
   });
 });
 

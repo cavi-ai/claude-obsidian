@@ -1,5 +1,6 @@
 import { fencedLines } from "../markdown/fences";
 import { stripFrontmatter } from "../markdown/frontmatter";
+import { isJsonObject, replyJson } from "../providers/replyJson";
 
 export const TYPE_BATCH = 20;
 export const MAX_TYPE_BATCHES = 10;
@@ -107,17 +108,10 @@ export function typeRequest(notes: TypeRequestNote[], types: TypeChoice[]): stri
 }
 
 export function parseTypeVerdicts(raw: string, notes: ReadonlyArray<{ path: string }>, types: readonly string[]): TypeVerdict[] {
-  const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new TypeParseError("Reply is not valid JSON");
-  }
-  const list = (parsed as { verdicts?: unknown } | null)?.verdicts;
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !Array.isArray(list)) {
-    throw new TypeParseError("Reply must be a JSON object with a verdicts array");
-  }
+  const parsed = replyJson(raw);
+  if (parsed === undefined) throw new TypeParseError("Reply is not valid JSON");
+  const list = isJsonObject(parsed) ? parsed.verdicts : undefined;
+  if (!Array.isArray(list)) throw new TypeParseError("Reply must be a JSON object with a verdicts array");
   const allowed = new Set(types);
   const seen = new Set<number>();
   const out: TypeVerdict[] = [];
