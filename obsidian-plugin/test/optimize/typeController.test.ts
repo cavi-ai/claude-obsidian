@@ -11,6 +11,7 @@ import {
   formatTypeScanNotice,
   renderTypeRunNote,
   TypeWeaveController,
+  type TypeClassifyResult,
   type TypeWeaveDeps,
 } from "../../src/optimize/typeController";
 import type { TypeRegistry, TypeScanNote } from "../../src/optimize/typeScan";

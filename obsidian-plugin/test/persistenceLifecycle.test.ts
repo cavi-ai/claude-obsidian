@@ -162,7 +162,7 @@ describe("optimize type weave state", () => {
       dismissed: ["a|b"],
       verdicts: {},
       dismissedLinks: ["a.md\u0000b.md"],
-      typeVerdicts: { "Café 🧠.md": { type: "project", model: "m", at: "2026-10-07T10:00:00.000Z", mtime: 5 }, "none.md": { type: null, model: "m", at: "2026-10-07T09:00:00.000Z", mtime: 6 } },
+      typeVerdicts: { "Café 🧠.md": { type: "project", model: "m", at: "2026-10-07T10:00:00.000Z", mtime: 5 }, "none.md": { type: null, model: "m", at: "2026-10-07T09:00:00.000Z", mtime: 6, types: "person,project" } },
       dismissedTypes: ["x.md"],
       lastBackgroundRun: "2026-10-05T00:00:00.000Z",
     };
