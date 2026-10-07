@@ -1,5 +1,9 @@
 import { chatBackendOptions } from "./providers/runtimeBackend";
-import { registerNativeHandoff } from "./native/controller";
+import { registerNativeResultImport } from "./native/controller";
+import { registerDeviceGpuCheck } from "./device/controller";
+import { DeviceChatClient } from "./device/client";
+import { DeviceProvider } from "./providers/device";
+import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import { App, FileSystemAdapter, MarkdownView, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
@@ -482,6 +486,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       enrichDiagnostics: () => this.enrichDiagnostics,
       router: () => this.router(),
       isMobile: Platform.isMobile,
+      deviceChatBusy: () => this._deviceChat?.busy() ?? false,
       vault: {
         adapterSize: async (p) => (await this.app.vault.adapter.stat(p))?.size,
         adapterExists: (p) => this.app.vault.adapter.exists(p),
@@ -656,7 +661,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     this.registerContextMenus();
     for (const command of companionCommands(this.commandActions())) this.addCommand(command);
-    registerNativeHandoff(this);
+    registerNativeResultImport(this);
+    registerDeviceGpuCheck(this);
     this.addCommand({
       id: "set-chat-project",
       name: "Chat: choose project",
@@ -1847,6 +1853,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this._deviceChat?.cancel();
     for (const dispose of [...(this.disposables ?? [])].reverse()) dispose();
     this.disposables = [];
     this.settingsListeners?.clear();
@@ -2476,9 +2483,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
         cliProvider: this._cliProvider,
         codexProvider: this._codexProvider,
         opencodeProvider: this._opencodeProvider,
+        deviceProvider: new DeviceProvider(this.settings.chatBackend === "device" ? this.deviceChat() : null),
       });
     }
     return this._router;
+  }
+
+  private _deviceChat?: DeviceChatClient;
+  deviceChat(): DeviceChatClient {
+    if (!this._deviceChat) {
+      this._deviceChat = new DeviceChatClient(createEmbedWorker, () => {
+        if (Platform.isMobile) this._semantic?.pauseForDeviceChat();
+      });
+      this.registerDomEvent(document, "visibilitychange", () => {
+        if (document.hidden) this._deviceChat?.cancel();
+      });
+    }
+    return this._deviceChat;
   }
 
   /** One lazy coordinator shared by every discovery surface. */
@@ -2846,8 +2867,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }, 500);
   }
 
-  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null }): string {
-    let base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null; compact?: boolean }): string {
+    let base = opts?.compact ? this.settings.systemPrompt : `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
     const digest = this.ontology()?.digest();
     if (digest) base = `${base}\n\n${digest}`;
     if (opts?.project) base = `${base}\n\n${projectSystemPrompt(opts.project)}`;

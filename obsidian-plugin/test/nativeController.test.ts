@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, Platform, type Plugin, type TFile } from "obsidian";
-import { NativeHandoffController, registerNativeHandoff } from "../src/native/controller";
+import { NativeHandoffController, registerNativeResultImport } from "../src/native/controller";
 import { NATIVE_MODEL } from "../src/native/handoff";
 
 const id = "11111111-2222-4333-8444-555555555555";
@@ -36,12 +36,12 @@ describe("native iPhone handoff ownership", () => {
   it("registers only on iOS and performs no vault IO during registration", () => {
     const { plugin, app } = fixture();
     platform.isIosApp = false;
-    registerNativeHandoff(plugin);
+    registerNativeResultImport(plugin);
     expect(plugin.addCommand).not.toHaveBeenCalled();
     expect(plugin.registerObsidianProtocolHandler).not.toHaveBeenCalled();
     platform.isIosApp = true;
-    registerNativeHandoff(plugin);
-    expect(plugin.addCommand).toHaveBeenCalledOnce();
+    registerNativeResultImport(plugin);
+    expect(plugin.addCommand).not.toHaveBeenCalled();
     expect(plugin.registerObsidianProtocolHandler).toHaveBeenCalledOnce();
     expect(app.vault.adapter.read).not.toHaveBeenCalled();
   });
