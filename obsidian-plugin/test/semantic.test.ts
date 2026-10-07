@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { chunkNote, contentHash } from "../src/semantic/chunk";
 import { stripFrontmatter } from "../src/markdown/frontmatter";
 import { cosineSimilarity, reciprocalRankFusion } from "../src/semantic/similarity";
-import { SemanticStore, emptyIndex, INDEX_VERSION } from "../src/semantic/store";
+import { SemanticStore, emptyIndex, decodeVector, encodeVector, INDEX_VERSION } from "../src/semantic/store";
 
 describe("chunk", () => {
   it("strips frontmatter", () => {
@@ -171,5 +171,38 @@ describe("SemanticStore", () => {
     const good = new SemanticStore(emptyIndex("nomic"));
     good.upsertNote("A.md", "h", 1, [{ ord: 0, text: "x", vector: [1, 2] }]);
     expect(SemanticStore.load(good.toJSON(), "nomic").hasNote("A.md")).toBe(true);
+  });
+
+  it("persists vectors as base64 float32 and reads them back", () => {
+    const vector = [0.25, -1.5, 3, 0.1];
+    const store = new SemanticStore(emptyIndex("nomic"));
+    store.upsertNote("A.md", "h", 1, [{ ord: 0, text: "x", vector }]);
+    const persisted = JSON.parse(JSON.stringify(store)) as { version: number; notes: Record<string, { chunks: Array<{ vector: unknown }> }> };
+    expect(persisted.version).toBe(INDEX_VERSION);
+    expect(persisted.notes["A.md"]?.chunks[0]?.vector).toBe(encodeVector(vector));
+    expect(decodeVector(encodeVector(vector), 4)).toEqual(Array.from(Float32Array.from(vector)));
+    const reloaded = SemanticStore.load(persisted, "nomic");
+    expect(reloaded.search(vector, 1)[0]).toMatchObject({ path: "A.md", score: expect.closeTo(1, 6) as number });
+  });
+
+  it("is under a third of the version 1 size for a 384-dim vector", () => {
+    const vector = Array.from({ length: 384 }, (_, i) => Math.sin(i) / 10);
+    expect(JSON.stringify(encodeVector(vector)).length * 3).toBeLessThan(JSON.stringify(vector).length);
+  });
+
+  it("reads a version 1 index and writes it back as version 2", () => {
+    const legacy = { version: 1, model: "nomic", dim: 2, notes: { "A.md": { hash: "h", mtime: 1, chunks: [{ ord: 0, text: "x", vector: [1, 0] }] } } };
+    const store = SemanticStore.load(legacy, "nomic");
+    expect(store.hasNote("A.md")).toBe(true);
+    expect(store.toJSON()).toMatchObject({ version: INDEX_VERSION, notes: { "A.md": { chunks: [{ vector: encodeVector([1, 0]) }] } } });
+  });
+
+  it("rejects a version 2 vector that is not dim finite float32 values", () => {
+    const base = { version: INDEX_VERSION, model: "nomic", dim: 2 };
+    const withVector = (vector: unknown) => ({ ...base, notes: { "A.md": { hash: "h", mtime: 1, chunks: [{ ord: 0, text: "x", vector }] } } });
+    expect(SemanticStore.load(withVector(encodeVector([1, 0, 0])), "nomic").stats().notes).toBe(0);
+    expect(SemanticStore.load(withVector(encodeVector([Number.NaN, 0])), "nomic").stats().notes).toBe(0);
+    expect(SemanticStore.load(withVector("not base64!"), "nomic").stats().notes).toBe(0);
+    expect(SemanticStore.load(withVector([1, 0]), "nomic").stats().notes).toBe(0);
   });
 });

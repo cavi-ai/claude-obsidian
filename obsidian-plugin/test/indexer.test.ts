@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { SemanticIndexer, type IndexFile, type IndexerDeps } from "../src/semantic/indexer";
-import type { IndexData } from "../src/semantic/store";
+import type { PersistedIndex } from "../src/semantic/store";
 
 /** A fake vault + embedder. Embedding = deterministic bag-of-words over a tiny
  *  vocab, so "cats" and "feline cat" land near each other and far from "fish". */
 function makeDeps(files: Record<string, string>) {
   const vocab = ["cat", "feline", "dog", "fish", "ocean", "code"];
   const embedCalls: string[][] = [];
-  const store: { data: IndexData | null } = { data: null };
+  const store: { data: PersistedIndex | null } = { data: null };
 
   const embed = async (input: string[]): Promise<number[][]> => {
     embedCalls.push(input);
@@ -23,7 +23,7 @@ function makeDeps(files: Record<string, string>) {
     read: async (path: string) => files[path] ?? "",
     embed,
     load: async () => store.data,
-    save: async (d: IndexData) => {
+    save: async (d: PersistedIndex) => {
       store.data = JSON.parse(JSON.stringify(d));
     },
   };
@@ -420,6 +420,29 @@ describe("SemanticIndexer", () => {
     expect(ctx.embedCalls.length).toBe(3);
     expect(saves).toBe(1);
     expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("a burst of deletes and renames shares one deferred save", async () => {
+    const ctx = makeDeps({ "a.md": "cat", "b.md": "dog", "c.md": "fish" });
+    const ix = new SemanticIndexer(ctx.deps);
+    await ix.build();
+    let saves = 0;
+    const save = ctx.deps.save;
+    ctx.deps.save = async (d) => { saves++; await save(d); };
+    const deferred: Array<() => void> = [];
+    ctx.deps.deferSave = (run) => deferred.push(run);
+
+    await Promise.all([ix.removeNote("a.md"), ix.renameNote("b.md", "x/b.md"), ix.renameNote("c.md", "x/c.md")]);
+    expect(saves).toBe(0);
+    expect(deferred).toHaveLength(1);
+
+    deferred[0]!();
+    await ix.stats();
+    await vi.waitFor(() => expect(saves).toBe(1));
+    expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["x/b.md", "x/c.md"]);
+
+    await ix.removeNote("x/b.md");
+    expect(deferred).toHaveLength(2);
   });
 
   it("updateNotes calls yieldBetween between notes, not after the last", async () => {
