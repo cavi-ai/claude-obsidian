@@ -2,6 +2,7 @@
 // indexer service feeds it embeddings and persists toJSON()/fromJSON().
 
 import { cosineSimilarity } from "./similarity";
+import { isRecord } from "../records";
 
 /** Version 2 persists each vector as base64 little-endian float32 (3.9x smaller than JSON numbers). */
 export const INDEX_VERSION = 2;
@@ -77,11 +78,6 @@ export interface SearchHit {
 
 export function emptyIndex(model: string): IndexData {
   return { version: INDEX_VERSION, model, dim: 0, notes: {} };
-}
-
-/** A plain (non-null, non-array) object — the shape `notes` and each entry must have. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

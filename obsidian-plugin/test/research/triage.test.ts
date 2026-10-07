@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, triageFolderChoices, partitionEnrichOutcomes, type TriageNote } from "../../src/research/triage";
+import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, triageFolderChoices, partitionEnrichOutcomes, type TriageNote } from "../../src/research/triage";
 
 const notes: TriageNote[] = [
   { path: "Clippings/a.md", title: "Attention residue study", type: "article", url: "https://example.com/a", tags: ["clipping"], excerpt: "Participants took 23 minutes to refocus after an interruption." },
@@ -82,13 +82,6 @@ describe("renderTriageNote", () => {
     expect(board).toContain("**Potential project:** How?");
     expect(board).toContain("- [[Clippings/a.md|Attention residue study]] — [source](https://example.com/a)");
     expect(board).toContain("generated: 2026-07-24");
-  });
-});
-
-describe("noteExcerpt", () => {
-  it("strips frontmatter and collapses whitespace", () => {
-    const content = "---\ntitle: X\n---\n\n# Heading\n\nSome **text** here.\n\nMore.";
-    expect(noteExcerpt(content)).toBe("Heading Some text here. More.");
   });
 });
 

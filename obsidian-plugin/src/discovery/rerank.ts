@@ -1,5 +1,6 @@
 import type { CompletionRequest, Provider } from "../providers/types";
-import { isJsonObject as isObject, replyJson } from "../providers/replyJson";
+import { replyJson } from "../providers/replyJson";
+import { isRecord } from "../records";
 import type { RankedCandidate } from "./rank";
 import type { DiscoveryQuery } from "./types";
 
@@ -100,7 +101,7 @@ export function buildRerankRequest(
 export function parseRerankResponse(raw: string, candidateIds: readonly string[]): RerankResponse {
   const parsed = replyJson(raw);
   if (parsed === undefined) throw new Error("Rerank response must be a valid JSON object");
-  if (!isObject(parsed) || !Array.isArray(parsed.order)) {
+  if (!isRecord(parsed) || !Array.isArray(parsed.order)) {
     throw new Error("Rerank response must be a JSON object with an order array");
   }
 
@@ -110,7 +111,7 @@ export function parseRerankResponse(raw: string, candidateIds: readonly string[]
   }
   const seen = new Set<string>();
   const order = parsed.order.map((item): RerankOrderItem => {
-    if (!isObject(item) || typeof item.id !== "string" || typeof item.reason !== "string") {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.reason !== "string") {
       throw new Error("Every rerank order item must contain a string id and reason");
     }
     if (!knownIds.has(item.id)) {

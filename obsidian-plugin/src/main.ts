@@ -103,6 +103,7 @@ import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type Enrich
 import { sanitizeFileName } from "./artifacts/parse";
 import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
 import { stripFrontmatter } from "./markdown/frontmatter";
+import { noteExcerpt } from "./markdown/excerpt";
 import { isSourceEnriched } from "./sources/watcher";
 import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
@@ -180,7 +181,7 @@ import { auditProject } from "./research/audit";
 import { nextSteps } from "./research/nextSteps";
 import { documentSections } from "./research/sectionStatus";
 import { deriveResearchStage } from "./research/stage";
-import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, noteExcerpt, triageFolderChoices, partitionEnrichOutcomes, type EnrichOutcomeLike, type TriageNote, type TriageFolderChoice } from "./research/triage";
+import { TRIAGE_SYSTEM, buildTriageUser, parseTriageResponse, renderTriageNote, themeTagSlug, triageFolderChoices, partitionEnrichOutcomes, type EnrichOutcomeLike, type TriageNote, type TriageFolderChoice } from "./research/triage";
 import { captureWebSource } from "./research/webCapture";
 import type { WebCapture } from "./context/webCapture";
 import { summarizeAndTag } from "./indexing/autoTagger";
@@ -443,21 +444,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       isMobile: Platform.isMobile,
       isLifecycleEnded: () => this.mcpLifecycleEnded,
       lifecycleGeneration: () => this.mcpLifecycleGeneration ?? 0,
-      buildToolOptions: () => ({
-        allowWrites: this.settings.mcpAllowWrites,
-        defaultFolder: this.settings.mcpWriteFolder,
-        semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
-        related: async (p: string, k: number) => {
-          if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
-          return this.relatedForTools(p, k);
-        },
-        ontology: () => this.ontology(),
-        ontologyFolder: () => this.settings.ontologyFolder,
-        zotero: () => this.zoteroLibrary(),
-        enrichSource: (path: string) => this.enrichImportedResearchSource(path),
-        memoryRecord: this.memoryRecordDeps(),
-        ...this.webToolImpls(),
-      }),
+      buildToolOptions: () => this.vaultToolOptions(this.settings.mcpAllowWrites),
       createTools: (opts) => new VaultTools(this.app, opts),
       createServer: async (tools, port, token) => {
         const { McpHttpServer } = await import("./mcp/server");
@@ -465,7 +452,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           {
             port,
             token,
-            serverInfo: { name: "obsidian-vault", version: "0.2.0" },
+            serverInfo: { name: "obsidian-vault", version: this.manifest.version },
             resources: composeResourceProviders(
               substrateResourceProvider(this.app, { call: (n, a) => (tools as unknown as VaultTools).call(n, a), memoryPath: () => this.memoryNotePath() }),
               vaultResourceProvider(this.app),
@@ -1754,7 +1741,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
           type: typeof fm?.type === "string" ? fm.type : "note",
           ...(typeof fm?.url === "string" ? { url: fm.url } : {}),
           tags,
-          excerpt: noteExcerpt(content),
+          excerpt: noteExcerpt(content, 400),
         });
       }
 
@@ -1913,7 +1900,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Lazy external-MCP manager; null until first configured use. */
   externalMcp(): ExternalMcpManager {
-    if (!this._externalMcp) this._externalMcp = new ExternalMcpManager(() => this.settings.mcpClientServers);
+    if (!this._externalMcp) this._externalMcp = new ExternalMcpManager(() => this.settings.mcpClientServers, this.manifest.version);
     return this._externalMcp;
   }
 
@@ -2255,7 +2242,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const raw = (await this.loadData()) as PersistedData | Partial<PluginSettings> | null;
     const loaded = resolveSettings(raw);
     this.convState = isNamespacedData(raw)
-      ? fromPersisted({ conversations: (raw).conversations, activeId: (raw as PersistedData).activeConversationId })
+      ? fromPersisted({ conversations: raw.conversations, activeId: raw.activeConversationId })
       : emptyState();
     this.conversations().restoreTurnActivities();
     this.build().restoreState(
@@ -3231,10 +3218,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return { userId, ...(apiKey ? { apiKey } : {}) };
   }
 
-  /** Vault tools for the in-chat agent loop, options refreshed from settings on every call. */
-  agentTools(): VaultTools {
-    const opts = {
-      allowWrites: this.settings.agentAllowWrites,
+  /** Vault tool options for the MCP bridge and the in-chat agent; they differ only in the write gate and memory source. */
+  private vaultToolOptions(allowWrites: boolean, memorySource?: string): VaultToolsOptions {
+    return {
+      allowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
       semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
       related: async (p: string, k: number) => {
@@ -3245,9 +3232,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       ontologyFolder: () => this.settings.ontologyFolder,
       zotero: () => this.zoteroLibrary(),
       enrichSource: (path: string) => this.enrichImportedResearchSource(path),
-      memoryRecord: this.memoryRecordDeps("companion"),
+      memoryRecord: this.memoryRecordDeps(memorySource),
       ...this.webToolImpls(),
     };
+  }
+
+  /** Vault tools for the in-chat agent loop, options refreshed from settings on every call. */
+  agentTools(): VaultTools {
+    const opts = this.vaultToolOptions(this.settings.agentAllowWrites, "companion");
     if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
     else this.agentVaultTools.setOptions(opts);
     return this.agentVaultTools;
@@ -3287,7 +3279,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       {
         port: 0,
         token,
-        serverInfo: { name: "obsidian-vault", version: "0.2.0" },
+        serverInfo: { name: "obsidian-vault", version: this.manifest.version },
         resources: composeResourceProviders(
           substrateResourceProvider(this.app, { call: (n, a) => this.agentTools().call(n, a), memoryPath: () => this.memoryNotePath() }),
           vaultResourceProvider(this.app),
