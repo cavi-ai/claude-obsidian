@@ -67,8 +67,11 @@ export class SlashMenu {
     this.listEl.children[this.selected]?.scrollIntoView?.({ block: "nearest" });
   }
 
-  hideUnlessFocused(): void {
-    if (!this.el.contains(this.el.ownerDocument?.activeElement ?? null)) this.hide();
+  /** Keeps the menu while focus is inside it or back in `input`. */
+  hideUnlessFocused(input?: Element): void {
+    const active = this.el.ownerDocument?.activeElement ?? null;
+    if (active !== null && (active === input || this.el.contains(active))) return;
+    this.hide();
   }
 
   private highlight(): void {

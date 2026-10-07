@@ -90,4 +90,20 @@ describe("SlashMenu", () => {
     option.dispatchEvent({ type: "mouseenter" });
     expect(parent.querySelector(".cc-slash-item")).toBe(option);
   });
+
+  it("stays open after a blur when focus is back in the composer input, and hides when it went elsewhere", () => {
+    const parent = new FakeElement();
+    const input = new FakeElement();
+    const menu = new SlashMenu(parent as unknown as HTMLElement, [{ name: "brainstorm", description: "Brainstorm ideas" }], vi.fn());
+    const menuEl = parent.querySelector(".cc-slash-menu")! as unknown as { ownerDocument: { activeElement: unknown } };
+    menuEl.ownerDocument = { activeElement: input };
+    menu.show("brainstorm");
+
+    menu.hideUnlessFocused(input as unknown as Element);
+    expect(menu.isOpen()).toBe(true);
+
+    menuEl.ownerDocument = { activeElement: new FakeElement() };
+    menu.hideUnlessFocused(input as unknown as Element);
+    expect(menu.isOpen()).toBe(false);
+  });
 });

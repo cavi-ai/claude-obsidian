@@ -129,10 +129,12 @@ import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { openTagMergeReview } from "./optimize/review";
 import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
-import { addRelatedLinks, applyNoteMerge, linkScanNotes, noteTagInput, processNoteBody, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, setNoteType, typeScanNotes, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { formatTypeApplyNotice, formatTypeScanNotice, TypeWeaveController } from "./optimize/typeController";
 import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController } from "./optimize/linkController";
 import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans, type LinkScanReport } from "./optimize/linkScan";
 import { LinkWeaveModal } from "./view/LinkWeaveModal";
+import { TypeWeaveModal } from "./view/TypeWeaveModal";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
@@ -598,6 +600,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private published: PublishedItem[] = [];
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeController;
+  private _classifier?: ReturnType<typeof createClassifier>;
+  private _typeWeave?: TypeWeaveController;
   private _linkWeave?: LinkWeaveController;
   private _publish?: PublishController;
   private _standingOrders?: OrdersController;
@@ -944,6 +948,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       seedOntology: () => void this.seedOntology(),
       optimizeBrain: () => void this.reviewTagMerges(() => undefined),
       optimizeLinks: () => void this.reviewOrphanLinks(() => undefined),
+      optimizeTypes: () => void this.reviewUntypedNotes(() => undefined),
       openSetupWizard: () => this.openSetupWizard(),
       publishNote: (file) => void this.publish().publishNote(file.path),
       copyPublishedLink: (file) => void this.publish().copyLink(file.path),
@@ -3879,20 +3884,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
         await this.persist();
       },
       now: () => new Date().toISOString(),
-      classifier: createClassifier({
-        router: () => this.router(),
-        backend: () => this.settings.classifierBackend,
-        isMobile: Platform.isMobile,
-        passiveUtilitySelection: () => {
-          const selection = this.runtimeUtilitySelection();
-          if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
-          throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
-        },
-        assertActive: () => {
-          if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the tag check was running; no further content was sent.");
-        },
-      }),
+      classifier: this.classifier(),
     }));
+  }
+
+  private classifier(): ReturnType<typeof createClassifier> {
+    return (this._classifier ??= createClassifier({
+      router: () => this.router(),
+      backend: () => this.settings.classifierBackend,
+      isMobile: Platform.isMobile,
+      passiveUtilitySelection: () => {
+        const selection = this.runtimeUtilitySelection();
+        if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
+        throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
+      },
+      assertActive: () => {
+        if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the model check was running; no further content was sent.");
+      },
+    }));
+  }
+
+  private async loadedOntology(): Promise<OntologyRegistry | null> {
+    return loadedOntology(this.ontology());
   }
 
   private async checkTagMergesInBackground(): Promise<void> {
@@ -3928,11 +3941,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private linkWeaveController(): LinkWeaveController {
     return (this._linkWeave ??= new LinkWeaveController({
-      scan: (dismissed, onProgress) => {
+      scan: async (dismissed, onProgress) => {
         const indexer = this.indexer();
+        const registry = await this.loadedOntology();
         return scanOrphans({
           ...(onProgress ? { onProgress } : {}),
-          notes: linkScanNotes(this.app, this.ontology()),
+          notes: linkScanNotes(this.app, registry),
           edges: this.app.metadataCache.resolvedLinks,
           ontologyFolder: normalizePath(this.settings.ontologyFolder),
           dismissed,
@@ -3953,6 +3967,54 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       now: () => new Date().toISOString(),
     }));
+  }
+
+  private typeWeaveController(): TypeWeaveController {
+    return (this._typeWeave ??= new TypeWeaveController({
+      notes: () => typeScanNotes(this.app),
+      registry: () => this.loadedOntology(),
+      ontologyFolder: () => normalizePath(this.settings.ontologyFolder),
+      read: async (path) => {
+        const file = this.app.vault.getFileByPath(path);
+        if (!file) throw new Error(`Note not found: ${path}`);
+        return this.app.vault.cachedRead(file);
+      },
+      setNoteType: (path, type) => setNoteType(this.app, path, type),
+      writeRunNote: (content, now) => writeOptimizeRunNote(this.app, content, now, "Type weave"),
+      getState: () => this.optimizeState,
+      setState: async (next) => {
+        this.optimizeState = next;
+        await this.persist();
+      },
+      now: () => new Date().toISOString(),
+      classifier: this.classifier(),
+    }));
+  }
+
+  private async reviewUntypedNotes(done: () => void): Promise<void> {
+    const controller = this.typeWeaveController();
+    try {
+      const report = await controller.scan();
+      const notice = formatTypeScanNotice(report);
+      if (notice) {
+        new Notice(notice);
+        done();
+        return;
+      }
+      new TypeWeaveModal(this.app, report, {
+        apply: (rows) => controller.apply(rows),
+        dismiss: (path) => controller.dismiss(path),
+        classify: (signal) => controller.classify({ signal }),
+        rescan: () => controller.scan(),
+        classifierInfo: () => controller.classifierInfo(),
+      }, (result) => {
+        if (result) new Notice(formatTypeApplyNotice(result));
+        done();
+      }).open();
+    } catch (error) {
+      new Notice(`Type scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      done();
+    }
   }
 
   private async reviewOrphanLinks(done: () => void): Promise<void> {
@@ -4010,6 +4072,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const report = await this.optimizeController().scan({ semantic: false });
         return { total: report.totalTags, singleUse: report.singleUse, candidates: report.candidates.length };
       },
+      untypedCount: async () => {
+        const report = await this.typeWeaveController().scan();
+        return report.status === "ok" ? report.candidates : null;
+      },
       orphanCount: () => findOrphans(linkScanNotes(this.app, this.ontology()), this.app.metadataCache.resolvedLinks, normalizePath(this.settings.ontologyFolder)).length,
       inboxPending: () => this.inboxPendingCount(),
       companion: () => ({
@@ -4044,6 +4110,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       reviewTagMerges: (done) => void this.reviewTagMerges(done),
       connectOrphans: (done) => void this.reviewOrphanLinks(done),
+      typeUntypedNotes: (done) => void this.reviewUntypedNotes(done),
       reviewSafeFixes: (fixes, done) => new SafeFixModal(this.app, fixes, async (path, patch) => {
         const file = this.app.vault.getFileByPath(path);
         if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => { Object.assign(fm, patch); });
