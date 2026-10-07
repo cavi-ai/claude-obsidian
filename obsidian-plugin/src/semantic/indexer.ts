@@ -380,6 +380,13 @@ export class SemanticIndexer {
     });
   }
 
+  /** Starts a pending deferred save now, outside the mutation chain; call before aborting the signal so shutdown keeps it. */
+  flushDeferredSave(): void {
+    if (!this.saveDeferred || !this.store) return;
+    this.saveDeferred = false;
+    void this.deps.save(this.store.toJSON()).catch((e: unknown) => console.debug("Claude Companion: semantic index save on shutdown failed", e));
+  }
+
   private assertActive(): void {
     this.deps.signal?.throwIfAborted();
   }

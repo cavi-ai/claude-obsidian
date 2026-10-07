@@ -79,16 +79,18 @@ export class SemanticController {
 
   destroy(): void {
     this.destroyed = true;
+    this.flushPendingSave();
     this.indexAbort.abort();
     this._builtinEmbedder?.terminate();
     this._builtinEmbedder = null;
     if (this.reindexTimer !== null) window.clearTimeout(this.reindexTimer);
-    this.clearSaveTimer();
   }
 
-  private clearSaveTimer(): void {
+  /** Writes a delete/rename save still waiting on its timer, before the indexer's signal aborts. */
+  private flushPendingSave(): void {
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.saveTimer = null;
+    this._indexer?.flushDeferredSave();
   }
 
   private indexPath(): string {
@@ -170,7 +172,7 @@ export class SemanticController {
         return null;
       },
       deferSave: (run: () => void) => {
-        this.clearSaveTimer();
+        if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
         this.saveTimer = window.setTimeout(() => {
           this.saveTimer = null;
           run();
@@ -265,7 +267,7 @@ export class SemanticController {
   }
 
   invalidateIndexer(): void {
-    this.clearSaveTimer();
+    this.flushPendingSave();
     this.indexAbort.abort();
     this.indexAbort = new AbortController();
     this._indexer = null;
