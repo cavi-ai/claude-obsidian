@@ -43,39 +43,39 @@ const MAX_MENTIONS = 20;
 export function findUnlinkedMentions(content: string, candidates: LinkCandidate[], selfPath: string): Mention[] {
   const masked = maskNonProse(content);
   const lowerMasked = masked.toLowerCase();
-  const mentions: Mention[] = [];
+  const byPrefix = namesByPrefix(candidates, selfPath);
 
-  for (const c of candidates) {
-    if (c.path === selfPath) continue;
-    const names = [
-      { name: c.basename, viaAlias: false },
-      ...c.aliases.map((a) => ({ name: a, viaAlias: true })),
-    ];
-    let best: Mention | null = null;
-    for (const { name, viaAlias } of names) {
-      if (name.trim().length < MIN_NAME_LENGTH) continue;
-      const idx = findWholeWord(masked, lowerMasked, name);
-      if (idx === -1) continue;
-      if (best === null || idx < best.start) {
-        const surface = content.slice(idx, idx + name.length);
-        best = {
-          path: c.path,
-          name: c.basename,
-          target: c.linktext ?? c.basename,
-          viaAlias,
-          surface,
-          start: idx,
-          end: idx + name.length,
-          line: content.slice(0, idx).split("\n").length,
-          excerpt: excerptAround(content, idx, idx + name.length),
-        };
-      }
+  // One pass over word starts. The first hit per candidate is its earliest; at
+  // one position, bucket order (candidate, then basename before aliases) breaks
+  // ties. Hits arrive in position order, so the scan stops once it holds
+  // MAX_MENTIONS candidates: every later hit would sort after them.
+  const found = new Map<number, { start: number; name: NameEntry }>();
+  for (let i = 0; i + MIN_NAME_LENGTH <= lowerMasked.length && found.size < MAX_MENTIONS; i++) {
+    const bucket = byPrefix.get(lowerMasked.slice(i, i + MIN_NAME_LENGTH));
+    if (!bucket || isWordChar(masked[i - 1])) continue;
+    for (const entry of bucket) {
+      if (found.has(entry.candidate) || !lowerMasked.startsWith(entry.needle, i) || isWordChar(masked[i + entry.needle.length])) continue;
+      found.set(entry.candidate, { start: i, name: entry });
     }
-    if (best) mentions.push(best);
   }
 
-  mentions.sort((a, b) => a.start - b.start);
-  return mentions.slice(0, MAX_MENTIONS);
+  return [...found]
+    .sort(([a, x], [b, y]) => x.start - y.start || a - b)
+    .slice(0, MAX_MENTIONS)
+    .map(([index, { start, name }]) => {
+      const c = candidates[index]!;
+      return {
+        path: c.path,
+        name: c.basename,
+        target: c.linktext ?? c.basename,
+        viaAlias: name.viaAlias,
+        surface: content.slice(start, start + name.length),
+        start,
+        end: start + name.length,
+        line: content.slice(0, start).split("\n").length,
+        excerpt: excerptAround(content, start, start + name.length),
+      };
+    });
 }
 
 /**
@@ -109,6 +109,33 @@ export function withLinktext(candidates: LinkCandidate[]): LinkCandidate[] {
 }
 
 // ---- internals ----
+
+interface NameEntry {
+  candidate: number;
+  needle: string;
+  /** Length of the name as written; the surface spans this many characters. */
+  length: number;
+  viaAlias: boolean;
+}
+
+/** Every linkable name, lowercased, grouped by its first MIN_NAME_LENGTH characters. */
+function namesByPrefix(candidates: LinkCandidate[], selfPath: string): Map<string, NameEntry[]> {
+  const byPrefix = new Map<string, NameEntry[]>();
+  candidates.forEach((c, candidate) => {
+    if (c.path === selfPath) return;
+    const names = [{ name: c.basename, viaAlias: false }, ...c.aliases.map((name) => ({ name, viaAlias: true }))];
+    for (const { name, viaAlias } of names) {
+      if (name.trim().length < MIN_NAME_LENGTH) continue;
+      const needle = name.toLowerCase();
+      const prefix = needle.slice(0, MIN_NAME_LENGTH);
+      const entry = { candidate, needle, length: name.length, viaAlias };
+      const bucket = byPrefix.get(prefix);
+      if (bucket) bucket.push(entry);
+      else byPrefix.set(prefix, [entry]);
+    }
+  });
+  return byPrefix;
+}
 
 /** A boundary is anything that isn't a letter, digit, or underscore. */
 function isWordChar(ch: string | undefined): boolean {
