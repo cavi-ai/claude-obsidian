@@ -216,6 +216,38 @@ describe("stored model verdicts", () => {
   });
 });
 
+describe("hidden types never become rows", () => {
+  it("a stored verdict naming chat or entity is stale, not a row", () => {
+    for (const type of ["chat", "entity"]) {
+      const report = scan([note("a.md", { mtime: 5 })], { verdicts: { "a.md": { type, model: "m", at: "t", mtime: 5 } } });
+      expect(report.proposals).toEqual([]);
+      expect(report.pending.map((p) => p.path)).toEqual(["a.md"]);
+    }
+  });
+
+  it("folder siblings typed chat produce no folder row", () => {
+    const report = scan([typed("C/a.md", "chat"), typed("C/b.md", "chat"), typed("C/c.md", "chat"), note("C/new.md")]);
+    expect(report.proposals).toEqual([]);
+    expect(report.pending.map((p) => p.path)).toEqual(["C/new.md"]);
+  });
+});
+
+describe("conformance against the seeded ontology", () => {
+  const seeded = registryOf(SEED_TYPES);
+  const frontmatter = { url: "https://example.com", title: "x" };
+
+  it("a note with a url key proposed person starts unchecked and names 'url'; proposed source starts checked", () => {
+    const report = scan(
+      [note("p.md", { tags: ["person"], frontmatter }), note("s.md", { tags: ["source"], frontmatter })],
+      { registry: seeded },
+    );
+    const by = Object.fromEntries(report.proposals.map((p) => [p.path, p]));
+    expect(by["p.md"]?.checked).toBe(false);
+    expect(conformanceLine(by["p.md"]?.issues ?? [])).toContain("'url'");
+    expect(by["s.md"]).toMatchObject({ type: "source", checked: true, issues: [] });
+  });
+});
+
 describe("pending order", () => {
   it("is newest mtime first, path as the tiebreak", () => {
     const report = scan([note("b.md", { mtime: 2 }), note("a.md", { mtime: 2 }), note("c.md", { mtime: 9 })]);

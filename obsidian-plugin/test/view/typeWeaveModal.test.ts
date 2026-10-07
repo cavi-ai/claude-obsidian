@@ -58,6 +58,21 @@ describe("TypeWeaveModal", () => {
     expect(selects(root())[0]!.children.map((o) => o.textContent)).toEqual(["person", "project"]);
   });
 
+  it("each dropdown's options equal report.proposable exactly", () => {
+    const report = { ...base(), proposable: ["concept", "meeting", "person", "project"] };
+    const { root } = setup(report);
+    for (const select of selects(root())) expect(select.children.map((o) => o.textContent)).toEqual(report.proposable);
+  });
+
+  it("a dropdown change sets the row's type and Apply receives exactly that type", async () => {
+    const { root, actions } = setup(base([proposal("a.md", "project")]));
+    selects(root())[0]!.value = "person";
+    selects(root())[0]!.dispatchEvent({ type: "change" });
+    button(root(), "Apply selected").dispatchEvent({ type: "click" });
+    await settle();
+    expect(actions.apply).toHaveBeenCalledWith([{ path: "a.md", type: "person" }]);
+  });
+
   it("states how many untyped notes have no proposal and how many rows were not shown", () => {
     const { root } = setup({ ...base(), notShown: 7 });
     expect(allText(root())).toContain("7 more rows not shown. Apply, then run this again.");
