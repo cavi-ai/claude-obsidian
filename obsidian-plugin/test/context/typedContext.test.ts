@@ -92,6 +92,18 @@ describe("planRelationExpansion", () => {
     expect(plan({ matches: ["m1.md"], edgesOf: edges({ "m1.md": [["k", "A"]] }), limit: 0 })).toEqual([]);
   });
 
+  it("caps related entries at 3 across all matches", () => {
+    const out = plan({
+      matches: ["m1.md", "m2.md"],
+      edgesOf: edges({ "m1.md": [["k", "A"], ["k", "B"]], "m2.md": [["k", "C"], ["k", "D"]] }),
+    });
+    expect(out).toEqual([
+      { key: "k", from: "m1.md", path: "N/A.md" },
+      { key: "k", from: "m1.md", path: "N/B.md" },
+      { key: "k", from: "m2.md", path: "N/C.md" },
+    ]);
+  });
+
   it("skips targets outside the scope, already in context, the match itself, and other matches", () => {
     const out = plan({
       matches: ["N/M1.md", "N/M2.md"],

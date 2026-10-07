@@ -114,6 +114,19 @@ describe("gatherContext — typed context", () => {
     expect(ctx.sources).toEqual(["1 semantic match", "3 related notes"]);
   });
 
+  it("adds at most three related notes across two matches", async () => {
+    const a = vault({ type: "person", knows: ["[[P1]]", "[[P2]]"] });
+    a.vault.seed("People/Cal.md", "CAL BODY", { frontmatter: { type: "person", knows: ["[[P3]]", "[[P4]]"] } });
+    for (const n of [1, 2, 3, 4]) a.vault.seed(`People/P${n}.md`, `P${n} BODY`, { frontmatter: { type: "person" } });
+    const ctx = await gatherContext(a, DEFAULT_SETTINGS, SEARCH_ONLY, "qqq", hits("People/Ann.md", "People/Cal.md"), [], [], undefined, await seededRegistry());
+    expect(count(ctx.text, "### Related (")).toBe(3);
+    expect(ctx.text).toContain("### Related (knows of People/Ann.md): People/P1.md (type: person)\nP1 BODY");
+    expect(ctx.text).toContain("### Related (knows of People/Ann.md): People/P2.md (type: person)\nP2 BODY");
+    expect(ctx.text).toContain("### Related (knows of People/Cal.md): People/P3.md (type: person)\nP3 BODY");
+    expect(ctx.text).not.toContain("P4 BODY");
+    expect(ctx.sources).toEqual(["2 semantic matches", "3 related notes"]);
+  });
+
   it("clips a related note to 1500 chars and stops at the context budget", async () => {
     const long = "Z".repeat(5000);
     const header = "### Related (works_on of People/Ann.md): Projects/Alpha.md (type: project)\n";
