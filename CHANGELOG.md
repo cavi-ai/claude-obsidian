@@ -4,6 +4,12 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.1] — 2026-10-07
+
+### Fixed
+- The embedding worker replaces `fetch` on its own worker scope instead of
+  `globalThis`, and the orphan-link scan pauses with `window.setTimeout`.
+
 ## [0.42.0] — 2026-10-07
 
 ### Added
