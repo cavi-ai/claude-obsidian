@@ -101,8 +101,10 @@ take or a backend you choose.
   no other host name qualifies.
 - **Note type classifier model:** **Check with model** in the type review sends
   each untyped note's title, folder, up to 10 tags, up to 5 headings, and its
-  first 200 characters, plus the names of the ontology types, to the configured
-  classifier model. It runs only on that click, never in the background.
+  first 200 characters, plus the names of the ontology types and up to 6
+  property keys per type, to the configured classifier model. Secrets
+  (API keys, tokens, passwords) are removed from note text before sending. It
+  runs only on that click, never in the background.
 - **Hugging Face and jsDelivr:** the one-time embedding download requests only
   the model and ONNX runtime after you approve it; both are cached.
 - **Cloud-session services:** **Send to cloud Claude session** sends the prompt
