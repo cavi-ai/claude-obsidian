@@ -3,6 +3,7 @@ import { App, TFile } from "obsidian";
 import { collapseMerges, planTagMerges } from "../../src/optimize/mergePlan";
 import { OntologyRegistry } from "../../src/ontology/registry";
 import { acceptsRelated, addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, setNoteType, typeScanNotes,writeOptimizeRunNote } from "../../src/optimize/vaultGlue";
+import { TypeWeaveController } from "../../src/optimize/typeController";
 import { SEED_TYPES } from "../../src/ontology/seed";
 import { resolveTypes } from "../../src/ontology/schema";
 import type { ResolvedType } from "../../src/ontology/types";
@@ -359,5 +360,41 @@ describe("addRelatedLinks", () => {
 
   it("throws for a missing note", async () => {
     await expect(addRelatedLinks(new App() as never, "gone.md", ["[[N]]"])).rejects.toThrow("Note not found: gone.md");
+  });
+});
+
+describe("TypeWeaveController.apply through the real setNoteType", () => {
+  it("adds only type; non-ASCII, emoji, quoted and list values and the body are unchanged", async () => {
+    const app = new App();
+    const file = app.vault.seed(
+      "Projects/Café ☕.md",
+      '---\ntitle: "Café ☕ 🧠"\nmood: "say: hi"\naliases:\n  - "Ünï"\n  - "🧠 brain"\n---\nBody ünï 🧠\n',
+      { frontmatter: { title: "Café ☕ 🧠" } },
+    );
+    const snapshot = async (): Promise<Record<string, unknown>> => {
+      let copy: Record<string, unknown> = {};
+      await app.fileManager.processFrontMatter(file, (fm) => { copy = structuredClone(fm); });
+      return copy;
+    };
+    const before = await snapshot();
+    expect(before).toMatchObject({ title: "Café ☕ 🧠", mood: "say: hi", aliases: ["Ünï", "🧠 brain"] });
+    const { resolved } = resolveTypes(SEED_TYPES);
+    const controller = new TypeWeaveController({
+      notes: () => [],
+      registry: async () => ({ resolve: (n) => resolved.get(n), resolved: () => resolved as ReadonlyMap<string, ResolvedType> }),
+      ontologyFolder: () => "Ontology",
+      read: async () => "",
+      setNoteType: (path, type) => setNoteType(app as never, path, type),
+      writeRunNote: async () => "run.md",
+      getState: () => ({ dismissed: [], verdicts: {} }),
+      setState: async () => undefined,
+      now: () => "2026-10-07T10:00:00.000Z",
+      classifier: async () => { throw new Error("unused"); },
+    });
+    const result = await controller.apply([{ path: "Projects/Café ☕.md", type: "person" }]);
+    expect(result).toMatchObject({ typed: 1, skipped: [], failed: [] });
+    const after = await snapshot();
+    expect(after).toEqual({ ...before, type: "person" });
+    expect(file._content).toContain("Body ünï 🧠");
   });
 });
