@@ -12,6 +12,7 @@ import { describeOntology } from "../ontology/describe";
 import { validateProposal } from "../ontology/propose";
 import type { OntologyRegistry } from "../ontology/registry";
 import { loadedOntology } from "../optimize/vaultGlue";
+import { PROPERTY_TYPE_VALUES } from "../ontology/types";
 import { replaceSection } from "./edit";
 import { readFrontmatter, stripFrontmatter } from "../markdown/frontmatter";
 import { DELEGABLE_RESEARCH_KEYS, RESEARCH_ROUTE_HINT, planResearchRouting, runResearchRouting, type ResearchRoutePlan } from "./researchRouting";
@@ -427,7 +428,7 @@ export class VaultTools {
             properties: {
               name: { type: "string", description: "Type name, lowercase kebab-case." },
               parent: { type: "string", description: "Parent type (default: entity)." },
-              properties: { type: "array", items: { type: "object", properties: { key: { type: "string" }, type: { type: "string", enum: ["string", "number", "boolean", "date", "duration", "string[]"] }, required: { type: "boolean" }, description: { type: "string" } }, required: ["key", "type"] } },
+              properties: { type: "array", items: { type: "object", properties: { key: { type: "string" }, type: { type: "string", enum: [...PROPERTY_TYPE_VALUES] }, required: { type: "boolean" }, description: { type: "string" } }, required: ["key", "type"] } },
               relations: { type: "array", items: { type: "object", properties: { key: { type: "string" }, targets: { type: "array", items: { type: "string" } }, description: { type: "string" } }, required: ["key", "targets"] } },
             },
             required: ["name"],
