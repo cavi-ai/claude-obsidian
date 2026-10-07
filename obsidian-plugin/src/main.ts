@@ -125,7 +125,8 @@ import { OptimizeBrainModal } from "./view/OptimizeBrainModal";
 import { openTagMergeReview } from "./optimize/review";
 import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
-import { addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, setNoteType, typeScanNotes, writeOptimizeRunNote } from "./optimize/vaultGlue";
+import { TypeWeaveController } from "./optimize/typeController";
 import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController } from "./optimize/linkController";
 import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans, type LinkScanReport } from "./optimize/linkScan";
 import { LinkWeaveModal } from "./view/LinkWeaveModal";
@@ -593,6 +594,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeController;
   private _classifier?: ReturnType<typeof createClassifier>;
+  private _typeWeave?: TypeWeaveController;
   private _linkWeave?: LinkWeaveController;
   private _publish?: PublishController;
   private _standingOrders?: OrdersController;
@@ -3919,6 +3921,28 @@ export default class ClaudeCompanionPlugin extends Plugin {
         await this.persist();
       },
       now: () => new Date().toISOString(),
+    }));
+  }
+
+  private typeWeaveController(): TypeWeaveController {
+    return (this._typeWeave ??= new TypeWeaveController({
+      notes: () => typeScanNotes(this.app),
+      registry: () => this.loadedOntology(),
+      ontologyFolder: () => normalizePath(this.settings.ontologyFolder),
+      read: async (path) => {
+        const file = this.app.vault.getFileByPath(path);
+        if (!file) throw new Error(`Note not found: ${path}`);
+        return this.app.vault.cachedRead(file);
+      },
+      setNoteType: (path, type) => setNoteType(this.app, path, type),
+      writeRunNote: (content, now) => writeOptimizeRunNote(this.app, content, now, "Type weave"),
+      getState: () => this.optimizeState,
+      setState: async (next) => {
+        this.optimizeState = next;
+        await this.persist();
+      },
+      now: () => new Date().toISOString(),
+      classifier: this.classifier(),
     }));
   }
 

@@ -24,6 +24,10 @@ export interface OptimizeState {
   /** `<source>\u0000<target>` pairs the user dismissed in the link weave review. */
   dismissedLinks?: string[];
   verdicts: Record<string, StoredVerdict>;
+  /** Model type verdicts by note path. */
+  typeVerdicts?: Record<string, StoredTypeVerdict>;
+  /** Note paths the user dismissed in the type weave review. */
+  dismissedTypes?: string[];
   lastBackgroundRun?: string;
 }
 
@@ -59,6 +63,25 @@ function normalizeVerdicts(raw: unknown): Record<string, StoredVerdict> {
   return Object.fromEntries(valid.slice(0, MAX_VERDICTS));
 }
 
+function storedTypeVerdict(raw: unknown): StoredTypeVerdict | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const v = raw as Record<string, unknown>;
+  if (v.type !== null && typeof v.type !== "string") return null;
+  if (typeof v.model !== "string" || typeof v.at !== "string" || typeof v.mtime !== "number" || !Number.isFinite(v.mtime)) return null;
+  return { type: v.type, model: v.model, at: v.at, mtime: v.mtime };
+}
+
+function normalizeTypeVerdicts(raw: unknown): Record<string, StoredTypeVerdict> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const valid: Array<[string, StoredTypeVerdict]> = [];
+  for (const [path, entry] of Object.entries(raw)) {
+    const verdict = storedTypeVerdict(entry);
+    if (verdict) valid.push([path, verdict]);
+  }
+  valid.sort((x, y) => (x[1].at < y[1].at ? 1 : x[1].at > y[1].at ? -1 : 0));
+  return Object.fromEntries(valid.slice(0, MAX_VERDICTS));
+}
+
 function normalizeIds(list: unknown): string[] {
   if (!Array.isArray(list)) return [];
   const seen = new Set<string>();
@@ -74,14 +97,25 @@ function normalizeIds(list: unknown): string[] {
 }
 
 export function normalizeOptimizeState(raw: unknown): OptimizeState {
-  const source = raw as { dismissed?: unknown; dismissedLinks?: unknown; verdicts?: unknown; lastBackgroundRun?: unknown } | null;
+  const source = raw as {
+    dismissed?: unknown;
+    dismissedLinks?: unknown;
+    verdicts?: unknown;
+    typeVerdicts?: unknown;
+    dismissedTypes?: unknown;
+    lastBackgroundRun?: unknown;
+  } | null;
   const verdicts = normalizeVerdicts(source?.verdicts);
   const lastBackgroundRun = typeof source?.lastBackgroundRun === "string" ? { lastBackgroundRun: source.lastBackgroundRun } : {};
   const dismissedLinks = normalizeIds(source?.dismissedLinks);
+  const typeVerdicts = normalizeTypeVerdicts(source?.typeVerdicts);
+  const dismissedTypes = normalizeIds(source?.dismissedTypes);
   return {
     dismissed: normalizeIds(source?.dismissed),
     verdicts,
     ...(dismissedLinks.length > 0 ? { dismissedLinks } : {}),
+    ...(Object.keys(typeVerdicts).length > 0 ? { typeVerdicts } : {}),
+    ...(dismissedTypes.length > 0 ? { dismissedTypes } : {}),
     ...lastBackgroundRun,
   };
 }

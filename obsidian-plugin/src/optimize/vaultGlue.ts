@@ -5,6 +5,8 @@ import type { ResolvedType } from "../ontology/types";
 import type { RelatedWrite } from "./linkController";
 import { mergeRelated } from "./linkPlan";
 import type { LinkScanNote } from "./linkScan";
+import type { TypeWrite } from "./typeController";
+import type { TypeScanNote } from "./typeScan";
 import { entryId, mapTagList, OPTIMIZE_OUTPUT_ROOT, rewriteInlineTags, type NoteMergePlan, type NoteTagInput } from "./mergePlan";
 
 const TAG_KEY = /^tags?$/i;
@@ -113,6 +115,31 @@ export function linkScanNotes(app: App, registry: RelationRegistry | null): Link
     const type = typeof fm?.type === "string" ? fm.type : undefined;
     return { path: f.path, basename: f.basename, aliases, mtime: f.stat.mtime, ...(type !== undefined ? { type } : {}), acceptsRelated: acceptsRelated(type, registry) };
   });
+}
+
+export function typeScanNotes(app: App): TypeScanNote[] {
+  return app.vault.getMarkdownFiles().map((f) => {
+    const cache = app.metadataCache.getFileCache(f);
+    const fm = cache?.frontmatter as Record<string, unknown> | undefined;
+    const tags: string[] = [];
+    for (const [key, value] of Object.entries(fm ?? {})) if (TAG_KEY.test(key)) tags.push(...(tagValues(value) ?? []));
+    for (const t of cache?.tags ?? []) tags.push(t.tag);
+    return { path: f.path, mtime: f.stat.mtime, frontmatter: fm, tags };
+  });
+}
+
+/** Sets only `type`, and only while the note's `type` is still not a string. */
+export async function setNoteType(app: App, path: string, type: string): Promise<TypeWrite> {
+  const file = markdownFile(app, path);
+  if (!file) throw new Error(`Note not found: ${path}`);
+  if (typeof app.metadataCache.getFileCache(file)?.frontmatter?.type === "string") return { written: false };
+  let written = false;
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+    if (typeof fm.type === "string") return;
+    fm.type = type;
+    written = true;
+  });
+  return { written };
 }
 
 export async function processNoteBody(app: App, path: string, transform: (current: string) => string): Promise<void> {
