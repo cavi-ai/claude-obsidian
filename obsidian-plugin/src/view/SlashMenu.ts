@@ -11,6 +11,7 @@ export class SlashMenu {
   private matches: SlashCommand[] = [];
   private selected = 0;
   private open = false;
+  private gesture: { id: number; x: number; y: number; scroll: number; moved: boolean } | undefined;
 
   constructor(
     parent: HTMLElement,
@@ -48,6 +49,7 @@ export class SlashMenu {
   hide(): void {
     if (!this.open && this.el.style.display === "none") return;
     this.open = false;
+    this.gesture = undefined;
     this.el.setCssStyles({ display: "none" });
     this.listEl.empty();
   }
@@ -55,7 +57,16 @@ export class SlashMenu {
   /** Arrow navigation. Returns true if handled. */
   move(delta: number): void {
     this.selected = moveSelection(this.selected, delta, this.matches.length);
-    this.render();
+    this.highlight();
+    this.listEl.children[this.selected]?.scrollIntoView?.({ block: "nearest" });
+  }
+
+  hideUnlessFocused(): void {
+    if (!this.el.contains(this.el.ownerDocument?.activeElement ?? null)) this.hide();
+  }
+
+  private highlight(): void {
+    Array.from(this.listEl.children).forEach((row, i) => row.toggleClass("is-selected", i === this.selected));
   }
 
   /** Commit the current selection. */
@@ -81,18 +92,28 @@ export class SlashMenu {
       row.createSpan({ cls: "cc-slash-desc", text: cmd.description });
       row.addEventListener("mouseenter", () => {
         this.selected = i;
-        this.render();
+        this.highlight();
       });
-      const select = (e: Event) => {
-        // Pointer/mouse down (not click) beats the textarea's blur. `choose`
-        // ignores the compatibility mouse event that may follow pointerdown.
-        if (e.type !== "click") e.preventDefault();
+      row.addEventListener("pointerdown", (e) => {
+        this.gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, scroll: this.listEl.scrollTop, moved: false };
+        // Preserve desktop input focus without blocking native touch scrolling.
+        if (e.pointerType === "mouse") e.preventDefault();
+      });
+      const moved = (e: PointerEvent): void => {
+        const gesture = this.gesture;
+        if (gesture?.id === e.pointerId && (Math.abs(e.clientX - gesture.x) > 8 || Math.abs(e.clientY - gesture.y) > 8)) gesture.moved = true;
+      };
+      row.addEventListener("pointermove", moved);
+      row.addEventListener("pointerup", moved);
+      row.addEventListener("pointercancel", () => { if (this.gesture) this.gesture.moved = true; });
+      row.addEventListener("mousedown", (e) => e.preventDefault());
+      row.addEventListener("click", () => {
+        const gesture = this.gesture;
+        this.gesture = undefined;
+        if (gesture && (gesture.moved || gesture.scroll !== this.listEl.scrollTop)) return;
         this.selected = i;
         this.choose();
-      };
-      row.addEventListener("pointerdown", select);
-      row.addEventListener("mousedown", select);
-      row.addEventListener("click", select);
+      });
     });
   }
 

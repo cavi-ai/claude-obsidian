@@ -23,3 +23,44 @@ test("slash commands align at the left and keep extended commands searchable", a
     await harness.close();
   }
 });
+
+test("native touch scrolling leaves slash commands open until an intentional tap", async ({ rig }) => {
+  const harness = await rig.reset();
+  const { page } = harness;
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await page.evaluate(async () => {
+      await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-chat");
+    });
+    const input = page.locator(".cc-chat-root textarea");
+    await input.fill("/");
+    const list = page.locator(".cc-slash-menu:not(.cc-at-menu) .cc-slash-list");
+    await list.evaluate((el) => { el.style.maxHeight = "150px"; });
+    const box = (await list.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height - 20;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let step = 1; step <= 6; step++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y - step * 15 }] });
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await expect(page.locator(".cc-slash-menu:not(.cc-at-menu)")).toBeVisible();
+    await expect(input).toHaveValue("/");
+    expect(await rig.providerRequests()).toBe(0);
+
+    await input.fill("/brainstorm");
+    const option = page.locator(".cc-slash-item").filter({ has: page.locator(".cc-slash-name", { hasText: /^\/brainstorm$/ }) });
+    const target = (await option.boundingBox())!;
+    const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(page.locator(".cc-slash-menu:not(.cc-at-menu)")).toBeHidden();
+    await expect(input).toHaveValue("Brainstorm strong, concrete ideas for: ");
+    await page.screenshot({ path: test.info().outputPath("slash-touch.png") });
+  } finally {
+    await cdp.detach();
+    await harness.close();
+  }
+});

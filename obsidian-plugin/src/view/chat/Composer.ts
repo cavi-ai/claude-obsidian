@@ -153,7 +153,7 @@ export class Composer {
       this.syncPageOffer();
     });
     // Close the menus when focus leaves the composer.
-    this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hide(); this.atMenu.hide(); }, 120));
+    this.inputEl.addEventListener("blur", () => window.setTimeout(() => { this.slashMenu.hideUnlessFocused(); this.atMenu.hide(); }, 120));
     // Paste a screenshot/image straight into the composer to attach it.
     this.inputEl.addEventListener("paste", (evt: ClipboardEvent) => {
       const items = evt.clipboardData?.items;
