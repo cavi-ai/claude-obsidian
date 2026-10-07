@@ -69,6 +69,25 @@ describe("typeWeaveState", () => {
     expect(next.rows[2]).toMatchObject({ path: "c.md", checked: true });
   });
 
+  it("a rescan resets a row whose chosen type left the proposable list to its proposed type, recomputing checked and issues", () => {
+    let state = createTypeWeaveState(report([proposal("a.md", "project")]));
+    state = toggleRow(setRowType(state, "a.md", "person"), "a.md", false);
+    const next = createTypeWeaveState(
+      { ...report([proposal("a.md", "project", { checked: false, issues: ["missing required property 'status'"] })]), proposable: ["project"] },
+      state,
+    );
+    expect(next.rows[0]).toMatchObject({ type: "project", checked: false, issues: ["missing required property 'status'"] });
+    const again = createTypeWeaveState({ ...report([proposal("a.md", "project")]), proposable: ["project"] }, state);
+    expect(again.rows[0]).toMatchObject({ type: "project", checked: true, issues: [] });
+    expect(selectedTypes(again)).toEqual([{ path: "a.md", type: "project" }]);
+  });
+
+  it("selectedTypes never yields a type outside the proposable list", () => {
+    const state = createTypeWeaveState(report([proposal("a.md", "project")]));
+    const stale = { ...state, proposable: ["person"] };
+    expect(selectedTypes(stale)).toEqual([]);
+  });
+
   it("describes evidence and the conformance line", () => {
     expect(evidenceText({ kind: "model", model: "qwen3" })).toBe("model: qwen3");
     expect(evidenceText({ kind: "tag", text: "tag: #project" })).toBe("tag: #project");

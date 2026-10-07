@@ -34,7 +34,9 @@ export function createTypeWeaveState(
   return {
     rows: report.proposals.map((p) => {
       const prior = before.get(p.path);
-      return prior && prior.proposed === p.type ? { ...prior, evidence: p.evidence } : rowFor(p);
+      if (!prior || prior.proposed !== p.type) return rowFor(p);
+      if (!report.proposable.includes(prior.type)) return rowFor(p);
+      return { ...prior, evidence: p.evidence };
     }),
     proposable: report.proposable,
     noProposal: report.noProposal,
@@ -62,7 +64,7 @@ export function removeRow(state: TypeWeaveViewState, path: string): TypeWeaveVie
 }
 
 export function selectedTypes(state: TypeWeaveViewState): Array<{ path: string; type: string }> {
-  return state.rows.filter((row) => row.checked).map((row) => ({ path: row.path, type: row.type }));
+  return state.rows.filter((row) => row.checked && state.proposable.includes(row.type)).map((row) => ({ path: row.path, type: row.type }));
 }
 
 export function evidenceText(evidence: TypeEvidence): string {
