@@ -1,21 +1,12 @@
-import { App, Modal, Notice, Platform, Plugin, type Editor } from "obsidian";
+import { Notice, Platform, Plugin } from "obsidian";
 import { ensureVaultFolder } from "../vault/vaultFiles";
-import { NATIVE_JOB_FOLDER, NATIVE_MAX_FILE_BYTES, NATIVE_MODEL, nativeRequestURL, validNativeID,
+import { NATIVE_JOB_FOLDER, NATIVE_MAX_FILE_BYTES, NATIVE_MODEL, validNativeID,
   validateNativeRequest, validateNativeResult } from "./handoff";
 
-/** Explicit foreground handoff. No startup inference, polling, or local server. */
-export function registerNativeHandoff(plugin: Plugin): void {
+/** Finish requests from older installs without offering an outbound app switch. */
+export function registerNativeResultImport(plugin: Plugin): void {
   if (!Platform.isIosApp) return;
   const controller = new NativeHandoffController(plugin);
-  plugin.addCommand({
-    id: "send-selection-native-mlx",
-    name: "Send selection to on-device MLX",
-    editorCheckCallback: (checking, editor, view) => {
-      if (!editor.getSelection().trim()) return false;
-      if (!checking) controller.prompt(editor, view.file?.path ?? "Selection");
-      return true;
-    },
-  });
   plugin.registerObsidianProtocolHandler("claude-companion-native-result", (params) => {
     void controller.receive(params.id ?? "").catch((e: unknown) => new Notice(e instanceof Error ? e.message : String(e)));
   });
@@ -25,28 +16,6 @@ export class NativeHandoffController {
   private imports = new Map<string, Promise<void>>();
   constructor(private plugin: Plugin) {}
   private folder(): string { return `${this.plugin.app.vault.configDir}/plugins/claude-companion/${NATIVE_JOB_FOLDER}`; }
-
-  prompt(editor: Editor, sourcePath: string): void {
-    const input = editor.getSelection();
-    new NativeInstructionModal(this.plugin.app, (instruction) => {
-      void this.send(input, sourcePath, instruction).catch((e: unknown) => new Notice(e instanceof Error ? e.message : String(e)));
-    }).open();
-  }
-
-  private async send(input: string, sourcePath: string, instruction: string): Promise<void> {
-    const now = Date.now() / 1000;
-    const request = validateNativeRequest({ version: 1, id: window.crypto.randomUUID(), createdAt: now, expiresAt: now + 3600,
-      vaultName: this.plugin.app.vault.getName(), sourcePath, input, instruction }, now);
-    const body = JSON.stringify(request);
-    if (new TextEncoder().encode(body).length > NATIVE_MAX_FILE_BYTES) throw new Error("Select a shorter passage for native MLX.");
-    const adapter = this.plugin.app.vault.adapter;
-    const folder = this.folder();
-    if (!(await adapter.exists(folder))) await adapter.mkdir(folder);
-    const path = `${folder}/${request.id}.request.json`;
-    await adapter.write(path, body);
-    new Notice("Opening Companion Local. Choose this vault there, download the model, and generate.");
-    window.open(nativeRequestURL(path, request.id));
-  }
 
   receive(id: string): Promise<void> {
     if (!validNativeID(id)) return Promise.reject(new Error("Invalid native result identifier."));
@@ -91,20 +60,4 @@ export class NativeHandoffController {
     await this.plugin.app.vault.adapter.remove(requestPath);
     new Notice("Native MLX result imported. The source note was preserved.");
   }
-}
-
-class NativeInstructionModal extends Modal {
-  constructor(app: App, private submit: (instruction: string) => void) { super(app); }
-  override onOpen(): void {
-    this.titleEl.setText("Send selection to on-device MLX");
-    this.contentEl.createEl("p", { text: "Requires the Companion Local iPhone app. What should the model do with this passage?" });
-    const input = this.contentEl.createEl("textarea", { cls: "cc-rewrite-input", attr: { rows: "3", placeholder: "Summarize, rewrite, or extract key points…", maxlength: "1200" } });
-    const buttons = this.contentEl.createDiv({ cls: "cc-diff-buttons" });
-    buttons.createEl("button", { text: "Open native app", cls: "mod-cta" }).addEventListener("click", () => {
-      if (!input.value.trim()) return;
-      this.submit(input.value.trim()); this.close();
-    });
-    buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-  }
-  override onClose(): void { this.contentEl.empty(); }
 }
