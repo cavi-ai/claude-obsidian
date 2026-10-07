@@ -203,7 +203,7 @@ export async function gatherContext(
 
 function frontmatterOf(app: App, path: string): Record<string, unknown> | undefined {
   const f = app.vault.getAbstractFileByPath(path);
-  return f instanceof TFile ? (app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined) : undefined;
+  return f instanceof TFile ? app.metadataCache.getFileCache(f)?.frontmatter : undefined;
 }
 
 /** Markdown files directly under a folder path (newest first), capped at `limit`. */
