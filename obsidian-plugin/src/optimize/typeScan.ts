@@ -54,7 +54,7 @@ export interface TypeProposal {
   /** Conformance messages for `type` on this note's current frontmatter. */
   issues: string[];
   /** Conformance messages if the row's type were `type`; used after a dropdown change. */
-  check(type: string): string[];
+  check: (type: string) => string[];
   mtime: number;
 }
 

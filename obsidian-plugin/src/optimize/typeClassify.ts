@@ -63,10 +63,11 @@ const clip = (text: string, max: number): string => {
   return chars.length <= max ? text : chars.slice(0, max).join("");
 };
 
-const FRONTMATTER = /^﻿?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/;
+const FRONTMATTER = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
 function body(content: string): string {
-  return content.replace(FRONTMATTER, "");
+  const unmarked = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  return unmarked.replace(FRONTMATTER, "");
 }
 
 /** Lines outside fenced code; an unclosed fence runs to the end. */

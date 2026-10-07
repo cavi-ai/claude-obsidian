@@ -9,7 +9,7 @@ export interface TypeWeaveRow {
   evidence: TypeEvidence[];
   checked: boolean;
   issues: string[];
-  check(type: string): string[];
+  check: (type: string) => string[];
 }
 
 export interface TypeWeaveViewState {

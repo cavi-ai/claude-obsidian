@@ -39,6 +39,7 @@ describe("noteExcerpt", () => {
     expect(noteExcerpt("Plain Café 2024")).toBe("Plain Café 2024");
     expect(noteExcerpt("---\n---\nBody")).toBe("Body");
     expect(noteExcerpt("---\r\ntype: x\r\n---\r\nBody")).toBe("Body");
+    expect(noteExcerpt(`${String.fromCharCode(0xfeff)}---\ntype: x\n---\nBody`)).toBe("Body");
   });
 
   it("is empty for an empty note", () => {
