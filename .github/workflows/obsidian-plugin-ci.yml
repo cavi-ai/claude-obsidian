@@ -16,7 +16,6 @@ on:
       - "claude-plugin/**"
       - "CHANGELOG.md"
       - ".github/workflows/obsidian-plugin-ci.yml"
-  # Dispatched by dependabot-rebuild.yml after it commits a rebuilt main.js.
   workflow_dispatch:
 
 permissions:
@@ -94,9 +93,6 @@ jobs:
 
       - name: Verify the inlined embedding worker bundle
         run: pnpm run verify:worker-bundle
-
-      - name: Verify committed build output is reproducible
-        run: pnpm run verify:build-output
 
   e2e:
     name: e2e · real Obsidian (macOS)

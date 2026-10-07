@@ -34,7 +34,7 @@ pnpm run test:watch  # vitest watch
 pnpm exec vitest run test/parse.test.ts   # run a single test file
 ```
 
-CI (`.github/workflows/obsidian-plugin-ci.yml`) runs `verify:version`, typecheck, lint, test, `audit` (22.x only), `docs:verify`, build, and `verify:build-output` on Node 20 & 22. It is path-filtered to `obsidian-plugin/**`, the `claude-plugin` pin, `CHANGELOG.md`, and the workflow file, and checks out submodules recursively so the registry drift test runs.
+CI (`.github/workflows/obsidian-plugin-ci.yml`) runs `verify:version`, typecheck, lint, test, `audit` (22.x only), `docs:verify`, and build on Node 20 & 22; `main.js` is a build output, never committed. It is path-filtered to `obsidian-plugin/**`, the `claude-plugin` pin, `CHANGELOG.md`, and the workflow file, and checks out submodules recursively so the registry drift test runs.
 
 ## Architecture (obsidian-plugin)
 

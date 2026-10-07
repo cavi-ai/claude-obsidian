@@ -3,7 +3,8 @@ node_modules/
 pnpm-store/
 .pnpm-store/
 
-# Build output — main.js is committed so the community store can serve it
+# Build output — CI, e2e, and the release workflow each build main.js
+obsidian-plugin/main.js
 *.js.map
 
 # Env & editor/local
