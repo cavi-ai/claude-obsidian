@@ -7,6 +7,8 @@ import { cosineSimilarity } from "./similarity";
 export const INDEX_VERSION = 2;
 /** Version 1 persisted vectors as JSON number arrays; still read, and rewritten as version 2 on the next save. */
 const LEGACY_INDEX_VERSION = 1;
+/** An mtime no vault file has: the entry is re-read on the next build. */
+export const REREAD_MTIME = -1;
 
 export interface ChunkRecord {
   ord: number;
@@ -128,7 +130,12 @@ export class SemanticStore {
     }
     const dim = d.dim as number;
     const notes = readNotes(d.notes, dim, d.version === INDEX_VERSION ? (vector) => decodeVector(vector, dim) : legacyVector(dim));
-    return new SemanticStore(notes ? { version: INDEX_VERSION, model, dim, notes } : emptyIndex(model));
+    if (!notes) return new SemanticStore(emptyIndex(model));
+    // Version 1 was chunked before fenced headings and empty frontmatter were
+    // handled. An mtime no file has makes the next build re-read each note once;
+    // only notes whose chunks changed are re-embedded.
+    if (d.version === LEGACY_INDEX_VERSION) for (const entry of Object.values(notes)) entry.mtime = REREAD_MTIME;
+    return new SemanticStore({ version: INDEX_VERSION, model, dim, notes });
   }
 
   get model(): string {
@@ -148,10 +155,17 @@ export class SemanticStore {
     return { version: INDEX_VERSION, model: this.data.model, dim: this.data.dim, notes };
   }
 
-  /** True if this path is absent or its content hash differs from what's indexed. */
-  needsReindex(path: string, hash: string): boolean {
+  /** True if this path is absent, its content hash differs, or (when given) its chunk texts differ from what's indexed. */
+  needsReindex(path: string, hash: string, chunkTexts?: readonly string[]): boolean {
     const e = this.data.notes[path];
-    return !e || e.hash !== hash;
+    if (!e || e.hash !== hash) return true;
+    return chunkTexts !== undefined && (chunkTexts.length !== e.chunks.length || chunkTexts.some((text, i) => text !== e.chunks[i]?.text));
+  }
+
+  /** Records that the indexed note was re-read at `mtime` and needed no re-embedding. */
+  markCurrent(path: string, mtime: number): void {
+    const e = this.data.notes[path];
+    if (e) e.mtime = mtime;
   }
 
   /** True if the path is indexed at exactly this mtime. */

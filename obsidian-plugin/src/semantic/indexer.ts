@@ -7,6 +7,8 @@ import { stripFrontmatter } from "../markdown/frontmatter";
 import { chunkPdfPages, pdfPagesText, type PdfPage } from "./pdf";
 import { SemanticStore, type PersistedIndex, type SearchHit } from "./store";
 
+const chunkTexts = (chunks: readonly Chunk[]): string[] => chunks.map((c) => c.text);
+
 export interface IndexFile {
   path: string;
   mtime: number;
@@ -134,6 +136,7 @@ export class SemanticIndexer {
     const live = new Set(files.map((f) => f.path));
     let indexed = 0;
     let skipped = 0;
+    let refreshed = 0;
     let failureCount = 0;
     let aborted = false;
     const failures: Array<{ path: string; message: string }> = [];
@@ -152,7 +155,9 @@ export class SemanticIndexer {
         const prepared = await this.prepare(f.path);
         if (!prepared) {
           skipped++;
-        } else if (!opts.force && !store.needsReindex(f.path, prepared.hash)) {
+        } else if (!opts.force && !store.needsReindex(f.path, prepared.hash, chunkTexts(prepared.chunks))) {
+          store.markCurrent(f.path, f.mtime);
+          refreshed++;
           skipped++;
         } else {
           await this.embedInto(store, f.path, f.mtime, prepared.chunks, prepared.hash);
@@ -178,7 +183,7 @@ export class SemanticIndexer {
 
     this.assertActive();
     const removed = store.pruneTo(live);
-    if (indexed > 0 || removed > 0) await this.persistStore(store);
+    if (indexed > 0 || removed > 0 || refreshed > 0) await this.persistStore(store);
     return { indexed, skipped, removed, failureCount, failures, ...(aborted ? { aborted: true } : {}) };
   }
 
@@ -200,7 +205,7 @@ export class SemanticIndexer {
     }
     const prepared = await this.prepare(path);
     if (!prepared) return;
-    if (!store.needsReindex(path, prepared.hash)) return;
+    if (!store.needsReindex(path, prepared.hash, chunkTexts(prepared.chunks))) return;
     await this.embedInto(store, path, mtime, prepared.chunks, prepared.hash);
     await this.persistStore(store);
   }
@@ -222,7 +227,7 @@ export class SemanticIndexer {
         try {
           this.assertInputSize(path, size);
           const prepared = await this.prepare(path);
-          if (prepared && store.needsReindex(path, prepared.hash)) {
+          if (prepared && store.needsReindex(path, prepared.hash, chunkTexts(prepared.chunks))) {
             await this.embedInto(store, path, mtime, prepared.chunks, prepared.hash);
             changed = true;
           }

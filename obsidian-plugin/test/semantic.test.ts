@@ -198,6 +198,10 @@ describe("SemanticStore", () => {
     const legacy = { version: 1, model: "nomic", dim: 2, notes: { "A.md": { hash: "h", mtime: 1, chunks: [{ ord: 0, text: "x", vector: [1, 0] }] } } };
     const store = SemanticStore.load(legacy, "nomic");
     expect(store.hasNote("A.md")).toBe(true);
+    expect(store.isCurrent("A.md", 1)).toBe(false);
+    expect(store.needsReindex("A.md", "h", ["x"])).toBe(false);
+    expect(store.needsReindex("A.md", "h", ["x", "y"])).toBe(true);
+    expect(store.needsReindex("A.md", "h", ["changed"])).toBe(true);
     expect(store.toJSON()).toMatchObject({ version: INDEX_VERSION, notes: { "A.md": { chunks: [{ vector: encodeVector([1, 0]) }] } } });
   });
 

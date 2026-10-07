@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { SemanticIndexer, type IndexFile, type IndexerDeps } from "../src/semantic/indexer";
 import type { PersistedIndex } from "../src/semantic/store";
+import { chunkNote, contentHash } from "../src/semantic/chunk";
 
 /** A fake vault + embedder. Embedding = deterministic bag-of-words over a tiny
  *  vocab, so "cats" and "feline cat" land near each other and far from "fish". */
@@ -420,6 +421,32 @@ describe("SemanticIndexer", () => {
     expect(ctx.embedCalls.length).toBe(3);
     expect(saves).toBe(1);
     expect(Object.keys(ctx.store.data?.notes ?? {}).sort()).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("after a version 1 index, re-embeds only notes whose chunks changed and records the rest as current", async () => {
+    const ctx = makeDeps({ "plain.md": "cat text", "fenced.md": "# Setup\n```bash\n# install\n```\n" });
+    const legacyChunks: Record<string, string[]> = { "plain.md": ["cat text"], "fenced.md": ["Setup\n\n# Setup\n```bash", "# install\n```"] };
+    ctx.store.data = {
+      version: 1,
+      model: "fake-embed",
+      dim: 6,
+      notes: Object.fromEntries(Object.entries(legacyChunks).map(([path, texts]) => [path, {
+        hash: contentHash(ctx.files[path]!),
+        mtime: 1,
+        chunks: texts.map((text, ord) => ({ ord, text, vector: [1, 0, 0, 0, 0, 0] })),
+      }])),
+    } as unknown as PersistedIndex;
+    const ix = new SemanticIndexer(ctx.deps);
+
+    const result = await ix.build();
+
+    expect(ctx.embedCalls.flat()).toEqual(chunkNote(ctx.files["fenced.md"]!).map((c) => c.text));
+    expect(ctx.embedCalls.flat()).toEqual(["# Setup\n```bash\n# install\n```"]);
+    expect(result.indexed).toBe(1);
+    expect(ctx.store.data?.version).toBe(2);
+    expect(Object.values(ctx.store.data?.notes ?? {}).map((n) => n.mtime)).toEqual([1, 1]);
+    const again = await ix.build();
+    expect(again.indexed).toBe(0);
   });
 
   it("a burst of deletes and renames shares one deferred save", async () => {
