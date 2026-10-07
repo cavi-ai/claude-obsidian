@@ -126,10 +126,11 @@ import { openTagMergeReview } from "./optimize/review";
 import { createClassifier } from "./optimize/classifierGlue";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { addRelatedLinks, applyNoteMerge, linkScanNotes, loadedOntology, noteTagInput, processNoteBody, setNoteType, typeScanNotes, writeOptimizeRunNote } from "./optimize/vaultGlue";
-import { TypeWeaveController } from "./optimize/typeController";
+import { formatTypeApplyNotice, formatTypeScanNotice, TypeWeaveController } from "./optimize/typeController";
 import { formatLinkApplyNotice, formatLinkScanEmptyNotice, LinkWeaveController } from "./optimize/linkController";
 import { findOrphans, MAX_PROPOSALS_PER_KIND, scanOrphans, type LinkScanReport } from "./optimize/linkScan";
 import { LinkWeaveModal } from "./view/LinkWeaveModal";
+import { TypeWeaveModal } from "./view/TypeWeaveModal";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
@@ -940,6 +941,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       seedOntology: () => void this.seedOntology(),
       optimizeBrain: () => void this.reviewTagMerges(() => undefined),
       optimizeLinks: () => void this.reviewOrphanLinks(() => undefined),
+      optimizeTypes: () => void this.reviewUntypedNotes(() => undefined),
       openSetupWizard: () => this.openSetupWizard(),
       publishNote: (file) => void this.publish().publishNote(file.path),
       copyPublishedLink: (file) => void this.publish().copyLink(file.path),
@@ -3946,6 +3948,32 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
 
+  private async reviewUntypedNotes(done: () => void): Promise<void> {
+    const controller = this.typeWeaveController();
+    try {
+      const report = await controller.scan();
+      const notice = formatTypeScanNotice(report);
+      if (notice) {
+        new Notice(notice);
+        done();
+        return;
+      }
+      new TypeWeaveModal(this.app, report, {
+        apply: (rows) => controller.apply(rows),
+        dismiss: (path) => controller.dismiss(path),
+        classify: (signal) => controller.classify({ signal }),
+        rescan: () => controller.scan(),
+        classifierInfo: () => controller.classifierInfo(),
+      }, (result) => {
+        if (result) new Notice(formatTypeApplyNotice(result));
+        done();
+      }).open();
+    } catch (error) {
+      new Notice(`Type scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      done();
+    }
+  }
+
   private async reviewOrphanLinks(done: () => void): Promise<void> {
     const controller = this.linkWeaveController();
     const progress = new Notice("Scanning for orphan notes…", 0);
@@ -3998,6 +4026,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
         const report = await this.optimizeController().scan({ semantic: false });
         return { total: report.totalTags, singleUse: report.singleUse, candidates: report.candidates.length };
       },
+      untypedCount: async () => {
+        const report = await this.typeWeaveController().scan();
+        return report.status === "ok" ? report.candidates : null;
+      },
       orphanCount: () => findOrphans(linkScanNotes(this.app, this.ontology()), this.app.metadataCache.resolvedLinks, normalizePath(this.settings.ontologyFolder)).length,
       inboxPending: () => this.inboxPendingCount(),
       companion: () => ({
@@ -4032,6 +4064,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       reviewTagMerges: (done) => void this.reviewTagMerges(done),
       connectOrphans: (done) => void this.reviewOrphanLinks(done),
+      typeUntypedNotes: (done) => void this.reviewUntypedNotes(done),
       reviewSafeFixes: (fixes, done) => new SafeFixModal(this.app, fixes, async (path, patch) => {
         const file = this.app.vault.getFileByPath(path);
         if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => { Object.assign(fm, patch); });
