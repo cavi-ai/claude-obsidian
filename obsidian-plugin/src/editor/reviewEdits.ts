@@ -6,7 +6,7 @@ import type { EditPlan } from "../edit/diff";
 import { DiffModal } from "../view/DiffModal";
 import { createSession, type InlineDiffSession } from "./inlineDiffState";
 import { cancelInline, reviewInline } from "./inlineDiffExtension";
-import { closesFence, fenceOpen } from "../markdown/fences";
+import { fenceAt, fenceEnd } from "../markdown/fences";
 import { frontmatterBlock } from "../markdown/frontmatter";
 
 export interface ReviewEditsInput {
@@ -87,15 +87,13 @@ export function hiddenRanges(content: string): HiddenRange[] {
   let i = 0;
   const frontmatter = frontmatterBlock(content);
   if (frontmatter) { push(0, frontmatter.closeLine); i = frontmatter.closeLine + 1; }
+  const texts = lines.map((line) => line.text);
   while (i < lines.length) {
     const text = lines[i]!.text;
     const trimmed = text.trim();
-    const fence = fenceOpen(text);
+    const fence = fenceAt(texts, i);
     if (fence) {
-      let end = lines.length - 1;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (closesFence(lines[j]!.text, fence)) { end = j; break; }
-      }
+      const end = fenceEnd(texts, i, fence);
       push(i, end);
       i = end + 1;
     } else if (trimmed.startsWith("$$")) {

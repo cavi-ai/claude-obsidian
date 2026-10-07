@@ -20,6 +20,10 @@ describe("chunk", () => {
     expect(chunks.map((c) => c.text).join("\n")).toContain("Intro paragraph.");
   });
 
+  it("does not split on a heading-like line after a quoted fence line inside a fence", () => {
+    expect(chunkNote("```\n> ```\n# Not a heading\n```\n# Real\nbody", { maxChars: 1000 }).map((c) => c.heading)).toEqual(["", "Real"]);
+  });
+
   it("does not split on comment lines inside fenced code", () => {
     const md = "# Setup\nRun this:\n\n```bash\n# install deps\npnpm install\n```\nDone.";
     const chunks = chunkNote(md, { maxChars: 1000 });

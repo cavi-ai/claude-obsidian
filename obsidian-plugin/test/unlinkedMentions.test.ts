@@ -58,6 +58,16 @@ And \`Weekly Review\` inline. But GTD in prose.`;
     expect(findUnlinkedMentions(content, candidates, "X.md").map((m) => m.path)).toEqual(["GTD.md"]);
   });
 
+  it("keeps a fence open across list-marked or quoted fence lines inside it", () => {
+    for (const inner of ["- ```", "> ```", "1. ```"]) {
+      expect(findUnlinkedMentions(`\`\`\`\n${inner}\nGTD\n\`\`\`\n`, candidates, "X.md")).toEqual([]);
+    }
+  });
+
+  it("finds mentions after an unclosed indented ```", () => {
+    expect(findUnlinkedMentions("    ```\nGTD\n", candidates, "X.md").map((m) => m.path)).toEqual(["GTD.md"]);
+  });
+
   it("finds a mention between an empty frontmatter block and a later horizontal rule", () => {
     const content = "---\n---\nThe Weekly Review.\n\n---\n\nAfter.";
     expect(findUnlinkedMentions(content, candidates, "X.md").map((m) => m.path)).toEqual(["Weekly Review.md"]);

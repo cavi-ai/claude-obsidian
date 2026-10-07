@@ -1,6 +1,6 @@
 // Pure: turns a vault note into the markdown that is safe to publish.
 
-import { closesFence, fenceOpen, type Fence } from "../markdown/fences";
+import { fenceAt, fenceEnd } from "../markdown/fences";
 import { stripFrontmatter } from "../markdown/frontmatter";
 
 interface Segment {
@@ -13,7 +13,7 @@ function segment(text: string): Segment[] {
   const out: Segment[] = [];
   let prose = "";
   let inComment = false;
-  let fence: Fence | null = null;
+  let fenceLast = -1;
   const flush = () => {
     if (prose) out.push({ text: prose, code: false });
     prose = "";
@@ -22,16 +22,15 @@ function segment(text: string): Segment[] {
   const lines = text.split("\n");
   lines.forEach((rawLine, index) => {
     const eol = index < lines.length - 1 ? "\n" : "";
-    if (fence !== null) {
+    if (index <= fenceLast) {
       out.push({ text: rawLine + eol, code: true });
-      if (closesFence(rawLine, fence)) fence = null;
       return;
     }
     if (!inComment) {
-      const open = fenceOpen(rawLine);
+      const open = fenceAt(lines, index);
       if (open) {
         flush();
-        fence = open;
+        fenceLast = fenceEnd(lines, index, open);
         out.push({ text: rawLine + eol, code: true });
         return;
       }
