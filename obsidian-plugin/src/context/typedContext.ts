@@ -25,9 +25,10 @@ export interface RelationExpansionInput {
   limit: number;
 }
 
+/** The `type` exactly as written (no trim, matching `conform`), or undefined when blank or not a string. */
 export function noteType(frontmatter: Record<string, unknown> | undefined): string | undefined {
   const t = frontmatter?.type;
-  return typeof t === "string" && t.trim() ? t.trim() : undefined;
+  return typeof t === "string" && t.trim() ? t : undefined;
 }
 
 export function typeLabel(type: string | undefined): string {

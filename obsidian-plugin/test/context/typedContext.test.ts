@@ -35,9 +35,9 @@ function plan(over: Partial<Parameters<typeof planRelationExpansion>[0]> = {}) {
 }
 
 describe("noteType / typeLabel", () => {
-  it("reads a non-empty string type only, trimmed", () => {
+  it("reads a non-blank string type only, exactly as written", () => {
     expect(noteType({ type: "article" })).toBe("article");
-    expect(noteType({ type: "  article " })).toBe("article");
+    expect(noteType({ type: "  article " })).toBe("  article ");
     expect(noteType({ type: ["article"] })).toBeUndefined();
     expect(noteType({ type: "  " })).toBeUndefined();
     expect(noteType({ type: 3 })).toBeUndefined();

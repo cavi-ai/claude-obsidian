@@ -63,6 +63,12 @@ describe("gatherContext — typed context", () => {
     }
   });
 
+  it("labels a padded type exactly as written and follows none of its relations", async () => {
+    const ctx = await gatherContext(vault({ ...ANN, type: " person" }), DEFAULT_SETTINGS, SEARCH_ONLY, "qqq", hits("People/Ann.md"), [], [], undefined, await seededRegistry());
+    expect(ctx.text).toBe(["<vault_context>", "### Search match: People/Ann.md (type:  person)\nS", OLD_CITATION, "</vault_context>"].join("\n\n"));
+    expect(ctx.sources).toEqual(["1 semantic match"]);
+  });
+
   it("labels linked notes only with a typed registry and never expands from them", async () => {
     const toggles = { ...NO_TOGGLES, linkedNotes: true };
     const make = (): App => {
