@@ -4,6 +4,41 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] — 2026-10-07
+
+### Changed
+- Keyword vault search (chat vault context and `vault_search`) ranks notes
+  with BM25 over the body, boosts title and tag matches, and ignores English
+  stopwords.
+- Seed ontology covers every note type the plugin writes (`chat-summary`,
+  `chat-project`, `triage`, `order-run`, `optimize-run`), and the research
+  schemas use the keys research notes carry. An unedited version 1 research
+  schema note is upgraded in place.
+- `memory_record` is a write tool: it is listed only when MCP writes are
+  allowed, and Plan Mode, propose-only standing orders, and write
+  confirmation apply to it.
+- The semantic index stores each vector as base64 float32 (2,048 instead of
+  7,969 bytes per 384-dimension vector). Version 1 indexes load and are
+  rewritten on the next save; notes whose chunks changed are re-embedded once.
+- Unlinked-mention scanning runs in one pass over a name index (10.4 ms to
+  0.52 ms per note with 5,000 candidate names).
+- The MCP bridge and MCP client report the plugin version.
+
+### Fixed
+- Model replies wrapped in prose parse in triage, the type and tag
+  classifiers, and discovery rerank.
+- Frontmatter and fenced code are read by one parser. Link suggestions no
+  longer link text inside fenced code in lists and callouts; publish,
+  semantic chunks, and source import keep the body after an empty frontmatter
+  block; `note_patch` keeps CRLF frontmatter; semantic chunks do not split on
+  `#` lines inside fenced code.
+- `$` sequences in research locators, interpretations, limitations, and
+  citation keys are written literally.
+- A pending semantic-index save after deletes or renames is written on unload.
+- Source enrichment state is read from frontmatter only.
+- Link suggestions find mentions after a character whose lowercase is longer
+  (`İ`).
+
 ## [0.42.1] — 2026-10-07
 
 ### Fixed
