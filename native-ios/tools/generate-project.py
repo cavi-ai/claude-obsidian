@@ -8,7 +8,7 @@ def ident(name):
     return hashlib.sha256(name.encode()).hexdigest()[:24].upper()
 
 sources = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Sources").rglob("*.swift"))
-assets = ["Resources/Model.json"]
+assets = ["Resources/Model.json", "Resources/Assets.xcassets"]
 packages = {
     "mlx-swift-lm": ("https://github.com/ml-explore/mlx-swift-lm", "3.32.3"),
     "mlx-swift": ("https://github.com/ml-explore/mlx-swift", "0.32.3"),
@@ -22,7 +22,7 @@ def refs(keys):
     return "(" + ", ".join(ident(k) for k in keys) + ",)"
 
 for path in sources + assets:
-    kind = "sourcecode.swift" if path.endswith(".swift") else "text.json"
+    kind = "sourcecode.swift" if path.endswith(".swift") else "folder.assetcatalog" if path.endswith(".xcassets") else "text.json"
     add(path, f'isa = PBXFileReference; lastKnownFileType = {kind}; path = "{path}"; sourceTree = "<group>";')
     add("build:" + path, f"isa = PBXBuildFile; fileRef = {ident(path)};")
 for name, (url, version) in packages.items():
@@ -39,7 +39,7 @@ add("frameworks", f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647;
 for mode in ["Debug", "Release"]:
     add("project:" + mode, f'isa = XCBuildConfiguration; name = {mode}; buildSettings = {{ CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; }};')
     optimization = '"-Onone"' if mode == "Debug" else '"-O"'
-    add("target:" + mode, f'isa = XCBuildConfiguration; name = {mode}; buildSettings = {{ PRODUCT_NAME = CompanionLocal; PRODUCT_BUNDLE_IDENTIFIER = ai.cavi.companion.local; INFOPLIST_FILE = Info.plist; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_OPTIMIZATION_LEVEL = {optimization}; ENABLE_PREVIEWS = YES; }};')
+    add("target:" + mode, f'isa = XCBuildConfiguration; name = {mode}; buildSettings = {{ PRODUCT_NAME = CompanionLocal; PRODUCT_BUNDLE_IDENTIFIER = ai.cavi.companion.local; INFOPLIST_FILE = Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_OPTIMIZATION_LEVEL = {optimization}; ENABLE_PREVIEWS = YES; }};')
 for scope in ["project", "target"]:
     add("configs:" + scope, f'isa = XCConfigurationList; buildConfigurations = {refs([scope + ":Debug", scope + ":Release"])}; defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 add("target", f'isa = PBXNativeTarget; name = CompanionLocal; buildConfigurationList = {ident("configs:target")}; buildPhases = {refs(["sources", "frameworks", "resources"])}; buildRules = (); dependencies = (); packageProductDependencies = {refs(["product:" + p for p in products])}; productName = CompanionLocal; productReference = {ident("app")}; productType = "com.apple.product-type.application";')

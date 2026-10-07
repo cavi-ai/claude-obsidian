@@ -15,6 +15,7 @@ Model availability and generation depend on the device's available memory.
 The project pins MLX Swift LM 3.32.3, MLX Swift 0.32.3, Swift Transformers 1.3.4,
 and transitive dependencies in `Package.resolved`. Regenerate the project after
 adding source files with `python3 tools/generate-project.py`.
+Regenerate the app icon with `swift tools/generate-app-icon.swift`.
 
 ## Use with Obsidian
 

@@ -1,5 +1,9 @@
 import { chatBackendOptions } from "./providers/runtimeBackend";
-import { registerNativeHandoff } from "./native/controller";
+import { registerNativeResultImport } from "./native/controller";
+import { registerDeviceGpuCheck } from "./device/controller";
+import { DeviceChatClient } from "./device/client";
+import { DeviceProvider } from "./providers/device";
+import { createEmbedWorker } from "./semantic/transformers/workerSource";
 import { App, FileSystemAdapter, MarkdownView, Notice, parseYaml, Platform, Plugin, requestUrl, WorkspaceLeaf } from "obsidian";
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
@@ -183,6 +187,7 @@ import { resolveCompanionWorkspace, type CompanionWorkspaceCard } from "./view/c
 import type { BatchLinkApplyResult } from "./links/batch";
 import { reviewInboxBatchLinks } from "./links/inboxBatchReview";
 import { ActivityStore } from "./activity/store";
+import { beginActivity } from "./activity/progress";
 import type { CompanionChromeDependencies } from "./view/companionChrome";
 import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./view/quickOptions";
 import type { EmbeddingRecovery } from "./semantic/recovery";
@@ -484,6 +489,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       enrichDiagnostics: () => this.enrichDiagnostics,
       router: () => this.router(),
       isMobile: Platform.isMobile,
+      deviceChatBusy: () => this._deviceChat?.busy() ?? false,
       vault: {
         adapterSize: async (p) => (await this.app.vault.adapter.stat(p))?.size,
         adapterExists: (p) => this.app.vault.adapter.exists(p),
@@ -660,7 +666,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
     this.registerContextMenus();
     for (const command of companionCommands(this.commandActions())) this.addCommand(command);
-    registerNativeHandoff(this);
+    registerNativeResultImport(this);
+    registerDeviceGpuCheck(this);
     this.addCommand({
       id: "set-chat-project",
       name: "Chat: choose project",
@@ -1356,17 +1363,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
 
-    const pending = new Notice(`Organizing ${files.length} clipping${files.length === 1 ? "" : "s"}…`, 0);
+    const pending = beginActivity(this.activity, `Organizing ${files.length} clipping${files.length === 1 ? "" : "s"}…`);
     try {
       // 1) Enrich anything not yet enriched. A failed/denied item aborts the
       // organizer so it cannot be sent through another provider or defaulted
       // into a misleading misc move.
       for (const file of files) {
+        pending.setMessage(file.path);
         const content = await this.app.vault.cachedRead(file);
         if (!/^source_enriched:\s*true\s*$/m.test(content)) {
           const outcome = await this.enrichment().enrichFile(file);
           if (outcome.status !== "enriched") {
             const detail = outcome.status === "failed" ? outcome.error.message : outcome.reason;
+            pending.fail(detail);
             new Notice(`Organizing stopped — ${detail}`);
             return;
           }
@@ -1404,6 +1413,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const parentPaths = this.app.vault.getMarkdownFiles().map((f) => f.parent?.path ?? "");
       const existingFolders = [...new Set([...relativeFolders(parentPaths, base), ...relativeFolders(parentPaths, inbox)])];
       let utilityError: UtilityUnavailableError | undefined;
+      pending.setMessage("Inferring folders");
       const inferResult = await inferDomains(candidates, {
         existingFolders,
         complete: async (system, user, maxTokens) => {
@@ -1424,6 +1434,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         },
       });
       if (utilityError) {
+        pending.fail(utilityError);
         new Notice(`Organizing stopped — ${utilityError.message}`);
         return;
       }
@@ -1443,6 +1454,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
       if (candidates.length > 0 && skipped.length === candidates.length) {
         const detail = inferResult.truncated ? "reply truncated" : (inferResult.lastError ?? "reply did not match the clips");
+        pending.fail(detail);
         new Notice(`Organizing stopped — ${detail}`);
         return;
       }
@@ -1453,7 +1465,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         taken: (p) => this.app.vault.getAbstractFileByPath(p) !== null,
         existingFolders,
       });
-      pending.hide();
+      pending.finish();
       if (moves.length === 0) {
         new Notice("Everything is already named and filed.");
         return;
@@ -1466,8 +1478,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
           new Notice(`Organized ${moved} clipping${moved === 1 ? "" : "s"} into ${base}/.${failedNote}`);
         })();
       }).open();
+    } catch (error) {
+      pending.fail(error);
+      throw error;
     } finally {
-      pending.hide();
+      pending.finish();
     }
   }
 
@@ -1530,7 +1545,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     );
     if (!instruction) return;
 
-    const progress = new Notice("Rewriting selection…", 0);
+    const progress = beginActivity(this.activity, "Rewriting selection…");
     try {
       const { text: raw } = await this.router().complete("chat", {
         system: REWRITE_SYSTEM,
@@ -1543,7 +1558,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const cm = this.settings.inlineDiffEnabled ? editorViewOf(editor) : null;
       if (cm && editor.getValue().slice(anchorFrom, anchorTo) === selection) {
         const session = createRangeSession(editor.getValue(), { from: anchorFrom, to: anchorTo, newText: rewritten }, { path: file.path, description: `Rewrite — ${instruction}` });
-        progress.hide();
+        progress.finish();
         const accepted = await reviewInline(cm, session);
         if (accepted) new Notice("Rewrite applied.");
         return;
@@ -1559,6 +1574,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         anchor = { start: anchorFrom, end: anchorTo };
       }
 
+      progress.finish();
       const accepted = await new Promise<boolean[] | null>((resolve) =>
         new DiffModal(this.app, { path: file.path, description: `Rewrite — ${instruction}`, plan }, resolve).open(),
       );
@@ -1572,11 +1588,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
       new Notice("Rewrite applied.");
     } catch (e) {
+      progress.fail(e);
       const { provider } = this.router().resolve("chat");
       const hint = this.providerErrorHint(e instanceof Error ? e.message : String(e), provider.id);
       new Notice(`Rewrite failed${hint ? ` — ${hint}` : ` — ${e instanceof Error ? e.message : String(e)}`}`);
     } finally {
-      progress.hide();
+      progress.finish();
     }
   }
 
@@ -1699,10 +1716,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice(`No clippings in ${folder}/ yet — clip something first.`);
       return;
     }
-    const progress = new Notice(`Finding themes in ${files.length} clipping${files.length === 1 ? "" : "s"}…`, 0);
+    const progress = beginActivity(this.activity, `Finding themes in ${files.length} clipping${files.length === 1 ? "" : "s"}…`);
     try {
       const results: Array<{ path: string; outcome: EnrichOutcomeLike | null }> = [];
       for (const file of files) {
+        progress.setMessage(file.path);
         const content = await this.app.vault.cachedRead(file);
         if (/^source_enriched:\s*true\s*$/m.test(content)) {
           results.push({ path: file.path, outcome: null });
@@ -1718,6 +1736,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }
       const partition = partitionEnrichOutcomes(results);
       if (partition.stopReason) {
+        progress.fail(partition.stopReason);
         new Notice(`Finding themes stopped — ${partition.stopReason}`);
         return;
       }
@@ -1738,6 +1757,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         });
       }
 
+      progress.setMessage("Grouping research themes");
       const { text: raw } = await this.router().complete("chat", {
         system: TRIAGE_SYSTEM,
         user: buildTriageUser(notes),
@@ -1772,11 +1792,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const boardFile = this.app.vault.getAbstractFileByPath(triagePath);
       if (boardFile instanceof TFile) await this.app.workspace.getLeaf(false).openFile(boardFile);
     } catch (e) {
+      progress.fail(e);
       const { provider } = this.router().resolve("chat");
       const hint = this.providerErrorHint(e instanceof Error ? e.message : String(e), provider.id);
       new Notice(`Finding themes failed${hint ? ` — ${hint}` : ` — ${e instanceof Error ? e.message : String(e)}`}`);
     } finally {
-      progress.hide();
+      progress.finish();
     }
   }
 
@@ -1828,13 +1849,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       return;
     }
     let question: string | undefined;
-    const drafting = new Notice("Drafting a research question from the note…", 0);
+    const drafting = beginActivity(this.activity, "Drafting a research question from the note…");
     try {
       question = await this.researchRewriteText()({ text: file.basename, instruction: QUESTION_INSTRUCTION, context: noteExcerpt(content, 3000) });
     } catch (e) {
+      drafting.fail(e);
       console.warn("[companion] question drafting failed", e);
     } finally {
-      drafting.hide();
+      drafting.finish();
     }
     new ProjectCreateModal(this.app, async (input) => {
       const record = await this.researchRepository().createProject(input);
@@ -1852,6 +1874,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this._deviceChat?.cancel();
     for (const dispose of [...(this.disposables ?? [])].reverse()) dispose();
     this.disposables = [];
     this.settingsListeners?.clear();
@@ -2481,9 +2504,23 @@ export default class ClaudeCompanionPlugin extends Plugin {
         cliProvider: this._cliProvider,
         codexProvider: this._codexProvider,
         opencodeProvider: this._opencodeProvider,
+        deviceProvider: new DeviceProvider(this.settings.chatBackend === "device" ? this.deviceChat() : null),
       });
     }
     return this._router;
+  }
+
+  private _deviceChat?: DeviceChatClient;
+  deviceChat(): DeviceChatClient {
+    if (!this._deviceChat) {
+      this._deviceChat = new DeviceChatClient(createEmbedWorker, () => {
+        if (Platform.isMobile) this._semantic?.pauseForDeviceChat();
+      });
+      this.registerDomEvent(document, "visibilitychange", () => {
+        if (document.hidden) this._deviceChat?.cancel();
+      });
+    }
+    return this._deviceChat;
   }
 
   /** One lazy coordinator shared by every discovery surface. */
@@ -2851,8 +2888,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }, 500);
   }
 
-  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null }): string {
-    let base = `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
+  composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null; compact?: boolean }): string {
+    let base = opts?.compact ? this.settings.systemPrompt : `${this.settings.systemPrompt}\n\n${DESIGN_SYSTEM_PROMPT}`;
     const digest = this.ontology()?.digest();
     if (digest) base = `${base}\n\n${digest}`;
     if (opts?.project) base = `${base}\n\n${projectSystemPrompt(opts.project)}`;
@@ -2947,13 +2984,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       presetOptions ?? (await new Promise<EnrichOptions | null>((resolve) => new EnrichOptionsModal(this.app, 1, resolve).open()));
     if (!options) return;
 
-    const progress = new Notice(`Tidying ${file.basename}…`, 0);
+    const progress = beginActivity(this.activity, `Tidying ${file.basename}…`);
     try {
       const proposal = await this.buildEnrichProposal(file, options);
       if (!proposal.rename && !proposal.frontmatter && !proposal.plan) {
         new Notice(`${file.basename} is already in good shape.`);
         return;
       }
+      progress.finish();
       const decision = await new Promise<EnrichDecision | null>((resolve) =>
         new EnrichReviewModal(this.app, proposal, resolve).open(),
       );
@@ -2961,9 +2999,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       await this.applyEnrichDecision(file, proposal, decision);
       new Notice(`Tidied ${file.basename}.`);
     } catch (e) {
+      progress.fail(e);
       new Notice(`Tidy failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      progress.hide();
+      progress.finish();
     }
   }
 
@@ -3084,7 +3123,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       new Notice(`No notes directly in ${folder.path}/.`);
       return;
     }
-    const progress = new Notice(`Proposing a layout for ${files.length} note${files.length === 1 ? "" : "s"}…`, 0);
+    const progress = beginActivity(this.activity, `Proposing a layout for ${files.length} note${files.length === 1 ? "" : "s"}…`);
     try {
       const candidates: OrganizeCandidate[] = [];
       const titles = new Map<string, string>();
@@ -3105,6 +3144,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         .map((c) => c.name)
         .sort();
       let utilityError: UtilityUnavailableError | undefined;
+      progress.setMessage("Inferring folders");
       const inferResult = await inferDomains(candidates, {
         existingFolders,
         promptBuilder: buildFolderOrganizePrompt,
@@ -3135,6 +3175,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
       if (candidates.length > 0 && inferResult.unresolved.length === candidates.length) {
         const detail = inferResult.truncated ? "reply truncated" : (inferResult.lastError ?? "reply did not match the notes");
+        progress.fail(detail);
         new Notice(`Organize stopped — ${detail}`);
         return;
       }
@@ -3148,6 +3189,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         new Notice("Everything is already named and filed.");
         return;
       }
+      progress.finish();
       new OrganizeReviewModal(this.app, moves, inferResult.unresolved.length, (accepted) => {
         if (!accepted || accepted.length === 0) return;
         void (async () => {
@@ -3157,13 +3199,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
         })();
       }).open();
     } catch (e) {
+      progress.fail(e);
       if (e instanceof UtilityUnavailableError) {
         new Notice(`Organize failed — ${e.message}`);
         return;
       }
       new Notice(`Organize failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      progress.hide();
+      progress.finish();
     }
   }
 
@@ -3976,13 +4019,16 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private async reviewOrphanLinks(done: () => void): Promise<void> {
     const controller = this.linkWeaveController();
-    const progress = new Notice("Scanning for orphan notes…", 0);
+    const progress = beginActivity(this.activity, "Scanning for orphan notes…");
     try {
       let report: LinkScanReport;
       try {
-        report = await controller.scan((read, total) => progress.setMessage(`Scanning for orphan notes… ${read}/${total}`));
+        report = await controller.scan((read, total) => progress.setMessage("Scanning notes", read, total));
+      } catch (error) {
+        progress.fail(error);
+        throw error;
       } finally {
-        progress.hide();
+        progress.finish();
       }
       if (report.groups.length === 0) {
         new Notice(formatLinkScanEmptyNotice(report));
@@ -4216,7 +4262,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const vocab = vaultVocabulary(this.app);
     const existingTags = selectPromptTags(vocab, content);
     const typeOptions = this.settings.ontologyEnabled ? [...(this.ontology()?.resolved().keys() ?? [])] : [];
-    const notice = new Notice("Suggesting frontmatter…", 0);
+    const notice = beginActivity(this.activity, "Suggesting frontmatter…");
     try {
       const existingLine = existingTags.length > 0 ? `Existing tags (prefer these when relevant): ${existingTags.join(", ")}\n\n` : "";
       const body = content.length > 8000 ? content.slice(0, 8000) + "\n…[truncated]" : content;
@@ -4238,7 +4284,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         newTags: resolved.filter((r) => r.match === "new" && !currentTags.includes(r.tag)).map((r) => r.tag),
         ...(suggestion.summary && !fm.summary ? { summary: suggestion.summary } : {}),
       };
-      notice.hide();
+      notice.finish();
 
       new FrontmatterModal(this.app, file.basename, proposal, provider.label, async (apply) => {
         if (!apply) return;
@@ -4251,7 +4297,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         new Notice(`Frontmatter updated: ${file.basename}`);
       }).open();
     } catch (e) {
-      notice.hide();
+      notice.fail(e);
       new Notice(`Couldn't suggest frontmatter: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
@@ -4345,6 +4391,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private cloud(): CloudController {
     return (this._cloud ??= new CloudController({
       settings: () => this.settings,
+      activity: () => this.activity,
       http: async (req) => {
         const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, ...(req.body ? { body: req.body } : {}), throw: false });
         return { status: res.status, text: res.text };
