@@ -1,4 +1,5 @@
 import type { CompletionRequest, Provider } from "../providers/types";
+import { isJsonObject as isObject, replyJson } from "../providers/replyJson";
 import type { RankedCandidate } from "./rank";
 import type { DiscoveryQuery } from "./types";
 
@@ -96,18 +97,9 @@ export function buildRerankRequest(
   };
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function parseRerankResponse(raw: string, candidateIds: readonly string[]): RerankResponse {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    console.debug("Claude Companion: rerank response JSON parse failed", e);
-    throw new Error("Rerank response must be a valid JSON object", { cause: e });
-  }
+  const parsed = replyJson(raw);
+  if (parsed === undefined) throw new Error("Rerank response must be a valid JSON object");
   if (!isObject(parsed) || !Array.isArray(parsed.order)) {
     throw new Error("Rerank response must be a JSON object with an order array");
   }

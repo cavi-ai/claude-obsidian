@@ -1,5 +1,6 @@
 import type { ProjectSnapshot } from "./graph";
 import type { EvidenceRecord, EvidenceRelation } from "./types";
+import { isJsonObject, replyJson } from "../providers/replyJson";
 
 export interface ClaimSuggestion {
   title: string;
@@ -37,19 +38,9 @@ function trimTitle(value: string): string {
   return (space > 0 ? cut.slice(0, space) : cut).trim();
 }
 
-function firstJsonObject(raw: string): unknown {
-  const start = raw.indexOf("{");
-  if (start < 0) return undefined;
-  for (let end = raw.lastIndexOf("}"); end > start; end = raw.lastIndexOf("}", end - 1)) {
-    try { return JSON.parse(raw.slice(start, end + 1)); } catch { /* try a shorter slice */ }
-  }
-  return undefined;
-}
-
 export function parseClaimSuggestion(raw: string, offered: ReadonlySet<string>): ClaimSuggestion | null {
-  const parsed = firstJsonObject(raw);
-  if (!parsed || typeof parsed !== "object") return null;
-  const data = parsed as Record<string, unknown>;
+  const data = replyJson(raw, isJsonObject) as Record<string, unknown> | undefined;
+  if (!data) return null;
   const title = typeof data.title === "string" ? trimTitle(data.title) : "";
   const proposition = typeof data.proposition === "string" ? data.proposition.trim() : "";
   if (!title || !proposition) return null;
