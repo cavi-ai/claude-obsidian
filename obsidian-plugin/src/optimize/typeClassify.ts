@@ -1,3 +1,6 @@
+import { fencedLines } from "../markdown/fences";
+import { stripFrontmatter } from "../markdown/frontmatter";
+
 export const TYPE_BATCH = 20;
 export const MAX_TYPE_BATCHES = 10;
 export const MAX_TYPE_TAGS = 10;
@@ -63,27 +66,15 @@ const clip = (text: string, max: number): string => {
   return chars.length <= max ? text : chars.slice(0, max).join("");
 };
 
-const FRONTMATTER = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/;
-
 function body(content: string): string {
-  const unmarked = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
-  return unmarked.replace(FRONTMATTER, "");
+  return stripFrontmatter(content.charCodeAt(0) === 0xfeff ? content.slice(1) : content);
 }
 
 /** Lines outside fenced code; an unclosed fence runs to the end. */
 function proseLines(content: string): string[] {
-  const out: string[] = [];
-  let fence: string | null = null;
-  for (const line of body(content).split(/\r?\n/)) {
-    if (fence === null) {
-      fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1] ?? null;
-      if (fence === null) out.push(line);
-      continue;
-    }
-    const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
-    if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
-  }
-  return out;
+  const lines = body(content).split(/\r?\n/);
+  const fenced = fencedLines(lines);
+  return lines.filter((_, i) => !fenced[i]);
 }
 
 export function noteExcerpt(content: string): string {

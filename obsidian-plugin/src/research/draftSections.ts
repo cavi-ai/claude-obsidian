@@ -1,4 +1,5 @@
 import { fnv1aHex } from "../hashing";
+import { fencedLines } from "../markdown/fences";
 
 export interface DraftSectionEnvelope {
   id: string;
@@ -45,7 +46,6 @@ export const PROVENANCE_LANGUAGE = "claude-provenance";
 const PROVENANCE_FENCE = `\`\`\`${PROVENANCE_LANGUAGE}`;
 const V1_MARKER = "<!-- cavi:draft-section";
 const V1_START = /<!-- cavi:draft-section version=1 meta=([^\s]+) fingerprint=([a-z0-9-]+) -->\n/g;
-const FENCE_LINE = /^\s*(```|~~~)/;
 
 interface Line { text: string; start: number; next: number }
 interface Block { start: number; end: number; json: string }
@@ -103,11 +103,9 @@ export function sectionHeading(value: string): string {
 }
 
 function mapOutsideFences(markdown: string, map: (line: string) => string): string {
-  let fenced = false;
-  return markdown.split("\n").map((line) => {
-    if (FENCE_LINE.test(line)) { fenced = !fenced; return line; }
-    return fenced ? line : map(line);
-  }).join("\n");
+  const rows = markdown.split("\n");
+  const fenced = fencedLines(rows);
+  return rows.map((line, i) => (fenced[i] ? line : map(line))).join("\n");
 }
 
 export function normalizeSectionBody(markdown: string): string {
@@ -156,10 +154,10 @@ function provenanceBlocks(text: string): Block[] {
 
 function h2Headings(text: string, limit: number): Array<{ text: string; start: number; bodyStart: number }> {
   const out: Array<{ text: string; start: number; bodyStart: number }> = [];
-  let fenced = false;
-  for (const line of lines(text, limit)) {
-    if (FENCE_LINE.test(line.text)) { fenced = !fenced; continue; }
-    if (fenced) continue;
+  const all = lines(text, limit);
+  const fenced = fencedLines(all.map((line) => line.text));
+  for (const [index, line] of all.entries()) {
+    if (fenced[index]) continue;
     const match = /^## (.*\S)\s*$/.exec(line.text);
     if (match) out.push({ text: sectionHeading(match[1]!), start: line.start, bodyStart: line.next });
   }

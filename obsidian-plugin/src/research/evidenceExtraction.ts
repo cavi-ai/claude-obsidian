@@ -1,4 +1,5 @@
 import type { ResearchSourceRecord, SourceLocatorKind } from "./types";
+import { stripFrontmatter } from "../markdown/frontmatter";
 
 export interface SourceText { text: string; pages?: Array<{ page: number; text: string }> }
 export interface ProposedPassage { title: string; excerpt: string; locatorKind: SourceLocatorKind; locatorValue: string; interpretation?: string }
@@ -16,7 +17,7 @@ export async function resolveSourceText(source: Pick<ResearchSourceRecord, "path
     if (pages?.length) return { text: pages.map(({ text }) => text).join("\n\n"), pages };
   }
   const note = await io.readNote(source.path);
-  const body = note?.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+  const body = note === null ? undefined : stripFrontmatter(note).trim();
   return body ? { text: body } : null;
 }
 

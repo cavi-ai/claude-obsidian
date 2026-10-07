@@ -1,6 +1,8 @@
 // Clippings triage (Research Desk): group an inbox of raw clippings into
 // coherent research themes with one model call, then render a triage board
-// note the desk can act on. Pure and dependency-free.
+// note the desk can act on. Pure.
+
+import { stripFrontmatter } from "../markdown/frontmatter";
 
 export interface TriageNote {
   path: string;
@@ -168,6 +170,5 @@ export function renderTriageNote(groups: TriageGroup[], notesByPath: Map<string,
 
 /** Plain-text excerpt of a note body: frontmatter stripped, whitespace collapsed. */
 export function noteExcerpt(content: string, max = 400): string {
-  const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-  return body.replace(/[\]#>*`[]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+  return stripFrontmatter(content).replace(/[\]#>*`[]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 }
