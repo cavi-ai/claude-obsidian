@@ -4,6 +4,39 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] — 2026-10-07
+
+### Added
+- **Type untyped notes.** "Optimize brain: type untyped notes" (command, or
+  Type untyped notes in the System page's Untyped notes section) proposes an
+  ontology `type` for notes without one, from typed notes in the same folder
+  or a tag naming a type. Check with model sends the rest to the tag
+  classifier model: each note's title, folder, tags, headings, and first 200
+  characters with secrets removed, plus type names and property keys; it runs
+  only on that click. Rows start checked only when the type raises no
+  conformance issue. Apply writes only `type`, plus a run note under
+  `Claude/Optimize/`.
+- **Type-aware search and chat context.** The `vault_search` `type` filter also
+  matches declared subtypes (`source` matches `article`). Chat context labels
+  notes with their type and adds up to 3 notes reached through the typed
+  relations of the top search matches, within the chat's folder scope and
+  context budget.
+- **On-device chat.** Chat backend On-device GPU runs text chat inside
+  Obsidian with a downloaded model (SmolLM2 360M or Qwen3 0.6B) on WebGPU. The
+  model downloads on an explicit click and is cached on the device; agent
+  tools are unavailable.
+
+### Changed
+- A slash command runs only on Run or Enter; clicking a row selects it.
+- Long-running progress shows in the activity surface instead of sticky
+  notices.
+- Chat loads the ontology only when linked notes or vault search is on.
+
+### Fixed
+- The slash and @ menus stay open when focus returns to the composer, so
+  Enter runs the typed command instead of sending it.
+- Overlapping ontology loads settle on the newest schema.
+
 ## [0.41.1] — 2026-10-06
 
 ### Changed
