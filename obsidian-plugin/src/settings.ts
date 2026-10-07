@@ -1707,7 +1707,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         },
       },
       { name: "Allow writes", desc: "Let connected clients create and append notes (read & search are always allowed).", control: { type: "toggle", key: "mcpAllowWrites" } },
-      { name: "Agents can record memory", desc: "Outside agents and chat can add facts to What Claude Knows when writes are allowed.", control: { type: "toggle", key: "memoryRecordEnabled" } },
+      { name: "Agents can record memory", desc: "Add facts to What Claude Knows: outside agents when Allow writes is on, chat when Allow write tools is on.", control: { type: "toggle", key: "memoryRecordEnabled" } },
       { name: "Write folder", desc: "Default folder for notes created via MCP.", control: { type: "text", key: "mcpWriteFolder", placeholder: "Claude/Inbox" } },
       {
         name: "Bridge status",

@@ -102,7 +102,8 @@ import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "./view/EnrichModal";
 import { sanitizeFileName } from "./artifacts/parse";
 import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
-import { frontmatterBlock, stripFrontmatter } from "./markdown/frontmatter";
+import { stripFrontmatter } from "./markdown/frontmatter";
+import { isSourceEnriched } from "./sources/watcher";
 import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
 import { providerTurnRunner, type AgentTurnRunner } from "./agent/loop";
@@ -1371,7 +1372,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const file of files) {
         pending.setMessage(file.path);
         const content = await this.app.vault.cachedRead(file);
-        if (!/^source_enriched:\s*true\s*$/m.test(frontmatterBlock(content)?.yaml ?? "")) {
+        if (!isSourceEnriched(content)) {
           const outcome = await this.enrichment().enrichFile(file);
           if (outcome.status !== "enriched") {
             const detail = outcome.status === "failed" ? outcome.error.message : outcome.reason;
@@ -1722,7 +1723,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const file of files) {
         progress.setMessage(file.path);
         const content = await this.app.vault.cachedRead(file);
-        if (/^source_enriched:\s*true\s*$/m.test(frontmatterBlock(content)?.yaml ?? "")) {
+        if (isSourceEnriched(content)) {
           results.push({ path: file.path, outcome: null });
           continue;
         }
