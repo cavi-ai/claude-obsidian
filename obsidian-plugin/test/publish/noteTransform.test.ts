@@ -11,6 +11,14 @@ describe("transformNoteForPublish", () => {
     expect(transformNoteForPublish("---\r\na: 1\r\n---\r\nbody")).toBe("body\n");
   });
 
+  it("keeps the body between an empty frontmatter block and a later horizontal rule", () => {
+    expect(transformNoteForPublish("---\n---\nIntro paragraph.\n\n---\n\nSection two.\n")).toBe("Intro paragraph.\n\n---\n\nSection two.\n");
+  });
+
+  it("leaves wikilinks inside a fenced code block in a list item alone", () => {
+    expect(transformNoteForPublish("- step:\n  ```md\n  [[Secret Note]]\n  ```\n")).toBe("- step:\n  ```md\n  [[Secret Note]]\n  ```\n");
+  });
+
   it("keeps a horizontal rule that is not frontmatter", () => {
     expect(transformNoteForPublish("intro\n\n---\n\nafter")).toBe("intro\n\n---\n\nafter\n");
   });

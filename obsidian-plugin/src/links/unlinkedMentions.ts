@@ -2,6 +2,9 @@
 // text occurrences of other notes' titles/aliases in a note so they can be
 // turned into [[wikilinks]]. Pure — candidates and content are injected.
 
+import { fencedLines } from "../markdown/fences";
+import { frontmatterBlock } from "../markdown/frontmatter";
+
 export interface LinkCandidate {
   path: string;
   basename: string;
@@ -137,9 +140,12 @@ function maskNonProse(content: string): string {
   const blank = (s: string): string => s.replace(/[^\n]/g, " ");
 
   // Frontmatter block at the very start.
-  out = out.replace(/^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/, blank);
-  // Fenced code blocks.
-  out = out.replace(/^(```|~~~)[\s\S]*?^\1.*$/gm, blank);
+  const frontmatter = frontmatterBlock(out);
+  if (frontmatter) out = blank(out.slice(0, frontmatter.end)) + out.slice(frontmatter.end);
+  // Fenced code blocks, including those inside list items and callouts.
+  const lines = out.split("\n");
+  const fenced = fencedLines(lines);
+  out = lines.map((line, i) => (fenced[i] ? blank(line) : line)).join("\n");
   // Inline code.
   out = out.replace(/`[^`\n]*`/g, blank);
   // Wikilinks (with or without pipe) and embeds.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { chunkNote, stripFrontmatter, contentHash } from "../src/semantic/chunk";
+import { chunkNote, contentHash } from "../src/semantic/chunk";
+import { stripFrontmatter } from "../src/markdown/frontmatter";
 import { cosineSimilarity, reciprocalRankFusion } from "../src/semantic/similarity";
 import { SemanticStore, emptyIndex, INDEX_VERSION } from "../src/semantic/store";
 
@@ -12,6 +13,18 @@ describe("chunk", () => {
   it("returns [] for empty / frontmatter-only notes", () => {
     expect(chunkNote("")).toEqual([]);
     expect(chunkNote("---\ntitle: X\n---\n")).toEqual([]);
+  });
+
+  it("keeps a body that follows an empty frontmatter block and a thematic break", () => {
+    const chunks = chunkNote("---\n---\nIntro paragraph.\n\n---\n\nSection two.\n", { maxChars: 1000 });
+    expect(chunks.map((c) => c.text).join("\n")).toContain("Intro paragraph.");
+  });
+
+  it("does not split on comment lines inside fenced code", () => {
+    const md = "# Setup\nRun this:\n\n```bash\n# install deps\npnpm install\n```\nDone.";
+    const chunks = chunkNote(md, { maxChars: 1000 });
+    expect(chunks.map((c) => c.heading)).toEqual(["Setup"]);
+    expect(chunks[0]?.text).toContain("# install deps");
   });
 
   it("splits by heading and carries the heading into body chunks", () => {

@@ -1,16 +1,11 @@
 // Pure: turns a vault note into the markdown that is safe to publish.
 
+import { closesFence, fenceOpen, type Fence } from "../markdown/fences";
+import { stripFrontmatter } from "../markdown/frontmatter";
+
 interface Segment {
   text: string;
   code: boolean;
-}
-
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
-const FRONTMATTER = /^---\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/;
-
-function isFenceClose(line: string, open: string): boolean {
-  const m = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
-  return !!m && m[1]![0] === open[0] && m[1]!.length >= open.length;
 }
 
 /** Splits into code (fences, inline spans) and prose, dropping %% comments from prose. */
@@ -18,7 +13,7 @@ function segment(text: string): Segment[] {
   const out: Segment[] = [];
   let prose = "";
   let inComment = false;
-  let fence: string | null = null;
+  let fence: Fence | null = null;
   const flush = () => {
     if (prose) out.push({ text: prose, code: false });
     prose = "";
@@ -29,14 +24,14 @@ function segment(text: string): Segment[] {
     const eol = index < lines.length - 1 ? "\n" : "";
     if (fence !== null) {
       out.push({ text: rawLine + eol, code: true });
-      if (isFenceClose(rawLine.replace(/\r$/, ""), fence)) fence = null;
+      if (closesFence(rawLine, fence)) fence = null;
       return;
     }
     if (!inComment) {
-      const open = FENCE_OPEN.exec(rawLine);
+      const open = fenceOpen(rawLine);
       if (open) {
         flush();
-        fence = open[1]!;
+        fence = open;
         out.push({ text: rawLine + eol, code: true });
         return;
       }
@@ -102,8 +97,7 @@ function proseTransform(text: string): string {
 }
 
 export function transformNoteForPublish(content: string): string {
-  const body = content.replace(FRONTMATTER, "");
-  const result = segment(body)
+  const result = segment(stripFrontmatter(content))
     .map((s) => (s.code ? s.text : proseTransform(s.text)))
     .join("")
     .replace(/^(?:[ \t]*\r?\n)+/, "")

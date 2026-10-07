@@ -102,7 +102,7 @@ import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "./view/EnrichModal";
 import { sanitizeFileName } from "./artifacts/parse";
 import { OrganizeReviewModal } from "./view/OrganizeReviewModal";
-import { stripFrontmatter } from "./semantic/chunk";
+import { frontmatterBlock, stripFrontmatter } from "./markdown/frontmatter";
 import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
 import { providerTurnRunner, type AgentTurnRunner } from "./agent/loop";
@@ -1371,7 +1371,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const file of files) {
         pending.setMessage(file.path);
         const content = await this.app.vault.cachedRead(file);
-        if (!/^source_enriched:\s*true\s*$/m.test(content)) {
+        if (!/^source_enriched:\s*true\s*$/m.test(frontmatterBlock(content)?.yaml ?? "")) {
           const outcome = await this.enrichment().enrichFile(file);
           if (outcome.status !== "enriched") {
             const detail = outcome.status === "failed" ? outcome.error.message : outcome.reason;
@@ -1722,7 +1722,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       for (const file of files) {
         progress.setMessage(file.path);
         const content = await this.app.vault.cachedRead(file);
-        if (/^source_enriched:\s*true\s*$/m.test(content)) {
+        if (/^source_enriched:\s*true\s*$/m.test(frontmatterBlock(content)?.yaml ?? "")) {
           results.push({ path: file.path, outcome: null });
           continue;
         }
@@ -1861,7 +1861,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     new ProjectCreateModal(this.app, async (input) => {
       const record = await this.researchRepository().createProject(input);
       const url = parseClipUrl(content);
-      const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+      const body = stripFrontmatter(content).trim();
       await this.researchRepository().importSource(record.path, {
         title: file.basename,
         sourceKind: "vault",

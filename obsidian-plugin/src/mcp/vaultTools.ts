@@ -13,7 +13,7 @@ import { validateProposal } from "../ontology/propose";
 import type { OntologyRegistry } from "../ontology/registry";
 import { loadedOntology } from "../optimize/vaultGlue";
 import { replaceSection } from "./edit";
-import { readFrontmatter } from "./frontmatterRead";
+import { readFrontmatter, stripFrontmatter } from "../markdown/frontmatter";
 import { DELEGABLE_RESEARCH_KEYS, RESEARCH_ROUTE_HINT, planResearchRouting, runResearchRouting, type ResearchRoutePlan } from "./researchRouting";
 import { parseResearchRecord } from "../research/parse";
 import type { ResearchRecord } from "../research/types";
@@ -895,8 +895,7 @@ export class VaultTools {
     const content = await this.app.vault.cachedRead(file);
     const frontmatter = readFrontmatter(content, (yaml) => parseYaml(yaml) as unknown);
     if (!frontmatter) return undefined;
-    const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-    return parseResearchRecord({ path: file.path, frontmatter, body }).record;
+    return parseResearchRecord({ path: file.path, frontmatter, body: stripFrontmatter(content) }).record;
   }
 
   private async frontmatterQuery(field: string, value: string | undefined): Promise<string> {

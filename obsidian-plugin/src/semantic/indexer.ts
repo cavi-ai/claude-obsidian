@@ -2,7 +2,8 @@
 // IO is injected (vault read, embed, load/save) so the logic is unit-testable
 // without Obsidian or a running Ollama. main.ts wires the real implementations.
 
-import { chunkNote, contentHash, stripFrontmatter, type Chunk } from "./chunk";
+import { chunkNote, contentHash, type Chunk } from "./chunk";
+import { stripFrontmatter } from "../markdown/frontmatter";
 import { chunkPdfPages, pdfPagesText, type PdfPage } from "./pdf";
 import { SemanticStore, type IndexData, type SearchHit } from "./store";
 

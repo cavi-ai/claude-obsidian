@@ -53,6 +53,16 @@ And \`Weekly Review\` inline. But GTD in prose.`;
     expect(paths).toEqual(["GTD.md"]);
   });
 
+  it("skips code fences inside list items and callouts", () => {
+    const content = "- deploy step:\n  ```bash\n  run # Weekly Review\n  ```\n> [!note]\n> ```\n> Weekly Review\n> ```\nBut GTD in prose.";
+    expect(findUnlinkedMentions(content, candidates, "X.md").map((m) => m.path)).toEqual(["GTD.md"]);
+  });
+
+  it("finds a mention between an empty frontmatter block and a later horizontal rule", () => {
+    const content = "---\n---\nThe Weekly Review.\n\n---\n\nAfter.";
+    expect(findUnlinkedMentions(content, candidates, "X.md").map((m) => m.path)).toEqual(["Weekly Review.md"]);
+  });
+
   it("never suggests the note itself or short names", () => {
     const content = "Weekly Review and Ok are words.";
     const paths = findUnlinkedMentions(content, candidates, "Weekly Review.md").map((m) => m.path);
