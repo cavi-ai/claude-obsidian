@@ -175,7 +175,7 @@ import { errorHint } from "./providers/errorHints";
 import { ChoiceModal } from "./view/ChoiceModal";
 import { TriageFolderModal } from "./view/TriageFolderModal";
 import { OntologyRegistry } from "./ontology/registry";
-import { seedFiles } from "./ontology/seed";
+import { planSeed, seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
 import { nextSteps } from "./research/nextSteps";
 import { documentSections } from "./research/sectionStatus";
@@ -2608,20 +2608,32 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._ontology;
   }
 
-  /** Create the default ontology schema notes (never overwrites), then reload and report. */
+  /** Create missing default schema notes and upgrade unedited superseded ones (never overwrites edits), then reload and report. */
   private async seedOntology(): Promise<void> {
     const folder = normalizePath(this.settings.ontologyFolder);
     await ensureVaultFolder(this.app, folder);
-    let created = 0;
+    const current = new Map<string, string | null>();
     for (const f of seedFiles()) {
-      const path = normalizePath(`${folder}/${f.fileName}`);
-      if (this.app.vault.getAbstractFileByPath(path)) continue; // never overwrite user edits
-      await this.app.vault.create(path, f.content);
-      created++;
+      const file = this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/${f.fileName}`));
+      current.set(f.fileName, file instanceof TFile ? await this.app.vault.read(file) : file ? "" : null);
+    }
+    let created = 0;
+    let upgraded = 0;
+    for (const w of planSeed((fileName) => current.get(fileName) ?? null)) {
+      const path = normalizePath(`${folder}/${w.fileName}`);
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (w.upgrade && file instanceof TFile) {
+        await this.app.vault.modify(file, w.content);
+        upgraded++;
+      } else if (!w.upgrade && !file) {
+        await this.app.vault.create(path, w.content);
+        created++;
+      }
     }
     const result = await this.ontology()?.load();
     const errors = result?.errors ?? [];
-    new Notice(created > 0 ? `Seeded ${created} ontology type${created === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
+    const changes = [created > 0 ? `seeded ${created}` : "", upgraded > 0 ? `upgraded ${upgraded}` : ""].filter(Boolean).join(", ");
+    new Notice(changes ? `Ontology: ${changes} type${created + upgraded === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
     if (errors.length > 0) {
       new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
       console.warn("[Claude Companion] ontology schema errors:", errors);
