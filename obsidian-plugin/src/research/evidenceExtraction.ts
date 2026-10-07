@@ -1,6 +1,7 @@
 import type { ResearchSourceRecord, SourceLocatorKind } from "./types";
 import { stripFrontmatter } from "../markdown/frontmatter";
-import { isJsonObject, replyJson } from "../providers/replyJson";
+import { replyJson } from "../providers/replyJson";
+import { isRecord } from "../records";
 
 export interface SourceText { text: string; pages?: Array<{ page: number; text: string }> }
 export interface ProposedPassage { title: string; excerpt: string; locatorKind: SourceLocatorKind; locatorValue: string; interpretation?: string }
@@ -107,7 +108,7 @@ function trimTitle(raw: string, excerpt: string): string {
 }
 
 export function parseExtraction(raw: string, source: SourceText, existingExcerpts: readonly string[]): ProposedPassage[] {
-  const parsed = replyJson(raw, (value) => isJsonObject(value) && Array.isArray(value.passages)) as { passages: unknown[] } | undefined;
+  const parsed = replyJson(raw, (value) => isRecord(value) && Array.isArray(value.passages)) as { passages: unknown[] } | undefined;
   if (!parsed) return [];
   const haystack = normalize(source.text);
   const seen = new Set(existingExcerpts.map(normalize));

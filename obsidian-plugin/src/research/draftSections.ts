@@ -1,5 +1,6 @@
-import { fnv1aHex } from "../hashing";
+import { fnv1aFingerprint } from "../hashing";
 import { fencedLines } from "../markdown/fences";
+import { isRecord } from "../records";
 
 export interface DraftSectionEnvelope {
   id: string;
@@ -54,16 +55,12 @@ interface V1Section extends ParsedDraftSection { start: number; end: number; acc
 
 const validString = (value: unknown): value is string => typeof value === "string" && Boolean(value.trim());
 const optionalString = (value: unknown): value is string | undefined => value === undefined || validString(value);
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const isEvidenceRef = (value: unknown): value is { path: string; fingerprint: string } => isRecord(value) && validString(value.path) && validString(value.fingerprint);
 const isCitation = (value: unknown): value is { key: string; sourcePath: string } => isRecord(value) && validString(value.key) && validString(value.sourcePath);
 
-function fingerprintText(value: string): string {
-  return `fnv1a-${fnv1aHex(value)}`;
-}
 
 export function draftMarkdownFingerprint(markdown: string): string {
-  return fingerprintText(markdown.trim());
+  return fnv1aFingerprint(markdown.trim());
 }
 
 export function containsReservedMarker(text: string): boolean {
@@ -230,7 +227,7 @@ function locateV1(text: string): { sections: V1Section[]; issues: string[] } {
       envelope,
       heading: lead ? sectionHeading(lead[1]!) : v1Heading(envelope),
       markdown: normalizeSectionBody(lead ? trimmed.slice(trimmed.indexOf("\n") < 0 ? trimmed.length : trimmed.indexOf("\n") + 1) : raw),
-      modifiedSinceReview: fingerprintText(raw) !== acceptedFingerprint,
+      modifiedSinceReview: fnv1aFingerprint(raw) !== acceptedFingerprint,
       acceptedFingerprint,
       start: match.index ?? 0,
       end: markerIndex + endMarker.length,

@@ -1,6 +1,7 @@
 import type { ProjectSnapshot } from "./graph";
 import type { EvidenceRecord, EvidenceRelation } from "./types";
-import { isJsonObject, replyJson } from "../providers/replyJson";
+import { replyJson } from "../providers/replyJson";
+import { isRecord } from "../records";
 
 export interface ClaimSuggestion {
   title: string;
@@ -39,7 +40,7 @@ function trimTitle(value: string): string {
 }
 
 export function parseClaimSuggestion(raw: string, offered: ReadonlySet<string>): ClaimSuggestion | null {
-  const data = replyJson(raw, isJsonObject) as Record<string, unknown> | undefined;
+  const data = replyJson(raw, isRecord) as Record<string, unknown> | undefined;
   if (!data) return null;
   const title = typeof data.title === "string" ? trimTitle(data.title) : "";
   const proposition = typeof data.proposition === "string" ? data.proposition.trim() : "";
