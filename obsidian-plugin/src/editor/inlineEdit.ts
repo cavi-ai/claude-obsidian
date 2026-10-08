@@ -1,5 +1,6 @@
 // Edit with Claude at the cursor: prompt → one buffered completion → inline review. Pure; IO injected by main.ts.
 
+import { applyPlan, planEdits, type EditPlan } from "../edit/diff";
 import { INSERT_SYSTEM, REWRITE_PRESETS, REWRITE_SYSTEM, buildInsertUser, buildRewriteUser, parseInsert, parseRewrite, rewriteMaxTokens } from "../edit/rewrite";
 import { createRangeSession, type InlineDiffSession } from "./inlineDiffState";
 import type { InlinePromptHandle, InlinePromptOptions } from "./inlinePrompt";
@@ -38,6 +39,48 @@ export type InlineEditOutcome = "skipped" | "closed" | "aborted" | "stale" | "ap
 
 export const CHANGED_UNDER_EDIT = "The note changed under the edit; nothing was applied.";
 export const INSERT_NEEDS_INLINE_DIFF = "Turn on inline diff review to write at the cursor.";
+
+/** A modal rewrite plan: against the whole note, or against the selection alone and anchored at the editor offsets. */
+export interface ModalRewritePlan {
+  plan: EditPlan;
+  anchor: { start: number; end: number } | null;
+  selection: string;
+  rewritten: string;
+}
+
+export function planModalRewrite(content: string, rewrite: ModalRewrite): ModalRewritePlan {
+  const { selection, rewritten } = rewrite;
+  try {
+    return { plan: planEdits(content, [{ old_str: selection, new_str: rewritten }]), anchor: null, selection, rewritten };
+  } catch {
+    return { plan: planEdits(selection, [{ old_str: selection, new_str: rewritten }]), anchor: { start: rewrite.from, end: rewrite.to }, selection, rewritten };
+  }
+}
+
+/** The note with the accepted rewrite, or null when the anchor no longer holds the selection. */
+export function applyModalRewrite(current: string, prepared: ModalRewritePlan, accepted: boolean[]): string | null {
+  const { anchor, selection, rewritten, plan } = prepared;
+  if (!anchor) return applyPlan(current, plan, accepted);
+  if (current.slice(anchor.start, anchor.end) !== selection) return null;
+  return accepted[0] ? current.slice(0, anchor.start) + rewritten + current.slice(anchor.end) : current;
+}
+
+/** Apply inside one vault transform; a stale anchor leaves the note untouched. */
+export async function commitModalRewrite(
+  process: (transform: (current: string) => string) => Promise<unknown>,
+  prepared: ModalRewritePlan,
+  accepted: boolean[],
+  notice: (message: string) => void,
+): Promise<boolean> {
+  let stale = false;
+  await process((current) => {
+    const next = applyModalRewrite(current, prepared, accepted);
+    stale = next === null;
+    return next ?? current;
+  });
+  notice(stale ? CHANGED_UNDER_EDIT : "Rewrite applied.");
+  return !stale;
+}
 
 export function inlineEditMenuTitle(hasSelection: boolean): string {
   return hasSelection ? "Rewrite with Claude…" : "Write with Claude at cursor…";

@@ -59,12 +59,12 @@ import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSy
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, linkMention, withLinktext, type LinkCandidate } from "./links/unlinkedMentions";
 import { mentionEdits } from "./links/suggest";
-import { planEdits, applyPlan, diffToEdits, type EditPlan } from "./edit/diff";
+import { planEdits, applyPlan, diffToEdits } from "./edit/diff";
 import { inlineDiffExtension, reviewInline } from "./editor/inlineDiffExtension";
 import { selectionActionExtension } from "./editor/selectionAction";
 import { editorViewOf } from "./editor/reviewEdits";
 import { inlinePromptExtension, openInlinePrompt } from "./editor/inlinePrompt";
-import { inlineEditMenuTitle, runInlineEdit, type ModalRewrite } from "./editor/inlineEdit";
+import { commitModalRewrite, inlineEditMenuTitle, planModalRewrite, runInlineEdit, type ModalRewrite } from "./editor/inlineEdit";
 import { REWRITE_SYSTEM, buildRewriteUser, buildGroundedRewriteUser, rewriteMaxTokens, parseRewrite } from "./edit/rewrite";
 import { DiffModal } from "./view/DiffModal";
 import { BatchDiffModal } from "./view/BatchDiffModal";
@@ -1408,28 +1408,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * selection alone and the apply is anchored at the editor offsets.
    */
   private async reviewRewriteInModal(file: TFile, content: string, rewrite: ModalRewrite): Promise<void> {
-    const { selection, rewritten, instruction } = rewrite;
-    let plan: EditPlan;
-    let anchor: { start: number; end: number } | null = null;
-    try {
-      plan = planEdits(content, [{ old_str: selection, new_str: rewritten }]);
-    } catch {
-      plan = planEdits(selection, [{ old_str: selection, new_str: rewritten }]);
-      anchor = { start: rewrite.from, end: rewrite.to };
-    }
-
+    const prepared = planModalRewrite(content, rewrite);
     const accepted = await new Promise<boolean[] | null>((resolve) =>
-      new DiffModal(this.app, { path: file.path, description: `Rewrite — ${instruction}`, plan }, resolve).open(),
+      new DiffModal(this.app, { path: file.path, description: `Rewrite — ${rewrite.instruction}`, plan: prepared.plan }, resolve).open(),
     );
     if (!accepted) return;
-
-    await this.app.vault.process(file, (current) => {
-      if (anchor && current.slice(anchor.start, anchor.end) === selection) {
-        return accepted[0] ? current.slice(0, anchor.start) + rewritten + current.slice(anchor.end) : current;
-      }
-      return applyPlan(current, plan, accepted);
-    });
-    new Notice("Rewrite applied.");
+    await commitModalRewrite((transform) => this.app.vault.process(file, transform), prepared, accepted, (message) => new Notice(message));
   }
 
   /** One step runner shared by the Research Desk and Workbench. */

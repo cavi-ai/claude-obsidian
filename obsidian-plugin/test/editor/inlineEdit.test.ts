@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { inlineEditMenuTitle, runInlineEdit, type InlineEditDeps, type CompleteRequest } from "../../src/editor/inlineEdit";
+import { CHANGED_UNDER_EDIT, applyModalRewrite, commitModalRewrite, inlineEditMenuTitle, planModalRewrite, runInlineEdit, type InlineEditDeps, type CompleteRequest } from "../../src/editor/inlineEdit";
 import type { InlinePromptHandle, InlinePromptOptions } from "../../src/editor/inlinePrompt";
 import type { InlineDiffSession } from "../../src/editor/inlineDiffState";
 import { REWRITE_PRESETS, REWRITE_SYSTEM, INSERT_SYSTEM, buildRewriteUser, rewriteMaxTokens, parseRewrite } from "../../src/edit/rewrite";
@@ -121,6 +121,33 @@ describe("runInlineEdit — selection mode", () => {
     expect(await runInlineEdit({ doc: "a   b", from: 1, to: 4 }, h.deps)).toBe("skipped");
     expect(h.prompt.opts).toBeNull();
     expect(h.notices).toEqual(["Select some text to rewrite, or place the cursor to write."]);
+  });
+});
+
+describe("modal rewrite (inline diff off)", () => {
+  const NOTE = "TODO\n\nTODO\n";
+  const second = { selection: "TODO", rewritten: "Done", instruction: "finish", from: 6, to: 10 };
+
+  async function commit(current: string): Promise<{ written: string; notices: string[] }> {
+    const prepared = planModalRewrite(NOTE, second);
+    const notices: string[] = [];
+    let written = current;
+    await commitModalRewrite(async (transform) => { written = transform(current); }, prepared, [true], (m) => notices.push(m));
+    return { written, notices };
+  }
+
+  it("an anchored rewrite writes only at the anchor while it still holds the selection", async () => {
+    expect(await commit("TODO\n\nTODO!\n")).toEqual({ written: "TODO\n\nDone!\n", notices: ["Rewrite applied."] });
+  });
+
+  it("an anchored rewrite whose anchor moved leaves the note unchanged and says so", async () => {
+    expect(await commit("TODO\n\n!TODO\n")).toEqual({ written: "TODO\n\n!TODO\n", notices: [CHANGED_UNDER_EDIT] });
+  });
+
+  it("a whole-note plan applies through the plan", async () => {
+    const prepared = planModalRewrite("A\nTODO\n", { ...second, from: 2, to: 6 });
+    expect(prepared.anchor).toBeNull();
+    expect(applyModalRewrite("X\nA\nTODO\n", prepared, [true])).toBe("X\nA\nDone\n");
   });
 });
 
