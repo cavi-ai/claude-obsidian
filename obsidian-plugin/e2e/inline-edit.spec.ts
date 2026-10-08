@@ -55,7 +55,15 @@ test("writing at the cursor shows a pending insertion that Mod-Enter accepts", a
     await expect(page.locator(".cc-inline-prompt")).toHaveCount(0);
     expect(await editorText(page)).toBe(NOTE);
 
+    const before = await page.evaluate(() => {
+      const w = window as unknown as { __ccKeys: string[] };
+      w.__ccKeys = [];
+      document.addEventListener("keydown", (e) => w.__ccKeys.push(`${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.key}`), true);
+      return (document.activeElement as HTMLElement | null)?.className ?? "";
+    });
+    expect(before, "the editor has focus when the review opens").toContain("cm-content");
     await page.keyboard.press(`${MOD}+Enter`);
+    expect(await page.evaluate(() => (window as unknown as { __ccKeys: string[] }).__ccKeys), "Mod+Enter reaches the page").toContain(`${MOD}+Enter`);
     await expect(added).toHaveCount(0);
     expect(await editorText(page)).toBe(`${NOTE}- [ ] Ship it`);
     expect(await harness.providerRequests()).toBe(1);
