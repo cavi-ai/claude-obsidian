@@ -43,8 +43,13 @@ export function mapPendingRange(p: PendingRange, changes: ChangeDesc): PendingRa
     const pos = at ?? changes.mapPos(p.from, -1);
     return { ...p, anchor, from: pos, to: pos, valid: p.valid && at !== null };
   }
-  const touched = changes.touchesRange(p.from, p.to) !== false;
-  return { ...p, anchor, from: changes.mapPos(p.from, 1), to: changes.mapPos(p.to, -1), valid: p.valid && !touched };
+  let inside = false;
+  changes.iterChangedRanges((fromA, toA) => {
+    if (fromA < p.to && toA > p.from) inside = true;
+  });
+  const from = changes.mapPos(p.from, 1);
+  const to = changes.mapPos(p.to, -1);
+  return { ...p, anchor, from, to, valid: p.valid && !inside && to > from };
 }
 
 export const pendingRangeField = StateField.define<PendingRange | null>({

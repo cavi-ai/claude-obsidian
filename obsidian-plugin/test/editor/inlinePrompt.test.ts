@@ -41,6 +41,22 @@ describe("pending range (selection mode)", () => {
     expect(s.field(pendingRangeField)?.valid).toBe(false);
   });
 
+  it("typing right after the range keeps it", () => {
+    const s = open().update({ changes: { from: TO, insert: "!!" } }).state;
+    expect(validPendingRange(s, 7)).toEqual({ from: FROM, to: TO });
+  });
+
+  it("typing right before the range shifts it and keeps it", () => {
+    const s = open().update({ changes: { from: FROM, insert: "ab" } }).state;
+    expect(validPendingRange(s, 7)).toEqual({ from: FROM + 2, to: TO + 2 });
+    expect(s.doc.sliceString(FROM + 2, TO + 2)).toBe("Second line");
+  });
+
+  it("deleting the whole range invalidates it", () => {
+    const s = open().update({ changes: { from: FROM, to: TO, insert: "" } }).state;
+    expect(validPendingRange(s, 7)).toBeNull();
+  });
+
   it("an edit that overlaps an end of the range invalidates it", () => {
     const s = open().update({ changes: { from: FROM - 3, to: FROM + 1, insert: "" } }).state;
     expect(validPendingRange(s, 7)).toBeNull();
