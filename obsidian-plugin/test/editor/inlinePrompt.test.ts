@@ -217,13 +217,10 @@ describe("prompt controller wiring", () => {
     expect(view.focus).toHaveBeenCalledTimes(1);
   });
 
-  it("the prompt's Escape outranks the inline diff's Escape", () => {
+  it("the inline diff claims no keymap Escape, so the prompt's Escape is the only one", () => {
     const state = EditorState.create({ extensions: [inlineDiffExtension(), inlinePromptExtension()] });
-    const maps = state.facet(keymap);
-    const prompt = maps.findIndex((m) => m.some((b) => b.key === "Escape" && b.run === escapeInlinePrompt));
-    const diff = maps.findIndex((m) => m.some((b) => b.key === "Escape" && b.run !== escapeInlinePrompt));
-    expect(prompt).toBeGreaterThanOrEqual(0);
-    expect(diff).toBeGreaterThan(prompt);
+    const escapes = state.facet(keymap).flatMap((m) => m.filter((b) => b.key === "Escape"));
+    expect(escapes.map((b) => b.run)).toEqual([escapeInlinePrompt]);
   });
 
   it("view teardown (or plugin unload) aborts a running prompt and answers its caller", async () => {
