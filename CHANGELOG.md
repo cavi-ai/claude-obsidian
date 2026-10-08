@@ -4,6 +4,17 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] — 2026-10-08
+
+### Added
+- Edit with Claude at cursor: a prompt in the editor rewrites the selection or writes at the cursor, reviewed in the inline diff.
+
+### Changed
+- On mobile, the chat composer is one card with context, Ask / Plan / Act, and Send.
+
+### Fixed
+- Mod+Enter and Escape accept and reject a pending inline review, including agent edits.
+
 ## [0.43.0] — 2026-10-07
 
 ### Changed
