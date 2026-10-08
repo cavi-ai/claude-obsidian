@@ -814,7 +814,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (!(view instanceof MarkdownView) || !view.file) return;
         menu.addItem((item) =>
           item
-            .setTitle(inlineEditMenuTitle(editor.getSelection().length > 0))
+            .setTitle(inlineEditMenuTitle(editor.getSelection()))
             .setIcon("sparkles")
             .onClick(() => void this.startInlineEdit(editor, view)),
         );

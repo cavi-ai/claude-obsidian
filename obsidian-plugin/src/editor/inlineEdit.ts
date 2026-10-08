@@ -82,8 +82,9 @@ export async function commitModalRewrite(
   return !stale;
 }
 
-export function inlineEditMenuTitle(hasSelection: boolean): string {
-  return hasSelection ? "Rewrite with Claude…" : "Write with Claude at cursor…";
+/** A whitespace-only selection is not a rewrite target, matching runInlineEdit. */
+export function inlineEditMenuTitle(selection: string): string {
+  return selection.trim().length > 0 ? "Rewrite with Claude…" : "Write with Claude at cursor…";
 }
 
 export async function runInlineEdit(target: { doc: string; from: number; to: number }, deps: InlineEditDeps): Promise<InlineEditOutcome> {

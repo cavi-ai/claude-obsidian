@@ -86,8 +86,12 @@ function harness(opts: { instruction?: string | null; reply?: string | Error | (
 
 describe("inlineEditMenuTitle", () => {
   it("names rewrite with a selection and writing at the cursor without one", () => {
-    expect(inlineEditMenuTitle(true)).toBe("Rewrite with Claude…");
-    expect(inlineEditMenuTitle(false)).toBe("Write with Claude at cursor…");
+    expect(inlineEditMenuTitle("Create the parser")).toBe("Rewrite with Claude…");
+    expect(inlineEditMenuTitle("")).toBe("Write with Claude at cursor…");
+  });
+
+  it("a whitespace-only selection is not offered as a rewrite", () => {
+    expect(inlineEditMenuTitle("  \n\t")).toBe("Write with Claude at cursor…");
   });
 });
 
