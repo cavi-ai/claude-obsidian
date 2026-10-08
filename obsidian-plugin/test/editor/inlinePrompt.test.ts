@@ -135,6 +135,17 @@ describe("prompt controller", () => {
     expect(p.handle.cancelled).toBe(true);
   });
 
+  it("Enter confirming an IME composition neither submits nor is claimed", async () => {
+    const p = openOver(fakeView());
+    p.input.value = "かな";
+    p.input.dispatchEvent({ type: "input" });
+    const event = press(p.dom, "Enter", { isComposing: true });
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+    p.handle.close();
+    expect(await p.handle.instruction).toBeNull();
+  });
+
   it("teardown before the reply aborts and marks the prompt cancelled", async () => {
     const p = openOver(fakeView());
     submit(p);

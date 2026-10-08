@@ -34,6 +34,12 @@ describe("mode text", () => {
 });
 
 describe("promptKey", () => {
+  it("ignores keys that belong to an IME composition", () => {
+    expect(promptKey({ key: "Enter", isComposing: true })).toBeNull();
+    expect(promptKey({ key: "Escape", isComposing: true })).toBeNull();
+    expect(promptKey({ key: "Enter", keyCode: 229 })).toBeNull();
+  });
+
   it("claims Enter, Escape, arrows, and Tab so the editor never sees them", () => {
     expect(promptKey({ key: "Enter", shiftKey: false })).toBe("Enter");
     expect(promptKey({ key: "Escape", shiftKey: false })).toBe("Escape");

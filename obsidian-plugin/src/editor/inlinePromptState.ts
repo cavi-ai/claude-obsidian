@@ -34,7 +34,9 @@ export function placeholderFor(mode: PromptMode): string {
   return mode === "insert" ? "Write at cursor…" : "Rewrite selection…";
 }
 
-export function promptKey(event: { key: string; shiftKey: boolean }): PromptKey | null {
+/** IME composition keys (isComposing, or keyCode 229) belong to the input method, never the prompt. */
+export function promptKey(event: { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }): PromptKey | null {
+  if (event.isComposing || event.keyCode === 229) return null;
   if (event.key === "Tab") return event.shiftKey ? "Shift-Tab" : "Tab";
   if (event.key === "Enter" || event.key === "Escape" || event.key === "ArrowUp" || event.key === "ArrowDown") return event.key;
   return null;
