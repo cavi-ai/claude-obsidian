@@ -55,15 +55,32 @@ export const INSERT_SYSTEM = [
   "Match the note's language, voice, and markdown structure; keep wiki-links ([[...]]) and URLs intact.",
 ].join(" ");
 
+const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
+
+/** The last INSERT_CONTEXT_CHARS of text, starting on a code-point boundary. */
+function tailWindow(text: string): string {
+  let start = Math.max(0, text.length - INSERT_CONTEXT_CHARS);
+  if (start > 0 && isLowSurrogate(text.charCodeAt(start)) && isHighSurrogate(text.charCodeAt(start - 1))) start++;
+  return text.slice(start);
+}
+
+/** The first INSERT_CONTEXT_CHARS of text, ending on a code-point boundary. */
+function headWindow(text: string): string {
+  let end = Math.min(text.length, INSERT_CONTEXT_CHARS);
+  if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end))) end--;
+  return text.slice(0, end);
+}
+
 export function buildInsertUser(before: string, after: string, instruction: string): string {
   return [
     `Instruction: ${instruction}`,
     "",
     "<before_cursor>",
-    before.slice(Math.max(0, before.length - INSERT_CONTEXT_CHARS)),
+    tailWindow(before),
     "</before_cursor>",
     "<after_cursor>",
-    after.slice(0, INSERT_CONTEXT_CHARS),
+    headWindow(after),
     "</after_cursor>",
   ].join("\n");
 }
