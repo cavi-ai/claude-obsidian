@@ -57,6 +57,7 @@ type BufferedCompletionInput = {
   responseFormat?: "json";
   responseSchema?: Record<string, unknown>;
   thinking?: CompletionRequest["thinking"];
+  signal?: AbortSignal;
 };
 
 /**
@@ -401,6 +402,7 @@ export class ProviderRouter {
         ...(req.responseFormat ? { responseFormat: req.responseFormat } : {}),
         ...(req.responseSchema ? { responseSchema: req.responseSchema } : {}),
         ...(req.thinking ? { thinking: req.thinking } : {}),
+        ...(req.signal ? { signal: req.signal } : {}),
       });
       return { text, provider };
     } catch (error) {

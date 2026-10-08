@@ -214,6 +214,28 @@ describe("ProviderRouter.completeResolved", () => {
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ model: "qwen3:1.7b" }));
   });
 
+  it("passes the caller's abort signal to the provider", async () => {
+    const r = new ProviderRouter(settings({ utilityBackend: "claude" }));
+    const complete = vi.spyOn(r.anthropic, "complete").mockResolvedValue("ok");
+    const controller = new AbortController();
+    controller.abort();
+
+    await r.complete("chat", { system: "sys", user: "note", signal: controller.signal });
+
+    const sent = complete.mock.calls[0]![0];
+    expect(sent.signal).toBe(controller.signal);
+    expect(sent.signal?.aborted).toBe(true);
+  });
+
+  it("sends no signal when the caller gives none", async () => {
+    const r = new ProviderRouter(settings({ utilityBackend: "claude" }));
+    const complete = vi.spyOn(r.anthropic, "complete").mockResolvedValue("ok");
+
+    await r.complete("chat", { system: "sys", user: "note" });
+
+    expect("signal" in complete.mock.calls[0]![0]).toBe(false);
+  });
+
   it("attributes provider failures to the pinned sanitized endpoint", async () => {
     const r = new ProviderRouter(settings({ utilityBackend: "custom" }));
     const selected = {
