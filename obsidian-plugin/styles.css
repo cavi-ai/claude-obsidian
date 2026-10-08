@@ -2997,20 +2997,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-connect-callout p { margin: 0; color: var(--text-muted); font-size: var(--cc-text-sm); }
 .setting-item input.cc-input-invalid { border-color: var(--text-error); }
 
-/* ---- inline rewrite modal ---- */
-.cc-rewrite-input {
-  width: 100%;
-  margin: 8px 0;
-  resize: vertical;
-}
-.cc-rewrite-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.cc-rewrite-preset { font-size: var(--font-ui-smaller); }
-
 /* ---- research: sharpen proposition preview ---- */
 .cc-research-sharpen-preview {
   border: 1px solid var(--background-modifier-border);
@@ -3045,7 +3031,6 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-source-url-row input { flex: 1; }
 .cc-source-file-input { display: none; }
 .cc-source-capture-status { min-height: 1.2em; color: var(--text-muted); }
-.cc-rewrite-hint { color: var(--text-faint); font-size: var(--font-ui-smaller); margin-right: auto; }
 .is-mobile .cc-source-dropzone { display: none; }
 
 /* ---- shared Companion activity indicator and drawer ---- */
