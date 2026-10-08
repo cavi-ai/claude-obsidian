@@ -47,6 +47,36 @@ export function buildGroundedRewriteUser(selection: string, instruction: string,
   ].join("\n");
 }
 
+export const INSERT_CONTEXT_CHARS = 2000;
+
+export const INSERT_SYSTEM = [
+  "You write new markdown text to insert at the cursor in an Obsidian note.",
+  "Return ONLY the text to insert — no preamble, no explanation, no wrapping quotes, no code fences around prose, and never repeat the text around the cursor.",
+  "Match the note's language, voice, and markdown structure; keep wiki-links ([[...]]) and URLs intact.",
+].join(" ");
+
+export function buildInsertUser(before: string, after: string, instruction: string): string {
+  return [
+    `Instruction: ${instruction}`,
+    "",
+    "<before_cursor>",
+    before.slice(Math.max(0, before.length - INSERT_CONTEXT_CHARS)),
+    "</before_cursor>",
+    "<after_cursor>",
+    after.slice(0, INSERT_CONTEXT_CHARS),
+    "</after_cursor>",
+  ].join("\n");
+}
+
+/** Trim and unwrap a whole-answer prose fence; a fence naming a code language is real content. */
+export function parseInsert(raw: string): string {
+  let text = raw.trim();
+  const fenced = /^```(markdown|md)?\n([\s\S]*?)\n?```$/.exec(text);
+  if (fenced) text = fenced[2]!.trim();
+  if (text.length === 0) throw new Error("The model returned nothing to insert — try rephrasing the instruction.");
+  return text;
+}
+
 /** Rough char→token budget with headroom for expansions; bounded so a huge
  *  selection doesn't blow past the model's output limit. */
 export function rewriteMaxTokens(selection: string): number {
