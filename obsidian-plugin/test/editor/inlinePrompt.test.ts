@@ -1,8 +1,7 @@
 import { EditorState, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
-import "../fakes/obsidian";
-import type { FakeElement } from "../fakes/obsidian";
+import { FakeElement, fakeDocument } from "../fakes/obsidian";
 import {
   clearPendingRange,
   escapeInlinePrompt,
@@ -160,6 +159,26 @@ describe("prompt controller", () => {
     expect(event.stopPropagation).not.toHaveBeenCalled();
     p.handle.close();
     expect(await p.handle.instruction).toBeNull();
+  });
+
+  it("close() returns focus to the editor only from inside the prompt or the body", () => {
+    const fromPrompt = fakeView();
+    const a = openOver(fromPrompt);
+    a.input.focus();
+    a.handle.close();
+    expect(fromPrompt.focus).toHaveBeenCalledTimes(1);
+
+    const fromBody = fakeView();
+    const b = openOver(fromBody);
+    fakeDocument.activeElement = fakeDocument.body;
+    b.handle.close();
+    expect(fromBody.focus).toHaveBeenCalledTimes(1);
+
+    const elsewhere = fakeView();
+    const c = openOver(elsewhere);
+    fakeDocument.activeElement = new FakeElement("input");
+    c.handle.close();
+    expect(elsewhere.focus).not.toHaveBeenCalled();
   });
 
   it("teardown before the reply aborts and marks the prompt cancelled", async () => {

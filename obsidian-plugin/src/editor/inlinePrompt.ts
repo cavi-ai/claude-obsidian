@@ -94,7 +94,7 @@ export interface InlinePromptHandle {
   settle(): void;
   /** The target range if no edit touched it while the request ran. */
   range(): { from: number; to: number } | null;
-  /** Remove the widget and return focus to the editor. */
+  /** Remove the widget; focus returns to the editor only from inside the prompt or the body. */
   close(): void;
 }
 
@@ -184,9 +184,12 @@ class PromptController implements InlinePromptHandle {
 
   close(): void {
     if (this.disposed) return;
+    const doc = this.dom.ownerDocument;
+    const active = doc.activeElement;
+    const refocus = !active || active === doc.body || this.dom.contains(active);
     this.dispose();
     if (this.view.state.field(pendingRangeField, false)?.id === this.id) this.view.dispatch({ effects: clearPendingRange.of(this.id) });
-    this.view.focus();
+    if (refocus) this.view.focus();
   }
 
   /** Teardown without touching the view (note switch, view destroyed, superseded). */
