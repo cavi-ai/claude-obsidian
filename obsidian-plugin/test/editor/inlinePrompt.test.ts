@@ -1,10 +1,13 @@
 import { EditorState, type TransactionSpec } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { keymap, type EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { FakeElement, fakeDocument } from "../fakes/obsidian";
+import { inlineDiffExtension } from "../../src/editor/inlineDiffExtension";
 import {
+  PromptWatcher,
   clearPendingRange,
   escapeInlinePrompt,
+  inlinePromptExtension,
   openInlinePrompt,
   pendingRangeField,
   setPendingRange,
@@ -188,5 +191,66 @@ describe("prompt controller", () => {
     p.handle.close();
     expect(p.handle.signal.aborted).toBe(true);
     expect(p.handle.cancelled).toBe(true);
+  });
+});
+
+describe("prompt controller wiring", () => {
+  it("a claimed key is stopped and prevented; an unclaimed key passes through", () => {
+    const p = openOver(fakeView());
+    const tab = press(p.dom, "Tab");
+    expect(tab.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(tab.preventDefault).toHaveBeenCalledTimes(1);
+    const letter = press(p.dom, "a");
+    expect(letter.stopPropagation).not.toHaveBeenCalled();
+    expect(letter.preventDefault).not.toHaveBeenCalled();
+    p.handle.close();
+  });
+
+  it("Esc in the prompt closes it and returns focus to the editor", async () => {
+    const view = fakeView();
+    const p = openOver(view);
+    p.input.focus();
+    const esc = press(p.dom, "Escape");
+    expect(esc.preventDefault).toHaveBeenCalledTimes(1);
+    expect(await p.handle.instruction).toBeNull();
+    expect(view.state.field(pendingRangeField)).toBeNull();
+    expect(view.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("the prompt's Escape outranks the inline diff's Escape", () => {
+    const state = EditorState.create({ extensions: [inlineDiffExtension(), inlinePromptExtension()] });
+    const maps = state.facet(keymap);
+    const prompt = maps.findIndex((m) => m.some((b) => b.key === "Escape" && b.run === escapeInlinePrompt));
+    const diff = maps.findIndex((m) => m.some((b) => b.key === "Escape" && b.run !== escapeInlinePrompt));
+    expect(prompt).toBeGreaterThanOrEqual(0);
+    expect(diff).toBeGreaterThan(prompt);
+  });
+
+  it("view teardown (or plugin unload) aborts a running prompt and answers its caller", async () => {
+    const view = fakeView();
+    const p = openOver(view);
+    submit(p);
+    expect(await p.handle.instruction).toBe("tighten");
+    new PromptWatcher(view as unknown as EditorView).destroy();
+    expect(p.handle.signal.aborted).toBe(true);
+    expect(p.handle.cancelled).toBe(true);
+    expect(p.handle.range()).toBeNull();
+  });
+
+  it("a newer prompt in the same view tears down the older one", async () => {
+    const view = fakeView();
+    const first = openOver(view);
+    const second = openOver(view);
+    expect(await first.handle.instruction).toBeNull();
+    expect(second.handle.range()).toEqual({ from: FROM, to: TO });
+    second.handle.close();
+  });
+});
+
+describe("pending range (insert mode) typing at the cursor", () => {
+  it("text typed at the insert position lands after it", () => {
+    const AT = DOC.indexOf("Second");
+    const s = open({ mode: "insert", from: AT, to: AT }).update({ changes: { from: AT, insert: "zz" } }).state;
+    expect(validPendingRange(s, 7)).toEqual({ from: AT, to: AT });
   });
 });

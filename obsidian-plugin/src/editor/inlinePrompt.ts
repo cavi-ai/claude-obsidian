@@ -260,18 +260,18 @@ export function escapeInlinePrompt(view: EditorView): boolean {
   return byView.get(view)?.escape() ?? false;
 }
 
-const watcher = ViewPlugin.fromClass(
-  class {
-    constructor(private readonly view: EditorView) {}
-    update(u: ViewUpdate): void {
-      const before = u.startState.field(pendingRangeField, false);
-      if (before && !u.state.field(pendingRangeField, false)) byId.get(before.id)?.dispose();
-    }
-    destroy(): void {
-      byView.get(this.view)?.dispose();
-    }
-  },
-);
+export class PromptWatcher {
+  constructor(private readonly view: EditorView) {}
+  update(u: ViewUpdate): void {
+    const before = u.startState.field(pendingRangeField, false);
+    if (before && !u.state.field(pendingRangeField, false)) byId.get(before.id)?.dispose();
+  }
+  destroy(): void {
+    byView.get(this.view)?.dispose();
+  }
+}
+
+const watcher = ViewPlugin.fromClass(PromptWatcher);
 
 export function inlinePromptExtension(): Extension {
   return [pendingRangeField, watcher, Prec.highest(keymap.of([{ key: "Escape", run: escapeInlinePrompt }]))];
