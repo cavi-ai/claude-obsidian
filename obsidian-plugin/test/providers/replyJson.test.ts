@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isJsonObject, replyJson } from "../../src/providers/replyJson";
+import { replyJson } from "../../src/providers/replyJson";
+import { isRecord as isJsonObject } from "../../src/records";
 
 describe("replyJson", () => {
   it("reads bare JSON, a fenced block, and JSON wrapped in prose", () => {

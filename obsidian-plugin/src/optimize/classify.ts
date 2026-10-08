@@ -1,5 +1,6 @@
 import { tagId } from "../tags/vocabulary";
-import { isJsonObject, replyJson } from "../providers/replyJson";
+import { replyJson } from "../providers/replyJson";
+import { isRecord } from "../records";
 
 export interface ClassifyPair {
   id: string;
@@ -69,7 +70,7 @@ export function classifyRequest(pairs: ClassifyPair[]): string {
 export function parseVerdicts(raw: string, pairs: ClassifyPair[]): Verdict[] {
   const parsed = replyJson(raw);
   if (parsed === undefined) throw new VerdictParseError("Reply is not valid JSON");
-  const list = isJsonObject(parsed) ? parsed.verdicts : undefined;
+  const list = isRecord(parsed) ? parsed.verdicts : undefined;
   if (!Array.isArray(list)) throw new VerdictParseError("Reply must be a JSON object with a verdicts array");
   const seen = new Set<number>();
   const out: Verdict[] = [];

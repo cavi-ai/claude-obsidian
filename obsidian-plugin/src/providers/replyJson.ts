@@ -2,10 +2,6 @@
 // wrapped in prose. One reader for every model call that asks for JSON instead
 // of a schema-constrained response. Pure.
 
-/** JSON object test shared by the callers that need an object. */
-export const isJsonObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 /** Balanced-bracket scans tried per reply; bounds the work on long prose. */
 const MAX_SPAN_STARTS = 16;
 

@@ -3,7 +3,8 @@
 // the model call, vault scan, and renames are wired in main.ts; tests drive
 // the prompt, parsing, and move planning directly.
 
-import { isJsonObject, replyJson } from "../providers/replyJson";
+import { replyJson } from "../providers/replyJson";
+import { isRecord } from "../records";
 import { sanitizeFileName } from "../artifacts/parse";
 
 export interface OrganizeCandidate {
@@ -82,7 +83,7 @@ export function parseOrganizeResponse(raw: string, candidates: OrganizeCandidate
   // Models reply with a JSON array as asked (possibly fenced/prose-wrapped),
   // or (llama3.1 in the wild) a bare object for the first clip — the array is
   // tried first, then a single object.
-  const parsed = replyJson(raw, Array.isArray) ?? replyJson(raw, isJsonObject);
+  const parsed = replyJson(raw, Array.isArray) ?? replyJson(raw, isRecord);
   if (parsed === undefined) return { proposals: [], unresolved: candidates.map((c) => c.path) };
   const entries = (Array.isArray(parsed) ? parsed : [parsed]).filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null);
 

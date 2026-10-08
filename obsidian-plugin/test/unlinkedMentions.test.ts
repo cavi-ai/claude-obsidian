@@ -64,6 +64,13 @@ And \`Weekly Review\` inline. But GTD in prose.`;
     }
   });
 
+  it("finds and links mentions after a character whose lowercase is longer (İ)", () => {
+    const content = "Trip to İstanbul, then a Weekly Review.";
+    const [m] = findUnlinkedMentions(content, candidates, "X.md");
+    expect(m).toMatchObject({ path: "Weekly Review.md", surface: "Weekly Review" });
+    expect(linkMention(content, m!)).toBe("Trip to İstanbul, then a [[Weekly Review]].");
+  });
+
   it("finds mentions after an unclosed indented ```", () => {
     expect(findUnlinkedMentions("    ```\nGTD\n", candidates, "X.md").map((m) => m.path)).toEqual(["GTD.md"]);
   });

@@ -1,6 +1,6 @@
-import { fencedLines } from "../markdown/fences";
-import { stripFrontmatter } from "../markdown/frontmatter";
-import { isJsonObject, replyJson } from "../providers/replyJson";
+import { clipChars, proseLines } from "../markdown/excerpt";
+import { replyJson } from "../providers/replyJson";
+import { isRecord } from "../records";
 
 export const TYPE_BATCH = 20;
 export const MAX_TYPE_BATCHES = 10;
@@ -62,45 +62,26 @@ export const TYPE_SCHEMA: Record<string, unknown> = {
   required: ["verdicts"],
 };
 
-const clip = (text: string, max: number): string => {
-  const chars = Array.from(text);
-  return chars.length <= max ? text : chars.slice(0, max).join("");
-};
-
-function body(content: string): string {
-  return stripFrontmatter(content.charCodeAt(0) === 0xfeff ? content.slice(1) : content);
-}
-
-/** Lines outside fenced code; an unclosed fence runs to the end. */
-function proseLines(content: string): string[] {
-  const lines = body(content).split(/\r?\n/);
-  const fenced = fencedLines(lines);
-  return lines.filter((_, i) => !fenced[i]);
-}
-
-export function noteExcerpt(content: string): string {
-  return clip(proseLines(content).join(" ").replace(/\s+/g, " ").trim(), EXCERPT_CHARS);
-}
 
 export function noteHeadings(content: string): string[] {
   const headings: string[] = [];
   for (const line of proseLines(content)) {
     const text = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line)?.[1]?.trim();
-    if (text) headings.push(clip(text, MAX_HEADING_CHARS));
+    if (text) headings.push(clipChars(text, MAX_HEADING_CHARS));
     if (headings.length === MAX_TYPE_HEADINGS) break;
   }
   return headings;
 }
 
 export function typeRequest(notes: TypeRequestNote[], types: TypeChoice[]): string {
-  const typeLines = types.map((t) => `- ${JSON.stringify(t.name)}${t.description ? `: ${clip(t.description, MAX_DESCRIPTION_CHARS)}` : ""}`);
+  const typeLines = types.map((t) => `- ${JSON.stringify(t.name)}${t.description ? `: ${clipChars(t.description, MAX_DESCRIPTION_CHARS)}` : ""}`);
   const noteLines = notes.map((n, i) => {
     const entry = {
       title: n.title,
       folder: n.folder,
       tags: n.tags.slice(0, MAX_TYPE_TAGS),
-      headings: n.headings.slice(0, MAX_TYPE_HEADINGS).map((h) => clip(h, MAX_HEADING_CHARS)),
-      excerpt: clip(n.excerpt, EXCERPT_CHARS),
+      headings: n.headings.slice(0, MAX_TYPE_HEADINGS).map((h) => clipChars(h, MAX_HEADING_CHARS)),
+      excerpt: clipChars(n.excerpt, EXCERPT_CHARS),
     };
     return `${i + 1}. ${JSON.stringify(entry)}`;
   });
@@ -110,7 +91,7 @@ export function typeRequest(notes: TypeRequestNote[], types: TypeChoice[]): stri
 export function parseTypeVerdicts(raw: string, notes: ReadonlyArray<{ path: string }>, types: readonly string[]): TypeVerdict[] {
   const parsed = replyJson(raw);
   if (parsed === undefined) throw new TypeParseError("Reply is not valid JSON");
-  const list = isJsonObject(parsed) ? parsed.verdicts : undefined;
+  const list = isRecord(parsed) ? parsed.verdicts : undefined;
   if (!Array.isArray(list)) throw new TypeParseError("Reply must be a JSON object with a verdicts array");
   const allowed = new Set(types);
   const seen = new Set<number>();

@@ -4,6 +4,7 @@
 
 import { fencedLines } from "../markdown/fences";
 import { frontmatterBlock } from "../markdown/frontmatter";
+import { lowerSameLength } from "../text";
 
 export interface LinkCandidate {
   path: string;
@@ -42,7 +43,7 @@ const MAX_MENTIONS = 20;
  */
 export function findUnlinkedMentions(content: string, candidates: LinkCandidate[], selfPath: string): Mention[] {
   const masked = maskNonProse(content);
-  const lowerMasked = masked.toLowerCase();
+  const lowerMasked = lowerSameLength(masked);
   const byPrefix = namesByPrefix(candidates, selfPath);
 
   // One pass over word starts. The first hit per candidate is its earliest; at
@@ -87,7 +88,7 @@ export function linkMention(content: string, m: Mention): string {
   let start = m.start;
   if (content.slice(start, m.end) !== m.surface) {
     const masked = maskNonProse(content);
-    const first = findWholeWord(masked, masked.toLowerCase(), m.surface);
+    const first = findWholeWord(masked, lowerSameLength(masked), m.surface);
     if (first === -1) throw new Error("The note changed — the mention no longer applies.");
     start = first;
   }
@@ -126,7 +127,7 @@ function namesByPrefix(candidates: LinkCandidate[], selfPath: string): Map<strin
     const names = [{ name: c.basename, viaAlias: false }, ...c.aliases.map((name) => ({ name, viaAlias: true }))];
     for (const { name, viaAlias } of names) {
       if (name.trim().length < MIN_NAME_LENGTH) continue;
-      const needle = name.toLowerCase();
+      const needle = lowerSameLength(name);
       const prefix = needle.slice(0, MIN_NAME_LENGTH);
       const entry = { candidate, needle, length: name.length, viaAlias };
       const bucket = byPrefix.get(prefix);
@@ -144,7 +145,7 @@ function isWordChar(ch: string | undefined): boolean {
 
 /** First case-insensitive whole-word occurrence of `name` in `text` (masked). */
 function findWholeWord(text: string, lower: string, name: string): number {
-  const needle = name.toLowerCase();
+  const needle = lowerSameLength(name);
   let from = 0;
   for (;;) {
     const idx = lower.indexOf(needle, from);
