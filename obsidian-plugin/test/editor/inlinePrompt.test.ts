@@ -1,9 +1,12 @@
-import { EditorState } from "@codemirror/state";
+import { EditorState, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import "../fakes/obsidian";
+import type { FakeElement } from "../fakes/obsidian";
 import {
   clearPendingRange,
   escapeInlinePrompt,
+  openInlinePrompt,
   pendingRangeField,
   setPendingRange,
   validPendingRange,
@@ -80,5 +83,64 @@ describe("pending range lifecycle", () => {
 
   it("Escape in the editor falls through to the inline diff when no prompt is open", () => {
     expect(escapeInlinePrompt({} as EditorView)).toBe(false);
+  });
+});
+
+function fakeView(doc = DOC) {
+  const view = {
+    state: EditorState.create({ doc, extensions: [pendingRangeField] }),
+    dispatch: (spec: TransactionSpec) => {
+      view.state = view.state.update(spec).state;
+    },
+    focus: vi.fn(),
+  };
+  return view;
+}
+
+function openOver(view: ReturnType<typeof fakeView>, mode: "rewrite" | "insert" = "rewrite") {
+  const handle = openInlinePrompt(view as unknown as EditorView, { mode, from: FROM, to: mode === "insert" ? FROM : TO, presets: [{ label: "Shorter", instruction: "Make it shorter" }] });
+  const dom = (handle as unknown as { dom: FakeElement }).dom;
+  return { handle, dom, input: dom.children[0]! };
+}
+
+function press(dom: FakeElement, key: string, extra: Record<string, unknown> = {}) {
+  const event = { type: "keydown", key, shiftKey: false, isComposing: false, keyCode: 0, stopPropagation: vi.fn(), preventDefault: vi.fn(), ...extra };
+  dom.dispatchEvent(event);
+  return event;
+}
+
+function submit(p: ReturnType<typeof openOver>, text = "tighten") {
+  p.input.value = text;
+  p.input.dispatchEvent({ type: "input" });
+  return press(p.dom, "Enter");
+}
+
+describe("prompt controller", () => {
+  it("close() after settle() leaves the request running", async () => {
+    const p = openOver(fakeView());
+    submit(p);
+    expect(await p.handle.instruction).toBe("tighten");
+    p.handle.settle();
+    p.handle.close();
+    expect(p.handle.signal.aborted).toBe(false);
+    expect(p.handle.cancelled).toBe(false);
+  });
+
+  it("Esc while running aborts and marks the prompt cancelled", async () => {
+    const p = openOver(fakeView());
+    submit(p);
+    await p.handle.instruction;
+    press(p.dom, "Escape");
+    expect(p.handle.signal.aborted).toBe(true);
+    expect(p.handle.cancelled).toBe(true);
+  });
+
+  it("teardown before the reply aborts and marks the prompt cancelled", async () => {
+    const p = openOver(fakeView());
+    submit(p);
+    await p.handle.instruction;
+    p.handle.close();
+    expect(p.handle.signal.aborted).toBe(true);
+    expect(p.handle.cancelled).toBe(true);
   });
 });

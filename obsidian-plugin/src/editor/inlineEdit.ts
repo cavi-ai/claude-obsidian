@@ -109,7 +109,8 @@ export async function runInlineEdit(target: { doc: string; from: number; to: num
         ? { system: INSERT_SYSTEM, user: buildInsertUser(target.doc.slice(0, target.from), target.doc.slice(target.from), instruction), maxTokens: 2000, temperature: 0.3, signal: handle.signal }
         : { system: REWRITE_SYSTEM, user: buildRewriteUser(selection, instruction), maxTokens: rewriteMaxTokens(selection), temperature: 0.3, signal: handle.signal },
     );
-    if (handle.signal.aborted) return "aborted";
+    if (handle.cancelled) return "aborted";
+    handle.settle();
     const range = handle.range();
     handle.close();
     const doc = deps.currentDoc();
@@ -136,7 +137,8 @@ export async function runInlineEdit(target: { doc: string; from: number; to: num
     await deps.reviewModal({ selection, rewritten, instruction, from: range.from, to: range.to });
     return "modal";
   } catch (e) {
-    if (handle.signal.aborted) return "aborted";
+    if (handle.cancelled) return "aborted";
+    handle.settle();
     handle.close();
     progress.fail(e);
     deps.notice(deps.failureMessage(e));

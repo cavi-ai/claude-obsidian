@@ -81,8 +81,12 @@ export interface InlinePromptOptions {
 export interface InlinePromptHandle {
   /** The submitted instruction, or null when the prompt closed without one. */
   readonly instruction: Promise<string | null>;
-  /** Aborted by Esc while running, a note switch, view teardown, or a newer prompt. */
+  /** Aborted by Esc while running, a note switch, view teardown, or a newer prompt — never after settle(). */
   readonly signal: AbortSignal;
+  /** True when Esc or a teardown aborted the request before settle(). */
+  readonly cancelled: boolean;
+  /** The reply arrived: later close()/dispose() never abort. */
+  settle(): void;
   /** The target range if no edit touched it while the request ran. */
   range(): { from: number; to: number } | null;
   /** Remove the widget and return focus to the editor. */
@@ -104,14 +108,16 @@ class PromptController implements InlinePromptHandle {
   private readonly chips: HTMLButtonElement[] = [];
   private readonly presets: readonly string[];
   private state: PromptState;
-  private settle: (value: string | null) => void = () => {};
+  private resolveInstruction: (value: string | null) => void = () => {};
   private disposed = false;
+  private settled = false;
+  private wasCancelled = false;
 
   constructor(private readonly view: EditorView, opts: InlinePromptOptions) {
     this.state = initialPrompt(opts.mode);
     this.presets = opts.presets.map((p) => p.instruction);
     this.instruction = new Promise((resolve) => {
-      this.settle = resolve;
+      this.resolveInstruction = resolve;
     });
     // Widget DOM is created detached with Obsidian's global helpers; CodeMirror mounts it.
     this.dom = createDiv({ cls: "cc-inline-prompt" });
@@ -141,6 +147,20 @@ class PromptController implements InlinePromptHandle {
     return this.abort.signal;
   }
 
+  get cancelled(): boolean {
+    return this.wasCancelled;
+  }
+
+  settle(): void {
+    this.settled = true;
+  }
+
+  private cancel(): void {
+    if (this.settled || this.wasCancelled || this.state.phase !== "running") return;
+    this.wasCancelled = true;
+    this.abort.abort();
+  }
+
   range(): { from: number; to: number } | null {
     return this.disposed ? null : validPendingRange(this.view.state, this.id);
   }
@@ -152,7 +172,7 @@ class PromptController implements InlinePromptHandle {
   /** Esc from the editor while the prompt is open: same as Esc in the prompt. */
   escape(): boolean {
     if (this.disposed) return false;
-    if (this.state.phase === "running") this.abort.abort();
+    this.cancel();
     this.close();
     return true;
   }
@@ -168,10 +188,10 @@ class PromptController implements InlinePromptHandle {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (!this.abort.signal.aborted && this.state.phase === "running") this.abort.abort();
+    this.cancel();
     byId.delete(this.id);
     if (byView.get(this.view) === this) byView.delete(this.view);
-    this.settle(null);
+    this.resolveInstruction(null);
   }
 
   private onKey(event: KeyboardEvent): void {
@@ -186,7 +206,7 @@ class PromptController implements InlinePromptHandle {
     else if (effect.kind === "abort") this.escape();
     else if (effect.kind === "submit") {
       history = remember(history, effect.instruction);
-      this.settle(effect.instruction);
+      this.resolveInstruction(effect.instruction);
     }
   }
 

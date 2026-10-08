@@ -11,7 +11,7 @@ const AT = DOC.indexOf("Ship");
 
 interface Harness {
   deps: InlineEditDeps;
-  prompt: { opts: InlinePromptOptions | null; abort: AbortController; closed: number; range: { from: number; to: number } | null };
+  prompt: { opts: InlinePromptOptions | null; abort: AbortController; closed: number; range: { from: number; to: number } | null; settled: boolean; cancelled: boolean; escape(): void };
   requests: CompleteRequest[];
   sessions: InlineDiffSession[];
   notices: string[];
@@ -21,7 +21,7 @@ interface Harness {
 
 function harness(opts: { instruction?: string | null; reply?: string | Error | ((signal: AbortSignal) => Promise<string>); inlineDiff?: boolean; accept?: boolean[] | null; range?: { from: number; to: number } | null } = {}): Harness {
   const doc = { value: DOC };
-  const prompt: Harness["prompt"] = { opts: null, abort: new AbortController(), closed: 0, range: null };
+  const prompt: Harness["prompt"] = { opts: null, abort: new AbortController(), closed: 0, range: null, settled: false, cancelled: false, escape: () => {} };
   const requests: CompleteRequest[] = [];
   const sessions: InlineDiffSession[] = [];
   const notices: string[] = [];
@@ -32,12 +32,27 @@ function harness(opts: { instruction?: string | null; reply?: string | Error | (
     openPrompt(o) {
       prompt.opts = o;
       prompt.range = opts.range === undefined ? { from: o.from, to: o.to } : opts.range;
+      const instruction = opts.instruction === undefined ? "tighten" : opts.instruction;
+      // Production: a submitted prompt is running; Esc or teardown aborts it until settle().
+      const cancel = () => {
+        if (instruction === null || prompt.settled || prompt.cancelled) return;
+        prompt.cancelled = true;
+        prompt.abort.abort();
+      };
+      prompt.escape = cancel;
       const handle: InlinePromptHandle = {
-        instruction: Promise.resolve(opts.instruction === undefined ? "tighten" : opts.instruction),
+        instruction: Promise.resolve(instruction),
         signal: prompt.abort.signal,
+        get cancelled() {
+          return prompt.cancelled;
+        },
         range: () => prompt.range,
+        settle: () => {
+          prompt.settled = true;
+        },
         close: () => {
           prompt.closed++;
+          cancel();
         },
       };
       return handle;
@@ -183,6 +198,15 @@ describe("runInlineEdit — insert mode", () => {
     expect(await runInlineEdit({ doc: DOC, from: AT, to: AT }, h.deps)).toBe("failed");
     expect(h.sessions).toHaveLength(0);
     expect(h.notices[0]).toMatch(/^Edit failed — The model returned nothing to insert/);
+    expect(h.prompt.abort.signal.aborted).toBe(false);
+  });
+
+  it("an unchanged rewrite reply shows the failure and writes nothing", async () => {
+    const h = harness({ reply: "Create the parser" });
+    expect(await runInlineEdit({ doc: DOC, from: SEL_FROM, to: SEL_TO }, h.deps)).toBe("failed");
+    expect(h.sessions).toHaveLength(0);
+    expect(h.notices).toEqual(["Edit failed — The model returned the text unchanged."]);
+    expect(h.doc.value).toBe(DOC);
   });
 });
 
@@ -202,7 +226,7 @@ describe("runInlineEdit — closing, aborting, staleness", () => {
     });
     const run = runInlineEdit({ doc: DOC, from: AT, to: AT }, h.deps);
     await vi.waitFor(() => expect(h.requests).toHaveLength(1));
-    h.prompt.abort.abort();
+    h.prompt.escape();
     expect(await run).toBe("aborted");
     expect(h.sessions).toHaveLength(0);
     expect(h.notices).toEqual([]);
@@ -212,7 +236,7 @@ describe("runInlineEdit — closing, aborting, staleness", () => {
   it("a late reply after an abort is dropped", async () => {
     const h = harness({
       reply: async () => {
-        h.prompt.abort.abort();
+        h.prompt.escape();
         return "late text";
       },
     });

@@ -371,7 +371,10 @@ export class FakeElement {
   }
   scrollIntoView(): void {}
   dispatchEvent(event: any): boolean { for (const listener of this.listeners.get(event.type) ?? []) listener(event); return true; }
-  focus(): void { this.attributes.set("data-focused", "true"); }
+  focus(): void { this.attributes.set("data-focused", "true"); fakeDocument.activeElement = this; }
+  get ownerDocument(): typeof fakeDocument { return fakeDocument; }
+  readOnly = false;
+  toggle(show: boolean): void { if (show) this.show(); else this.hide(); }
   selectionStart = 0;
   selectionEnd = 0;
   setSelectionRange(start: number, end: number): void { this.selectionStart = start; this.selectionEnd = end; }
@@ -398,6 +401,16 @@ function matches(item: FakeElement, selector: string): boolean {
   if (selector.startsWith(".")) return item.classList.has(selector.slice(1));
   return item.tagName === selector.toUpperCase();
 }
+/** The one document FakeElements belong to; focus() moves activeElement. */
+export const fakeDocument: { body: FakeElement; activeElement: unknown } = { body: new FakeElement("body"), activeElement: null };
+/** Obsidian's detached-element globals createEl() and createDiv(). */
+const detachedEl = (tag: string, options: any = {}): FakeElement => {
+  const element = new FakeElement("fragment").createEl(tag, options);
+  element.parent = null;
+  return element;
+};
+(globalThis as unknown as { createEl?: unknown }).createEl ??= detachedEl;
+(globalThis as unknown as { createDiv?: unknown }).createDiv ??= (options: any = {}): FakeElement => detachedEl("div", options);
 /** Obsidian exposes createFragment() as a global; settings descriptions use it. */
 (globalThis as unknown as { createFragment?: unknown }).createFragment ??= (
   callback?: (frag: FakeElement) => void,
