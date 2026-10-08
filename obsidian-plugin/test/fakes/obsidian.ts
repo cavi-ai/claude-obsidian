@@ -372,7 +372,9 @@ export class FakeElement {
   scrollIntoView(): void {}
   dispatchEvent(event: any): boolean { for (const listener of this.listeners.get(event.type) ?? []) listener(event); return true; }
   focus(): void { this.attributes.set("data-focused", "true"); fakeDocument.activeElement = this; }
-  get ownerDocument(): typeof fakeDocument { return fakeDocument; }
+  private ownDocument: { activeElement: unknown; body?: unknown } | null = null;
+  get ownerDocument(): { activeElement: unknown; body?: unknown } { return this.ownDocument ?? fakeDocument; }
+  set ownerDocument(doc: { activeElement: unknown; body?: unknown }) { this.ownDocument = doc; }
   readOnly = false;
   toggle(show: boolean): void { if (show) this.show(); else this.hide(); }
   selectionStart = 0;
