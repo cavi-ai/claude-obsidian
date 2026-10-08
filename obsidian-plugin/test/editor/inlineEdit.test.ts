@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { CHANGED_UNDER_EDIT, applyModalRewrite, commitModalRewrite, inlineEditMenuTitle, planModalRewrite, runInlineEdit, type InlineEditDeps, type CompleteRequest } from "../../src/editor/inlineEdit";
 import type { InlinePromptHandle, InlinePromptOptions } from "../../src/editor/inlinePrompt";
 import type { InlineDiffSession } from "../../src/editor/inlineDiffState";
+import { ProviderRouter } from "../../src/providers/router";
+import { DEFAULT_SETTINGS } from "../../src/types";
 import { REWRITE_PRESETS, REWRITE_SYSTEM, INSERT_SYSTEM, buildRewriteUser, rewriteMaxTokens, parseRewrite } from "../../src/edit/rewrite";
 
 const DOC = "# Plan\n\nCreate the parser\nShip it\n";
@@ -217,15 +219,17 @@ describe("runInlineEdit — closing, aborting, staleness", () => {
     expect(h.requests).toHaveLength(0);
   });
 
-  it("Esc while running: the request rejects on abort, nothing is shown or written", async () => {
-    const h = harness({
-      reply: (signal) =>
-        new Promise((_, reject) => {
-          signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
-        }),
-    });
+  it("Esc while running: the router rejects on abort though the provider ignores it; nothing is shown or written", async () => {
+    const router = new ProviderRouter({ ...DEFAULT_SETTINGS, apiKey: "sk-ant-api-test" });
+    const stream = vi.spyOn(router.anthropic, "stream").mockImplementation(() => new Promise<void>(() => undefined));
+    vi.spyOn(router.anthropic, "complete").mockImplementation(() => new Promise<string>(() => undefined));
+    const h = harness();
+    h.deps.complete = async (req) => {
+      h.requests.push(req);
+      return (await router.complete("chat", req)).text;
+    };
     const run = runInlineEdit({ doc: DOC, from: AT, to: AT }, h.deps);
-    await vi.waitFor(() => expect(h.requests).toHaveLength(1));
+    await vi.waitFor(() => expect(stream).toHaveBeenCalled(), { timeout: 500 });
     h.prompt.escape();
     expect(await run).toBe("aborted");
     expect(h.sessions).toHaveLength(0);
