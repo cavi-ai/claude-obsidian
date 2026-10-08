@@ -57,10 +57,7 @@ test("writing at the cursor shows a pending insertion that Mod-Enter accepts", a
 
     const focused = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className ?? "");
     expect(focused, "the editor has focus when the review opens").toContain("cm-content");
-    // Playwright's Meta+Enter on macOS delivers only the Meta keydown to the page, so the keydown is dispatched on the editor.
-    await page.evaluate((mac) => {
-      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true }));
-    }, MOD === "Meta");
+    await page.keyboard.press(`${MOD}+Enter`);
     await expect(added).toHaveCount(0);
     expect(await editorText(page)).toBe(`${NOTE}- [ ] Ship it`);
     expect(await harness.providerRequests()).toBe(1);

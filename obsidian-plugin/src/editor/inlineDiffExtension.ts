@@ -2,7 +2,6 @@
 
 import { EditorState, StateEffect, StateField, type Extension, type Range, type Transaction, type TransactionSpec } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
-import { Platform } from "obsidian";
 import { wordDiff } from "../edit/wordDiff";
 import { decisions, markHunk, mapSession, pendingHunks, planResolve, type InlineChange, type InlineDiffSession } from "./inlineDiffState";
 
@@ -190,43 +189,6 @@ const watcher = ViewPlugin.fromClass(
   },
 );
 
-type ReviewKey = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "isComposing">;
-
-/** Mod-Enter accepts every pending hunk, Escape rejects them. */
-export function reviewKeyDecision(e: ReviewKey, isMac: boolean): Decision | null {
-  if (e.isComposing || e.shiftKey || e.altKey) return null;
-  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  if (e.key === "Enter" && mod) return "accepted";
-  if (e.key === "Escape" && !e.metaKey && !e.ctrlKey) return "rejected";
-  return null;
-}
-
-/** True when the key resolved a pending review. Keys typed in the inline prompt are left to it. */
-export function handleReviewKey(view: EditorView, event: ReviewKey & { target: EventTarget | null }, isMac: boolean): boolean {
-  if (!view.state.field(inlineDiffField, false)) return false;
-  const target = event.target as { closest?: (selector: string) => unknown } | null;
-  if (target?.closest?.(".cc-inline-prompt")) return false;
-  const decision = reviewKeyDecision(event, isMac);
-  return decision !== null && resolveAll(view, decision);
-}
-
-// Capture phase on the editor root runs before every CodeMirror keymap and Obsidian hotkey.
-const reviewKeys = ViewPlugin.fromClass(
-  class {
-    private readonly onKey = (event: KeyboardEvent): void => {
-      if (!handleReviewKey(this.view, event, Platform.isMacOS)) return;
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    constructor(private readonly view: EditorView) {
-      view.dom.addEventListener("keydown", this.onKey, true);
-    }
-    destroy(): void {
-      this.view.dom.removeEventListener("keydown", this.onKey, true);
-    }
-  },
-);
-
 export function inlineDiffExtension(): Extension {
-  return [inlineDiffField, watcher, reviewKeys];
+  return [inlineDiffField, watcher];
 }

@@ -253,6 +253,17 @@ export class FakeSecretStorage {
   listSecrets(): string[] { return [...this.data.keys()]; }
 }
 
+/** Minimal Obsidian Scope: registered handlers, matched by the test, plus the parent chain. */
+export class Scope {
+  keys: Array<{ modifiers: string[] | null; key: string | null; func: (evt: KeyboardEvent, ctx: unknown) => unknown }> = [];
+  constructor(public parent?: Scope) {}
+  register(modifiers: string[] | null, key: string | null, func: (evt: KeyboardEvent, ctx: unknown) => unknown) {
+    const handler = { modifiers, key, func };
+    this.keys.push(handler);
+    return handler;
+  }
+}
+
 export class App {
   vault = new FakeVault();
   metadataCache = new FakeMetadataCache(this.vault);
@@ -262,6 +273,12 @@ export class App {
     getLeavesOfType: (_type: string): unknown[] => [],
   };
   secretStorage = new FakeSecretStorage();
+  scope = new Scope();
+  keymap = {
+    scopes: [] as Scope[],
+    pushScope(scope: Scope): void { this.scopes.push(scope); },
+    popScope(scope: Scope): void { this.scopes = this.scopes.filter((s) => s !== scope); },
+  };
 }
 
 /** Version the fake reports; tests flip it to exercise the pre-1.11.5 path. */

@@ -3,7 +3,7 @@ import { EditorView, type DecorationSet } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { planEdits } from "../../src/edit/diff";
 import { createSession, decisions } from "../../src/editor/inlineDiffState";
-import { buildResolve, buildResolveAll, closeInlineDiff, handleReviewKey, inlineDiffField, openInlineDiff, reviewInline, reviewKeyDecision } from "../../src/editor/inlineDiffExtension";
+import { buildResolve, buildResolveAll, closeInlineDiff, inlineDiffField, openInlineDiff, reviewInline } from "../../src/editor/inlineDiffExtension";
 
 const DOC = "# Build plan\n\n- [ ] Create the parser\n- [ ] Wire the interface\n- [ ] Ship it\n";
 
@@ -116,53 +116,5 @@ describe("reviewInline", () => {
     expect(effects).toHaveLength(2);
     expect(effects[0]!.is(openInlineDiff)).toBe(true);
     expect((effects[1]!.value as { range: { from: number } }).range.from).toBe(session().hunks[0]!.from);
-  });
-});
-
-describe("review keys", () => {
-  const key = (k: string, mods: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean; composing?: boolean } = {}, inPrompt = false) => ({
-    key: k,
-    metaKey: mods.meta ?? false,
-    ctrlKey: mods.ctrl ?? false,
-    shiftKey: mods.shift ?? false,
-    altKey: mods.alt ?? false,
-    isComposing: mods.composing ?? false,
-    target: { closest: (selector: string) => (inPrompt && selector === ".cc-inline-prompt" ? {} : null) },
-  });
-  const liveView = (state: EditorState) => {
-    const view = { state, dispatch: (spec: Parameters<EditorState["update"]>[0]) => { view.state = view.state.update(spec).state; } };
-    return view as unknown as EditorView & { state: EditorState };
-  };
-
-  it("maps Mod-Enter to accept and Escape to reject, per platform", () => {
-    expect(reviewKeyDecision(key("Enter", { meta: true }), true)).toBe("accepted");
-    expect(reviewKeyDecision(key("Enter", { ctrl: true }), false)).toBe("accepted");
-    expect(reviewKeyDecision(key("Enter", { ctrl: true }), true)).toBeNull();
-    expect(reviewKeyDecision(key("Escape"), true)).toBe("rejected");
-    expect(reviewKeyDecision(key("Enter"), true)).toBeNull();
-    expect(reviewKeyDecision(key("Enter", { meta: true, shift: true }), true)).toBeNull();
-    expect(reviewKeyDecision(key("Enter", { meta: true, composing: true }), true)).toBeNull();
-  });
-
-  it("Mod-Enter accepts every pending hunk and closes the review", () => {
-    const view = liveView(open());
-    expect(handleReviewKey(view, key("Enter", { meta: true }), true)).toBe(true);
-    expect(view.state.doc.toString()).toBe(DOC.replace("Create the parser", "Create the tokenizer").replace("Ship it", "Ship it to the store"));
-    expect(view.state.field(inlineDiffField, false)).toBeNull();
-  });
-
-  it("Escape rejects every pending hunk and leaves the text", () => {
-    const view = liveView(open());
-    expect(handleReviewKey(view, key("Escape"), true)).toBe(true);
-    expect(view.state.doc.toString()).toBe(DOC);
-    expect(view.state.field(inlineDiffField, false)).toBeNull();
-  });
-
-  it("leaves keys typed in the inline prompt, and keys with no review open, alone", () => {
-    const view = liveView(open());
-    expect(handleReviewKey(view, key("Escape", {}, true), true)).toBe(false);
-    expect(view.state.field(inlineDiffField, false)).not.toBeNull();
-    const idle = liveView(EditorState.create({ doc: DOC, extensions: [inlineDiffField] }));
-    expect(handleReviewKey(idle, key("Enter", { meta: true }), true)).toBe(false);
   });
 });

@@ -60,7 +60,8 @@ import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, linkMention, withLinktext, type LinkCandidate } from "./links/unlinkedMentions";
 import { mentionEdits } from "./links/suggest";
 import { planEdits, applyPlan, diffToEdits } from "./edit/diff";
-import { inlineDiffExtension, reviewInline } from "./editor/inlineDiffExtension";
+import { inlineDiffExtension } from "./editor/inlineDiffExtension";
+import { reviewInlineWithKeys } from "./editor/reviewKeys";
 import { selectionActionExtension } from "./editor/selectionAction";
 import { editorViewOf } from "./editor/reviewEdits";
 import { inlinePromptExtension, openInlinePrompt } from "./editor/inlinePrompt";
@@ -1389,7 +1390,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         openPrompt: (opts) => openInlinePrompt(cm, opts),
         complete: async (req) => (await this.router().complete("chat", req)).text,
         currentDoc: () => cm.state.doc.toString(),
-        review: (session) => reviewInline(cm, session),
+        review: (session) => reviewInlineWithKeys(this.app, cm, session),
         reviewModal: (rewrite) => this.reviewRewriteInModal(file, cm.state.doc.toString(), rewrite),
         notice: (message) => new Notice(message),
         begin: (label) => beginActivity(this.activity, label),
