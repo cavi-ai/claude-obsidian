@@ -124,7 +124,6 @@ class PromptController implements InlinePromptHandle {
     this.instruction = new Promise((resolve) => {
       this.resolveInstruction = resolve;
     });
-    // Widget DOM is created detached with Obsidian's global helpers; CodeMirror mounts it.
     this.dom = createDiv({ cls: "cc-inline-prompt" });
     this.input = createEl("input", { cls: "cc-inline-prompt-input", type: "text", attr: { placeholder: placeholderFor(opts.mode), "aria-label": placeholderFor(opts.mode) } });
     this.dom.appendChild(this.input);
@@ -205,7 +204,7 @@ class PromptController implements InlinePromptHandle {
   private onKey(event: KeyboardEvent): void {
     const key = promptKey(event);
     if (!key) return;
-    // Prompt keys stop here so neither the editor nor the inline diff keymap sees them.
+    // Claimed keys must not reach the editor or the inline diff keymap.
     event.stopPropagation();
     event.preventDefault();
     const { state, effect } = pressKey(this.state, key, { history, presets: this.presets });
@@ -261,7 +260,6 @@ export function escapeInlinePrompt(view: EditorView): boolean {
   return byView.get(view)?.escape() ?? false;
 }
 
-// A prompt the field dropped (note switch) or a destroyed view still owes its caller an answer.
 const watcher = ViewPlugin.fromClass(
   class {
     constructor(private readonly view: EditorView) {}
