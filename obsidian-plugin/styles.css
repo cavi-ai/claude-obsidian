@@ -2524,6 +2524,20 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 .cc-inline-btn.is-reject { color: var(--text-error); }
 .cc-selection-action { padding: 2px; }
 .cc-selection-action button { font-size: var(--font-ui-smaller); }
+.cc-inline-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+.cc-inline-prompt-input { width: 100%; }
+.cc-inline-prompt-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.cc-inline-prompt-chip { font-size: var(--font-ui-smaller); }
+.cc-inline-prompt-status { color: var(--text-muted); font-size: var(--font-ui-smaller); }
 
 /* ===== Batch link review ===== */
 
