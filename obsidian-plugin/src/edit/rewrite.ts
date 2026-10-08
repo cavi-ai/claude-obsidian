@@ -85,11 +85,11 @@ export function buildInsertUser(before: string, after: string, instruction: stri
   ].join("\n");
 }
 
-/** Trim and unwrap a whole-answer prose fence; a fence naming a code language is real content. */
+/** Trim and unwrap a reply that is exactly one prose fence; a code-language fence or several blocks are real content. */
 export function parseInsert(raw: string): string {
   let text = raw.trim();
-  const fenced = /^```(markdown|md)?\n([\s\S]*?)\n?```$/.exec(text);
-  if (fenced) text = fenced[2]!.trim();
+  const fenced = /^```(?:markdown|md|text|plaintext)?[ \t]*\n([\s\S]*?)\n?```$/.exec(text);
+  if (fenced && !/^```/m.test(fenced[1]!)) text = fenced[1]!.trim();
   if (text.length === 0) throw new Error("The model returned nothing to insert — try rephrasing the instruction.");
   return text;
 }

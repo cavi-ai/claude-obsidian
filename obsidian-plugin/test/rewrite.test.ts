@@ -127,3 +127,42 @@ describe("insert at the cursor", () => {
     expect(() => parseInsert("```\n\n```")).toThrow(/nothing to insert/);
   });
 });
+
+describe("insert context windows", () => {
+  const lone = (s: string, at: number) => {
+    const c = s.charCodeAt(at);
+    return c >= 0xd800 && c <= 0xdfff;
+  };
+  const between = (user: string, tag: string) => user.slice(user.indexOf(`<${tag}>\n`) + tag.length + 3, user.indexOf(`\n</${tag}>`));
+
+  it("never cut a surrogate pair at either edge", () => {
+    const emoji = "😀";
+    for (const pad of [0, 1]) {
+      const before = emoji.repeat(INSERT_CONTEXT_CHARS) + "x".repeat(pad);
+      const after = "x".repeat(pad) + emoji.repeat(INSERT_CONTEXT_CHARS);
+      const user = buildInsertUser(before, after, "x");
+      const b = between(user, "before_cursor");
+      const a = between(user, "after_cursor");
+      expect(lone(b, 0) && b.charCodeAt(0) >= 0xdc00).toBe(false);
+      expect(lone(a, a.length - 1) && a.charCodeAt(a.length - 1) < 0xdc00).toBe(false);
+      expect(b.length).toBeLessThanOrEqual(INSERT_CONTEXT_CHARS);
+      expect(a.length).toBeLessThanOrEqual(INSERT_CONTEXT_CHARS);
+    }
+  });
+});
+
+describe("parseInsert fences", () => {
+  it("unwraps a single text or plaintext fence", () => {
+    expect(parseInsert("```text\nHello\n```")).toBe("Hello");
+    expect(parseInsert("```plaintext\nHello\n```")).toBe("Hello");
+  });
+
+  it("inserts several fenced blocks as is", () => {
+    const reply = "```\nA\n```\n\nThen:\n\n```\nB\n```";
+    expect(parseInsert(reply)).toBe(reply);
+  });
+
+  it("keeps a code-language fence", () => {
+    expect(parseInsert("```ts\nconst a = 1;\n```")).toBe("```ts\nconst a = 1;\n```");
+  });
+});
