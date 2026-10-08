@@ -79,8 +79,7 @@ test("Esc while the request runs stops it and leaves the note unchanged", async 
     await page.locator(".cc-inline-prompt-input").press("Escape");
     await expect(page.locator(".cc-inline-prompt")).toHaveCount(0);
 
-    // Past the stub's delay: a late reply must not surface.
-    await page.waitForTimeout(4_000);
+    await expect.poll(() => harness.providerServed(), { timeout: 10_000 }).toBe(1);
     await expect(page.locator(".cc-inline-add")).toHaveCount(0);
     expect(await editorText(page)).toBe(NOTE);
   } finally {
