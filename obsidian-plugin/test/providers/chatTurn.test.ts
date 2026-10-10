@@ -18,7 +18,7 @@ describe("streamAttempt", () => {
 
   it("resolves with the full text and no error on done, forwarding each delta", async () => {
     const onText = vi.fn();
-    const result = await streamAttempt(provider(async (_r, h) => { h.onText("ans"); h.onDone("answer"); }), request, { onText }, signal());
+    const result = await streamAttempt(provider(async (_r, h) => { h.onText("ans"); h.onDone?.("answer"); }), request, { onText }, signal());
     expect(result).toEqual({ text: "answer", trace: [] });
     expect(onText).toHaveBeenCalledWith("ans");
   });
@@ -36,9 +36,27 @@ describe("streamAttempt", () => {
     await expect(streamAttempt(provider(async (_r, h) => { h.onText("half"); }), request, { onText: vi.fn() }, signal())).resolves.toEqual({ text: "half", trace: [], aborted: true });
   });
 
+  it("forwards thinking, usage, and truncation to the turn's handlers", async () => {
+    const onThinking = vi.fn();
+    const onUsage = vi.fn();
+    const onTruncated = vi.fn();
+    const usage = { input_tokens: 3, output_tokens: 5 };
+    await streamAttempt(provider(async (_r, h) => { h.onThinking?.("hmm"); h.onUsage?.(usage); h.onTruncated?.(); h.onDone?.("ok"); }), request, { onText: vi.fn(), onThinking, onUsage, onTruncated }, signal());
+    expect(onThinking).toHaveBeenCalledWith("hmm");
+    expect(onUsage).toHaveBeenCalledWith(usage);
+    expect(onTruncated).toHaveBeenCalledOnce();
+  });
+
+  it("stops listening for abort once settled", async () => {
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    await streamAttempt(provider(async (_r, h) => { h.onDone?.("ok"); }), request, { onText: vi.fn() }, controller.signal);
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
   it("ignores deltas after it settles", async () => {
     const onText = vi.fn();
-    const result = await streamAttempt(provider(async (_r, h) => { h.onDone("done"); h.onText("late"); }), request, { onText }, signal());
+    const result = await streamAttempt(provider(async (_r, h) => { h.onDone?.("done"); h.onText("late"); }), request, { onText }, signal());
     expect(result.text).toBe("done");
     expect(onText).not.toHaveBeenCalled();
   });
@@ -62,6 +80,14 @@ describe("routeTurn", () => {
     const result = await routeTurn({ backend: "auto", agent: true, providerId: "anthropic" }, { primary: async () => failed("half an answer", "overloaded"), localFallback: vi.fn(), local: vi.fn() }, { onNotice });
     expect(result).toEqual({ text: "half an answer", trace: [] });
     expect(onNotice).toHaveBeenCalledWith("Turn ended early: overloaded");
+  });
+
+  it("keeps an agent turn that only ran tools, with its trace and stop flags", async () => {
+    const localFallback = vi.fn();
+    const trace: AgentTurnResult["trace"] = [{ name: "vault_search", argsSummary: "plans", resultPreview: "[]", ok: true }];
+    const result = await routeTurn({ backend: "auto", agent: true, providerId: "anthropic" }, { primary: async () => ({ text: "", trace, aborted: true, capped: true, error: new Error("overloaded") }), localFallback, local: vi.fn() }, {});
+    expect(result).toEqual({ text: "", trace, aborted: true, capped: true });
+    expect(localFallback).not.toHaveBeenCalled();
   });
 
   it("never falls back from the on-device backend", async () => {
