@@ -4,7 +4,8 @@ import type { ChatMessage, ContextToggles } from "../types";
 import { effectiveToggles } from "./chat/contextScope";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
-import { toAnthropicTools, executeTool, readOnlyAnthropicTools, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
+import { toAnthropicTools, executeTool, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
+import { toolAccess, type ToolRunKind } from "../agent/toolAccess";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
 import { planEdits, parseProposedEdits } from "../edit/diff";
@@ -1148,22 +1149,18 @@ export class ChatView extends ItemView {
   ): Promise<AgentTurnResult> {
     const { provider, model: providerModel } = this.plugin.router().chatProvider();
     const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
-    const externalTools = this.planMode ? [] : await this.plugin.externalMcpTools().catch(() => []);
+    const run = this.toolRun();
+    const access = toolAccess(run);
+    const externalTools = run === "chat" ? await this.plugin.externalMcpTools().catch(() => []) : [];
     if (signal.aborted) return { text: "", trace: [], aborted: true };
 
     const request: CompletionRequest = {
-      system: this.plugin.composeSystemPrompt({ agent: true, plan: this.planMode, project: this.currentChatProject }),
+      system: this.plugin.composeSystemPrompt({ agent: true, plan: run === "plan", project: this.currentChatProject }),
       messages: apiMessages,
       model: this.turnModelOverride ?? providerModel,
       maxTokens: shape.maxTokens,
       signal,
-      // Plan Mode forces the read-only set regardless of agentAllowWrites, and
-      // drops propose_note_edit — the turn should end in a plan, not an edit.
-      // Otherwise propose_note_edit rides along regardless of agentAllowWrites —
-      // the diff modal is its own gate (spec 2026-07-05 apply-to-note, §7 Q1).
-      tools: this.planMode
-        ? readOnlyAnthropicTools(this.plugin.agentTools().definitions())
-        : [...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL, ...externalTools],
+      tools: access.offered([...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL, ...externalTools]),
     };
     if (shape.temperature !== undefined) request.temperature = shape.temperature;
     if (shape.thinking !== undefined) request.thinking = shape.thinking;
@@ -1173,10 +1170,11 @@ export class ChatView extends ItemView {
     const deps: AgentTurnDeps = {
       stream: (req, h) => provider.stream(req, h),
       execute: (block, sig) =>
-        parseExternalToolName(block.name)
+        parseExternalToolName(block.name) && access.decide(block.name) === "run"
           ? this.executeExternalMcp(block, sig)
           : executeTool(
               {
+                access,
                 ...(sig ? { signal: sig } : {}),
                 call: (name, args) => this.plugin.agentTools().call(name, args),
                 confirmWrite: (b) => this.confirmAgentWrite(b),
@@ -1202,13 +1200,11 @@ export class ChatView extends ItemView {
   private async turnRunnerFor(deps: AgentTurnDeps, request: CompletionRequest, signal?: AbortSignal, turnConversationId?: string): Promise<AgentTurnRunner> {
     const caps = this.plugin.router().chatCapabilities();
     if (!caps.cli) return providerTurnRunner(deps);
-    if (!this.agentCapable) request.tools = [];
     const conversationId = turnConversationId ?? this.currentTurn?.conversationId ?? this.plugin.activeConversationId();
     signal?.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
     return this.plugin.cliTurnRunner({
       conversationId,
-      planMode: this.planMode,
-      agentMode: this.agentCapable,
+      run: this.toolRun(),
       model: request.model,
       deps: { confirmWrite: async (b) => (await this.confirmAgentWrite(b)) && !signal?.aborted, proposeEdit: (b) => this.proposeAgentEdit(b, conversationId, signal) },
       transcript: this.resumeCliSessionId ? "" : transcriptText(this.messages.slice(0, -1)),
@@ -1324,6 +1320,12 @@ export class ChatView extends ItemView {
   /** Displayed mode: Plan wins over Act, otherwise Act iff writes are allowed. */
   private currentMode(): ChatMode {
     return this.planMode ? "plan" : this.plugin.settings.agentAllowWrites ? "act" : "ask";
+  }
+
+  /** The tool access for this chat's next turn: none without agent tools, reads in Plan Mode, otherwise chat. */
+  private toolRun(): ToolRunKind {
+    if (!this.agentCapable) return "off";
+    return this.planMode ? "plan" : "chat";
   }
 
   /** Reflect the mode control: hidden when the session can't act, state from currentMode(). */

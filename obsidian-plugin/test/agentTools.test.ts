@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { toAnthropicTools, executeTool, isWriteTool, readOnlyAnthropicTools, TOOL_RESULT_MAX_CHARS, PROPOSE_EDIT_TOOL } from "../src/agent/tools";
+import { toAnthropicTools, executeTool, TOOL_RESULT_MAX_CHARS, PROPOSE_EDIT_TOOL } from "../src/agent/tools";
+import { isWriteTool, toolAccess } from "../src/agent/toolAccess";
 import type { McpToolDef } from "../src/mcp/protocol";
 import type { ToolUseBlock } from "../src/providers/types";
 import { VaultTools } from "../src/mcp/vaultTools";
@@ -19,20 +20,26 @@ const use = (name: string, input: Record<string, unknown> = {}, extra?: Partial<
   ...extra,
 });
 
-describe("readOnlyAnthropicTools (Plan Mode)", () => {
-  it("drops every write tool but keeps all reads", () => {
-    const out = readOnlyAnthropicTools(defs);
-    expect(out.map((t) => t.name)).toEqual(["vault_search"]);
-  });
+const chat = toolAccess("chat");
 
-  it("excludes every write tool the full vault catalog advertises", () => {
+describe("Plan Mode tool access over the full vault catalog", () => {
+  it("offers every read and no write tool or propose_note_edit", () => {
     const advertised = new VaultTools(new App() as never, { allowWrites: true, defaultFolder: "Claude" }).definitions();
-    const names = readOnlyAnthropicTools(advertised).map((t) => t.name);
+    const names = toolAccess("plan").offered([...toAnthropicTools(advertised), PROPOSE_EDIT_TOOL]).map((t) => t.name);
     expect(names.length).toBeGreaterThan(0);
     for (const name of names) expect(isWriteTool(name)).toBe(false);
     expect(names).toContain("vault_search");
     expect(names).not.toContain("note_create");
     expect(names).not.toContain("propose_note_edit");
+  });
+
+  it("refuses a write called by name without asking for confirmation", async () => {
+    const call = vi.fn();
+    const confirmWrite = vi.fn().mockResolvedValue(true);
+    const r = await executeTool({ access: toolAccess("plan"), call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
+    expect(r).toMatchObject({ is_error: true, content: "Tool unavailable in this run: note_create." });
+    expect(confirmWrite).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
   });
 });
 
@@ -59,7 +66,7 @@ describe("isWriteTool", () => {
     for (const name of ["research_project_create", "research_source_import", "research_evidence_capture", "research_evidence_review", "research_claim_create", "research_claim_link", "research_outline_generate", "research_evidence_create", "research_outline_create"]) {
       expect(isWriteTool(name)).toBe(true);
       const call = vi.fn();
-      const result = await executeTool({ call }, use(name));
+      const result = await executeTool({ access: chat, call }, use(name));
       expect(call).not.toHaveBeenCalled();
       expect(result.is_error).toBe(true);
     }
@@ -94,7 +101,7 @@ describe("executeTool", () => {
     const controller = new AbortController();
     let approve!: (allowed: boolean) => void;
     const call = vi.fn(async () => "written");
-    const pending = executeTool({ call, signal: controller.signal, confirmWrite: () => new Promise((resolve) => { approve = resolve; }) }, use("note_create"));
+    const pending = executeTool({ access: chat, call, signal: controller.signal, confirmWrite: () => new Promise((resolve) => { approve = resolve; }) }, use("note_create"));
     controller.abort();
     approve(true);
     const result = await pending;
@@ -104,7 +111,7 @@ describe("executeTool", () => {
 
   it("runs a read tool and returns its text", async () => {
     const call = vi.fn().mockResolvedValue("## A.md\nsnippet");
-    const r = await executeTool({ call }, use("vault_search", { query: "x" }));
+    const r = await executeTool({ access: chat, call }, use("vault_search", { query: "x" }));
     expect(call).toHaveBeenCalledWith("vault_search", { query: "x" });
     expect(r).toEqual({ type: "tool_result", tool_use_id: "toolu_1", content: "## A.md\nsnippet" });
   });
@@ -112,7 +119,7 @@ describe("executeTool", () => {
   it("truncates oversized results with a marker", async () => {
     const big = "x".repeat(TOOL_RESULT_MAX_CHARS + 500);
     const call = vi.fn().mockResolvedValue(big);
-    const r = await executeTool({ call }, use("note_read", { path: "A.md" }));
+    const r = await executeTool({ access: chat, call }, use("note_read", { path: "A.md" }));
     expect(r.content.length).toBeLessThan(big.length);
     expect(r.content).toContain("[truncated — 500 chars omitted]");
     expect(r.content.startsWith("x".repeat(100))).toBe(true);
@@ -120,14 +127,14 @@ describe("executeTool", () => {
 
   it("returns is_error when the tool throws", async () => {
     const call = vi.fn().mockRejectedValue(new Error("Note not found: A.md"));
-    const r = await executeTool({ call }, use("note_read", { path: "A.md" }));
+    const r = await executeTool({ access: chat, call }, use("note_read", { path: "A.md" }));
     expect(r.is_error).toBe(true);
     expect(r.content).toContain("Note not found");
   });
 
   it("returns is_error for a block with parseError without calling the tool", async () => {
     const call = vi.fn();
-    const r = await executeTool({ call }, use("note_read", {}, { parseError: "Tool input was not valid JSON: x" }));
+    const r = await executeTool({ access: chat, call }, use("note_read", {}, { parseError: "Tool input was not valid JSON: x" }));
     expect(call).not.toHaveBeenCalled();
     expect(r.is_error).toBe(true);
     expect(r.content).toContain("not valid JSON");
@@ -136,7 +143,7 @@ describe("executeTool", () => {
   it("asks the write gate before running a write tool", async () => {
     const call = vi.fn().mockResolvedValue("Created note: X.md");
     const confirmWrite = vi.fn().mockResolvedValue(true);
-    const r = await executeTool({ call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
+    const r = await executeTool({ access: chat, call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
     expect(confirmWrite).toHaveBeenCalled();
     expect(r.content).toBe("Created note: X.md");
   });
@@ -144,7 +151,7 @@ describe("executeTool", () => {
   it("returns a declined is_error when the gate denies", async () => {
     const call = vi.fn();
     const confirmWrite = vi.fn().mockResolvedValue(false);
-    const r = await executeTool({ call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
+    const r = await executeTool({ access: chat, call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
     expect(call).not.toHaveBeenCalled();
     expect(r.is_error).toBe(true);
     expect(r.content).toBe("User declined.");
@@ -152,7 +159,7 @@ describe("executeTool", () => {
 
   it("refuses write tools when no gate is wired (fail closed)", async () => {
     const call = vi.fn();
-    const r = await executeTool({ call }, use("note_update", { path: "A.md", content: "z" }));
+    const r = await executeTool({ access: chat, call }, use("note_update", { path: "A.md", content: "z" }));
     expect(call).not.toHaveBeenCalled();
     expect(r.is_error).toBe(true);
   });
@@ -160,7 +167,7 @@ describe("executeTool", () => {
   it("never asks the gate for read tools", async () => {
     const call = vi.fn().mockResolvedValue("- #tag (3)");
     const confirmWrite = vi.fn();
-    await executeTool({ call, confirmWrite }, use("vault_tags"));
+    await executeTool({ access: chat, call, confirmWrite }, use("vault_tags"));
     expect(confirmWrite).not.toHaveBeenCalled();
   });
 });
@@ -171,7 +178,7 @@ describe("propose_note_edit routing", () => {
   it("routes to the proposeEdit handler, not VaultTools.call", async () => {
     const call = vi.fn();
     const proposeEdit = vi.fn().mockResolvedValue("Applied all 1 edit to A.md.");
-    const r = await executeTool({ call, proposeEdit }, proposeBlock);
+    const r = await executeTool({ access: chat, call, proposeEdit }, proposeBlock);
     expect(call).not.toHaveBeenCalled();
     expect(proposeEdit).toHaveBeenCalledWith(proposeBlock);
     expect(r.content).toBe("Applied all 1 edit to A.md.");
@@ -179,20 +186,20 @@ describe("propose_note_edit routing", () => {
   });
 
   it("fails closed when no handler is wired", async () => {
-    const r = await executeTool({ call: vi.fn() }, proposeBlock);
+    const r = await executeTool({ access: chat, call: vi.fn() }, proposeBlock);
     expect(r.is_error).toBe(true);
   });
 
   it("maps handler throws (plan errors, staleness) to is_error", async () => {
     const proposeEdit = vi.fn().mockRejectedValue(new Error("old_str not found in the note"));
-    const r = await executeTool({ call: vi.fn(), proposeEdit }, proposeBlock);
+    const r = await executeTool({ access: chat, call: vi.fn(), proposeEdit }, proposeBlock);
     expect(r.is_error).toBe(true);
     expect(r.content).toContain("not found");
   });
 
   it("never asks the write gate (the diff modal is the gate)", async () => {
     const confirmWrite = vi.fn();
-    await executeTool({ call: vi.fn(), confirmWrite, proposeEdit: vi.fn().mockResolvedValue("ok") }, proposeBlock);
+    await executeTool({ access: chat, call: vi.fn(), confirmWrite, proposeEdit: vi.fn().mockResolvedValue("ok") }, proposeBlock);
     expect(confirmWrite).not.toHaveBeenCalled();
   });
 

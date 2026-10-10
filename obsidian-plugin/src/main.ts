@@ -77,7 +77,8 @@ import { MEMORY_NOTE_BASENAME, renderMemoryNote } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
 import type { AnthropicToolDef, CompletionRequest, Provider, ProviderId } from "./providers/types";
-import { executeTool, readOnlyAnthropicTools } from "./agent/tools";
+import { executeTool, toAnthropicTools } from "./agent/tools";
+import { toolAccess, type ToolRunKind } from "./agent/toolAccess";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
@@ -100,7 +101,7 @@ import type { BridgeSetupInput } from "./integrations/desktopRuntime";
 import { providerTurnRunner, type AgentTurnRunner } from "./agent/loop";
 import { CliSession } from "./cli/session";
 import { mcpConfigJson } from "./cli/argv";
-import { CLI_HIDDEN_TOOLS, cliAllowedTools, interactiveTools, perTurnTools, type InteractiveToolDeps } from "./cli/bridgeTools";
+import { bridgeTools, CLI_HIDDEN_TOOLS, cliAllowedTools, type InteractiveToolDeps } from "./cli/bridgeTools";
 import { createNodeCliRuntime, type CliRuntime } from "./cli/runtime";
 import { CliProvider } from "./providers/cliProvider";
 import { claudeBackend } from "./cli/backends/claude";
@@ -2890,12 +2891,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this._cliRuntime;
   }
 
-  private async createChatBridge(binding: { deps: InteractiveToolDeps; readOnly: boolean; tools: boolean; proposeOnly: boolean; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
+  private async createChatBridge(binding: { deps: InteractiveToolDeps; run: ToolRunKind; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
-    const registry = binding.backend.supportsPermissionPrompt
-      ? interactiveTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools, () => binding.proposeOnly)
-      : perTurnTools(this.agentTools(), () => binding.deps, () => binding.readOnly, () => binding.tools, () => binding.proposeOnly);
+    const registry = bridgeTools(this.agentTools(), { access: toolAccess(binding.run), deps: binding.deps, permissionPrompt: binding.backend.supportsPermissionPrompt });
     const server = new McpHttpServer(
       {
         port: 0,
@@ -2927,7 +2926,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return claudeBackend;
   }
 
-  async cliTurnRunner(opts: { conversationId: string; planMode: boolean; agentMode: boolean; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string; proposeOnly?: boolean }): Promise<AgentTurnRunner> {
+  async cliTurnRunner(opts: { conversationId: string; run: ToolRunKind; model: string; deps: InteractiveToolDeps; transcript: string; resumeSessionId?: string }): Promise<AgentTurnRunner> {
     const backend = this.cliBackendFor(this.settings.chatBackend);
     const cli = this.router().get(backend.id) as CliProvider;
     const executable = cli.executable();
@@ -2935,9 +2934,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const runtime = this.cliRuntime();
     const cwd = this.vaultBasePath();
     if (!runtime || !cwd) throw new Error(`${backend.label} runs on desktop only.`);
-    const allowedTools = opts.agentMode ? cliAllowedTools(this.agentTools().definitions(), opts.planMode) : [];
-    const proposeOnly = opts.proposeOnly === true;
-    const signature = JSON.stringify({ proposeOnly, backend: backend.id, model: opts.model, planMode: opts.planMode, agentMode: opts.agentMode, allowedTools, writes: this.settings.agentAllowWrites });
+    const allowedTools = cliAllowedTools(this.agentTools().definitions(), toolAccess(opts.run));
+    const signature = JSON.stringify({ run: opts.run, backend: backend.id, model: opts.model, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
     if (!opts.resumeSessionId && existing && existing.signature === signature && !existing.session.isClosed()) {
       existing.lastUsed = Date.now();
@@ -2950,12 +2948,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       await this.closeCliSession(oldest[0]);
     }
     const project = await this.chatProjectFor(opts.conversationId);
-    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.planMode, project });
+    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.run === "plan", project });
     const promptFile = backend.processModel === "persistent" ? await runtime.writeSystemPromptFile(systemPrompt) : "";
     if (promptFile) this.cliPromptFiles.add(promptFile);
     let bridge: McpHttpServer | null = null;
     try {
-      const started = await this.createChatBridge({ deps: opts.deps, readOnly: opts.planMode, tools: opts.agentMode, proposeOnly, backend });
+      const started = await this.createChatBridge({ deps: opts.deps, run: opts.run, backend });
       bridge = started.server;
       const mcpConfig = mcpConfigJson(started.port, started.token);
       let session: CliSession;
@@ -3159,14 +3157,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return { orders, invalid };
   }
 
-  /** Read tools plus propose_note_edit only; confirmWrite stays absent so any write call fails closed. */
+  /** Runs under the turn's propose-only access: reads plus propose_note_edit; writes are refused. */
   private async runStandingOrder(order: StandingOrder, trigger: OrderTrigger, now: Date): Promise<OrderRunResult> {
     const router = this.router();
     const caps = router.chatCapabilities();
     const toolsSupported = await router.chatToolCapable();
     const { provider, model: providerModel } = router.chatProvider();
     return runOrder(order, trigger, now, {
-      readTools: readOnlyAnthropicTools(this.agentTools().definitions()),
+      vaultTools: toAnthropicTools(this.agentTools().definitions()),
       toolsSupported,
       readNote: (path) => this.readVaultNote(path),
       runTurn: async (turn, proposeEdit) => {
@@ -3182,13 +3180,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (!caps.cli) {
           return providerTurnRunner({
             stream: (req, h) => provider.stream(req, h),
-            execute: (block, signal) => executeTool({ ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
+            execute: (block, signal) => executeTool({ access: toolAccess(turn.run), ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
             maxIterations: this.settings.agentMaxIterations,
           }).run(request, handlers);
         }
         const conversationId = `order:${order.id}`;
         try {
-          const runner = await this.cliTurnRunner({ conversationId, planMode: false, agentMode: toolsSupported, model, deps: { confirmWrite: async () => false, proposeEdit }, transcript: "", proposeOnly: true });
+          const runner = await this.cliTurnRunner({ conversationId, run: turn.run, model, deps: { confirmWrite: async () => false, proposeEdit }, transcript: "" });
           return await runner.run(request, handlers);
         } finally {
           await this.closeCliSession(conversationId);

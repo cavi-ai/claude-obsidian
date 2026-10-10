@@ -76,7 +76,7 @@ describe("ChatView on the claude-cli backend", () => {
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
     const request = { system: "sys", messages: [{ role: "user", content: "hi" }], model: "claude-sonnet-5", maxTokens: 10, tools: [] };
     const picked = await (view as unknown as { turnRunnerFor(deps: unknown, request: unknown): Promise<unknown> }).turnRunnerFor({}, request);
-    expect(plugin.cliTurnRunner).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "c1", planMode: false, agentMode: false, model: "claude-sonnet-5", transcript: "" }));
+    expect(plugin.cliTurnRunner).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "c1", run: "off", model: "claude-sonnet-5", transcript: "" }));
     const call = plugin.cliTurnRunner.mock.calls[0]![0] as { deps: { confirmWrite: unknown; proposeEdit: unknown } };
     expect(typeof call.deps.confirmWrite).toBe("function");
     expect(typeof call.deps.proposeEdit).toBe("function");

@@ -3,7 +3,7 @@ import { App, parseYaml } from "obsidian";
 import { VaultTools } from "../../src/mcp/vaultTools";
 import { OntologyRegistry } from "../../src/ontology/registry";
 import { SEED_TYPES, schemaNoteContent } from "../../src/ontology/seed";
-import { isWriteTool } from "../../src/agent/tools";
+import { isWriteTool } from "../../src/agent/toolAccess";
 
 let app: App;
 let registry: OntologyRegistry;

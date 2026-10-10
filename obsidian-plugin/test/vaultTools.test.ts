@@ -755,7 +755,7 @@ describe("memory_record", () => {
   });
 
   it("is a write tool, so Plan Mode, propose-only runs, and write confirmation gate it", async () => {
-    const { isWriteTool } = await import("../src/agent/tools");
+    const { isWriteTool } = await import("../src/agent/toolAccess");
     expect(isWriteTool("memory_record")).toBe(true);
   });
 

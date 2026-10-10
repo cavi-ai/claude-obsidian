@@ -13,7 +13,7 @@ function deps(over: Partial<OrderRunDeps> = {}): OrderRunDeps & { requests: Orde
   const requests: OrderTurnRequest[] = [];
   return {
     requests,
-    readTools: [tool("vault_search"), tool("note_read")],
+    vaultTools: [tool("vault_search"), tool("note_read")],
     toolsSupported: true,
     readNote: async () => "- [ ] ship\n",
     runTurn: async (request) => {
@@ -41,15 +41,16 @@ describe("buildOrderPrompt", () => {
 });
 
 describe("runOrder", () => {
-  it("offers read tools plus propose_note_edit and the order model", async () => {
+  it("offers read tools plus propose_note_edit and the order model, under propose-only access", async () => {
     const d = deps();
     await runOrder({ ...order, model: "m1" }, noteTrigger, NOW, d);
     expect(d.requests[0]?.tools.map((t) => t.name)).toEqual(["vault_search", "note_read", "propose_note_edit"]);
     expect(d.requests[0]?.model).toBe("m1");
+    expect(d.requests[0]?.run).toBe("propose");
   });
 
-  it("never offers a write tool even if readTools wrongly contains one", async () => {
-    const d = deps({ readTools: [tool("vault_search"), tool("note_create"), tool("note_update"), tool("research_claim_create")] });
+  it("never offers a write tool from the vault catalog", async () => {
+    const d = deps({ vaultTools: [tool("vault_search"), tool("note_create"), tool("note_update"), tool("research_claim_create")] });
     await runOrder(order, noteTrigger, NOW, d);
     const names = d.requests[0]?.tools.map((t) => t.name) ?? [];
     expect(names).toContain("propose_note_edit");
@@ -62,6 +63,7 @@ describe("runOrder", () => {
     const d = deps({ toolsSupported: false });
     const result = await runOrder(order, noteTrigger, NOW, d);
     expect(d.requests[0]?.tools).toEqual([]);
+    expect(d.requests[0]?.run).toBe("off");
     expect(result.error).toBeUndefined();
   });
 
