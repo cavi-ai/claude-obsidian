@@ -77,6 +77,17 @@ describe("bridgeTools with a permission prompt (Claude Code)", () => {
   });
 });
 
+describe("bridgeTools refusals", () => {
+  it("report a switched-off tool's own reason, and the generic refusal otherwise", async () => {
+    const base = { definitions: () => defs, call: async () => "ran" };
+    const deps = { confirmWrite: async () => true, proposeEdit: async () => "" };
+    const unavailable = (name: string) => (name === "web_search" ? "Web search is disabled." : undefined);
+    const tools = bridgeTools(base, { run: "chat", deps, permissionPrompt: false, unavailable });
+    await expect(tools.call("web_search", { query: "q" })).rejects.toThrow("Web search is disabled.");
+    await expect(tools.call("nope", {})).rejects.toThrow("Tool unavailable in this run: nope.");
+  });
+});
+
 describe("bridgeTools without a permission prompt (codex, opencode)", () => {
   it("lists exactly what the run offers", () => {
     expect(harness("chat", false).names()).toEqual(["vault_search", "note_read", "note_create", "propose_note_edit"]);

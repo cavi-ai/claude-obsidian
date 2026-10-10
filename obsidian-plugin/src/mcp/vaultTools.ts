@@ -78,6 +78,10 @@ export interface VaultToolsOptions {
 }
 
 export const MEMORY_RECORD_OFF_MESSAGE = "Memory recording is off in Companion settings.";
+const WEB_SEARCH_OFF_MESSAGE = "Web search is disabled. Enable it in Companion settings → Agent.";
+const WEB_FETCH_OFF_MESSAGE = "Web fetch is disabled. Enable it in Companion settings → Agent.";
+const ONTOLOGY_OFF_MESSAGE = "The ontology is disabled in Companion for Claude settings.";
+const WRITES_OFF_MESSAGE = "Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.";
 export const SEMANTIC_OFF_MESSAGE = "Semantic search is off. Enable it in Companion settings → Semantic search.";
 
 /**
@@ -99,8 +103,9 @@ export class VaultTools {
   /** Every vault and research tool as one record, in discovery order. */
   private records(): ToolRecord[] {
     type Run = (args: Record<string, unknown>) => Promise<string>;
-    const read = (def: McpToolDef, run: Run, listed = true): ToolRecord => ({ def, writes: false, listed, run });
-    const write = (def: McpToolDef, run: Run, listed = true): ToolRecord => ({ def, writes: true, listed, run });
+    const read = (def: McpToolDef, run: Run, unavailable?: string): ToolRecord => ({ def, writes: false, run, ...(unavailable ? { unavailable } : {}) });
+    const write = (def: McpToolDef, run: Run, unavailable?: string): ToolRecord => ({ def, writes: true, run, ...(unavailable ? { unavailable } : {}) });
+    const ontologyOff = this.opts.ontology ? undefined : ONTOLOGY_OFF_MESSAGE;
     const research = new ResearchTools(this.researchRepository(), this.webCapture(), this.zoteroResolve(), this.opts.enrichSource).records();
     return [
       read({
@@ -191,7 +196,7 @@ export class VaultTools {
         name: "ontology_get",
         description: "Read the vault ontology: every type with its lineage, properties and relations, or one type and its ancestors. Call this before creating typed notes or proposing a type.",
         inputSchema: { type: "object", properties: { type: { type: "string", description: "Optional type name to describe." } } },
-      }, async (args) => this.ontologyGet(optStr(args.type)), Boolean(this.opts.ontology)),
+      }, async (args) => this.ontologyGet(optStr(args.type)), ontologyOff),
       ...research.filter((record) => !record.writes),
       read({
         name: "web_search",
@@ -205,9 +210,9 @@ export class VaultTools {
           required: ["query"],
         },
       }, async (args) => {
-        if (!this.opts.webSearch) throw new Error("Web search is disabled. Enable it in Companion settings → Agent.");
+        if (!this.opts.webSearch) throw new Error(WEB_SEARCH_OFF_MESSAGE);
         return this.opts.webSearch(str(args.query), Math.min(num(args.count, 5), 10));
-      }, Boolean(this.opts.webSearch)),
+      }, this.opts.webSearch ? undefined : WEB_SEARCH_OFF_MESSAGE),
       read({
         name: "web_fetch",
         description: "Read one public web page as clean markdown (readable-content extraction). Use after web_search or on a URL the user gave you.",
@@ -217,9 +222,9 @@ export class VaultTools {
           required: ["url"],
         },
       }, async (args) => {
-        if (!this.opts.webFetch) throw new Error("Web fetch is disabled. Enable it in Companion settings → Agent.");
+        if (!this.opts.webFetch) throw new Error(WEB_FETCH_OFF_MESSAGE);
         return this.opts.webFetch(str(args.url));
-      }, Boolean(this.opts.webFetch)),
+      }, this.opts.webFetch ? undefined : WEB_FETCH_OFF_MESSAGE),
       write({
         name: "memory_record",
         description: "Record one durable, still-true fact about the user's work (a decision, preference, or project state) in the vault's 'What Claude Knows' memory note. Not for transient chatter. Pass `source` as your agent name (e.g. 'claude-code', 'codex').",
@@ -232,7 +237,7 @@ export class VaultTools {
           },
           required: ["fact"],
         },
-      }, async (args) => this.memoryRecord(args), Boolean(this.opts.memoryRecord?.enabled())),
+      }, async (args) => this.memoryRecord(args), this.opts.memoryRecord?.enabled() ? undefined : MEMORY_RECORD_OFF_MESSAGE),
       write(
         {
           name: "note_create",
@@ -449,22 +454,36 @@ export class VaultTools {
             },
             required: ["name"],
           },
-        }, async (args) => this.ontologyPropose(args), Boolean(this.opts.ontology && this.opts.ontologyFolder)),
+        }, async (args) => this.ontologyPropose(args), this.opts.ontology && this.opts.ontologyFolder ? undefined : ONTOLOGY_OFF_MESSAGE),
       ...research.filter((record) => record.writes),
     ];
   }
 
-  /** Listed tools: write tools only while writes are allowed. */
+  /** Offered tools: every available one, write tools only while writes are allowed. */
   definitions(): McpToolDef[] {
-    return this.records().filter((record) => record.listed !== false && (!record.writes || this.opts.allowWrites)).map(advertise);
+    return this.records().filter((record) => !this.unavailableReason(record)).map(advertise);
+  }
+
+  /** Why a known tool is not offered right now; undefined when it is offered or the name is unknown. */
+  unavailable(name: string): string | undefined {
+    const record = this.record(name);
+    return record ? this.unavailableReason(record) : undefined;
   }
 
   async call(name: string, args: Record<string, unknown>): Promise<string> {
-    const canonical = RESEARCH_TOOL_ALIASES[name] ?? name;
-    const record = this.records().find((candidate) => candidate.def.name === canonical);
-    if (!record) throw new Error(`Unknown tool: ${name}`);
+    const record = this.record(name);
+    if (!record) throw new Error(name.startsWith("research_") ? `Unknown research tool: ${name}` : `Unknown tool: ${name}`);
     if (record.writes) this.assertWrites();
     return record.run(args);
+  }
+
+  private record(name: string): ToolRecord | undefined {
+    const canonical = RESEARCH_TOOL_ALIASES[name] ?? name;
+    return this.records().find((candidate) => candidate.def.name === canonical);
+  }
+
+  private unavailableReason(record: ToolRecord): string | undefined {
+    return record.unavailable ?? (record.writes && !this.opts.allowWrites ? WRITES_OFF_MESSAGE : undefined);
   }
 
   private async memoryRecord(args: Record<string, unknown>): Promise<string> {
@@ -499,7 +518,7 @@ export class VaultTools {
   }
 
   private assertWrites(): void {
-    if (!this.opts.allowWrites) throw new Error("Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.");
+    if (!this.opts.allowWrites) throw new Error(WRITES_OFF_MESSAGE);
   }
 
   /** Zotero item-key resolution for research_source_import; undefined when no library is configured. */
@@ -707,7 +726,7 @@ export class VaultTools {
   private async ontologyPropose(args: Record<string, unknown>): Promise<string> {
     const registry = this.opts.ontology?.();
     const folder = this.opts.ontologyFolder?.();
-    if (!registry || !folder) throw new Error("The ontology is disabled in Companion for Claude settings.");
+    if (!registry || !folder) throw new Error(ONTOLOGY_OFF_MESSAGE);
     const outcome = validateProposal(new Set(registry.resolved().keys()), args);
     if (!outcome.ok) throw new Error(`The proposal was not written:\n- ${outcome.errors.join("\n- ")}`);
     const path = assertVaultPath(`${folder}/${outcome.fileName}`);

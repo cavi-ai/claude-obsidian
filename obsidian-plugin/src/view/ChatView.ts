@@ -1155,6 +1155,7 @@ export class ChatView extends ItemView {
           : executeTool(
               {
                 access,
+                unavailable: (name) => this.plugin.agentTools().unavailable(name),
                 ...(sig ? { signal: sig } : {}),
                 call: (name, args) => this.plugin.agentTools().call(name, args),
                 confirmWrite: (b) => this.confirmAgentWrite(b),

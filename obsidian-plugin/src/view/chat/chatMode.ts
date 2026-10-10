@@ -52,8 +52,8 @@ export class ChatModeState {
     return () => this.listeners.delete(listener);
   }
 
+  /** Called per turn and on backend change; always re-notifies, since the writes setting may have changed elsewhere. */
   setCapable(capable: boolean): void {
-    if (capable === this.toolCapable) return;
     this.toolCapable = capable;
     this.emit();
   }

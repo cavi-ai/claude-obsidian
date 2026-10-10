@@ -284,6 +284,15 @@ describe("ChatView composer mode control", () => {
     expect(ask!.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("shows a writes setting changed outside this chat on the next capability refresh", () => {
+    const { view, plugin, controlsEl } = renderedControls({ agentAllowWrites: true });
+    const checked = () => controlsEl.querySelector(".cc-mode-control")!.querySelectorAll('[role="radio"]').find((b) => b.getAttribute("aria-checked") === "true")?.getAttribute("aria-label");
+    expect(checked()).toMatch(/^Act/);
+    plugin.settings.agentAllowWrites = false;
+    view.mode.setCapable(true);
+    expect(checked()).toMatch(/^Ask/);
+  });
+
   it("restores the previous mode and setting when saveSettings rejects", async () => {
     const { view, plugin, controlsEl } = renderedControls({ agentAllowWrites: false });
     (plugin.saveSettings as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("disk full"));

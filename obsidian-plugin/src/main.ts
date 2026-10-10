@@ -2894,7 +2894,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private async createChatBridge(binding: { deps: InteractiveToolDeps; run: ToolRunKind; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
-    const registry = bridgeTools(this.agentTools(), { run: binding.run, deps: binding.deps, permissionPrompt: binding.backend.supportsPermissionPrompt });
+    const registry = bridgeTools(this.agentTools(), { run: binding.run, deps: binding.deps, permissionPrompt: binding.backend.supportsPermissionPrompt, unavailable: (name) => this.agentTools().unavailable(name) });
     const server = new McpHttpServer(
       {
         port: 0,
@@ -3181,7 +3181,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (!caps.cli) {
           return providerTurnRunner({
             stream: (req, h) => provider.stream(req, h),
-            execute: (block, signal) => executeTool({ access: toolAccess(turn.run, this.agentTools().definitions()), ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
+            execute: (block, signal) => executeTool({ access: toolAccess(turn.run, this.agentTools().definitions()), unavailable: (name) => this.agentTools().unavailable(name), ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
             maxIterations: this.settings.agentMaxIterations,
           }).run(request, handlers);
         }

@@ -52,6 +52,8 @@ export interface BridgeBinding {
    * pre-approved for. Without it (codex, opencode) the bridge itself confirms each write before it runs.
    */
   permissionPrompt: boolean;
+  /** Why a known tool is off right now, reported instead of the generic refusal. */
+  unavailable?: (name: string) => string | undefined;
 }
 
 /** The vault tools are read live, so a setting change reaches the next list or call. */
@@ -73,7 +75,7 @@ export function bridgeTools(base: ToolRegistry, binding: BridgeBinding): ToolReg
         return permissionPromptResult(await deps.confirmWrite(block), block.input);
       }
       const decision = current().access.decide(name);
-      if (decision === "deny") throw new Error(`Tool unavailable in this run: ${name}.`);
+      if (decision === "deny") throw new Error(binding.unavailable?.(name) ?? `Tool unavailable in this run: ${name}.`);
       if (decision === "propose") return deps.proposeEdit({ type: "tool_use", id: "cli", name, input: args });
       if (decision === "confirm" && !permissionPrompt) {
         const allowed = await deps.confirmWrite({ type: "tool_use", id: "cli", name, input: args });

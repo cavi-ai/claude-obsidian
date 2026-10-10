@@ -65,14 +65,22 @@ describe("ChatModeState", () => {
     expect(s.mode.run).toBe("plan");
   });
 
-  it("starts a fresh chat outside Plan Mode and tells listeners only when something changed", async () => {
+  it("starts a fresh chat outside Plan Mode, telling listeners only when it was in Plan Mode", async () => {
     const s = state(false);
     s.mode.reset();
-    s.mode.setCapable(false);
     expect(s.changes).not.toHaveBeenCalled();
     await s.mode.change("plan");
     s.mode.reset();
     expect(s.mode.mode).toBe("ask");
     expect(s.changes).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-notifies on every capability refresh, so a writes setting changed elsewhere shows", () => {
+    const s = state(false);
+    s.mode.setCapable(true);
+    s.setting.writes = true;
+    s.mode.setCapable(true);
+    expect(s.changes).toHaveBeenCalledTimes(2);
+    expect(s.mode.mode).toBe("act");
   });
 });

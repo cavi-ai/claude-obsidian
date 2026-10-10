@@ -60,6 +60,15 @@ describe("Composer layout", () => {
     expect([...composer.modeControl!.el.classList]).not.toContain("is-hidden");
   });
 
+  it("stops following the chat's mode once destroyed", async () => {
+    const { composer, chat } = mountComposer();
+    const control = composer.modeControl!;
+    const checkedLabel = () => (control.el as unknown as FakeElement).querySelectorAll("button").find((b) => b.getAttribute("aria-checked") === "true")?.getAttribute("aria-label");
+    composer.destroy();
+    await chat.mode.change("plan");
+    expect(checkedLabel()).toMatch(/^Ask/);
+  });
+
   it("replaces the draft focused and unsent, and reads it back", () => {
     const { composer } = mountComposer();
     composer.setDraft("Summarize this note");

@@ -20,6 +20,8 @@ export const PROPOSE_EDIT_TOOL: AnthropicToolDef = toAnthropicTools([PROPOSE_EDI
 export interface ToolExecutorDeps {
   /** Decides, per call, whether the tool runs, needs confirmation, routes to edit review, or is refused. */
   access: ToolAccess;
+  /** Why a known tool is off right now (e.g. web search disabled), reported instead of the generic refusal. */
+  unavailable?(name: string): string | undefined;
   signal?: AbortSignal;
   /** Runs the tool (VaultTools.call). Throws on failure. */
   call(name: string, args: Record<string, unknown>): Promise<string>;
@@ -51,7 +53,7 @@ export async function executeTool(deps: ToolExecutorDeps, block: ToolUseBlock): 
   if (block.parseError) return result(block.parseError, true);
   if (deps.signal?.aborted) return result("Turn stopped before this tool ran.", true);
   const decision = deps.access.decide(block.name);
-  if (decision === "deny") return result(`Tool unavailable in this run: ${block.name}.`, true);
+  if (decision === "deny") return result(deps.unavailable?.(block.name) ?? `Tool unavailable in this run: ${block.name}.`, true);
   if (decision === "propose") {
     if (!deps.proposeEdit) return result("Edit proposals are unavailable in this chat.", true);
     try {

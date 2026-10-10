@@ -232,6 +232,33 @@ describe("propose_note_edit routing", () => {
   });
 });
 
+describe("tools that are switched off", () => {
+  it("report why when called by name, instead of the generic refusal", async () => {
+    const tools = new VaultTools(new App() as never, { allowWrites: false, defaultFolder: "Claude" });
+    const access = toolAccess("chat", tools.definitions());
+    const call = vi.fn();
+    const run = (name: string) => executeTool({ access, unavailable: (n) => tools.unavailable(n), call }, use(name));
+    expect((await run("web_search")).content).toBe("Web search is disabled. Enable it in Companion settings → Agent.");
+    expect((await run("memory_record")).content).toBe("Memory recording is off in Companion settings.");
+    expect((await run("note_create")).content).toBe("Write tools are disabled. Enable 'Allow MCP writes' in Companion for Claude settings.");
+    expect((await run("no_such_tool")).content).toBe("Tool unavailable in this run: no_such_tool.");
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("are unknown only by name: an available tool has no reason", () => {
+    const tools = new VaultTools(new App() as never, { allowWrites: true, defaultFolder: "Claude", webSearch: async () => "" });
+    expect(tools.unavailable("web_search")).toBeUndefined();
+    expect(tools.unavailable("note_create")).toBeUndefined();
+    expect(tools.unavailable("research_evidence_create")).toBeUndefined();
+  });
+
+  it("keep the research wording for an unknown research tool", async () => {
+    const tools = new VaultTools(new App() as never, { allowWrites: true, defaultFolder: "Claude" });
+    await expect(tools.call("research_nope", {})).rejects.toThrow("Unknown research tool: research_nope");
+    await expect(tools.call("nope", {})).rejects.toThrow("Unknown tool: nope");
+  });
+});
+
 describe("write tools in chat", () => {
   it("asks for confirmation before canvas_create, base_create, ontology_propose, and memory_record", () => {
     for (const name of ["canvas_create", "base_create", "ontology_propose", "memory_record"]) expect(chat.decide(name)).toBe("confirm");
