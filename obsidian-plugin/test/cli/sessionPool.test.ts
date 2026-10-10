@@ -61,6 +61,53 @@ describe("CliSessionPool", () => {
     expect(a.close).not.toHaveBeenCalled();
   });
 
+  it("evicts by recency: a session reused a moment ago outlives an older idle one", async () => {
+    const { pool, opener, events } = harness(2);
+    await pool.acquire("a", "sig", opener("a"));
+    await pool.acquire("b", "sig", opener("b"));
+    await pool.acquire("a", "sig", opener("unused"));
+    await pool.acquire("c", "sig", opener("c"));
+    expect(events).toEqual(["close b", "release b"]);
+  });
+
+  it("does not count a closing session toward capacity", async () => {
+    const { pool, opener, events } = harness(2);
+    const a = await pool.acquire("a", "sig", opener("a"));
+    await pool.acquire("b", "sig", opener("b"));
+    let finishClose!: () => void;
+    a.close.mockImplementation(() => new Promise<void>((resolve) => { finishClose = resolve; }));
+    const closing = pool.close("a");
+    await pool.acquire("c", "sig", opener("c"));
+    finishClose();
+    await closing;
+    expect(events).toEqual(["release a"]);
+  });
+
+  it("closes and releases a session that was still opening when everything closed", async () => {
+    const { pool, events } = harness();
+    let finishOpen!: () => void;
+    const session = new FakeSession();
+    const opening = pool.acquire("c1", "sig", async () => {
+      await new Promise<void>((resolve) => { finishOpen = resolve; });
+      return { session, release: async () => { events.push("release"); } };
+    });
+    await Promise.resolve();
+    const closing = pool.closeAll();
+    finishOpen();
+    await expect(opening).resolves.toBe(session);
+    await closing;
+    expect(session.close).toHaveBeenCalledOnce();
+    expect(events).toEqual(["release"]);
+  });
+
+  it("gives a second caller the session the first caller is still opening", async () => {
+    const { pool, opener } = harness();
+    const open = opener("a");
+    const [first, second] = await Promise.all([pool.acquire("c1", "sig", open), pool.acquire("c1", "sig", open)]);
+    expect(second).toBe(first);
+    expect(open).toHaveBeenCalledOnce();
+  });
+
   it("grows past capacity when every open session is busy", async () => {
     const { pool, opener, events } = harness(1);
     const a = await pool.acquire("a", "sig", opener("a"));

@@ -130,6 +130,47 @@ describe("UtilityFallbackConsent", () => {
     expect(consent.current(context())).toBeUndefined();
   });
 
+  it("asks again for a context whose decision was dropped", async () => {
+    const { opened, ask } = dialogs();
+    const consent = new UtilityFallbackConsent(ask);
+    const first = consent.decide(context("a"));
+    opened[0]!.choose("allow");
+    await first;
+    expect(consent.current(context("b"))).toBeUndefined();
+    const again = consent.decide(context("a"));
+    expect(opened).toHaveLength(2);
+    opened[1]!.choose("deny");
+    await expect(again).resolves.toBe("deny");
+  });
+
+  it("drops a cached decision when the session ends", async () => {
+    const { opened, ask } = dialogs();
+    const consent = new UtilityFallbackConsent(ask);
+    const first = consent.decide(context());
+    opened[0]!.choose("allow");
+    await first;
+    consent.end();
+    expect(consent.current(context())).toBeUndefined();
+  });
+
+  it("starts a session with no decision, no open dialog, and asking enabled", async () => {
+    const { opened, ask } = dialogs();
+    const consent = new UtilityFallbackConsent(ask);
+    const first = consent.decide(context("a"));
+    opened[0]!.choose("allow");
+    await first;
+    consent.start();
+    expect(consent.current(context("a"))).toBeUndefined();
+    consent.decide(context("b"));
+    consent.end();
+    consent.start();
+    consent.decide(context("b"));
+    expect(opened).toHaveLength(3);
+    consent.start();
+    consent.decide(context("b"));
+    expect(opened).toHaveLength(4);
+  });
+
   it("ignores an allow from a dialog opened in an earlier session", async () => {
     const { opened, ask } = dialogs();
     const consent = new UtilityFallbackConsent(ask);

@@ -40,11 +40,8 @@ export class UtilityFallbackConsent {
     const cached = this.current(context);
     if (cached) return Promise.resolve(cached);
     if (this.inFlight && sameConsentKey(context, this.inFlight)) return this.inFlight.promise;
-    if (this.inFlight) {
-      // A different destination appeared while the old disclosure was open: close it fail-safe.
-      this.dialog?.close();
-      this.dialog = null;
-    }
+    // A different destination appeared while the old disclosure was open: close it fail-safe.
+    if (this.inFlight) this.dialog?.close();
     const dialog = this.ask(context);
     this.dialog = dialog;
     const pending = dialog.decision.then((decision): UtilityFallbackApproval => {
