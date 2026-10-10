@@ -26,8 +26,6 @@ export interface AddedContextItem {
 export interface ContextManagerModel {
   activeCount: number;
   summary: string;
-  /** The summary without the "Context ·" prefix, for the phone toolbar chip. */
-  compactSummary: string;
   automatic: AutomaticContextItem[];
   sources: AddedContextItem[];
   signature: string;
@@ -95,11 +93,13 @@ export function buildContextManagerModel(input: ContextManagerInput): ContextMan
   ];
   const activeCount = activeLabels.length;
   const primary = activeLabels[0];
-  const named = primary && primary.length <= 32
-    ? activeCount === 1 ? primary : `${primary} + ${activeCount - 1}`
-    : null;
-  const summary = activeCount === 0 ? "Add context" : `Context · ${named ?? activeCount}`;
-  const compactSummary = activeCount === 0 ? "Add context" : named ?? `${activeCount} ${activeCount === 1 ? "item" : "items"}`;
-  const visible = { activeCount, summary, compactSummary, automatic, sources };
+  const summary = activeCount === 0
+    ? "Add context"
+    : primary && primary.length <= 32
+      ? activeCount === 1
+        ? `Context · ${primary}`
+        : `Context · ${primary} + ${activeCount - 1}`
+      : `Context · ${activeCount}`;
+  const visible = { activeCount, summary, automatic, sources };
   return { ...visible, signature: JSON.stringify(visible) };
 }

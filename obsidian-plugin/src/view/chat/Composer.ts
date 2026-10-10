@@ -85,10 +85,13 @@ export class Composer {
   ): void {
     const composer = root.createDiv({ cls: "cc-composer" });
     this.el = composer;
-    const mobile = Platform.isMobile;
 
-    // Desktop: the context manager leads the composer; mobile mounts it in the card toolbar.
-    if (!mobile) this.contextManager = new ComposerContextManager(composer, this.deps);
+    this.contextManager = new ComposerContextManager(composer, {
+      toggleAutomatic: (key, enabled) => this.deps.toggleAutomatic(key, enabled),
+      removeSource: (id) => this.deps.removeSource(id),
+      retrySource: (id) => this.deps.retrySource(id),
+      addContext: () => this.deps.addContext(),
+    });
     // The active chat project's pill (same pill style as a folder attachment).
     this.projectPillEl = composer.createDiv({ cls: "cc-ctx-pill cc-ctx-project" });
     this.projectPillEl.setCssStyles({ display: "none" });
@@ -103,20 +106,21 @@ export class Composer {
     this.slashMenu = new SlashMenu(composer, slashCommands, (cmd) => this.deps.onSlashCommand(cmd));
     this.atMenu = new AtMenu(composer, () => this.deps.pickAtItems(), (item) => this.deps.onAtChoose(item));
 
-    // Mobile: one card — the input, then a toolbar of context chip, Ask / Plan / Act, and Send.
-    const inputRow = mobile ? composer.createDiv({ cls: "cc-composer-card" }) : composer;
+    // Mobile keeps the compact input row; the context manager above is the one
+    // button-driven source entry point on every platform.
+    const inputRow = Platform.isMobile ? composer.createDiv({ cls: "cc-composer-input-row" }) : composer;
     this.inputEl = inputRow.createEl("textarea", {
       cls: "cc-input",
       // Start compact on mobile (1 row, grows via autosizeInput) so the composer
       // doesn't eat a big band of the phone screen; roomier default on desktop.
       // The desktop placeholder spells out the /@ affordances, but that string
       // wraps to two cramped lines inside a one-row phone pill — mobile gets a
-      // short placeholder (the context chip under it surfaces context on mobile).
+      // short placeholder (the "+" button already surfaces context on mobile).
       attr: {
-        placeholder: mobile
+        placeholder: Platform.isMobile
           ? "Message Claude…"
           : "Ask Claude…  ( / for commands · @ to add context · Enter to send )",
-        rows: mobile ? "1" : "3",
+        rows: Platform.isMobile ? "1" : "3",
       },
     });
     this.inputEl.addEventListener("keydown", (e) => {
@@ -166,28 +170,23 @@ export class Composer {
       }
     });
 
-    const toolbar = mobile ? inputRow.createDiv({ cls: "cc-composer-toolbar" }) : null;
-    if (toolbar) {
-      this.contextManager = new ComposerContextManager(toolbar, this.deps, { compact: true });
-      this.mountModeControl(toolbar);
-    }
-
     // ---- composer bar: model + tune (left group) · usage + Send (right) ----
-    // Desktop: one row under the input. Mobile: Send ends the card's toolbar;
-    // the bar keeps only the thin usage gauge on the card's top edge (see styles).
-    const bar = inputRow.createDiv({ cls: "cc-composer-bar" });
+    // Desktop: one row under the input. Mobile: Send joins the thumb input row
+    // ([+] · input · ↑); the bar keeps only the thin usage gauge (see styles).
+    const bar = composer.createDiv({ cls: "cc-composer-bar" });
     this.controlsEl = bar.createDiv({ cls: "cc-controls" });
     this.renderControls();
 
     const sendGroup = bar.createDiv({ cls: "cc-send-group" });
     this.deps.mountUsage(sendGroup);
-    this.sendBtn = (toolbar ?? sendGroup).createEl("button", {
-      cls: mobile ? "cc-send cc-send-icon" : "cc-send",
-      ...(mobile
+    const sendParent = Platform.isMobile ? inputRow : sendGroup;
+    this.sendBtn = sendParent.createEl("button", {
+      cls: Platform.isMobile ? "cc-send cc-send-icon" : "cc-send",
+      ...(Platform.isMobile
         ? { attr: { "aria-label": "Send message" } }
         : { text: "Send" }),
     });
-    if (mobile) setIcon(this.sendBtn, "arrow-up");
+    if (Platform.isMobile) setIcon(this.sendBtn, "arrow-up");
     this.sendBtn.addEventListener("click", () => this.deps.onSend());
   }
 
@@ -496,8 +495,15 @@ export class Composer {
     this.reasoningEl = reasoning;
     this.deps.refreshCapabilityIndicators();
 
-    // Mobile hides this bar and mounts the mode switch in the composer toolbar.
-    if (!Platform.isMobile) this.mountModeControl(this.controlsEl);
+    // Ask / Plan / Act — one segmented control for whether Claude can create /
+    // edit notes in chat. Only meaningful for Claude (Ollama has no vault
+    // tools), so it hides itself on local sessions. Each write still asks for
+    // confirmation; Act just controls whether the tools are offered.
+    this.modeControl = new ModeControl(this.controlsEl, {
+      initial: this.deps.currentMode(),
+      onChange: (m) => this.deps.applyMode(m),
+    });
+    this.deps.updateModeControl();
 
     // Knobs (thinking / effort / temp / max) live in a popover behind a single
     // "tune" button, so the footer stays clean and Send is never buried.
@@ -522,12 +528,6 @@ export class Composer {
         tuneBtn.setAttr("aria-expanded", "false");
       }
     });
-  }
-
-  /** Ask / Plan / Act: whether chat offers write tools (each write still asks); hidden while the backend can't run tools. */
-  private mountModeControl(parent: HTMLElement): void {
-    this.modeControl = new ModeControl(parent, { initial: this.deps.currentMode(), onChange: (m) => this.deps.applyMode(m) });
-    this.deps.updateModeControl();
   }
 
   /** Append a "Local (Ollama)" optgroup of detected models to the switcher. */

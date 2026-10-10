@@ -38,12 +38,7 @@ export class ComposerContextManager {
   private openState = false;
   private focusedControlId: string | null = null;
 
-  constructor(
-    parent: HTMLElement,
-    private readonly callbacks: ComposerContextManagerCallbacks,
-    /** compact: the trigger shows the short summary (phone composer toolbar). */
-    private readonly options: { compact?: boolean } = {},
-  ) {
+  constructor(parent: HTMLElement, private readonly callbacks: ComposerContextManagerCallbacks) {
     const sequence = managerSequence++;
     const surfaceId = `cc-context-surface-${sequence}`;
     const headingId = `cc-context-heading-${sequence}`;
@@ -98,7 +93,7 @@ export class ComposerContextManager {
   render(model: ContextManagerModel): void {
     const itemWord = model.activeCount === 1 ? "item" : "items";
     this.trigger.setAttr("aria-label", `Manage context, ${model.activeCount} ${itemWord} active`);
-    this.triggerLabel.setText(this.options.compact ? model.compactSummary : model.summary);
+    this.triggerLabel.setText(model.summary);
     this.renderAutomatic(model);
     this.renderSources(model.sources);
     this.restoreTrackedFocus();
