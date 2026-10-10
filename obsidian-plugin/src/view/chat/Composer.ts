@@ -18,7 +18,7 @@ import { capabilitiesFor, effortLevels } from "../../claude/capabilities";
 import { type ChatControls, knobVisibility } from "../../claude/chatControls";
 import { mergeDetectedModels } from "../../providers/localModels";
 import { quickNotice } from "../../notice";
-import type ClaudeCompanionPlugin from "../../main";
+import type { ComposerHost } from "./hosts";
 import type { ContextToggles } from "../../types";
 import { applyMention, initialToggles } from "./contextScope";
 
@@ -191,7 +191,7 @@ export class Composer {
     this.contextManager?.destroy();
   }
 
-  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private chat: ChatSession, private deps: ComposerDeps) {
+  constructor(private app: App, private plugin: ComposerHost, private chat: ChatSession, private deps: ComposerDeps) {
     this.contextToggles = initialToggles(plugin.settings.context);
   }
 

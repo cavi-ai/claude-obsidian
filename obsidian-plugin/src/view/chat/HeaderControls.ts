@@ -1,5 +1,5 @@
 import { Platform, setIcon, Menu, Modal, Notice, type App } from "obsidian";
-import type ClaudeCompanionPlugin from "../../main";
+import type { HeaderHost } from "./hosts";
 import { renderCompanionChrome } from "../companionChrome";
 import type { ChatMessage } from "../../types";
 import type { Conversation } from "../../conversations/store";
@@ -140,7 +140,7 @@ export class HeaderControls {
     return btn;
   }
 
-  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private chat: ChatSession, private deps: HeaderControlsDeps) {}
+  constructor(private app: App, private plugin: HeaderHost, private chat: ChatSession, private deps: HeaderControlsDeps) {}
 
   private get agentWriteAlways(): boolean { return this.chat.writeGrant; }
   private get controls(): ChatControls { return this.chat.controls; }

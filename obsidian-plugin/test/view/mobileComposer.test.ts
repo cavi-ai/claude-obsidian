@@ -4,7 +4,7 @@ import { Composer, type ComposerDeps } from "../../src/view/chat/Composer";
 import { ChatSession } from "../../src/view/chat/chatSession";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { defaultChatControls } from "../../src/claude/chatControls";
-import type ClaudeCompanionPlugin from "../../src/main";
+import type { ComposerHost } from "../../src/view/chat/hosts";
 
 function mountComposer(): { root: FakeElement; composer: Composer; chat: ChatSession } {
   const plugin = {
@@ -14,7 +14,9 @@ function mountComposer(): { root: FakeElement; composer: Composer; chat: ChatSes
       openaiCompat: { listModels: async () => [] },
       chatCapabilities: () => ({ agentActions: true, claudeControls: false, metered: false, local: false, cli: false }),
     }),
-  } as unknown as ClaudeCompanionPlugin;
+    saveSettings: vi.fn(async () => undefined),
+    captureWebPage: () => false,
+  } as unknown as ComposerHost;
   const deps = {
     refreshCapabilityIndicators: vi.fn(),
     registerDomEvent: vi.fn(),

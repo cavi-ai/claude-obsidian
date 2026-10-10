@@ -1,5 +1,5 @@
 import { type App, MarkdownView, Notice, setIcon } from "obsidian";
-import type ClaudeCompanionPlugin from "../../main";
+import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
 import type { AgentTurnResult } from "../../agent/loop";
 import type { ChatTurnService, TurnEvent } from "../../chat/turnService";
@@ -51,7 +51,7 @@ export class Transcript {
   messagesEl!: HTMLElement;
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private readonly thinking = new ThinkingStatus();
-  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private chat: ChatSession, private deps: TranscriptDeps) {}
+  constructor(private app: App, private plugin: TranscriptHost, private chat: ChatSession, private deps: TranscriptDeps) {}
 
   private get turn(): TurnState { return this.chat.turn; }
   private get controls(): ChatControls { return this.chat.controls; }
