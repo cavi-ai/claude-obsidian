@@ -312,7 +312,7 @@ export async function resetVaultState(
     // showTurnCompleteStatusBar) is expected to self-clean on plugin unload,
     // but a reset must never let a prior scenario's element read as this one's.
     document.querySelectorAll(".cc-turn-complete-status").forEach((el) => el.remove());
-    document.body.classList.remove("is-mobile");
+    document.body.classList.remove("is-mobile", "is-phone");
     const rightSplit = document.querySelector<HTMLElement>(".workspace-split.mod-right-split");
     for (const property of ["display", "position", "inset", "width", "min-width", "max-width", "flex", "z-index"]) {
       rightSplit?.style.removeProperty(property);
