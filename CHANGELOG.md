@@ -4,6 +4,12 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.3] — 2026-10-10
+
+### Fixed
+- On mobile, Rebuild index works when a larger semantic index syncs in from desktop; the phone keeps its own index file.
+- On mobile, Source Inbox rows keep their colors and fit the sidebar.
+
 ## [0.44.2] — 2026-10-10
 
 ### Fixed
