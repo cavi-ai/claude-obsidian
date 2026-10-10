@@ -53,6 +53,7 @@ import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
 import { sanitizeEndpointForDisplay, UtilityUnavailableError, type UtilityFallbackApproval } from "./providers/endpointPolicy";
+import { sameConsentKey, UtilityFallbackConsent, type ConsentDialog } from "./providers/utilityConsent";
 import { ANTHROPIC_DEFAULT_BASE_URL } from "./providers/auth";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
@@ -211,15 +212,6 @@ interface PersistedData {
   orderEditQueue?: unknown;
   published?: unknown;
   optimize?: unknown;
-}
-
-type UtilityFallbackConsentKey = Pick<UtilityFallbackConsentContext, "identity" | "destinationFingerprint">;
-
-function sameUtilityFallbackConsentContext(
-  left: UtilityFallbackConsentKey,
-  right: UtilityFallbackConsentKey | null | undefined,
-): boolean {
-  return !!right && left.identity === right.identity && left.destinationFingerprint === right.destinationFingerprint;
 }
 
 export default class ClaudeCompanionPlugin extends Plugin {
@@ -557,12 +549,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private clipperVerificationTimers = new Map<string, number>();
   private utilityLifecycleEnded = false;
   private utilityLifecycleGeneration = 0;
-  /** Mobile loopback → Claude consent, scoped to one exact source/destination context. */
-  private mobileUtilityFallbackApproval: UtilityFallbackConsentKey & { decision: UtilityFallbackApproval } | undefined;
-  /** Coalesces concurrent automatic enrichments onto one consent decision. */
-  private mobileUtilityFallbackConsentInFlight: UtilityFallbackConsentKey & { promise: Promise<UtilityFallbackApproval> } | null = null;
-  /** Active fallback disclosure, closed fail-safe when the plugin unloads. */
-  private mobileUtilityFallbackModal: ChoiceModal<UtilityFallbackApproval> | null = null;
+  /** Mobile loopback → Claude consent for this plugin session. */
+  private _utilityConsent?: UtilityFallbackConsent;
+  private get utilityConsent(): UtilityFallbackConsent {
+    return (this._utilityConsent ??= new UtilityFallbackConsent((context) => this.askMobileUtilityFallback(context)));
+  }
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
   private inboxRibbonEl: HTMLElement | null = null;
   private inboxBadgeTimer: number | null = null;
@@ -604,9 +595,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
     this.utilityLifecycleEnded = false;
     this._enrichment?.resetLifecycle();
-    this.mobileUtilityFallbackApproval = undefined;
-    this.mobileUtilityFallbackConsentInFlight = null;
-    this.mobileUtilityFallbackModal = null;
+    this.utilityConsent.start();
     await this.loadSettings();
 
     this.registerViews();
@@ -943,7 +932,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (selection.state === "unavailable-loopback") {
       const promptedContext = this.router().utilityFallbackConsentContext(Platform.isMobile);
       if (!promptedContext) throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
-      const approval = await this.mobileUtilityFallbackConsent(promptedContext);
+      const approval = await this.utilityConsent.decide(promptedContext);
       if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
 
       // Settings may rebuild the router while the modal is open. Reacquire it,
@@ -952,10 +941,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const currentRouter = this.router();
       const current = currentRouter.resolveUtilityForRuntime({ isMobile: Platform.isMobile });
       const currentContext = currentRouter.utilityFallbackConsentContext(Platform.isMobile);
-      if (!sameUtilityFallbackConsentContext(promptedContext, currentContext)) {
-        if (sameUtilityFallbackConsentContext(promptedContext, this.mobileUtilityFallbackApproval)) {
-          this.mobileUtilityFallbackApproval = undefined;
-        }
+      if (!sameConsentKey(promptedContext, currentContext)) {
+        this.utilityConsent.forget(promptedContext);
         if (current.state === "unavailable-loopback" || current.state === "unavailable-without-Claude") {
           if (current.state === "unavailable-loopback" && currentContext) {
             throw new Error(
@@ -981,60 +968,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
   }
 
-  private mobileUtilityFallbackConsent(context: UtilityFallbackConsentContext): Promise<UtilityFallbackApproval> {
-    if (this.utilityLifecycleEnded) return Promise.resolve("deny");
-    const lifecycleGeneration = this.utilityLifecycleGeneration ?? 0;
-    if (this.mobileUtilityFallbackApproval && !sameUtilityFallbackConsentContext(context, this.mobileUtilityFallbackApproval)) {
-      this.mobileUtilityFallbackApproval = undefined;
-    }
-    if (this.mobileUtilityFallbackApproval) return Promise.resolve(this.mobileUtilityFallbackApproval.decision);
-    const inFlight = this.mobileUtilityFallbackConsentInFlight;
-    if (inFlight && sameUtilityFallbackConsentContext(context, inFlight)) {
-      return inFlight.promise;
-    }
-    if (this.mobileUtilityFallbackConsentInFlight) {
-      // A different destination appeared while the old disclosure was open.
-      // Close the stale modal fail-safe before showing the current one.
-      this.mobileUtilityFallbackModal?.close();
-      this.mobileUtilityFallbackModal = null;
-    }
-    const pending = this.askMobileUtilityFallback(context).then((choice) => {
-      if (!this.isUtilityLifecycleActive(lifecycleGeneration)) return "deny";
-      const decision = choice;
-      const cached = this.mobileUtilityFallbackApproval;
-      // Denial is monotonic for concurrent callers in this exact context: no
-      // late/racing Allow can replace it.
-      if (!sameUtilityFallbackConsentContext(context, cached) || cached?.decision !== "deny") {
-        this.mobileUtilityFallbackApproval = {
-          identity: context.identity,
-          destinationFingerprint: context.destinationFingerprint,
-          decision,
-        };
-        return decision;
-      }
-      return cached.decision;
-    });
-    const shared = pending.finally(() => {
-      if (this.mobileUtilityFallbackConsentInFlight?.promise === shared) this.mobileUtilityFallbackConsentInFlight = null;
-    });
-    this.mobileUtilityFallbackConsentInFlight = {
-      identity: context.identity,
-      destinationFingerprint: context.destinationFingerprint,
-      promise: shared,
-    };
-    return shared;
-  }
-
   private runtimeUtilitySelection(): RuntimeUtilitySelection {
     const router = this.router();
-    const context = router.utilityFallbackConsentContext(Platform.isMobile);
-    if (this.mobileUtilityFallbackApproval && !sameUtilityFallbackConsentContext(this.mobileUtilityFallbackApproval, context)) {
-      this.mobileUtilityFallbackApproval = undefined;
-    }
-    return router.resolveUtilityForRuntime({
-      isMobile: Platform.isMobile,
-      ...(this.mobileUtilityFallbackApproval ? { fallbackApproval: this.mobileUtilityFallbackApproval.decision } : {}),
-    });
+    const decision = this.utilityConsent.current(router.utilityFallbackConsentContext(Platform.isMobile));
+    return router.resolveUtilityForRuntime({ isMobile: Platform.isMobile, ...(decision ? { fallbackApproval: decision } : {}) });
   }
 
   /** Runtime-selected utility backend shown alongside Inbox batch controls. */
@@ -1070,14 +1007,13 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.providerErrorHint(message, provider);
   }
 
-  private askMobileUtilityFallback(context: UtilityFallbackConsentContext): Promise<UtilityFallbackApproval> {
-    return new Promise((resolve) => {
+  private askMobileUtilityFallback(context: UtilityFallbackConsentContext): ConsentDialog {
+    let modal!: ChoiceModal<UtilityFallbackApproval>;
+    const decision = new Promise<UtilityFallbackApproval>((resolve) => {
       let settled = false;
-      let modal: ChoiceModal<UtilityFallbackApproval>;
       const finish = (choice: UtilityFallbackApproval): void => {
         if (settled) return;
         settled = true;
-        if (this.mobileUtilityFallbackModal === modal) this.mobileUtilityFallbackModal = null;
         resolve(choice);
       };
       modal = new ChoiceModal<UtilityFallbackApproval>(this.app, {
@@ -1094,9 +1030,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
         fallback: "deny",
         onChoice: finish,
       });
-      this.mobileUtilityFallbackModal = modal;
       modal.open();
     });
+    return { decision, close: () => modal.close() };
   }
 
   private mobileFallbackDestinationLabel(endpoint: string): string {
@@ -1583,10 +1519,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.utilityLifecycleEnded = true;
     this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
     this._enrichment?.destroy();
-    this.mobileUtilityFallbackApproval = undefined;
-    this.mobileUtilityFallbackModal?.close();
-    this.mobileUtilityFallbackModal = null;
-    this.mobileUtilityFallbackConsentInFlight = null;
+    this.utilityConsent.end();
     for (const timer of this.clipperVerificationTimers?.values() ?? []) window.clearTimeout(timer);
     this.clipperVerificationTimers?.clear();
     this._discoveryCoordinator?.cancel();
