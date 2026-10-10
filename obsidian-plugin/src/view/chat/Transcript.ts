@@ -20,6 +20,7 @@ import { quickNotice } from "../../notice";
 import { removeInterruptedTurnRow, renderInterruptedTurnRow, renderRecoverableEditRow } from "./recoveryRows";
 import { renderResearchQuickActions } from "./researchQuickActions";
 import { ThinkingStatus } from "./thinkingStatus";
+import type { ChatModeState } from "./chatMode";
 
 /** Truncate a tool result for the expandable chip body. */
 function previewText(text: string): string {
@@ -58,6 +59,8 @@ export interface TranscriptDeps {
   lastUserText(): string;
   messages(): ChatMessage[];
   streaming(): boolean;
+  /** This chat's Ask / Plan / Act; implementing a plan needs Act. */
+  mode: ChatModeState;
 }
 
 /** The message list: stored/live bubbles, turn rendering, tool chips, reply actions, empty-state and setup-card hosting. */
@@ -541,8 +544,8 @@ export class Transcript {
       new Notice("Turn on agent mode (and use Claude or Claude Code) to implement in-app, or use Build to hand off to Claude Code.");
       return;
     }
-    if (!this.plugin.settings.agentAllowWrites) {
-      new Notice("Turn on “Act on vault” to let me make the changes, then hit Implement again.");
+    if (this.deps.mode.mode !== "act") {
+      new Notice("Switch to Act to let me make the changes, then hit Implement again.");
       return;
     }
     const tasks = extractTasks(full);

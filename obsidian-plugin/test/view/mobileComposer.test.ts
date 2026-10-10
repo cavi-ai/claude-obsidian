@@ -1,6 +1,7 @@
 import { App, FakeElement, Platform } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer, type ComposerDeps } from "../../src/view/chat/Composer";
+import { ChatModeState } from "../../src/view/chat/chatMode";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { defaultChatControls } from "../../src/claude/chatControls";
 import type ClaudeCompanionPlugin from "../../src/main";
@@ -15,9 +16,7 @@ function mountComposer(): { root: FakeElement; composer: Composer; deps: Compose
     }),
   } as unknown as ClaudeCompanionPlugin;
   const deps = {
-    applyMode: vi.fn(async () => undefined),
-    currentMode: () => "ask",
-    updateModeControl: vi.fn(),
+    mode: new ChatModeState({ writes: () => false, setWrites: vi.fn(), save: vi.fn(async () => undefined), notify: vi.fn() }),
     refreshCapabilityIndicators: vi.fn(),
     registerDomEvent: vi.fn(),
     mountUsage: (parent: HTMLElement) => { parent.createDiv({ cls: "cc-usage" }); },
@@ -55,7 +54,8 @@ describe("Composer layout", () => {
     expect(root.querySelectorAll(".cc-mode-control")).toHaveLength(1);
     expect(root.querySelectorAll(".cc-context-manager")).toHaveLength(1);
     expect(root.querySelector(".cc-composer-card")).toBeNull();
-    expect(deps.updateModeControl).toHaveBeenCalledOnce();
+    deps.mode.setCapable(true);
+    expect([...composer.modeControl!.el.classList]).not.toContain("is-hidden");
   });
 
   it("keeps the desktop layout: context manager first, mode switch in the controls bar", () => {

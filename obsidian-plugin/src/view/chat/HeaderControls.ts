@@ -8,7 +8,7 @@ import { modelLabel } from "../../claude/models";
 import { DEVICE_MODELS, DEVICE_MAX_INPUT_TOKENS, DEVICE_MAX_OUTPUT_TOKENS, deviceModelCached } from "../../device/models";
 import { isMobileModelChoiceActive, mobileModelChoices } from "../mobileModelChoices";
 import type { ChatControls } from "../../claude/chatControls";
-import type { ChatMode } from "../ModeControl";
+import type { ChatModeState } from "./chatMode";
 import type { CliBackend, CliSignInProvider } from "../../cli/backends/types";
 import type { ProviderRouter } from "../../providers/router";
 import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../../usage/tokens";
@@ -28,7 +28,8 @@ export interface HeaderControlsCallbacks {
 
 export interface HeaderControlsDeps {
   anyContextEnabled(): boolean;
-  applyMode(mode: ChatMode): Promise<void>;
+  /** This chat's Ask / Plan / Act and tool capability. */
+  mode: ChatModeState;
   clearChat(): void;
   cliEntries(router: ProviderRouter): { backend: CliBackend; provider: CliSignInProvider }[];
   loadConversation(conversation: Conversation): void;
@@ -37,14 +38,10 @@ export interface HeaderControlsDeps {
   renderKnobs(): void;
   renderKnobsInto(parent: HTMLElement): void;
   distillChat(): Promise<void>;
-  updateModeControl(): void;
-  agentCapable(): boolean;
-  setAgentCapable(v: boolean): void;
   agentWriteAlways(): boolean;
   controls(): ChatControls;
   inputEl(): HTMLTextAreaElement;
   messages(): ChatMessage[];
-  planMode(): boolean;
   reasoningEl(): HTMLButtonElement | null;
   session(): SessionUsage;
   currentProject(): ChatProject | null;
@@ -151,13 +148,10 @@ export class HeaderControls {
 
   constructor(private app: App, private plugin: ClaudeCompanionPlugin, private deps: HeaderControlsDeps) {}
 
-  private get agentCapable(): boolean { return this.deps.agentCapable(); }
-  private set agentCapable(v: boolean) { this.deps.setAgentCapable(v); }
   private get agentWriteAlways(): boolean { return this.deps.agentWriteAlways(); }
   private get controls(): ChatControls { return this.deps.controls(); }
   private get inputEl(): HTMLTextAreaElement { return this.deps.inputEl(); }
   private get messages(): ChatMessage[] { return this.deps.messages(); }
-  private get planMode(): boolean { return this.deps.planMode(); }
   private get reasoningEl(): HTMLButtonElement | null { return this.deps.reasoningEl(); }
   private get session(): SessionUsage { return this.deps.session(); }
 
@@ -349,8 +343,8 @@ export class HeaderControls {
     const canAct = !Platform.isMobile && this.plugin.settings.agentModeEnabled && this.plugin.router().chatCapabilities().agentActions;
     if (canAct) {
       items.push(
-        { title: "Act on vault", icon: "pencil-line", checked: this.plugin.settings.agentAllowWrites, separatorBefore: true, run: () => void this.deps.applyMode(this.plugin.settings.agentAllowWrites ? "ask" : "act") },
-        { title: "Plan mode", icon: "list-todo", checked: this.planMode, run: () => void this.deps.applyMode(this.planMode ? (this.plugin.settings.agentAllowWrites ? "act" : "ask") : "plan") },
+        { title: "Act on vault", icon: "pencil-line", checked: this.deps.mode.writes, separatorBefore: true, run: () => void this.deps.mode.toggleWrites() },
+        { title: "Plan mode", icon: "list-todo", checked: this.deps.mode.mode === "plan", run: () => void this.deps.mode.togglePlan() },
       );
     }
     if (this.plugin.settings.memoryEnabled) {
@@ -436,8 +430,7 @@ export class HeaderControls {
   refreshCapabilityIndicators(): void {
     void (async () => {
       const router = this.plugin.router();
-      this.agentCapable = this.plugin.settings.agentModeEnabled && (await router.chatToolCapable());
-      this.deps.updateModeControl();
+      this.deps.mode.setCapable(this.plugin.settings.agentModeEnabled && (await router.chatToolCapable()));
       const el = this.reasoningEl;
       if (!el) return;
       const reasoning = await router.chatReasoningActive(this.controls.thinking);

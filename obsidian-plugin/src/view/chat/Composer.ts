@@ -6,7 +6,8 @@ import { type AtItem, type ClaimAtSource, type ProjectAtSource, buildAtItems, bu
 import type { ChatProject } from "../../projects/model";
 import { ComposerContextManager } from "../ComposerContextManager";
 import { type AutomaticContextKey, buildContextManagerModel } from "../contextManagerModel";
-import { ModeControl, type ChatMode } from "../ModeControl";
+import { ModeControl } from "../ModeControl";
+import type { ChatModeState } from "./chatMode";
 import type { AttachedPath } from "../../context/vaultContext";
 import { type MediaAttachment, arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime } from "../../context/attachments";
 import { type AttachedPage, detectPageUrl, pageLabel } from "../../context/urlContext";
@@ -23,13 +24,12 @@ import { applyMention, initialToggles } from "./contextScope";
 
 export interface ComposerDeps {
   applyChatFontSize(): void;
-  applyMode(mode: ChatMode): Promise<void>;
-  currentMode(): ChatMode;
+  /** This chat's Ask / Plan / Act; the composer's switch shows and changes it. */
+  mode: ChatModeState;
   onModelSelect(value: string): Promise<void>;
   refreshCapabilityIndicators(): void;
   registerDomEvent(el: Document, type: "click", callback: (evt: MouseEvent) => void): void;
   resolveMarkdownContextView(): MarkdownView | null;
-  updateModeControl(): void;
   updateUsageBar(): void;
   cachedClaims(): ClaimAtSource[];
   cachedProjects(): ProjectAtSource[];
@@ -526,8 +526,8 @@ export class Composer {
 
   /** Ask / Plan / Act: whether chat offers write tools (each write still asks); hidden while the backend can't run tools. */
   private mountModeControl(parent: HTMLElement): void {
-    this.modeControl = new ModeControl(parent, { initial: this.deps.currentMode(), onChange: (m) => this.deps.applyMode(m) });
-    this.deps.updateModeControl();
+    this.modeControl?.dispose();
+    this.modeControl = new ModeControl(parent, this.deps.mode);
   }
 
   /** Append a "Local (Ollama)" optgroup of detected models to the switcher. */

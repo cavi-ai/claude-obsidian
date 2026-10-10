@@ -366,12 +366,11 @@ describe("Chat render lifecycle", () => {
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
     const seam = view as unknown as {
       controls: ReturnType<typeof defaultChatControls>;
-      agentCapable: boolean;
       agentTurn(messages: [], handlers: AgentTurnHandlers, signal: AbortSignal, conversationId: string): Promise<{ aborted?: boolean }>;
       turnRunnerFor: ReturnType<typeof vi.fn>;
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
-    seam.agentCapable = true;
+    view.mode.setCapable(true);
     seam.turnRunnerFor = vi.fn();
     const controller = new AbortController();
     const running = seam.agentTurn([], { onText: vi.fn() }, controller.signal, "c1");

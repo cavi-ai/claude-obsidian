@@ -5,7 +5,7 @@ import { effectiveToggles } from "./chat/contextScope";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { toAnthropicTools, executeTool, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
-import { toolAccess, type ToolRunKind } from "../agent/toolAccess";
+import { toolAccess } from "../agent/toolAccess";
 import { parseExternalToolName } from "../mcp/external";
 import { WriteConfirmModal } from "./WriteConfirmModal";
 import { planEdits, parseProposedEdits } from "../edit/diff";
@@ -18,7 +18,7 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import type { ChatMode } from "./ModeControl";
+import { ChatModeState } from "./chat/chatMode";
 import { buildSlashCatalog, type SlashCommand, runNativeSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { type AttachedPage } from "../context/urlContext";
@@ -164,10 +164,8 @@ export class ChatView extends ItemView {
   private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
   /** "Allow for this session" on agent write confirmations (cleared with the view). */
   private agentWriteAlways = false;
-  /** Plan Mode: read-only agent turn that ends in a plan (per conversation). */
-  private planMode = false;
-  /** Whether the current chat backend can run tool-driven agent turns (refreshed per turn + backend change). */
-  private agentCapable = false;
+  /** Ask / Plan / Act for this chat, and whether the backend can run tools (refreshed per turn + backend change). */
+  readonly mode: ChatModeState;
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
 
   private renderVersions = new WeakMap<HTMLElement, number>();
@@ -179,6 +177,12 @@ export class ChatView extends ItemView {
     private plugin: ClaudeCompanionPlugin,
   ) {
     super(leaf);
+    this.mode = new ChatModeState({
+      writes: () => plugin.settings.agentAllowWrites,
+      setWrites: (on) => { plugin.settings.agentAllowWrites = on; },
+      save: () => plugin.saveSettings(),
+      notify: (message) => quickNotice(message),
+    });
     this.setupCard = new SetupCard({
       plugin,
       cliEntries: (router) => this.cliEntries(router),
@@ -209,10 +213,11 @@ export class ChatView extends ItemView {
       lastUserText: () => this.lastUserText,
       messages: () => this.messages,
       streaming: () => this.streaming,
+      mode: this.mode,
     });
     this.header = new HeaderControls(this.app, plugin, {
       anyContextEnabled: () => this.composer.anyContextEnabled(),
-      applyMode: (...args) => this.applyMode(...args),
+      mode: this.mode,
       clearChat: (...args) => this.clearChat(...args),
       cliEntries: (...args) => this.cliEntries(...args),
       loadConversation: (...args) => this.loadConversation(...args),
@@ -221,27 +226,21 @@ export class ChatView extends ItemView {
       renderKnobs: () => this.composer.renderKnobs(),
       renderKnobsInto: (parent) => this.composer.renderKnobsInto(parent),
       distillChat: () => this.distillThisChat(),
-      updateModeControl: (...args) => this.updateModeControl(...args),
-      agentCapable: () => this.agentCapable,
-      setAgentCapable: (v) => { this.agentCapable = v; },
       agentWriteAlways: () => this.agentWriteAlways,
       controls: () => this.controls,
       inputEl: () => this.composer.inputEl,
       messages: () => this.messages,
-      planMode: () => this.planMode,
       reasoningEl: () => this.composer.reasoningEl,
       session: () => this.session,
       currentProject: () => this.currentChatProject,
     });
     this.composer = new Composer(this.app, plugin, {
       applyChatFontSize: (...args) => this.applyChatFontSize(...args),
-      applyMode: (...args) => this.applyMode(...args),
-      currentMode: (...args) => this.currentMode(...args),
+      mode: this.mode,
       onModelSelect: (...args) => this.header.onModelSelect(...args),
       refreshCapabilityIndicators: (...args) => this.header.refreshCapabilityIndicators(...args),
       registerDomEvent: (el, type, callback) => this.registerDomEvent(el, type, callback),
       resolveMarkdownContextView: (...args) => this.resolveMarkdownContextView(...args),
-      updateModeControl: (...args) => this.updateModeControl(...args),
       updateUsageBar: (...args) => this.updateUsageBar(...args),
       cachedClaims: () => this.cachedClaims,
       cachedProjects: () => this.cachedProjects.map((p) => ({ id: p.id, name: p.name })),
@@ -639,9 +638,7 @@ export class ChatView extends ItemView {
     this.detachTurnRendering();
     this.messages = [];
     this.session = { ...EMPTY_SESSION };
-    // Plan Mode is per-conversation — a fresh chat starts with it off.
-    this.planMode = false;
-    this.updateModeControl();
+    this.mode.reset();
     // The previous conversation is already auto-saved; detach so the next turn
     // begins a fresh one instead of continuing it.
     this.conversationId = null;
@@ -891,7 +888,7 @@ export class ChatView extends ItemView {
       turn = await this.plugin.beginActiveConversationTurn(this.conversationId, this.messages, {
         backend,
         model: this.turnModelOverride ?? model,
-        mode: this.currentMode(),
+        mode: this.mode.mode,
         ...(this.continuationDepth > 0 ? { continuationDepth: this.continuationDepth } : {}),
       });
     } catch (error) {
@@ -927,9 +924,8 @@ export class ChatView extends ItemView {
     // metadata reports "tools") — local-only setups get the same agent.
     const toolCapable = await router.chatToolCapable();
     if (controller.signal.aborted) return true;
-    this.agentCapable = this.plugin.settings.agentModeEnabled && toolCapable;
-    this.updateModeControl();
-    const agentActive = this.agentCapable;
+    this.mode.setCapable(this.plugin.settings.agentModeEnabled && toolCapable);
+    const agentActive = this.mode.capable;
     if (this.plugin.settings.agentModeEnabled && !toolCapable && caps.local) {
       new Notice(provider.id === "device" ? "On-device GPU models support text chat. Agent tools are off for this backend." : "The selected local model doesn't support tools, so the agent is off. Pick a tool-capable model (e.g. llama3.1, qwen3) in settings → Local models.", 8000);
     }
@@ -1149,7 +1145,7 @@ export class ChatView extends ItemView {
   ): Promise<AgentTurnResult> {
     const { provider, model: providerModel } = this.plugin.router().chatProvider();
     const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
-    const run = this.toolRun();
+    const run = this.mode.run;
     const externalTools = run === "chat" ? await this.plugin.externalMcpTools().catch(() => []) : [];
     if (signal.aborted) return { text: "", trace: [], aborted: true };
     const vaultDefs = this.plugin.agentTools().definitions();
@@ -1205,7 +1201,7 @@ export class ChatView extends ItemView {
     signal?.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
     return this.plugin.cliTurnRunner({
       conversationId,
-      run: this.toolRun(),
+      run: this.mode.run,
       model: request.model,
       deps: { confirmWrite: async (b) => (await this.confirmAgentWrite(b)) && !signal?.aborted, proposeEdit: (b) => this.proposeAgentEdit(b, conversationId, signal) },
       transcript: this.resumeCliSessionId ? "" : transcriptText(this.messages.slice(0, -1)),
@@ -1316,55 +1312,6 @@ export class ChatView extends ItemView {
   /** Push the chatFontSize setting onto the view as --cc-chat-font (drives .cc-body). */
   private applyChatFontSize(): void {
     this.containerEl.style.setProperty("--cc-chat-font", `${this.plugin.settings.chatFontSize}px`);
-  }
-
-  /** Displayed mode: Plan wins over Act, otherwise Act iff writes are allowed. */
-  private currentMode(): ChatMode {
-    return this.planMode ? "plan" : this.plugin.settings.agentAllowWrites ? "act" : "ask";
-  }
-
-  /** The tool access for this chat's next turn: none without agent tools, reads in Plan Mode, otherwise chat. */
-  private toolRun(): ToolRunKind {
-    if (!this.agentCapable) return "off";
-    return this.planMode ? "plan" : "chat";
-  }
-
-  /** Reflect the mode control: hidden when the session can't act, state from currentMode(). */
-  private updateModeControl(): void {
-    this.composer.modeControl?.setVisible(this.agentCapable);
-    this.composer.modeControl?.set(this.currentMode());
-  }
-
-  /** Apply an Ask / Plan / Act switch: writes setting + Plan Mode, the matching notice, then persist if writes changed. */
-  private async applyMode(mode: ChatMode): Promise<void> {
-    // Plan leaves the writes setting untouched — only Ask/Act set it.
-    const previousWrites = this.plugin.settings.agentAllowWrites;
-    const previousPlanMode = this.planMode;
-    let writesChanged = false;
-    if (mode !== "plan") {
-      const writesOn = mode === "act";
-      writesChanged = this.plugin.settings.agentAllowWrites !== writesOn;
-      this.plugin.settings.agentAllowWrites = writesOn;
-    }
-    this.planMode = mode === "plan";
-    this.updateModeControl();
-    quickNotice(
-      mode === "act"
-        ? "Act on vault: on — I'll create and edit notes (each change asks first)."
-        : mode === "plan"
-          ? "Plan Mode: on — I'll explore read-only and propose a plan, no writes."
-          : "Act on vault: off — chat only, I won't change your vault.",
-    );
-    if (writesChanged) {
-      try {
-        await this.plugin.saveSettings();
-      } catch (e) {
-        this.plugin.settings.agentAllowWrites = previousWrites;
-        this.planMode = previousPlanMode;
-        this.updateModeControl();
-        quickNotice(`Couldn't save the mode: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
   }
 
   private async stopCurrentTurn(): Promise<void> {

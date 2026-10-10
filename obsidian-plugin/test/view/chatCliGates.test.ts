@@ -265,7 +265,7 @@ describe("ChatView composer mode control", () => {
     const { view, plugin, controlsEl } = renderedControls({ agentAllowWrites: false });
     const radios = controlsEl.querySelector(".cc-mode-control")!.querySelectorAll('[role="radio"]');
     const [ask, plan, act] = radios;
-    const currentMode = () => (view as unknown as { currentMode(): string }).currentMode();
+    const currentMode = () => view.mode.mode;
 
     act!.dispatchEvent({ type: "click" });
     expect(plugin.settings.agentAllowWrites).toBe(true);
@@ -287,9 +287,9 @@ describe("ChatView composer mode control", () => {
   it("restores the previous mode and setting when saveSettings rejects", async () => {
     const { view, plugin, controlsEl } = renderedControls({ agentAllowWrites: false });
     (plugin.saveSettings as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("disk full"));
-    const currentMode = () => (view as unknown as { currentMode(): string }).currentMode();
+    const currentMode = () => view.mode.mode;
 
-    await (view as unknown as { applyMode(mode: string): Promise<void> }).applyMode("act");
+    await view.mode.change("act");
 
     expect(plugin.settings.agentAllowWrites).toBe(false);
     expect(currentMode()).toBe("ask");
