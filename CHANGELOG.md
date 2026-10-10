@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.44.1] — 2026-10-09
 
 ### Fixed
-- On mobile, the chat composer is one input row with Send again, and Ask / Plan / Act is back in the ⋯ menu.
+- On mobile, the chat composer is one card: the input row with Send, then the context chip and a labelled Ask / Plan / Act switch.
 
 ## [0.44.0] — 2026-10-08
 
