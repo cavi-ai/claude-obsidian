@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - On mobile, Rebuild index works when a larger semantic index syncs in from desktop; the phone keeps its own index file.
 - On mobile, Source Inbox rows keep their colors and fit the sidebar.
+- On mobile, the chat stays on the latest message, including when the keyboard opens, and stops following when you scroll up.
+- On mobile, the chat composer stays above the keyboard while it opens instead of dropping under it.
 
 ## [0.44.2] — 2026-10-10
 
