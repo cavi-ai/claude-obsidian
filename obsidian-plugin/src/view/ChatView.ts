@@ -18,7 +18,8 @@ import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/
 import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
-import { ChatModeState } from "./chat/chatMode";
+import type { ChatModeState } from "./chat/chatMode";
+import { ChatSession, type TurnState } from "./chat/chatSession";
 import { buildSlashCatalog, type SlashCommand, runNativeSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { type AttachedPage } from "../context/urlContext";
@@ -45,7 +46,7 @@ import { ComposerContextManager } from "./ComposerContextManager";
 import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
-import { Transcript, type TurnState } from "./chat/Transcript";
+import { Transcript } from "./chat/Transcript";
 import { SetupCard } from "./chat/SetupCard";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
@@ -75,7 +76,11 @@ export class ChatView extends ItemView {
   private get modelLabelEl(): HTMLElement { return this.header.modelLabelEl; }
   private set modelLabelEl(v: HTMLElement) { this.header.modelLabelEl = v; }
   private composer: Composer;
-  private messages: ChatMessage[] = [];
+  /** The conversation state the composer, header, and transcript share. */
+  readonly chat: ChatSession;
+  get mode(): ChatModeState { return this.chat.mode; }
+  private get messages(): ChatMessage[] { return this.chat.messages; }
+  private set messages(v: ChatMessage[]) { this.chat.messages = v; }
   private transcript: Transcript;
   private setupCard: SetupCard;
   private get messagesEl(): HTMLElement { return this.transcript.messagesEl; }
@@ -88,9 +93,9 @@ export class ChatView extends ItemView {
   private set usageEl(v: HTMLElement) { this.header.usageEl = v; }
   private get gaugeFillEl(): HTMLElement { return this.header.gaugeFillEl; }
   private set gaugeFillEl(v: HTMLElement) { this.header.gaugeFillEl = v; }
-  private streaming = false;
-  /** Turn/session state shared with Transcript. */
-  private readonly turn: TurnState = { lastBuffer: "", turnUsage: null, abort: null, currentTurn: null, session: { ...EMPTY_SESSION }, turnRenderUnsubscribe: null, unregisterCurrentTurn: null };
+  private get streaming(): boolean { return this.chat.streaming; }
+  private set streaming(v: boolean) { this.chat.streaming = v; }
+  private get turn(): TurnState { return this.chat.turn; }
   private get abort(): AbortController | null { return this.turn.abort; }
   private set abort(v: AbortController | null) { this.turn.abort = v; }
   private get currentTurn(): { conversationId: string; turnId: string } | null { return this.turn.currentTurn; }
@@ -108,7 +113,8 @@ export class ChatView extends ItemView {
   private get _turnUsage(): TokenUsage | null { return this.turn.turnUsage; }
   private set _turnUsage(v: TokenUsage | null) { this.turn.turnUsage = v; }
   /** Per-session chat controls (model, thinking, effort, temp, max). */
-  private controls!: ChatControls;
+  private get controls(): ChatControls { return this.chat.controls; }
+  private set controls(v: ChatControls) { this.chat.controls = v; }
   private get controlsEl(): HTMLElement { return this.composer.controlsEl; }
   private set controlsEl(v: HTMLElement) { this.composer.controlsEl = v; }
   private get contextManager(): ComposerContextManager { return this.composer.contextManager; }
@@ -132,7 +138,8 @@ export class ChatView extends ItemView {
   private lastMarkdownView: MarkdownView | null = null;
   private lastMarkdownFilePath: string | null = null;
   /** The last user message text, for the Regenerate action. */
-  private lastUserText = "";
+  private get lastUserText(): string { return this.chat.lastUserText; }
+  private set lastUserText(v: string) { this.chat.lastUserText = v; }
   /** The last user-bubble display text, when it differs from lastUserText (skill turns). */
   private lastDisplay: string | undefined = undefined;
   private get slashMenu(): SlashMenu { return this.composer.slashMenu; }
@@ -147,7 +154,8 @@ export class ChatView extends ItemView {
   /** Chat projects offered by the "@" picker, refreshed alongside claims. */
   private cachedProjects: ChatProject[] = [];
   /** The chat project this.conversationId is scoped to (null = none), kept in sync with the conversation. */
-  private currentChatProject: ChatProject | null = null;
+  private get currentChatProject(): ChatProject | null { return this.chat.project; }
+  private set currentChatProject(v: ChatProject | null) { this.chat.project = v; }
   /** A project chosen before the first send (no conversation yet); applied once `run()` creates one. */
   private pendingProjectId: string | null = null;
   /** Which trigger ("@" or "#") the open at-menu is currently showing matches for. */
@@ -162,10 +170,8 @@ export class ChatView extends ItemView {
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private get _lastBuffer(): string { return this.turn.lastBuffer; }
   private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
-  /** "Allow for this session" on agent write confirmations (cleared with the view). */
-  private agentWriteAlways = false;
-  /** Ask / Plan / Act for this chat, and whether the backend can run tools (refreshed per turn + backend change). */
-  readonly mode: ChatModeState;
+  private get agentWriteAlways(): boolean { return this.chat.writeGrant; }
+  private set agentWriteAlways(v: boolean) { this.chat.writeGrant = v; }
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
 
   private renderVersions = new WeakMap<HTMLElement, number>();
@@ -177,7 +183,7 @@ export class ChatView extends ItemView {
     private plugin: ClaudeCompanionPlugin,
   ) {
     super(leaf);
-    this.mode = new ChatModeState({
+    this.chat = new ChatSession({
       writes: () => plugin.settings.agentAllowWrites,
       setWrites: (on) => { plugin.settings.agentAllowWrites = on; },
       save: () => plugin.saveSettings(),
@@ -192,8 +198,8 @@ export class ChatView extends ItemView {
       refreshModelLabel: () => this.refreshModelLabel(),
       openSettings: () => this.openSettings(),
     });
-    this.transcript = new Transcript(this.app, plugin, this.turn, {
-      autosizeInput: () => this.composer.autosizeInput(),
+    this.transcript = new Transcript(this.app, plugin, this.chat, {
+      setDraft: (text) => this.composer.setDraft(text),
       onSend: (...args) => this.onSend(...args),
       prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
       regenerate: (...args) => this.regenerate(...args),
@@ -208,16 +214,9 @@ export class ChatView extends ItemView {
       setupRequired: (...args) => this.setupRequired(...args),
       submitPrompt: async (text, display) => { await this.submitPrompt(text, display); },
       updateUsageBar: (...args) => this.updateUsageBar(...args),
-      controls: () => this.controls,
-      inputEl: () => this.composer.inputEl,
-      lastUserText: () => this.lastUserText,
-      messages: () => this.messages,
-      streaming: () => this.streaming,
-      mode: this.mode,
     });
-    this.header = new HeaderControls(this.app, plugin, {
+    this.header = new HeaderControls(this.app, plugin, this.chat, {
       anyContextEnabled: () => this.composer.anyContextEnabled(),
-      mode: this.mode,
       clearChat: (...args) => this.clearChat(...args),
       cliEntries: (...args) => this.cliEntries(...args),
       loadConversation: (...args) => this.loadConversation(...args),
@@ -226,17 +225,11 @@ export class ChatView extends ItemView {
       renderKnobs: () => this.composer.renderKnobs(),
       renderKnobsInto: (parent) => this.composer.renderKnobsInto(parent),
       distillChat: () => this.distillThisChat(),
-      agentWriteAlways: () => this.agentWriteAlways,
-      controls: () => this.controls,
-      inputEl: () => this.composer.inputEl,
-      messages: () => this.messages,
-      reasoningEl: () => this.composer.reasoningEl,
-      session: () => this.session,
-      currentProject: () => this.currentChatProject,
+      draft: () => this.composer.draft(),
+      showReasoning: (active, label) => this.composer.showReasoning(active, label),
     });
-    this.composer = new Composer(this.app, plugin, {
+    this.composer = new Composer(this.app, plugin, this.chat, {
       applyChatFontSize: (...args) => this.applyChatFontSize(...args),
-      mode: this.mode,
       onModelSelect: (...args) => this.header.onModelSelect(...args),
       refreshCapabilityIndicators: (...args) => this.header.refreshCapabilityIndicators(...args),
       registerDomEvent: (el, type, callback) => this.registerDomEvent(el, type, callback),
@@ -244,8 +237,6 @@ export class ChatView extends ItemView {
       updateUsageBar: (...args) => this.updateUsageBar(...args),
       cachedClaims: () => this.cachedClaims,
       cachedProjects: () => this.cachedProjects.map((p) => ({ id: p.id, name: p.name })),
-      controls: () => this.controls,
-      streaming: () => this.streaming,
       mountUsage: (parent) => this.header.mountUsage(parent),
       onSlashCommand: (cmd) => void this.runSlashCommand(cmd),
       pickAtItems: () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()),
@@ -624,21 +615,17 @@ export class ChatView extends ItemView {
 
   prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
     this.attachNote(workspace.contextPath);
-    this.inputEl.value = workspace.kind === "research"
+    this.composer.setDraft(workspace.kind === "research"
       ? `Help me continue ${workspace.title.replace(/^Continue /, "")}. `
-      : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `;
-    this.composer.autosizeInput();
+      : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `);
     this.updateUsageBar();
-    this.inputEl.focus();
   }
 
   enableVaultSearchForChat(): void { this.toggleAutomaticContext("searchVault", true); }
 
   clearChat(): void {
     this.detachTurnRendering();
-    this.messages = [];
-    this.session = { ...EMPTY_SESSION };
-    this.mode.reset();
+    this.chat.clear();
     // The previous conversation is already auto-saved; detach so the next turn
     // begins a fresh one instead of continuing it.
     this.conversationId = null;
@@ -748,9 +735,7 @@ export class ChatView extends ItemView {
     if (cmd.kind === "prompt" && cmd.prompt) {
       if (cmd.awaitsInput) {
         // Insert the template and let the user finish typing (e.g. "/explain ").
-        this.inputEl.value = cmd.prompt;
-        this.inputEl.focus();
-        this.composer.autosizeInput();
+        this.composer.setDraft(cmd.prompt);
         this.updateUsageBar();
         return;
       }
@@ -761,9 +746,7 @@ export class ChatView extends ItemView {
 
     // A skill takes arguments: insert its token and let the user finish typing; Enter sends through onSend.
     if (cmd.action?.startsWith(SKILL_ACTION_PREFIX)) {
-      this.inputEl.value = `/${cmd.action.slice(SKILL_ACTION_PREFIX.length)} `;
-      this.inputEl.focus();
-      this.composer.autosizeInput();
+      this.composer.setDraft(`/${cmd.action.slice(SKILL_ACTION_PREFIX.length)} `);
       this.updateUsageBar();
       return;
     }

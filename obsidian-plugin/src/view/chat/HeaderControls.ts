@@ -8,11 +8,10 @@ import { modelLabel } from "../../claude/models";
 import { DEVICE_MODELS, DEVICE_MAX_INPUT_TOKENS, DEVICE_MAX_OUTPUT_TOKENS, deviceModelCached } from "../../device/models";
 import { isMobileModelChoiceActive, mobileModelChoices } from "../mobileModelChoices";
 import type { ChatControls } from "../../claude/chatControls";
-import type { ChatModeState } from "./chatMode";
+import type { ChatSession } from "./chatSession";
 import type { CliBackend, CliSignInProvider } from "../../cli/backends/types";
 import type { ProviderRouter } from "../../providers/router";
 import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../../usage/tokens";
-import type { ChatProject } from "../../projects/model";
 import { ActionModal, type ActionModalItem } from "../ActionModal";
 import { QuickOptionsModal } from "../QuickOptionsModal";
 import { quickNotice } from "../../notice";
@@ -28,8 +27,6 @@ export interface HeaderControlsCallbacks {
 
 export interface HeaderControlsDeps {
   anyContextEnabled(): boolean;
-  /** This chat's Ask / Plan / Act and tool capability. */
-  mode: ChatModeState;
   clearChat(): void;
   cliEntries(router: ProviderRouter): { backend: CliBackend; provider: CliSignInProvider }[];
   loadConversation(conversation: Conversation): void;
@@ -38,13 +35,10 @@ export interface HeaderControlsDeps {
   renderKnobs(): void;
   renderKnobsInto(parent: HTMLElement): void;
   distillChat(): Promise<void>;
-  agentWriteAlways(): boolean;
-  controls(): ChatControls;
-  inputEl(): HTMLTextAreaElement;
-  messages(): ChatMessage[];
-  reasoningEl(): HTMLButtonElement | null;
-  session(): SessionUsage;
-  currentProject(): ChatProject | null;
+  /** The composer's unsent text, for the context gauge. */
+  draft(): string;
+  /** Show whether the chat model reasons before answering, with the reason as its label. */
+  showReasoning(active: boolean, label: string): void;
 }
 
 /** The chat panel's header row: eyebrow/title, model chip, backend/write-grant pills, chrome-hosted actions. */
@@ -146,14 +140,12 @@ export class HeaderControls {
     return btn;
   }
 
-  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private deps: HeaderControlsDeps) {}
+  constructor(private app: App, private plugin: ClaudeCompanionPlugin, private chat: ChatSession, private deps: HeaderControlsDeps) {}
 
-  private get agentWriteAlways(): boolean { return this.deps.agentWriteAlways(); }
-  private get controls(): ChatControls { return this.deps.controls(); }
-  private get inputEl(): HTMLTextAreaElement { return this.deps.inputEl(); }
-  private get messages(): ChatMessage[] { return this.deps.messages(); }
-  private get reasoningEl(): HTMLButtonElement | null { return this.deps.reasoningEl(); }
-  private get session(): SessionUsage { return this.deps.session(); }
+  private get agentWriteAlways(): boolean { return this.chat.writeGrant; }
+  private get controls(): ChatControls { return this.chat.controls; }
+  private get messages(): ChatMessage[] { return this.chat.messages; }
+  private get session(): SessionUsage { return this.chat.turn.session; }
 
   /**
    * Recompute the context gauge (estimated input + reserved output vs the
@@ -172,9 +164,9 @@ export class HeaderControls {
     // Estimate input tokens: system + conversation so far + the draft + a
     // rough allowance for the vault context that will be attached.
     const convo = this.messages.map((m) => m.content).join("\n");
-    const draft = this.inputEl?.value ?? "";
+    const draft = this.deps.draft();
     const ctxAllowance = this.deps.anyContextEnabled() ? this.plugin.settings.contextCharBudget : 0;
-    const project = this.deps.currentProject();
+    const project = this.chat.project;
     const estIn = estimateTokens(this.plugin.composeSystemPrompt({ ...(project ? { project } : {}), compact: device })) + estimateTokens(convo) + estimateTokens(draft) + estimateTokensForChars(ctxAllowance);
 
     const g = contextGauge(estIn, model, reserved, device ? DEVICE_MAX_INPUT_TOKENS + DEVICE_MAX_OUTPUT_TOKENS : undefined);
@@ -343,8 +335,8 @@ export class HeaderControls {
     const canAct = !Platform.isMobile && this.plugin.settings.agentModeEnabled && this.plugin.router().chatCapabilities().agentActions;
     if (canAct) {
       items.push(
-        { title: "Act on vault", icon: "pencil-line", checked: this.deps.mode.writes, separatorBefore: true, run: () => void this.deps.mode.toggleWrites() },
-        { title: "Plan mode", icon: "list-todo", checked: this.deps.mode.mode === "plan", run: () => void this.deps.mode.togglePlan() },
+        { title: "Act on vault", icon: "pencil-line", checked: this.chat.mode.writes, separatorBefore: true, run: () => void this.chat.mode.toggleWrites() },
+        { title: "Plan mode", icon: "list-todo", checked: this.chat.mode.mode === "plan", run: () => void this.chat.mode.togglePlan() },
       );
     }
     if (this.plugin.settings.memoryEnabled) {
@@ -430,21 +422,17 @@ export class HeaderControls {
   refreshCapabilityIndicators(): void {
     void (async () => {
       const router = this.plugin.router();
-      this.deps.mode.setCapable(this.plugin.settings.agentModeEnabled && (await router.chatToolCapable()));
-      const el = this.reasoningEl;
-      if (!el) return;
+      this.chat.mode.setCapable(this.plugin.settings.agentModeEnabled && (await router.chatToolCapable()));
       const reasoning = await router.chatReasoningActive(this.controls.thinking);
       const { provider, model } = router.chatProvider();
-      el.toggleClass("is-active", reasoning);
-      el.setAttr(
-        "aria-label",
+      this.deps.showReasoning(
+        reasoning,
         reasoning
           ? "Reasoning on — this model thinks before answering"
           : provider.id === "anthropic"
             ? "Reasoning off — enable thinking in model controls (the tune button)"
             : `Reasoning off — ${model} doesn't report a thinking capability`,
       );
-      el.setAttr("title", el.getAttr("aria-label") ?? "");
     })();
   }
 

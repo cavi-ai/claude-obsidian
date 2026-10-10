@@ -1,12 +1,12 @@
 import { App, FakeElement, Platform } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer, type ComposerDeps } from "../../src/view/chat/Composer";
-import { ChatModeState } from "../../src/view/chat/chatMode";
+import { ChatSession } from "../../src/view/chat/chatSession";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { defaultChatControls } from "../../src/claude/chatControls";
 import type ClaudeCompanionPlugin from "../../src/main";
 
-function mountComposer(): { root: FakeElement; composer: Composer; deps: ComposerDeps } {
+function mountComposer(): { root: FakeElement; composer: Composer; chat: ChatSession } {
   const plugin = {
     settings: structuredClone(DEFAULT_SETTINGS),
     router: () => ({
@@ -16,17 +16,17 @@ function mountComposer(): { root: FakeElement; composer: Composer; deps: Compose
     }),
   } as unknown as ClaudeCompanionPlugin;
   const deps = {
-    mode: new ChatModeState({ writes: () => false, setWrites: vi.fn(), save: vi.fn(async () => undefined), notify: vi.fn() }),
     refreshCapabilityIndicators: vi.fn(),
     registerDomEvent: vi.fn(),
     mountUsage: (parent: HTMLElement) => { parent.createDiv({ cls: "cc-usage" }); },
-    controls: () => defaultChatControls(DEFAULT_SETTINGS.model),
     onSend: vi.fn(),
   } as unknown as ComposerDeps;
-  const composer = new Composer(new App() as never, plugin, deps);
+  const chat = new ChatSession({ writes: () => false, setWrites: vi.fn(), save: vi.fn(async () => undefined), notify: vi.fn() });
+  chat.controls = defaultChatControls(DEFAULT_SETTINGS.model);
+  const composer = new Composer(new App() as never, plugin, chat, deps);
   const root = new FakeElement();
   composer.mount(root as unknown as HTMLElement, []);
-  return { root, composer, deps };
+  return { root, composer, chat };
 }
 
 function classesOf(children: FakeElement[]): string[] {
@@ -40,7 +40,7 @@ describe("Composer layout", () => {
 
   it("keeps the mobile input and Send in one input row, with context and Ask / Plan / Act in a toolbar under it", () => {
     Platform.isMobile = true;
-    const { root, composer, deps } = mountComposer();
+    const { root, composer, chat } = mountComposer();
 
     const composerEl = root.querySelector(".cc-composer")!;
     const order = classesOf(composerEl.children);
@@ -54,8 +54,27 @@ describe("Composer layout", () => {
     expect(root.querySelectorAll(".cc-mode-control")).toHaveLength(1);
     expect(root.querySelectorAll(".cc-context-manager")).toHaveLength(1);
     expect(root.querySelector(".cc-composer-card")).toBeNull();
-    deps.mode.setCapable(true);
+    chat.mode.setCapable(true);
     expect([...composer.modeControl!.el.classList]).not.toContain("is-hidden");
+  });
+
+  it("replaces the draft focused and unsent, and reads it back", () => {
+    const { composer } = mountComposer();
+    composer.setDraft("Summarize this note");
+    expect(composer.draft()).toBe("Summarize this note");
+    expect(composer.inputEl.getAttribute("data-focused")).toBe("true");
+  });
+
+  it("shows whether the model reasons on the reasoning indicator", () => {
+    const { root, composer } = mountComposer();
+    const indicator = root.querySelector(".cc-reasoning-indicator");
+    expect(indicator).not.toBeNull();
+    composer.showReasoning(true, "Reasoning on");
+    expect([...indicator!.classList]).toContain("is-active");
+    expect(indicator!.getAttribute("aria-label")).toBe("Reasoning on");
+    composer.showReasoning(false, "Reasoning off");
+    expect([...indicator!.classList]).not.toContain("is-active");
+    expect(indicator!.getAttribute("title")).toBe("Reasoning off");
   });
 
   it("keeps the desktop layout: context manager first, mode switch in the controls bar", () => {
