@@ -1,5 +1,5 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
-import type ClaudeCompanionPlugin from "../main";
+import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
 import { effectiveToggles } from "./chat/contextScope";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
@@ -15,7 +15,7 @@ import { TFile } from "obsidian";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, transcriptText, type Conversation } from "../conversations/store";
 import { resolveModelId } from "../claude/models";
 import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
-import { shouldFallbackToLocal, fallbackReason } from "../providers/fallback";
+import { routeTurn, streamAttempt } from "../providers/chatTurn";
 import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
 import type { ChatModeState } from "./chat/chatMode";
@@ -31,7 +31,6 @@ import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { type MediaAttachment } from "../context/attachments";
 import { type AtItem, type ClaimAtSource } from "../context/atMention";
 import { isProjectChange, projectSearchScope, type ChatProject } from "../projects/model";
-import { type ErrorHintProvider } from "../providers/errorHints";
 import { credentialSetupInputs, needsCredentialSetup } from "../providers/setupState";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
@@ -56,11 +55,6 @@ function appendAssistantMessage(base: ChatMessage[], result: AgentTurnResult): C
   const full = result.text.trim();
   if (!full) return base;
   return [...base, { role: "assistant", content: result.text, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) }];
-}
-
-/** Tag which provider a fallback-ineligible error actually failed on, for renderError's hint. */
-function tagProvider(error: Error | undefined, provider: ErrorHintProvider): void {
-  if (error) (error as Error & { ccProvider?: ErrorHintProvider }).ccProvider = provider;
 }
 
 interface ObsidianAppWithSettings {
@@ -180,7 +174,7 @@ export class ChatView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private plugin: ClaudeCompanionPlugin,
+    private plugin: ChatViewHost,
   ) {
     super(leaf);
     this.chat = new ChatSession({
@@ -968,38 +962,20 @@ export class ChatView extends ItemView {
     const wantThinking = agentActive || caps.cli
       ? !!(this.controls.thinking && this.controls.showThinking)
       : !startedOnLocal && !!(this.controls.thinking && this.controls.showThinking);
-    // The primary-backend/local-fallback decision runs inside
-    // ChatTurnService.start() so it keeps going — and still persists — even if
-    // this view closes mid-turn. Mirrors the fallback policy run() used to
-    // apply itself: an agent turn that already produced text/trace despite an
-    // error is a completed answer with a notice, never a fallback trigger.
-    const fallbackProviderId: ErrorHintProvider = provider.id;
-    const coreRun = async (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => {
-      const primary = agentActive || caps.cli
-        ? await this.agentTurn(apiMessages, handlers, signal, turn.conversationId)
-        : startedOnLocal
-          ? await this.streamTurn("local", apiMessages, handlers, signal)
-          : await this.streamTurn("claude", apiMessages, handlers, signal);
-      if (!primary.error) return primary;
-
-      const isAgent = agentActive || caps.cli;
-      if (isAgent && (primary.text.trim().length > 0 || primary.trace.length > 0)) {
-        handlers.onNotice?.(`Turn ended early: ${primary.error.message}`);
-        return { text: primary.text, trace: primary.trace, ...(primary.aborted !== undefined ? { aborted: primary.aborted } : {}), ...(primary.capped !== undefined ? { capped: primary.capped } : {}) };
-      }
-
-      if (backend === "device") { tagProvider(primary.error, "device"); return primary; }
-      const fb = await router.localFallback();
-      const doFallback = shouldFallbackToLocal({ backend, localAvailable: fb !== null, error: primary.error });
-      if (!doFallback || !fb) {
-        tagProvider(primary.error, fallbackProviderId);
-        return primary;
-      }
-      handlers.onNotice?.(`${fallbackReason(primary.error)} — answered locally with ${fb.model}.`);
-      const fallback = await this.streamTurn("local", apiMessages, handlers, signal, fb);
-      if (fallback.error) tagProvider(fallback.error, fb.provider.id);
-      return fallback;
-    };
+    // Routing runs inside ChatTurnService.start() so it keeps going — and still
+    // persists — even if this view closes mid-turn.
+    const agentRoute = agentActive || caps.cli;
+    const coreRun = (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => routeTurn(
+      { backend, agent: agentRoute, providerId: provider.id },
+      {
+        primary: () => agentRoute
+          ? this.agentTurn(apiMessages, handlers, signal, turn.conversationId)
+          : this.streamTurn(startedOnLocal ? "local" : "claude", apiMessages, handlers, signal),
+        localFallback: () => router.localFallback(),
+        local: (fallback) => this.streamTurn("local", apiMessages, handlers, signal, fallback),
+      },
+      handlers,
+    );
 
     // Cache one instance for this turn's whole lifecycle — start() and the
     // subscribe() below must land on the same ChatTurnService (plugin.turnService()
@@ -1037,9 +1013,9 @@ export class ChatView extends ItemView {
   }
 
   /**
-   * Run one streaming attempt on a backend, emitting through `handlers` instead
-   * of touching the DOM directly — the view (attached or not) renders from the
-   * ChatTurnService event stream. Always resolves; never rejects.
+   * Build one streaming attempt on a backend; it emits through `handlers`, never
+   * the DOM, so the view (attached or not) renders from the ChatTurnService
+   * event stream.
    */
   private streamTurn(
     target: "claude" | "local",
@@ -1060,58 +1036,18 @@ export class ChatView extends ItemView {
       : local!.model;
     const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
 
-    return new Promise((resolve) => {
-      let settled = false;
-      let buffer = "";
-      const finish = (result: AgentTurnResult): void => {
-        if (settled) return;
-        settled = true;
-        signal.removeEventListener("abort", onAbort);
-        resolve(result);
-      };
-      const onAbort = (): void => finish({ text: buffer, trace: [], aborted: true });
-      signal.addEventListener("abort", onAbort, { once: true });
-      if (signal.aborted) { onAbort(); return; }
-      const fail = (error: unknown): void => {
-        if (settled) return;
-        const status = (error as { status?: number } | null)?.status;
-        const err = error instanceof Error ? error : new Error(String(error));
-        if (status !== undefined) (err as Error & { status?: number }).status = status;
-        finish({ text: buffer, trace: [], error: err });
-      };
-      const request: CompletionRequest = {
-        system: this.plugin.composeSystemPrompt({ project: this.currentChatProject, compact: provider.id === "device" }),
-        messages: apiMessages,
-        model,
-        maxTokens: shape.maxTokens,
-        signal,
-      };
-      if (onClaude && shape.temperature !== undefined) request.temperature = shape.temperature;
-      if (onClaude && shape.thinking !== undefined) request.thinking = shape.thinking;
-      if (onClaude && shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
-      if (onClaude && shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
-      void provider.stream(
-        request,
-        {
-          onThinking: (delta) => handlers.onThinking?.(delta),
-          onText: (delta) => {
-            if (settled) return;
-            buffer += delta;
-            handlers.onText(delta);
-          },
-          onError: (err) => fail(err),
-          onUsage: (usage) => handlers.onUsage?.(usage),
-          onTruncated: () => handlers.onTruncated?.(),
-          onDone: (full) => {
-            finish({ text: full, trace: [] });
-          },
-        },
-      ).then(() => {
-        // stream() resolved without onError/onDone (e.g. aborted) — keep the
-        // partial buffer, no error.
-        finish({ text: buffer, trace: [], aborted: true });
-      }).catch((error: unknown) => fail(error));
-    });
+    const request: CompletionRequest = {
+      system: this.plugin.composeSystemPrompt({ project: this.currentChatProject, compact: provider.id === "device" }),
+      messages: apiMessages,
+      model,
+      maxTokens: shape.maxTokens,
+      signal,
+    };
+    if (onClaude && shape.temperature !== undefined) request.temperature = shape.temperature;
+    if (onClaude && shape.thinking !== undefined) request.thinking = shape.thinking;
+    if (onClaude && shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
+    if (onClaude && shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
+    return streamAttempt(provider, request, handlers, signal);
   }
 
   /**
