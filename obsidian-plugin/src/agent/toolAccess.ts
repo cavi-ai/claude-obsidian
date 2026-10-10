@@ -2,8 +2,6 @@
 
 import { parseExternalToolName } from "../mcp/external";
 import type { McpToolDef } from "../mcp/protocol";
-import { VAULT_WRITE_TOOLS } from "../mcp/writeTools";
-import { RESEARCH_WRITE_TOOLS } from "../research/tools";
 
 /**
  * off: no tools. plan: vault reads only. chat: reads, confirmed writes, reviewed edits, and external
@@ -21,9 +19,9 @@ export interface ToolAccess {
   decide(name: string): ToolDecision;
 }
 
-/** The vault tools that mutate the vault; everything else is a read. */
-export function isWriteTool(name: string): boolean {
-  return VAULT_WRITE_TOOLS.has(name) || RESEARCH_WRITE_TOOLS.has(name);
+/** Whether a tool changes the vault; a definition without the read-only annotation counts as a write. */
+export function isWriteTool(def: McpToolDef): boolean {
+  return def.annotations?.readOnlyHint !== true;
 }
 
 /** Reviewed edit proposals: never a write, since the user accepts each hunk before the vault changes. */
@@ -51,20 +49,26 @@ export const PROPOSE_EDIT_DEF: McpToolDef = {
     },
     required: ["path", "edits"],
   },
+  annotations: { readOnlyHint: true },
 };
 
-function decide(kind: ToolRunKind, name: string): ToolDecision {
-  if (kind === "off") return "deny";
-  if (name === PROPOSE_EDIT_DEF.name) return kind === "plan" ? "deny" : "propose";
-  if (parseExternalToolName(name)) return kind === "chat" ? "run" : "deny";
-  if (isWriteTool(name)) return kind === "chat" ? "confirm" : "deny";
-  return "run";
-}
-
-export function toolAccess(kind: ToolRunKind): ToolAccess {
+/**
+ * `catalog` is the vault tools the run can reach right now; a vault call outside it is refused, and
+ * each tool's write-ness comes from its own definition.
+ */
+export function toolAccess(kind: ToolRunKind, catalog: readonly McpToolDef[]): ToolAccess {
+  const decide = (name: string): ToolDecision => {
+    if (kind === "off") return "deny";
+    if (name === PROPOSE_EDIT_DEF.name) return kind === "plan" ? "deny" : "propose";
+    if (parseExternalToolName(name)) return kind === "chat" ? "run" : "deny";
+    const tool = catalog.find((def) => def.name === name);
+    if (!tool) return "deny";
+    if (isWriteTool(tool)) return kind === "chat" ? "confirm" : "deny";
+    return "run";
+  };
   return {
     kind,
-    offered: (candidates) => candidates.filter((tool) => decide(kind, tool.name) !== "deny"),
-    decide: (name) => decide(kind, name),
+    offered: (candidates) => candidates.filter((tool) => decide(tool.name) !== "deny"),
+    decide,
   };
 }

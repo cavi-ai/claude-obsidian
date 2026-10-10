@@ -24,8 +24,8 @@ import { buildBaseFile, type ProposedBase } from "../bases/baseFile";
 import { hasPathTraversal } from "../paths";
 import { ResearchRepository } from "../research/repository";
 import { createResearchRepository } from "../research/repositoryFactory";
-import { RESEARCH_WRITE_TOOLS, ResearchTools, type ZoteroResolve } from "../research/tools";
-import { VAULT_WRITE_TOOLS } from "./writeTools";
+import { RESEARCH_TOOL_ALIASES, ResearchTools, type ZoteroResolve } from "../research/tools";
+import { advertise, type ToolRecord } from "./toolRecord";
 import { appendRecord, type RecordResult } from "../memory/record";
 import { captureWebSource, type WebCapture } from "../research/webCapture";
 import { ZoteroAdapter, type ZoteroLibrary } from "../discovery/adapters/zotero";
@@ -96,9 +96,14 @@ export class VaultTools {
     this.opts = opts;
   }
 
-  definitions(): McpToolDef[] {
-    const defs: McpToolDef[] = [
-      {
+  /** Every vault and research tool as one record, in discovery order. */
+  private records(): ToolRecord[] {
+    type Run = (args: Record<string, unknown>) => Promise<string>;
+    const read = (def: McpToolDef, run: Run, listed = true): ToolRecord => ({ def, writes: false, listed, run });
+    const write = (def: McpToolDef, run: Run, listed = true): ToolRecord => ({ def, writes: true, listed, run });
+    const research = new ResearchTools(this.researchRepository(), this.webCapture(), this.zoteroResolve(), this.opts.enrichSource).records();
+    return [
+      read({
         name: "vault_search",
         description: "Search the Obsidian vault by meaning and keyword (semantic when enabled, otherwise keyword). Optional filters narrow by frontmatter type, research project, or tag. Returns matching notes with provenance fields and a snippet.",
         inputSchema: {
@@ -112,8 +117,8 @@ export class VaultTools {
           },
           required: ["query"],
         },
-      },
-      {
+      }, async (args) => this.search(str(args.query), num(args.limit, 8), parseSearchFilter(args))),
+      read({
         name: "related_notes",
         description: "List notes semantically similar to a note, from the local semantic index. Returns vault paths with a similarity score.",
         inputSchema: {
@@ -124,8 +129,8 @@ export class VaultTools {
           },
           required: ["path"],
         },
-      },
-      {
+      }, async (args) => this.related(str(args.path), Math.min(Math.max(Math.trunc(num(args.limit, 8)), 1), 25))),
+      read({
         name: "note_read",
         description: "Read the full Markdown content of a note by its vault path (e.g. 'Folder/Note.md').",
         inputSchema: {
@@ -133,26 +138,26 @@ export class VaultTools {
           properties: { path: { type: "string", description: "Vault-relative path to the note." } },
           required: ["path"],
         },
-      },
-      {
+      }, async (args) => this.read(str(args.path))),
+      read({
         name: "list_recent",
         description: "List the most recently modified notes in the vault.",
         inputSchema: {
           type: "object",
           properties: { limit: { type: "number", description: "Max results (default 15)." } },
         },
-      },
-      {
+      }, async (args) => this.listRecent(num(args.limit, 15))),
+      read({
         name: "vault_tags",
         description: "List existing tags in the vault with usage counts, to reuse consistent tags.",
         inputSchema: { type: "object", properties: {} },
-      },
-      {
+      }, async () => this.tags()),
+      read({
         name: "list_titles",
         description: "List every Markdown note in the vault as 'path — title', for link/MOC awareness.",
         inputSchema: { type: "object", properties: {} },
-      },
-      {
+      }, async () => this.listTitles()),
+      read({
         name: "get_backlinks",
         description: "List notes that link TO the given note (incoming wikilinks).",
         inputSchema: {
@@ -160,8 +165,8 @@ export class VaultTools {
           properties: { path: { type: "string", description: "Vault-relative path to the note." } },
           required: ["path"],
         },
-      },
-      {
+      }, async (args) => this.backlinks(str(args.path))),
+      read({
         name: "get_outgoing_links",
         description: "List notes the given note links to (outgoing wikilinks).",
         inputSchema: {
@@ -169,8 +174,8 @@ export class VaultTools {
           properties: { path: { type: "string", description: "Vault-relative path to the note." } },
           required: ["path"],
         },
-      },
-      {
+      }, async (args) => this.outgoingLinks(str(args.path))),
+      read({
         name: "frontmatter_query",
         description: "List notes whose YAML frontmatter has a given field, optionally matching a value (scalar equality, or membership when the field is a list like tags).",
         inputSchema: {
@@ -181,22 +186,14 @@ export class VaultTools {
           },
           required: ["field"],
         },
-      },
-    ];
-
-    if (this.opts.ontology) {
-      defs.push({
+      }, async (args) => this.frontmatterQuery(str(args.field), optStr(args.value))),
+      read({
         name: "ontology_get",
         description: "Read the vault ontology: every type with its lineage, properties and relations, or one type and its ancestors. Call this before creating typed notes or proposing a type.",
         inputSchema: { type: "object", properties: { type: { type: "string", description: "Optional type name to describe." } } },
-      });
-    }
-
-    const researchDefinitions = new ResearchTools(this.researchRepository()).definitions();
-    defs.push(...researchDefinitions.filter(({ name }) => !RESEARCH_WRITE_TOOLS.has(name)));
-
-    if (this.opts.webSearch) {
-      defs.push({
+      }, async (args) => this.ontologyGet(optStr(args.type)), Boolean(this.opts.ontology)),
+      ...research.filter((record) => !record.writes),
+      read({
         name: "web_search",
         description: "Search the public web. Returns numbered results with titles, URLs, and snippets. Use for current events, external facts, or anything the vault can't answer; follow up with web_fetch to read a promising page.",
         inputSchema: {
@@ -207,10 +204,11 @@ export class VaultTools {
           },
           required: ["query"],
         },
-      });
-    }
-    if (this.opts.webFetch) {
-      defs.push({
+      }, async (args) => {
+        if (!this.opts.webSearch) throw new Error("Web search is disabled. Enable it in Companion settings → Agent.");
+        return this.opts.webSearch(str(args.query), Math.min(num(args.count, 5), 10));
+      }, Boolean(this.opts.webSearch)),
+      read({
         name: "web_fetch",
         description: "Read one public web page as clean markdown (readable-content extraction). Use after web_search or on a URL the user gave you.",
         inputSchema: {
@@ -218,11 +216,11 @@ export class VaultTools {
           properties: { url: { type: "string", description: "The http(s) URL to read." } },
           required: ["url"],
         },
-      });
-    }
-
-    if (this.opts.allowWrites && this.opts.memoryRecord?.enabled()) {
-      defs.push({
+      }, async (args) => {
+        if (!this.opts.webFetch) throw new Error("Web fetch is disabled. Enable it in Companion settings → Agent.");
+        return this.opts.webFetch(str(args.url));
+      }, Boolean(this.opts.webFetch)),
+      write({
         name: "memory_record",
         description: "Record one durable, still-true fact about the user's work (a decision, preference, or project state) in the vault's 'What Claude Knows' memory note. Not for transient chatter. Pass `source` as your agent name (e.g. 'claude-code', 'codex').",
         inputSchema: {
@@ -234,11 +232,8 @@ export class VaultTools {
           },
           required: ["fact"],
         },
-      });
-    }
-
-    if (this.opts.allowWrites) {
-      defs.push(
+      }, async (args) => this.memoryRecord(args), Boolean(this.opts.memoryRecord?.enabled())),
+      write(
         {
           name: "note_create",
           description: "Create a new Markdown note. Adds YAML frontmatter (title, tags, source) for correct indexing.",
@@ -259,6 +254,9 @@ export class VaultTools {
             required: ["title", "content"],
           },
         },
+        async (args) => this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags), optStr(args.type), optObj(args.properties)),
+      ),
+      write(
         {
           name: "note_append",
           description: "Append Markdown text to an existing note (creates it if missing).",
@@ -271,6 +269,9 @@ export class VaultTools {
             required: ["path", "content"],
           },
         },
+        async (args) => this.append(str(args.path), str(args.content)),
+      ),
+      write(
         {
           name: "note_update",
           description: "Replace a note's content in place — the whole body, or one named '## section' if 'section' is given. Overwrites; not append. Companion-managed frontmatter keys cannot be changed this way.",
@@ -284,6 +285,9 @@ export class VaultTools {
             required: ["path", "content"],
           },
         },
+        async (args) => this.update(str(args.path), str(args.content), optStr(args.section)),
+      ),
+      write(
         {
           name: "note_patch",
           description: "Insert or replace Markdown at one place in a note: a heading's section, a block referenced by ^id, a frontmatter key, or the whole document. 'replace' swaps the target; 'append'/'prepend' insert after/before it. Prefer this over note_update for targeted changes.",
@@ -308,6 +312,9 @@ export class VaultTools {
             required: ["path", "target", "op", "content"],
           },
         },
+        async (args) => this.patch(str(args.path), args.target, str(args.op), str(args.content)),
+      ),
+      write(
         {
           name: "update_frontmatter",
           description: "Merge YAML frontmatter into a note. 'tags' are unioned and normalized; other keys are set. Preserves the note body. Companion-managed keys (type, type_name, ontology, source_kind, canonical_id, content_fingerprint, discovery_provenance, zotero_key, arxiv_id, doi, locator_value, source_enriched, session_id) are reserved and rejected.",
@@ -321,6 +328,9 @@ export class VaultTools {
             required: ["path"],
           },
         },
+        async (args) => this.updateFrontmatter(str(args.path), strArray(args.tags), args.fields),
+      ),
+      write(
         {
           name: "note_move",
           description: "Move or rename a note to a new vault path. Backlinks to it are rewritten automatically. Provide the full destination path (including filename).",
@@ -333,6 +343,9 @@ export class VaultTools {
             required: ["path", "to"],
           },
         },
+        async (args) => this.move(str(args.path), str(args.to)),
+      ),
+      write(
         {
           name: "base_create",
           description:
@@ -371,6 +384,9 @@ export class VaultTools {
             required: ["title", "views"],
           },
         },
+        async (args) => this.createBase(str(args.title), args, optStr(args.folder)),
+      ),
+      write(
         {
           name: "canvas_create",
           description:
@@ -418,9 +434,9 @@ export class VaultTools {
             required: ["title", "nodes"],
           },
         },
-      );
-      if (this.opts.ontology && this.opts.ontologyFolder) {
-        defs.push({
+        async (args) => this.createCanvas(str(args.title), args.nodes, args.edges, optStr(args.folder)),
+      ),
+      write({
           name: "ontology_propose",
           description: "Propose a new note type as a schema note in the ontology folder. Validated against the existing types; rule violations are returned and nothing is written.",
           inputSchema: {
@@ -433,73 +449,22 @@ export class VaultTools {
             },
             required: ["name"],
           },
-        });
-      }
-      defs.push(...researchDefinitions.filter(({ name }) => RESEARCH_WRITE_TOOLS.has(name)));
-    }
-    return defs;
+        }, async (args) => this.ontologyPropose(args), Boolean(this.opts.ontology && this.opts.ontologyFolder)),
+      ...research.filter((record) => record.writes),
+    ];
+  }
+
+  /** Listed tools: write tools only while writes are allowed. */
+  definitions(): McpToolDef[] {
+    return this.records().filter((record) => record.listed !== false && (!record.writes || this.opts.allowWrites)).map(advertise);
   }
 
   async call(name: string, args: Record<string, unknown>): Promise<string> {
-    if (name.startsWith("research_")) {
-      if (RESEARCH_WRITE_TOOLS.has(name)) this.assertWrites();
-      return new ResearchTools(this.researchRepository(), this.webCapture(), this.zoteroResolve(), this.opts.enrichSource).call(name, args);
-    }
-    // Single write gate driven by the canonical registry, instead of an
-    // assertWrites() call per case that could drift from agent/tools.ts.
-    if (VAULT_WRITE_TOOLS.has(name)) this.assertWrites();
-    switch (name) {
-      case "vault_search":
-        return this.search(str(args.query), num(args.limit, 8), parseSearchFilter(args));
-      case "related_notes":
-        return this.related(str(args.path), Math.min(Math.max(Math.trunc(num(args.limit, 8)), 1), 25));
-      case "web_search": {
-        if (!this.opts.webSearch) throw new Error("Web search is disabled. Enable it in Companion settings → Agent.");
-        return this.opts.webSearch(str(args.query), Math.min(num(args.count, 5), 10));
-      }
-      case "web_fetch": {
-        if (!this.opts.webFetch) throw new Error("Web fetch is disabled. Enable it in Companion settings → Agent.");
-        return this.opts.webFetch(str(args.url));
-      }
-      case "memory_record":
-        return this.memoryRecord(args);
-      case "note_read":
-        return this.read(str(args.path));
-      case "list_recent":
-        return this.listRecent(num(args.limit, 15));
-      case "vault_tags":
-        return this.tags();
-      case "list_titles":
-        return this.listTitles();
-      case "get_backlinks":
-        return this.backlinks(str(args.path));
-      case "get_outgoing_links":
-        return this.outgoingLinks(str(args.path));
-      case "frontmatter_query":
-        return this.frontmatterQuery(str(args.field), optStr(args.value));
-      case "ontology_get":
-        return this.ontologyGet(optStr(args.type));
-      case "note_create":
-        return this.create(str(args.title), str(args.content), optStr(args.folder), strArray(args.tags), optStr(args.type), optObj(args.properties));
-      case "note_append":
-        return this.append(str(args.path), str(args.content));
-      case "note_update":
-        return this.update(str(args.path), str(args.content), optStr(args.section));
-      case "note_patch":
-        return this.patch(str(args.path), args.target, str(args.op), str(args.content));
-      case "update_frontmatter":
-        return this.updateFrontmatter(str(args.path), strArray(args.tags), args.fields);
-      case "note_move":
-        return this.move(str(args.path), str(args.to));
-      case "canvas_create":
-        return this.createCanvas(str(args.title), args.nodes, args.edges, optStr(args.folder));
-      case "base_create":
-        return this.createBase(str(args.title), args, optStr(args.folder));
-      case "ontology_propose":
-        return this.ontologyPropose(args);
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
+    const canonical = RESEARCH_TOOL_ALIASES[name] ?? name;
+    const record = this.records().find((candidate) => candidate.def.name === canonical);
+    if (!record) throw new Error(`Unknown tool: ${name}`);
+    if (record.writes) this.assertWrites();
+    return record.run(args);
   }
 
   private async memoryRecord(args: Record<string, unknown>): Promise<string> {

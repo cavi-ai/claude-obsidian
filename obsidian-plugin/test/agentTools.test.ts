@@ -4,7 +4,6 @@ import { isWriteTool, toolAccess } from "../src/agent/toolAccess";
 import type { McpToolDef } from "../src/mcp/protocol";
 import type { ToolUseBlock } from "../src/providers/types";
 import { VaultTools } from "../src/mcp/vaultTools";
-import { VAULT_WRITE_TOOLS } from "../src/mcp/writeTools";
 import { App } from "obsidian";
 
 const defs: McpToolDef[] = [
@@ -20,14 +19,26 @@ const use = (name: string, input: Record<string, unknown> = {}, extra?: Partial<
   ...extra,
 });
 
-const chat = toolAccess("chat");
+/** Every tool the vault can advertise: writes allowed, memory on, an ontology folder configured. */
+const catalog = new VaultTools(new App() as never, {
+  allowWrites: true,
+  defaultFolder: "Claude",
+  memoryRecord: { enabled: () => true, path: () => "Claude/What Claude Knows.md", today: () => "2026-10-07", newNote: (body: string) => body },
+  ontology: () => null,
+  ontologyFolder: () => "Ontology",
+}).definitions();
+const writes = (name: string): boolean => {
+  const def = catalog.find((candidate) => candidate.name === name);
+  if (!def) throw new Error(`not advertised: ${name}`);
+  return isWriteTool(def);
+};
+const chat = toolAccess("chat", catalog);
 
 describe("Plan Mode tool access over the full vault catalog", () => {
   it("offers every read and no write tool or propose_note_edit", () => {
-    const advertised = new VaultTools(new App() as never, { allowWrites: true, defaultFolder: "Claude" }).definitions();
-    const names = toolAccess("plan").offered([...toAnthropicTools(advertised), PROPOSE_EDIT_TOOL]).map((t) => t.name);
+    const names = toolAccess("plan", catalog).offered([...toAnthropicTools(catalog), PROPOSE_EDIT_TOOL]).map((t) => t.name);
     expect(names.length).toBeGreaterThan(0);
-    for (const name of names) expect(isWriteTool(name)).toBe(false);
+    for (const name of names) expect(writes(name)).toBe(false);
     expect(names).toContain("vault_search");
     expect(names).not.toContain("note_create");
     expect(names).not.toContain("propose_note_edit");
@@ -36,7 +47,7 @@ describe("Plan Mode tool access over the full vault catalog", () => {
   it("refuses a write called by name without asking for confirmation", async () => {
     const call = vi.fn();
     const confirmWrite = vi.fn().mockResolvedValue(true);
-    const r = await executeTool({ access: toolAccess("plan"), call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
+    const r = await executeTool({ access: toolAccess("plan", catalog), call, confirmWrite }, use("note_create", { title: "X", content: "y" }));
     expect(r).toMatchObject({ is_error: true, content: "Tool unavailable in this run: note_create." });
     expect(confirmWrite).not.toHaveBeenCalled();
     expect(call).not.toHaveBeenCalled();
@@ -52,26 +63,33 @@ describe("toAnthropicTools", () => {
   });
 });
 
-describe("isWriteTool", () => {
-  it("classifies the six write tools and nothing else", () => {
-    for (const t of ["note_create", "note_append", "note_update", "note_patch", "update_frontmatter", "note_move"]) {
-      expect(isWriteTool(t)).toBe(true);
-    }
-    for (const t of ["vault_search", "related_notes", "note_read", "list_recent", "vault_tags", "list_titles", "get_backlinks", "get_outgoing_links", "frontmatter_query"]) {
-      expect(isWriteTool(t)).toBe(false);
+describe("write classification from each tool's definition", () => {
+  it("marks exactly the vault and research mutations as writes", () => {
+    expect(catalog.filter(isWriteTool).map(({ name }) => name).sort()).toEqual([
+      "base_create", "canvas_create", "memory_record", "note_append", "note_create", "note_move", "note_patch", "note_update", "ontology_propose",
+      "research_claim_create", "research_claim_link", "research_claim_review", "research_evidence_capture", "research_evidence_locate", "research_evidence_review",
+      "research_outline_generate", "research_project_create", "research_source_import", "update_frontmatter",
+    ]);
+    for (const def of catalog) expect(typeof def.annotations?.readOnlyHint).toBe("boolean");
+  });
+
+  it("keeps vault reads, research reads, and ontology_get read-only", () => {
+    for (const name of ["vault_search", "related_notes", "note_read", "list_recent", "vault_tags", "list_titles", "get_backlinks", "get_outgoing_links", "frontmatter_query", "ontology_get", "research_project_read", "research_audit"]) {
+      expect(writes(name)).toBe(false);
     }
   });
 
-  it("fails closed for every research mutation while keeping project reads and audits read-only", async () => {
+  it("treats a definition without the read-only annotation as a write", () => {
+    expect(isWriteTool({ name: "x", description: "", inputSchema: {} })).toBe(true);
+  });
+
+  it("fails closed for every research mutation and unlisted alias when no confirmation is wired", async () => {
     for (const name of ["research_project_create", "research_source_import", "research_evidence_capture", "research_evidence_review", "research_claim_create", "research_claim_link", "research_outline_generate", "research_evidence_create", "research_outline_create"]) {
-      expect(isWriteTool(name)).toBe(true);
       const call = vi.fn();
       const result = await executeTool({ access: chat, call }, use(name));
       expect(call).not.toHaveBeenCalled();
       expect(result.is_error).toBe(true);
     }
-    expect(isWriteTool("research_project_read")).toBe(false);
-    expect(isWriteTool("research_audit")).toBe(false);
   });
 
   it("transforms only canonical research definitions for the model", () => {
@@ -204,7 +222,7 @@ describe("propose_note_edit routing", () => {
   });
 
   it("is not classified as a write tool", () => {
-    expect(isWriteTool("propose_note_edit")).toBe(false);
+    expect(chat.decide("propose_note_edit")).toBe("propose");
   });
 
   it("has a valid definition shape", () => {
@@ -214,37 +232,8 @@ describe("propose_note_edit routing", () => {
   });
 });
 
-describe("write-tool registry completeness", () => {
-  it("classifies every advertised write tool as a write tool", () => {
-    // The registry and the agent gate must agree with what the vault catalog
-    // actually advertises. A new write tool added to the catalog but not to
-    // VAULT_WRITE_TOOLS would be callable without the confirmation gate.
-    // `ontology_propose` is only advertised when an ontology is wired, so it is
-    // the one registry entry this keyless catalog legitimately omits.
-    const memoryRecord = { enabled: () => true, path: () => "Claude/What Claude Knows.md", today: () => "2026-10-07", newNote: (body: string) => body };
-    const advertised = new VaultTools(new App() as never, { allowWrites: true, defaultFolder: "Claude", memoryRecord }).definitions();
-    const writeNames = new Set(advertised.map(({ name }) => name).filter((name) => VAULT_WRITE_TOOLS.has(name)));
-    const expected = new Set([...VAULT_WRITE_TOOLS].filter((name) => name !== "ontology_propose"));
-    expect(writeNames).toEqual(expected);
-    for (const name of writeNames) expect(isWriteTool(name)).toBe(true);
-  });
-});
-
-describe("canvas_create classification", () => {
-  it("is a write tool (vault mutation — gated + confirmed)", () => {
-    expect(isWriteTool("canvas_create")).toBe(true);
-  });
-});
-
-describe("base_create classification", () => {
-  it("is a write tool (vault mutation — gated + confirmed)", () => {
-    expect(isWriteTool("base_create")).toBe(true);
-  });
-});
-
-describe("ontology_propose classification", () => {
-  it("is a write tool; ontology_get is not", () => {
-    expect(isWriteTool("ontology_propose")).toBe(true);
-    expect(isWriteTool("ontology_get")).toBe(false);
+describe("write tools in chat", () => {
+  it("asks for confirmation before canvas_create, base_create, ontology_propose, and memory_record", () => {
+    for (const name of ["canvas_create", "base_create", "ontology_propose", "memory_record"]) expect(chat.decide(name)).toBe("confirm");
   });
 });

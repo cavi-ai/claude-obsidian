@@ -5,9 +5,9 @@ import type { McpToolDef } from "../../src/mcp/protocol";
 import type { ToolUseBlock } from "../../src/providers/types";
 
 const defs: McpToolDef[] = [
-  { name: "vault_search", description: "search", inputSchema: { type: "object" } },
-  { name: "note_read", description: "read", inputSchema: { type: "object" } },
-  { name: "note_create", description: "create", inputSchema: { type: "object" } },
+  { name: "vault_search", description: "search", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+  { name: "note_read", description: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+  { name: "note_create", description: "create", inputSchema: { type: "object" }, annotations: { readOnlyHint: false } },
 ];
 
 function harness(run: ToolRunKind, permissionPrompt: boolean, allow = true) {
@@ -17,22 +17,22 @@ function harness(run: ToolRunKind, permissionPrompt: boolean, allow = true) {
     confirmWrite: async (b: ToolUseBlock) => { seen.push(`confirm:${b.name}`); return allow; },
     proposeEdit: async (b: ToolUseBlock) => { seen.push(`propose:${String(b.input.path)}`); return `edited:${String(b.input.path)}`; },
   };
-  const tools = bridgeTools(base, { access: toolAccess(run), deps, permissionPrompt });
+  const tools = bridgeTools(base, { run, deps, permissionPrompt });
   return { tools, seen, names: () => tools.definitions().map((d) => d.name) };
 }
 
 describe("cliAllowedTools", () => {
   it("auto-approves reads and propose_note_edit in chat, never a write", () => {
-    expect(cliAllowedTools(defs, toolAccess("chat"))).toEqual(["mcp__obsidian-vault__vault_search", "mcp__obsidian-vault__note_read", "mcp__obsidian-vault__propose_note_edit"]);
+    expect(cliAllowedTools(defs, toolAccess("chat", defs))).toEqual(["mcp__obsidian-vault__vault_search", "mcp__obsidian-vault__note_read", "mcp__obsidian-vault__propose_note_edit"]);
   });
   it("auto-approves reads only in Plan Mode", () => {
-    expect(cliAllowedTools(defs, toolAccess("plan"))).toEqual(["mcp__obsidian-vault__vault_search", "mcp__obsidian-vault__note_read"]);
+    expect(cliAllowedTools(defs, toolAccess("plan", defs))).toEqual(["mcp__obsidian-vault__vault_search", "mcp__obsidian-vault__note_read"]);
   });
   it("auto-approves reads and propose_note_edit for a propose-only run", () => {
-    expect(cliAllowedTools(defs, toolAccess("propose"))).toEqual(["mcp__obsidian-vault__vault_search", "mcp__obsidian-vault__note_read", "mcp__obsidian-vault__propose_note_edit"]);
+    expect(cliAllowedTools(defs, toolAccess("propose", defs))).toEqual(["mcp__obsidian-vault__vault_search", "mcp__obsidian-vault__note_read", "mcp__obsidian-vault__propose_note_edit"]);
   });
   it("auto-approves nothing when tools are off", () => {
-    expect(cliAllowedTools(defs, toolAccess("off"))).toEqual([]);
+    expect(cliAllowedTools(defs, toolAccess("off", defs))).toEqual([]);
   });
 });
 

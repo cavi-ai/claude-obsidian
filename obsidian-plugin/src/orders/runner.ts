@@ -1,8 +1,9 @@
 // One order run: build the prompt, offer read tools plus propose_note_edit, collect proposals without applying them.
 // The model call is injected, so this is pure.
 
-import { PROPOSE_EDIT_TOOL } from "../agent/tools";
-import { toolAccess, type ToolRunKind } from "../agent/toolAccess";
+import { toAnthropicTools } from "../agent/tools";
+import { PROPOSE_EDIT_DEF, toolAccess, type ToolRunKind } from "../agent/toolAccess";
+import type { McpToolDef } from "../mcp/protocol";
 import { parseProposedEdits, planEdits, type ProposedEdit } from "../edit/diff";
 import type { AgentTurnResult } from "../agent/loop";
 import type { AnthropicToolDef, ToolUseBlock } from "../providers/types";
@@ -16,7 +17,7 @@ export interface OrderProposal { path: string; edits: ProposedEdit[]; descriptio
 
 export interface OrderRunDeps {
   /** Every vault tool; the run offers the ones propose-only access allows. */
-  vaultTools: AnthropicToolDef[];
+  vaultTools: McpToolDef[];
   toolsSupported: boolean;
   /** Throws when the note is missing. */
   readNote(path: string): Promise<string>;
@@ -40,7 +41,7 @@ export function buildOrderPrompt(order: StandingOrder, trigger: OrderTrigger, no
 export async function runOrder(order: StandingOrder, trigger: OrderTrigger, now: Date, deps: OrderRunDeps): Promise<OrderRunResult> {
   const proposals: OrderProposal[] = [];
   const run: ToolRunKind = deps.toolsSupported ? "propose" : "off";
-  const tools = toolAccess(run).offered([...deps.vaultTools, PROPOSE_EDIT_TOOL]);
+  const tools = toAnthropicTools(toolAccess(run, deps.vaultTools).offered([...deps.vaultTools, PROPOSE_EDIT_DEF]));
 
   const proposeEdit = async (block: ToolUseBlock): Promise<string> => {
     const path = typeof block.input.path === "string" ? block.input.path : "";

@@ -1,6 +1,6 @@
 // The chat-scoped bridge's registry: the run's tool access over the vault tools, the CLI's permission prompt, and the diff-reviewed edit. Pure; modals are injected.
 
-import { PROPOSE_EDIT_DEF, type ToolAccess } from "../agent/toolAccess";
+import { PROPOSE_EDIT_DEF, toolAccess, type ToolAccess, type ToolRunKind } from "../agent/toolAccess";
 import type { McpToolDef } from "../mcp/protocol";
 import type { ToolRegistry } from "../mcp/server";
 import type { ToolUseBlock } from "../providers/types";
@@ -45,7 +45,7 @@ export function cliAllowedTools(defs: McpToolDef[], access: ToolAccess): string[
 export const WRITE_DECLINED_RESULT = "Write declined by the user.";
 
 export interface BridgeBinding {
-  access: ToolAccess;
+  run: ToolRunKind;
   deps: InteractiveToolDeps;
   /**
    * True for Claude Code, which asks through the listed permission tool before calling a tool it was not
@@ -54,11 +54,17 @@ export interface BridgeBinding {
   permissionPrompt: boolean;
 }
 
+/** The vault tools are read live, so a setting change reaches the next list or call. */
 export function bridgeTools(base: ToolRegistry, binding: BridgeBinding): ToolRegistry {
-  const { access, deps, permissionPrompt } = binding;
+  const { run, deps, permissionPrompt } = binding;
+  const current = (): { defs: McpToolDef[]; access: ToolAccess } => {
+    const defs = base.definitions();
+    return { defs, access: toolAccess(run, defs) };
+  };
   return {
     definitions: () => {
-      const offered = access.offered([...base.definitions(), PROPOSE_EDIT_DEF]);
+      const { defs, access } = current();
+      const offered = access.offered([...defs, PROPOSE_EDIT_DEF]);
       return permissionPrompt ? [...offered, PERMISSION_PROMPT_MCP_DEF] : offered;
     },
     call: async (name, args) => {
@@ -66,7 +72,7 @@ export function bridgeTools(base: ToolRegistry, binding: BridgeBinding): ToolReg
         const block = parsePermissionPromptArgs(args);
         return permissionPromptResult(await deps.confirmWrite(block), block.input);
       }
-      const decision = access.decide(name);
+      const decision = current().access.decide(name);
       if (decision === "deny") throw new Error(`Tool unavailable in this run: ${name}.`);
       if (decision === "propose") return deps.proposeEdit({ type: "tool_use", id: "cli", name, input: args });
       if (decision === "confirm" && !permissionPrompt) {

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildOrderPrompt, runOrder, type OrderRunDeps, type OrderTurnRequest } from "../../src/orders/runner";
 import type { StandingOrder } from "../../src/orders/order";
-import type { AnthropicToolDef, ToolUseBlock } from "../../src/providers/types";
+import type { McpToolDef } from "../../src/mcp/protocol";
+import type { ToolUseBlock } from "../../src/providers/types";
 
 const order: StandingOrder = { id: "o.md", name: "Follow ups", path: "o.md", prompt: "Review {note} on {date}.", enabled: true, onNote: { folder: "Meetings" } };
 const NOW = new Date(2026, 9, 2, 14, 5);
 const noteTrigger = { kind: "note" as const, path: "Meetings/a.md", content: "- [ ] ship" };
-const tool = (name: string): AnthropicToolDef => ({ name, description: name, input_schema: {} });
+const WRITES = new Set(["note_create", "note_update", "research_claim_create"]);
+const tool = (name: string): McpToolDef => ({ name, description: name, inputSchema: {}, annotations: { readOnlyHint: !WRITES.has(name) } });
 const block = (input: Record<string, unknown>): ToolUseBlock => ({ type: "tool_use", id: "t1", name: "propose_note_edit", input });
 
 function deps(over: Partial<OrderRunDeps> = {}): OrderRunDeps & { requests: OrderTurnRequest[] } {

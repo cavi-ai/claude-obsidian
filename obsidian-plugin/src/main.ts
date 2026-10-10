@@ -77,7 +77,7 @@ import { MEMORY_NOTE_BASENAME, renderMemoryNote } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
 import type { AnthropicToolDef, CompletionRequest, Provider, ProviderId } from "./providers/types";
-import { executeTool, toAnthropicTools } from "./agent/tools";
+import { executeTool } from "./agent/tools";
 import { toolAccess, type ToolRunKind } from "./agent/toolAccess";
 import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
 import { webFetch as webFetchPage } from "./web/fetch";
@@ -2894,7 +2894,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private async createChatBridge(binding: { deps: InteractiveToolDeps; run: ToolRunKind; backend: CliBackend }): Promise<{ server: McpHttpServer; port: number; token: string }> {
     const { McpHttpServer } = await import("./mcp/server");
     const token = generateToken();
-    const registry = bridgeTools(this.agentTools(), { access: toolAccess(binding.run), deps: binding.deps, permissionPrompt: binding.backend.supportsPermissionPrompt });
+    const registry = bridgeTools(this.agentTools(), { run: binding.run, deps: binding.deps, permissionPrompt: binding.backend.supportsPermissionPrompt });
     const server = new McpHttpServer(
       {
         port: 0,
@@ -2934,7 +2934,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const runtime = this.cliRuntime();
     const cwd = this.vaultBasePath();
     if (!runtime || !cwd) throw new Error(`${backend.label} runs on desktop only.`);
-    const allowedTools = cliAllowedTools(this.agentTools().definitions(), toolAccess(opts.run));
+    const vaultDefs = this.agentTools().definitions();
+    const allowedTools = cliAllowedTools(vaultDefs, toolAccess(opts.run, vaultDefs));
     const signature = JSON.stringify({ run: opts.run, backend: backend.id, model: opts.model, allowedTools, writes: this.settings.agentAllowWrites });
     const existing = this.cliSessions.get(opts.conversationId);
     if (!opts.resumeSessionId && existing && existing.signature === signature && !existing.session.isClosed()) {
@@ -3164,7 +3165,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const toolsSupported = await router.chatToolCapable();
     const { provider, model: providerModel } = router.chatProvider();
     return runOrder(order, trigger, now, {
-      vaultTools: toAnthropicTools(this.agentTools().definitions()),
+      vaultTools: this.agentTools().definitions(),
       toolsSupported,
       readNote: (path) => this.readVaultNote(path),
       runTurn: async (turn, proposeEdit) => {
@@ -3180,7 +3181,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (!caps.cli) {
           return providerTurnRunner({
             stream: (req, h) => provider.stream(req, h),
-            execute: (block, signal) => executeTool({ access: toolAccess(turn.run), ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
+            execute: (block, signal) => executeTool({ access: toolAccess(turn.run, this.agentTools().definitions()), ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
             maxIterations: this.settings.agentMaxIterations,
           }).run(request, handlers);
         }

@@ -1150,9 +1150,10 @@ export class ChatView extends ItemView {
     const { provider, model: providerModel } = this.plugin.router().chatProvider();
     const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
     const run = this.toolRun();
-    const access = toolAccess(run);
     const externalTools = run === "chat" ? await this.plugin.externalMcpTools().catch(() => []) : [];
     if (signal.aborted) return { text: "", trace: [], aborted: true };
+    const vaultDefs = this.plugin.agentTools().definitions();
+    const access = toolAccess(run, vaultDefs);
 
     const request: CompletionRequest = {
       system: this.plugin.composeSystemPrompt({ agent: true, plan: run === "plan", project: this.currentChatProject }),
@@ -1160,7 +1161,7 @@ export class ChatView extends ItemView {
       model: this.turnModelOverride ?? providerModel,
       maxTokens: shape.maxTokens,
       signal,
-      tools: access.offered([...toAnthropicTools(this.plugin.agentTools().definitions()), PROPOSE_EDIT_TOOL, ...externalTools]),
+      tools: access.offered([...toAnthropicTools(vaultDefs), PROPOSE_EDIT_TOOL, ...externalTools]),
     };
     if (shape.temperature !== undefined) request.temperature = shape.temperature;
     if (shape.thinking !== undefined) request.thinking = shape.thinking;
