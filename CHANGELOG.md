@@ -4,6 +4,11 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.1] — 2026-10-09
+
+### Fixed
+- On mobile, the chat composer is one card: the input row with Send, then the context chip and a labelled Ask / Plan / Act switch.
+
 ## [0.44.0] — 2026-10-08
 
 ### Added
