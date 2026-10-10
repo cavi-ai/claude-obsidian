@@ -2033,6 +2033,11 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   overflow: hidden;
   padding: 0 0 max(0px, var(--view-bottom-spacing, var(--safe-area-inset-bottom, 0px)));
 }
+/* While the keyboard animates, Obsidian keeps the app full height until it settles. Reserve the
+   keyboard's height so the composer sits where it ends up and does not move when the app shrinks. */
+body.is-mobile.keyboard-animating .workspace-leaf-content .view-content.cc-chat-root {
+  padding-bottom: calc(var(--keyboard-height, 0px) + max(0px, var(--view-bottom-spacing, var(--safe-area-inset-bottom, 0px))));
+}
 
 /* Header: drop the eyebrow, slim the bar, hide the desktop icon row
    (the mobile build replaces it with a single ⋯ menu — see ChatView). */
