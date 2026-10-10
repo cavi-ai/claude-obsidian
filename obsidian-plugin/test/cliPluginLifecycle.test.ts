@@ -52,13 +52,13 @@ describe("plugin Claude CLI lifecycle", () => {
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
     const deps = { confirmWrite: async () => true, proposeEdit: async () => "" };
-    const a = await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" });
-    const b = await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" });
+    const a = await p.cliTurnRunner({ conversationId: "c1", run: "chat" as const, model: "claude-sonnet-5", deps, transcript: "" });
+    const b = await p.cliTurnRunner({ conversationId: "c1", run: "chat" as const, model: "claude-sonnet-5", deps, transcript: "" });
     expect(a).toBe(b);
     expect(start).toHaveBeenCalledOnce();
-    const c = await p.cliTurnRunner({ conversationId: "c2", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" });
+    const c = await p.cliTurnRunner({ conversationId: "c2", run: "chat" as const, model: "claude-sonnet-5", deps, transcript: "" });
     expect(c).not.toBe(a);
-    const off = await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: false, model: "claude-sonnet-5", deps, transcript: "" });
+    const off = await p.cliTurnRunner({ conversationId: "c1", run: "off" as const, model: "claude-sonnet-5", deps, transcript: "" });
     expect(off).not.toBe(a);
     expect(start).toHaveBeenCalledTimes(3);
     expect(run).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("plugin Claude CLI lifecycle", () => {
     });
     await p.router().claudeCli.refresh();
     const deps = { confirmWrite: async () => true, proposeEdit: async () => "" };
-    await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" });
+    await p.cliTurnRunner({ conversationId: "c1", run: "chat" as const, model: "claude-sonnet-5", deps, transcript: "" });
     expect(seenPrompts[0]).toContain("Chat project: Widgets");
     expect(seenPrompts[0]).toContain("Ship widgets on time.");
   });
@@ -101,8 +101,8 @@ describe("plugin Claude CLI lifecycle", () => {
       proposeEdit: async () => id,
     });
 
-    await p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps: deps("c1", false), transcript: "" });
-    await p.cliTurnRunner({ conversationId: "c2", planMode: false, agentMode: true, model: "claude-sonnet-5", deps: deps("c2", true), transcript: "" });
+    await p.cliTurnRunner({ conversationId: "c1", run: "chat" as const, model: "claude-sonnet-5", deps: deps("c1", false), transcript: "" });
+    await p.cliTurnRunner({ conversationId: "c2", run: "chat" as const, model: "claude-sonnet-5", deps: deps("c2", true), transcript: "" });
 
     type Registry = { call(name: string, args: Record<string, unknown>): Promise<string> };
     type Entry = { bridge: McpHttpServer };
@@ -131,7 +131,7 @@ describe("plugin Claude CLI lifecycle", () => {
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
     const deps = { confirmWrite: async () => true, proposeEdit: async () => "" };
-    const opts = { conversationId: "c1", planMode: false, agentMode: true, model: "claude-sonnet-5", deps, transcript: "" };
+    const opts = { conversationId: "c1", run: "chat" as const, model: "claude-sonnet-5", deps, transcript: "" };
     const a = await p.cliTurnRunner(opts);
     type ConvOut = { convState: { conversations: { id: string; cliSessionId?: string; cliSessionHistory?: string[] }[] } };
     const firstConvo = () => (p as unknown as ConvOut).convState.conversations.find((c) => c.id === "c1")!;
@@ -150,7 +150,7 @@ describe("plugin Claude CLI lifecycle", () => {
     rt.probe = async () => ({ loggedIn: false, method: "" });
     const p = plugin(rt);
     await p.router().claudeCli.refresh();
-    await expect(p.cliTurnRunner({ conversationId: "c1", planMode: false, agentMode: true, model: "m", deps: { confirmWrite: async () => true, proposeEdit: async () => "" }, transcript: "" })).rejects.toThrow(/not signed in/);
+    await expect(p.cliTurnRunner({ conversationId: "c1", run: "chat" as const, model: "m", deps: { confirmWrite: async () => true, proposeEdit: async () => "" }, transcript: "" })).rejects.toThrow(/not signed in/);
   });
 
   it("keeps the sign-in probe across a settings save (router rebuild reuses the same ClaudeCliProvider)", async () => {

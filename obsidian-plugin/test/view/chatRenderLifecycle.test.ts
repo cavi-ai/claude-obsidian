@@ -370,6 +370,7 @@ describe("Chat render lifecycle", () => {
       turnRunnerFor: ReturnType<typeof vi.fn>;
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
+    view.mode.setCapable(true);
     seam.turnRunnerFor = vi.fn();
     const controller = new AbortController();
     const running = seam.agentTurn([], { onText: vi.fn() }, controller.signal, "c1");
