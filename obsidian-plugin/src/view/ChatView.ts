@@ -1,5 +1,5 @@
 import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
-import type ClaudeCompanionPlugin from "../main";
+import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
 import { effectiveToggles } from "./chat/contextScope";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
@@ -174,7 +174,7 @@ export class ChatView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private plugin: ClaudeCompanionPlugin,
+    private plugin: ChatViewHost,
   ) {
     super(leaf);
     this.chat = new ChatSession({
