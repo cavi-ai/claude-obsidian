@@ -4,6 +4,11 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.2] — 2026-10-10
+
+### Fixed
+- On iPhone, the chat composer stays above the keyboard while you type instead of jumping to the top of the screen.
+
 ## [0.44.1] — 2026-10-09
 
 ### Fixed
