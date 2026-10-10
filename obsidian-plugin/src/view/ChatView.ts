@@ -45,6 +45,7 @@ import { ComposerContextManager } from "./ComposerContextManager";
 import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
+import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
 import { SetupCard } from "./chat/SetupCard";
 
@@ -126,6 +127,7 @@ export class ChatView extends ItemView {
   /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
+  private unpinKeyboard: (() => void) | null = null;
   /** Last visible context-manager state; skip DOM rebuilds when nothing changed. */
   private get lastContextManagerSignature(): string { return this.composer.lastContextManagerSignature; }
   private set lastContextManagerSignature(v: string) { this.composer.lastContextManagerSignature = v; }
@@ -315,6 +317,8 @@ export class ChatView extends ItemView {
       root,
       buildSlashCatalog(WORKFLOWS, SKILLS, []),
     );
+    this.unpinKeyboard?.();
+    this.unpinKeyboard = Platform.isMobile ? pinChatAboveKeyboard(root, window) : null;
     this.renderContextManager();
 
     // User templates: load now, refresh when a note in the folder changes.
@@ -463,6 +467,8 @@ export class ChatView extends ItemView {
       window.clearInterval(this.contextStatusInterval);
       this.contextStatusInterval = null;
     }
+    this.unpinKeyboard?.();
+    this.unpinKeyboard = null;
     this.composer.destroy();
   }
 
