@@ -3,12 +3,11 @@ import { ActivityStore } from "../../src/activity/store";
 import { ConversationsController } from "../../src/conversations/controller";
 import { SessionActions } from "../../src/conversations/sessionActions";
 import { emptyState, type ConversationState } from "../../src/conversations/store";
-import { DEFAULT_SETTINGS } from "../../src/types";
+import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 
 /** A real conversations controller and session actions over in-memory state, shaped as the plugin members the chat views call. */
-export function conversationFakes(seed: Partial<ConversationState> = {}) {
+export function conversationFakes(seed: Partial<ConversationState> = {}, settings: PluginSettings = structuredClone(DEFAULT_SETTINGS)) {
   const state = { current: { ...emptyState(), ...seed } };
-  const settings = structuredClone(DEFAULT_SETTINGS);
   const activity = new ActivityStore({ successRetentionMs: 60_000 });
   const conversations = new ConversationsController({
     state: { get: () => state.current, set: (next) => { state.current = next; } },
@@ -33,5 +32,5 @@ export function conversationFakes(seed: Partial<ConversationState> = {}) {
     complete: vi.spyOn(conversations, "completeTurn").mockResolvedValue(undefined),
     interrupt: vi.spyOn(conversations, "interruptTurn").mockResolvedValue(undefined),
   });
-  return { conversations, sessionActions, state, distill, stubTurns, host: { conversations: () => conversations, sessionActions: () => sessionActions } };
+  return { conversations, sessionActions, settings, state, distill, stubTurns, host: { conversations: () => conversations, sessionActions: () => sessionActions } };
 }

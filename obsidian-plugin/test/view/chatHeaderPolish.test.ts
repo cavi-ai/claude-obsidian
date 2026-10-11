@@ -30,7 +30,7 @@ function headerPlugin(fakes = conversationFakes()): ClaudeCompanionPlugin {
   };
   return {
     app,
-    settings: structuredClone(DEFAULT_SETTINGS),
+    settings: fakes.settings,
     router: () => ({
       chatBackend: "claude",
       anthropic: { hasCredentials: () => true },

@@ -49,18 +49,19 @@ describe("Chat render lifecycle", () => {
     const persisted = new Promise<void>((resolve) => { releasePersist = resolve; });
     const stream = vi.fn(async (_request: unknown, handlers: { onDone(text: string): void }) => { handlers.onDone("answer"); });
     const provider = { id: "anthropic", hasCredentials: () => true, stream };
-    const fakes = conversationFakes();
+    const settings = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      agentModeEnabled: false,
+      context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false },
+    };
+    const fakes = conversationFakes({}, settings);
     const turns = fakes.stubTurns();
     turns.begin.mockImplementation(async () => {
       await persisted;
       return { conversationId: "conversation-1", turnId: "turn-1" };
     });
     const plugin = {
-      settings: {
-        ...structuredClone(DEFAULT_SETTINGS),
-        agentModeEnabled: false,
-        context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false },
-      },
+      settings,
       router: () => ({
         chatProvider: () => ({ provider, model: DEFAULT_SETTINGS.model }),
         chatBackend: "claude",
@@ -114,14 +115,15 @@ describe("Chat render lifecycle", () => {
   ])("loads the ontology for a turn only when linked notes or vault search is on (%o)", async (toggles, calls) => {
     const stream = vi.fn(async (_request: unknown, handlers: { onDone(text: string): void }) => { handlers.onDone("answer"); });
     const provider = { id: "anthropic", hasCredentials: () => true, stream };
-    const fakes = conversationFakes();
+    const settings = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      agentModeEnabled: false,
+      context: { activeNote: false, selection: false, ...toggles },
+    };
+    const fakes = conversationFakes({}, settings);
     fakes.stubTurns();
     const plugin = {
-      settings: {
-        ...structuredClone(DEFAULT_SETTINGS),
-        agentModeEnabled: false,
-        context: { activeNote: false, selection: false, ...toggles },
-      },
+      settings,
       router: () => ({
         chatProvider: () => ({ provider, model: DEFAULT_SETTINGS.model }),
         chatBackend: "claude",
@@ -175,14 +177,15 @@ describe("Chat render lifecycle", () => {
     });
     const provider = { id: "anthropic", hasCredentials: () => true, stream };
     const turnService = new ChatTurnService();
-    const fakes = conversationFakes();
+    const settings = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      agentModeEnabled: false,
+      context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false },
+    };
+    const fakes = conversationFakes({}, settings);
     const turns = fakes.stubTurns();
     const plugin = {
-      settings: {
-        ...structuredClone(DEFAULT_SETTINGS),
-        agentModeEnabled: false,
-        context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false },
-      },
+      settings,
       router: () => ({
         chatProvider: () => ({ provider, model: DEFAULT_SETTINGS.model }),
         chatBackend: "claude",
@@ -358,9 +361,10 @@ describe("Chat render lifecycle", () => {
   });
 
   it("discards a saved edit proposal from its recovery row", async () => {
-    const fakes = conversationFakes();
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    const fakes = conversationFakes({}, settings);
     const clearProposal = vi.spyOn(fakes.conversations, "clearEditProposal").mockResolvedValue(undefined);
-    const plugin = { settings: structuredClone(DEFAULT_SETTINGS), ...fakes.host } as unknown as ClaudeCompanionPlugin;
+    const plugin = { settings, ...fakes.host } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
     const seam = view as unknown as { messagesEl: HTMLElement; transcript: { renderRecoverableEdit(conversation: Conversation): void } };
     seam.messagesEl = fakeElement();
@@ -382,10 +386,11 @@ describe("Chat render lifecycle", () => {
       id: "c1", title: "Revise", createdAt: 1, updatedAt: 2, messages: [],
       lastEditProposal: { path: "A.md", edits: [{ old_str: "beta", new_str: "gamma" }], proposedAt: 2 },
     } satisfies Conversation;
-    const fakes = conversationFakes({ conversations: [conversation] });
+    const settings = { ...structuredClone(DEFAULT_SETTINGS), inlineDiffEnabled: false };
+    const fakes = conversationFakes({ conversations: [conversation] }, settings);
     const clearProposal = vi.spyOn(fakes.conversations, "clearEditProposal").mockResolvedValue(undefined);
     const plugin = {
-      settings: { ...structuredClone(DEFAULT_SETTINGS), inlineDiffEnabled: false },
+      settings,
       ...fakes.host,
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(app), plugin);
@@ -408,7 +413,7 @@ describe("Chat render lifecycle", () => {
     const claudeProvider = { id: "anthropic", hasCredentials: () => true, stream: failing("fetch failed") };
     const endpointProvider = { id: "openai-compat", hasCredentials: () => true, stream: failing("fetch failed") };
     const settings = { ...structuredClone(DEFAULT_SETTINGS), chatBackend: "auto" as const, agentModeEnabled: false, context: { activeNote: false, selection: false, linkedNotes: false, searchVault: false } };
-    const fakes = conversationFakes();
+    const fakes = conversationFakes({}, settings);
     fakes.stubTurns();
     const plugin = {
       settings,
@@ -479,8 +484,9 @@ describe("Chat render lifecycle", () => {
       openAllSettings: vi.fn(),
       openDesktopIntegrations: vi.fn(),
     };
+    const settings = structuredClone(DEFAULT_SETTINGS);
     const plugin = {
-      settings: structuredClone(DEFAULT_SETTINGS),
+      settings,
       router: () => ({
         chatBackend: "claude",
         anthropic: { hasCredentials: () => true },
@@ -493,7 +499,7 @@ describe("Chat render lifecycle", () => {
       mcpStats: () => ({ running: false, port: null, activeRequests: 0, handledRequests: 0 }),
       companionChrome: () => chromeDeps,
       promptTemplates: async () => [],
-      ...conversationFakes().host,
+      ...conversationFakes({}, settings).host,
       secrets: () => ({ available: () => false }),
       composeSystemPrompt: () => "system",
       companionWorkspaceContext: async () => null,

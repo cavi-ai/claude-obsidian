@@ -37,8 +37,9 @@ function gatePluginStub(initiallySignedIn: boolean, refreshSignsIn: boolean): { 
 
 function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, cliSignedIn: boolean): ClaudeCompanionPlugin & { cliTurnRunner: ReturnType<typeof vi.fn>; saveSettings: ReturnType<typeof vi.fn> } {
   const runner = { run: vi.fn(async () => ({ text: "", trace: [] })) };
+  const resolved = { ...structuredClone(DEFAULT_SETTINGS), ...settings };
   return {
-    settings: { ...structuredClone(DEFAULT_SETTINGS), ...settings },
+    settings: resolved,
     router: () => ({
       chatProvider: () => ({ provider: { id: caps.cli ? "claude-cli" : "anthropic", hasCredentials: () => true }, model: DEFAULT_SETTINGS.model }),
       chatCapabilities: () => caps,
@@ -49,7 +50,7 @@ function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, c
       anthropic: { hasCredentials: () => !cliSignedIn },
     }),
     cliTurnRunner: vi.fn(async () => runner),
-    ...conversationFakes({ conversations: [{ id: "c1", title: "Chat", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" }).host,
+    ...conversationFakes({ conversations: [{ id: "c1", title: "Chat", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" }, resolved).host,
     interruptCliTurn: vi.fn(),
     secrets: () => ({ available: () => false }),
     saveSettings: vi.fn(async () => undefined),

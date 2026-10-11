@@ -43,7 +43,7 @@ afterEach(() => {
 function statePlugin(overrides: Partial<Record<string, unknown>> = {}, fakes = conversationFakes()): ClaudeCompanionPlugin {
   const provider = { id: "anthropic", hasCredentials: () => true };
   return {
-    settings: structuredClone(DEFAULT_SETTINGS),
+    settings: fakes.settings,
     router: () => ({
       chatProvider: () => ({ provider, model: DEFAULT_SETTINGS.model }),
       chatBackend: "claude",

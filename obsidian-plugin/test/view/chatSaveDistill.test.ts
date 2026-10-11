@@ -14,7 +14,7 @@ function plugin(overrides: Record<string, unknown> = {}, fakes = conversationFak
   const chromeDeps = { app, activity: new ActivityStore(), snapshot: () => ({}), save: vi.fn(), run: vi.fn(), openAllSettings: vi.fn(), openDesktopIntegrations: vi.fn() } as unknown as CompanionChromeDependencies;
   return {
     app,
-    settings: structuredClone(DEFAULT_SETTINGS),
+    settings: fakes.settings,
     router: () => ({
       chatBackend: "claude",
       anthropic: { hasCredentials: () => true },
