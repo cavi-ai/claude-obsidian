@@ -251,7 +251,7 @@ export class ChatView extends ItemView {
     return CHAT_VIEW_TYPE;
   }
   override getDisplayText(): string {
-    const conversation = this.conversationId ? this.plugin.listConversations().find((c) => c.id === this.conversationId) : undefined;
+    const conversation = this.conversationId ? this.plugin.conversations().list().find((c) => c.id === this.conversationId) : undefined;
     return conversation?.title ?? "Companion for Claude";
   }
   override getIcon(): string {
@@ -270,7 +270,7 @@ export class ChatView extends ItemView {
       this.conversationId = null;
       this.resetToEmpty();
     } else if (typeof raw === "string") {
-      const conversation = this.plugin.listConversations().find((c) => c.id === raw);
+      const conversation = this.plugin.conversations().list().find((c) => c.id === raw);
       if (conversation) {
         this.conversationId = raw;
         this.loadConversation(conversation);
@@ -359,7 +359,7 @@ export class ChatView extends ItemView {
       if (tick % 5 === 0) void this.refreshBackendPill();
     }, 2000);
     // Resume the last active conversation if one was persisted; else empty state.
-    const active = this.plugin.getActiveConversation();
+    const active = this.plugin.conversations().getActive();
     if (active && active.messages.length > 0) {
       this.loadConversation(active);
     } else {
@@ -443,7 +443,7 @@ export class ChatView extends ItemView {
       new Notice("Nothing to distill yet.");
       return;
     }
-    const path = await this.plugin.distillConversation(this.conversationId);
+    const path = await this.plugin.sessionActions().distill(this.conversationId);
     if (path !== null && this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
       await this.plugin.captureConversation(this.messages);
     }
@@ -551,7 +551,7 @@ export class ChatView extends ItemView {
       this.setLocalProject(project);
       return;
     }
-    await this.plugin.setChatProject(this.conversationId, project.id);
+    await this.plugin.conversations().setProject(this.conversationId, project.id);
     await this.refreshCurrentProject();
     this.updateUsageBar();
   }
@@ -561,7 +561,7 @@ export class ChatView extends ItemView {
     if (id === null) {
       void (async () => {
         if (this.conversationId) {
-          await this.plugin.setChatProject(this.conversationId, null);
+          await this.plugin.conversations().setProject(this.conversationId, null);
           await this.refreshCurrentProject();
         } else { this.pendingProjectId = null; this.setLocalProject(null); }
         this.updateUsageBar();
@@ -857,7 +857,7 @@ export class ChatView extends ItemView {
       return false;
     }
 
-    const previousTurn = this.conversationId ? this.plugin.listConversations().find((entry) => entry.id === this.conversationId)?.activeTurn : undefined;
+    const previousTurn = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId)?.activeTurn : undefined;
     // A capped turn's partial work stays in context — the continuation needs to
     // see what was already done. Interrupted/failed turns are excluded as before.
     if (previousTurn && previousTurn.state !== "running" && previousTurn.state !== "capped") {
@@ -869,7 +869,7 @@ export class ChatView extends ItemView {
     const turnMessages = [...this.messages];
     let turn: { conversationId: string; turnId: string };
     try {
-      turn = await this.plugin.beginActiveConversationTurn(this.conversationId, this.messages, {
+      turn = await this.plugin.conversations().beginTurn(this.conversationId, this.messages, {
         backend,
         model: this.turnModelOverride ?? model,
         mode: this.mode.mode,
@@ -886,12 +886,12 @@ export class ChatView extends ItemView {
     }
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
-    if (this.pendingProjectId !== null) { await this.plugin.setChatProject(turn.conversationId, this.pendingProjectId); this.pendingProjectId = null; }
+    if (this.pendingProjectId !== null) { await this.plugin.conversations().setProject(turn.conversationId, this.pendingProjectId); this.pendingProjectId = null; }
     await this.refreshCurrentProject(); // memoized for the rest of this turn
     this.currentTurn = turn;
     this.abort = new AbortController();
     const controller = this.abort;
-    this.unregisterCurrentTurn = this.plugin.registerActiveChatTurn(turn.conversationId, turn.turnId, () => {
+    this.unregisterCurrentTurn = this.plugin.conversations().registerTurn(turn.conversationId, turn.turnId, () => {
       controller.abort();
       if (this.currentTurn?.turnId === turn.turnId) {
         this.currentTurn = null;
@@ -994,10 +994,10 @@ export class ChatView extends ItemView {
       turnId: turn.turnId,
       title: display ?? userText,
       run: coreRun,
-      completeTurn: (result) => this.plugin.completeActiveConversationTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result)),
-      capTurn: (result) => this.plugin.capActiveConversationTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), result.handoff),
-      interruptTurn: (result, error) => this.plugin.interruptActiveConversationTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), error?.message ?? "Interrupted"),
-      registerTurn: (stop) => this.plugin.registerActiveChatTurn(turn.conversationId, turn.turnId, () => {
+      completeTurn: (result) => this.plugin.conversations().completeTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result)),
+      capTurn: (result) => this.plugin.conversations().capTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), result.handoff),
+      interruptTurn: (result, error) => this.plugin.conversations().interruptTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), error?.message ?? "Interrupted"),
+      registerTurn: (stop) => this.plugin.conversations().registerTurn(turn.conversationId, turn.turnId, () => {
         controller.abort();
         stop();
         if (this.currentTurn?.turnId === turn.turnId) {
@@ -1012,7 +1012,7 @@ export class ChatView extends ItemView {
     // next turn when auto-continue is on — only while this view shows the
     // conversation; a backgrounded turn waits for the user.
     if (!outcome?.capped || this.conversationId !== turn.conversationId) return true;
-    const conversation = this.plugin.listConversations().find((entry) => entry.id === turn.conversationId);
+    const conversation = this.plugin.conversations().list().find((entry) => entry.id === turn.conversationId);
     if (!conversation || conversation.activeTurn?.state !== "capped") return true;
     this.transcript.renderInterruptedTurn(conversation);
     if (shouldAutoContinue(this.plugin.settings.agentAutoContinue, conversation.activeTurn)) await this.resumeInterruptedTurn(conversation);
@@ -1124,7 +1124,7 @@ export class ChatView extends ItemView {
   private async turnRunnerFor(deps: AgentTurnDeps, request: CompletionRequest, signal?: AbortSignal, turnConversationId?: string): Promise<AgentTurnRunner> {
     const caps = this.plugin.router().chatCapabilities();
     if (!caps.cli) return providerTurnRunner(deps);
-    const conversationId = turnConversationId ?? this.currentTurn?.conversationId ?? this.plugin.activeConversationId();
+    const conversationId = turnConversationId ?? this.currentTurn?.conversationId ?? this.plugin.conversations().activeId();
     signal?.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
     return this.plugin.cliTurnRunner({
       conversationId,
@@ -1156,7 +1156,7 @@ export class ChatView extends ItemView {
     if (signal?.aborted) return "Turn stopped before the edit review opened.";
     const id = conversationId ?? this.currentTurn?.conversationId ?? this.conversationId;
     if (!id) throw new Error("Conversation not found for edit recovery.");
-    await this.plugin.saveChatEditProposal(id, { path, edits, ...(description ? { description } : {}) });
+    await this.plugin.conversations().saveEditProposal(id, { path, edits, ...(description ? { description } : {}) });
     return this.applyReviewedEdit(id, file, plan, description, signal);
   }
 
@@ -1164,17 +1164,17 @@ export class ChatView extends ItemView {
     const result = await reviewAndApply(this.app, file, plan, description, { inlineEnabled: this.plugin.settings.inlineDiffEnabled, ...(signal ? { signal } : {}) });
     if (signal?.aborted) return "Turn stopped. The proposed edit is saved for later review.";
     if (result.cancelled) {
-      const conversation = this.plugin.listConversations().find((entry) => entry.id === conversationId);
+      const conversation = this.plugin.conversations().list().find((entry) => entry.id === conversationId);
       if (conversation && this.conversationId === conversationId) this.transcript.renderRecoverableEdit(conversation);
       return "User rejected the proposed edit. It is saved for later review.";
     }
 
     const { applied, total } = result;
     if (applied === total) {
-      await this.plugin.clearChatEditProposal(conversationId).catch((error: unknown) => console.error("[Claude Companion] could not clear applied edit recovery record", error));
+      await this.plugin.conversations().clearEditProposal(conversationId).catch((error: unknown) => console.error("[Claude Companion] could not clear applied edit recovery record", error));
       if (this.conversationId === conversationId) this.messagesEl.querySelector(".cc-edit-recovery")?.remove();
     } else {
-      await this.plugin.saveChatEditProposal(conversationId, { path: file.path, edits: result.remaining, ...(description ? { description } : {}) }).catch((error: unknown) => console.error("[Claude Companion] could not retain rejected edit recovery record", error));
+      await this.plugin.conversations().saveEditProposal(conversationId, { path: file.path, edits: result.remaining, ...(description ? { description } : {}) }).catch((error: unknown) => console.error("[Claude Companion] could not retain rejected edit recovery record", error));
     }
     return applied === total
       ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${file.path}.`
@@ -1182,11 +1182,11 @@ export class ChatView extends ItemView {
   }
 
   private async discardLastProposedEdit(conversation: Conversation): Promise<void> {
-    await this.plugin.clearChatEditProposal(conversation.id).catch((error: unknown) => console.error("[Claude Companion] could not discard edit recovery record", error));
+    await this.plugin.conversations().clearEditProposal(conversation.id).catch((error: unknown) => console.error("[Claude Companion] could not discard edit recovery record", error));
   }
 
   private async reviewLastProposedEdit(conversation: Conversation): Promise<void> {
-    const proposal = this.plugin.listConversations().find((entry) => entry.id === conversation.id)?.lastEditProposal;
+    const proposal = this.plugin.conversations().list().find((entry) => entry.id === conversation.id)?.lastEditProposal;
     if (!proposal) return;
     try {
       const file = this.app.vault.getAbstractFileByPath(proposal.path);
@@ -1247,7 +1247,7 @@ export class ChatView extends ItemView {
       this.abort?.abort();
       return;
     }
-    await this.plugin.stopActiveChatTurn(turn.conversationId, turn.turnId);
+    await this.plugin.conversations().stopTurn(turn.conversationId, turn.turnId);
   }
 
   async resumeInterruptedTurn(conversation: Conversation): Promise<void> {

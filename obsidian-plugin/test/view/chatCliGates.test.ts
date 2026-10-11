@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import type ClaudeCompanionPlugin from "../../src/main";
 import type { ChatCapabilities } from "../../src/providers/router";
 import { defaultChatControls } from "../../src/claude/chatControls";
+import { conversationFakes } from "../fakes/conversations";
 
 const CLI: ChatCapabilities = { agentActions: true, claudeControls: false, metered: false, local: false, cli: true };
 const API: ChatCapabilities = { agentActions: true, claudeControls: true, metered: true, local: false, cli: false };
@@ -48,7 +49,7 @@ function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, c
       anthropic: { hasCredentials: () => !cliSignedIn },
     }),
     cliTurnRunner: vi.fn(async () => runner),
-    activeConversationId: () => "c1",
+    ...conversationFakes({ conversations: [{ id: "c1", title: "Chat", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" }).host,
     interruptCliTurn: vi.fn(),
     secrets: () => ({ available: () => false }),
     saveSettings: vi.fn(async () => undefined),

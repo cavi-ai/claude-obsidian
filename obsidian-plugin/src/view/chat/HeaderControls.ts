@@ -441,7 +441,7 @@ export class HeaderControls {
       this.sessionDropdown.close();
       return;
     }
-    if (this.plugin.listConversations().length === 0) {
+    if (this.plugin.conversations().list().length === 0) {
       new Notice("No saved conversations yet.");
       return;
     }
@@ -450,24 +450,24 @@ export class HeaderControls {
     this.sessionDropdown = new SessionDropdown({
       app: this.app,
       anchor,
-      conversations: () => this.plugin.listConversations(),
-      activeId: () => this.plugin.getActiveConversation()?.id ?? null,
+      conversations: () => this.plugin.conversations().list(),
+      activeId: () => this.plugin.conversations().getActive()?.id ?? null,
       actions: {
         resume: async (chosen) => {
-          const conversation = await this.plugin.setActiveConversation(chosen.id);
+          const conversation = await this.plugin.conversations().setActive(chosen.id);
           if (conversation) this.deps.loadConversation(conversation);
         },
-        rename: (conversation, title) => this.plugin.renameConversation(conversation.id, title),
-        fork: (conversation) => this.plugin.forkConversation(conversation.id),
-        forkFromSummary: (conversation) => this.plugin.forkFromSummary(conversation.id),
-        distill: async (conversation) => { await this.plugin.distillConversation(conversation.id); },
-        archive: (conversation) => this.plugin.archiveConversation(conversation.id),
-        unarchive: (conversation) => this.plugin.unarchiveConversation(conversation.id),
+        rename: (conversation, title) => this.plugin.conversations().rename(conversation.id, title),
+        fork: (conversation) => this.plugin.sessionActions().fork(conversation.id),
+        forkFromSummary: (conversation) => this.plugin.sessionActions().forkFromSummary(conversation.id),
+        distill: async (conversation) => { await this.plugin.sessionActions().distill(conversation.id); },
+        archive: (conversation) => this.plugin.sessionActions().archive(conversation.id),
+        unarchive: (conversation) => this.plugin.conversations().unarchive(conversation.id),
         remove: async (doomed) => {
-          if (this.plugin.getActiveConversation()?.id === doomed.id) {
+          if (this.plugin.conversations().getActive()?.id === doomed.id) {
             await this.plugin.deleteActiveConversation(); // resets the view + notices
           } else {
-            await this.plugin.deleteConversation(doomed.id);
+            await this.plugin.conversations().delete(doomed.id);
             quickNotice(`Deleted “${doomed.title}”.`);
           }
         },
