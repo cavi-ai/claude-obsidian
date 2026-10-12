@@ -144,7 +144,6 @@ import {
   emptyState,
   fromPersisted,
   cliSessionIds,
-  type ChatTurnMode,
 } from "./conversations/store";
 import { ConversationsController } from "./conversations/controller";
 import { DistillController } from "./conversations/distillController";
@@ -239,7 +238,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private convState: ConversationState = emptyState();
   private _conversations?: ConversationsController;
   private _clippings?: ClippingsController;
-  private conversations(): ConversationsController {
+  conversations(): ConversationsController {
     return (this._conversations ??= new ConversationsController({
       state: { get: () => this.convState, set: (next) => { this.convState = next; } },
       persist: () => this.persist(),
@@ -250,7 +249,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _distiller?: DistillController;
   private distiller(): DistillController {
     return (this._distiller ??= new DistillController({
-      get: (id) => this.listConversations().find((c) => c.id === id),
+      get: (id) => this.conversations().list().find((c) => c.id === id),
       complete: async (req) => (await this.router().complete("utility", req)).text,
       exists: (path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
       resolveLink: (link) => this.app.metadataCache.getFirstLinkpathDest(link.replace(/\.md$/, ""), "")?.path ?? (this.app.vault.getAbstractFileByPath(link) instanceof TFile ? link : null),
@@ -268,9 +267,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
   private _sessionActions?: SessionActions;
-  private sessionActions(): SessionActions {
+  sessionActions(): SessionActions {
     return (this._sessionActions ??= new SessionActions({
-      find: (id) => this.listConversations().find((c) => c.id === id),
+      find: (id) => this.conversations().list().find((c) => c.id === id),
       archive: (id) => this.conversations().archive(id),
       fork: (id) => this.conversations().fork(id),
       createSeeded: (title, seed, projectId) => this.conversations().createSeeded(title, seed, projectId),
@@ -319,7 +318,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   private async openConversationFromNotice(conversationId: string): Promise<void> {
-    const conversation = await this.setActiveConversation(conversationId);
+    const conversation = await this.conversations().setActive(conversationId);
     if (!conversation) return;
     const existing = this.chatLeafFor(conversationId);
     if (existing) {
@@ -534,7 +533,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       },
       router: () => this.router(),
       excludedSessionIds: () => this.conversations().list().flatMap(cliSessionIds),
-      getActiveConversation: () => this.getActiveConversation(),
+      getActiveConversation: () => this.conversations().getActive(),
       nodeSessionReader: async () => {
         const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
         return { reader: nodeSessionReader, defaultProjectsRoot };
@@ -793,7 +792,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (!(leaf?.view instanceof ChatView)) return;
       this.lastFocusedChatLeaf = leaf;
       const id = leaf.view.getState().conversationId;
-      if (typeof id === "string" && id !== this.convState.activeId) void this.setActiveConversation(id);
+      if (typeof id === "string" && id !== this.convState.activeId) void this.conversations().setActive(id);
     }));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
@@ -868,7 +867,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return {
       activeMarkdownFile: () => this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null,
       lastMarkdownFile: () => this.lastMarkdownFile ?? null,
-      hasActiveConversation: () => !!this.getActiveConversation(),
+      hasActiveConversation: () => !!this.conversations().getActive(),
       sourceCaptureEnabled: () => this.settings.sourceCaptureEnabled,
       ontologyEnabled: () => this.settings.ontologyEnabled,
       desktop: !Platform.isMobile,
@@ -1837,10 +1836,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (!conversation) throw new Error("That conversation no longer exists.");
       if (actionId === "stop-chat-turn") {
         if (!conversation.activeTurn) return;
-        await this.stopActiveChatTurn(conversationId, conversation.activeTurn.id);
+        await this.conversations().stopTurn(conversationId, conversation.activeTurn.id);
         return;
       }
-      await this.setActiveConversation(conversationId);
+      await this.conversations().setActive(conversationId);
       const existingLeaf = this.chatLeafFor(conversationId);
       let view: ChatView | null;
       if (existingLeaf) {
@@ -1849,9 +1848,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       } else {
         view = await this.activateView();
       }
-      view?.loadConversation(this.getActiveConversation() ?? conversation);
+      view?.loadConversation(this.conversations().getActive() ?? conversation);
       if (actionId === "resume-chat-turn") {
-        const active = this.getActiveConversation();
+        const active = this.conversations().getActive();
         if (view && active) await view.resumeInterruptedTurn(active);
       }
       return;
@@ -1957,67 +1956,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- conversation history ----------
 
-  listConversations(): Conversation[] {
-    return this.conversations().list();
-  }
-
-  getActiveConversation(): Conversation | null {
-    return this.conversations().getActive();
-  }
-
-  async beginActiveConversationTurn(
-    conversationId: string | null,
-    messages: ChatMessage[],
-    input: { backend: string; model: string; mode: ChatTurnMode; continuationDepth?: number },
-  ): Promise<{ conversationId: string; turnId: string }> {
-    return this.conversations().beginTurn(conversationId, messages, input);
-  }
-
-  registerActiveChatTurn(conversationId: string, turnId: string, stop: () => void): () => void {
-    return this.conversations().registerTurn(conversationId, turnId, stop);
-  }
-
-  async stopActiveChatTurn(conversationId: string, turnId: string): Promise<void> {
-    return this.conversations().stopTurn(conversationId, turnId);
-  }
-
-  async saveChatEditProposal(conversationId: string, proposal: Omit<import("./conversations/store").RecoverableEditProposal, "proposedAt">): Promise<void> {
-    return this.conversations().saveEditProposal(conversationId, proposal);
-  }
-
-  async clearChatEditProposal(conversationId: string): Promise<void> {
-    return this.conversations().clearEditProposal(conversationId);
-  }
-
-  async completeActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[]): Promise<void> {
-    return this.conversations().completeTurn(conversationId, turnId, messages);
-  }
-
-  async interruptActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[], error = "Interrupted"): Promise<void> {
-    return this.conversations().interruptTurn(conversationId, turnId, messages, error);
-  }
-
-  async capActiveConversationTurn(conversationId: string, turnId: string, messages: ChatMessage[], handoff?: string): Promise<void> {
-    return this.conversations().capTurn(conversationId, turnId, messages, handoff);
-  }
-
-  activeConversationId(): string {
-    return this.conversations().activeId();
-  }
-
-  async setActiveConversation(id: string): Promise<Conversation | null> {
-    return this.conversations().setActive(id);
-  }
-
-  async startNewConversation(): Promise<void> {
-    return this.conversations().startNew();
-  }
-
-  /** Set (or clear, with `null`) the chat project a conversation is scoped to. */
-  async setChatProject(conversationId: string, projectId: string | null): Promise<void> {
-    await this.conversations().setProject(conversationId, projectId);
-  }
-
   /** Every chat project available in this vault (chat-project notes + Research Desk projects). */
   async listChatProjects(): Promise<ChatProject[]> {
     return listChatProjects(this.app, this.researchRepository());
@@ -2026,39 +1964,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** The chat project a conversation is scoped to, or null when it has none. */
   async chatProjectFor(conversationId: string | null): Promise<ChatProject | null> {
     if (!conversationId) return null;
-    const projectId = this.listConversations().find((c) => c.id === conversationId)?.projectId ?? null;
+    const projectId = this.conversations().list().find((c) => c.id === conversationId)?.projectId ?? null;
     if (!projectId) return null;
     const projects = await this.listChatProjects();
     return projects.find((p) => p.id === projectId) ?? null;
-  }
-
-  async deleteConversation(id: string): Promise<void> {
-    return this.conversations().delete(id);
-  }
-
-  async renameConversation(id: string, title: string): Promise<void> {
-    return this.conversations().rename(id, title);
-  }
-
-  async unarchiveConversation(id: string): Promise<void> {
-    return this.conversations().unarchive(id);
-  }
-
-  /** Distill a conversation into a summary note; resolves the note path or null. */
-  async distillConversation(id: string): Promise<string | null> {
-    return this.distiller().distill(id);
-  }
-
-  async archiveConversation(id: string): Promise<void> {
-    return this.sessionActions().archive(id);
-  }
-
-  async forkConversation(id: string): Promise<void> {
-    return this.sessionActions().fork(id);
-  }
-
-  async forkFromSummary(id: string): Promise<void> {
-    return this.sessionActions().forkFromSummary(id);
   }
 
   private async browseConversations(): Promise<void> {
@@ -2067,15 +1976,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   async deleteActiveConversation(): Promise<void> {
-    const active = this.getActiveConversation();
+    const active = this.conversations().getActive();
     if (!active) {
       new Notice("No active conversation to delete.");
       return;
     }
-    await this.deleteConversation(active.id);
+    await this.conversations().delete(active.id);
     const view = await this.activateView();
     if (!view) return;
-    const next = this.getActiveConversation();
+    const next = this.conversations().getActive();
     if (next) view.loadConversation(next);
     else view.resetToEmpty();
     new Notice(`Deleted “${active.title}”.`);

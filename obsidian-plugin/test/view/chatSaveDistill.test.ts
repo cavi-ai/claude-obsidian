@@ -5,15 +5,16 @@ import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { ChatView } from "../../src/view/ChatView";
 import type { CompanionChromeDependencies } from "../../src/view/companionChrome";
+import { conversationFakes } from "../fakes/conversations";
 
-function plugin(overrides: Record<string, unknown> = {}): ClaudeCompanionPlugin {
+function plugin(overrides: Record<string, unknown> = {}, fakes = conversationFakes()): ClaudeCompanionPlugin {
   const app = new App();
   (app.workspace as unknown as { getActiveViewOfType(): null; getActiveFile(): null }).getActiveViewOfType = () => null;
   (app.workspace as unknown as { getActiveFile(): null }).getActiveFile = () => null;
   const chromeDeps = { app, activity: new ActivityStore(), snapshot: () => ({}), save: vi.fn(), run: vi.fn(), openAllSettings: vi.fn(), openDesktopIntegrations: vi.fn() } as unknown as CompanionChromeDependencies;
   return {
     app,
-    settings: structuredClone(DEFAULT_SETTINGS),
+    settings: fakes.settings,
     router: () => ({
       chatBackend: "claude",
       anthropic: { hasCredentials: () => true },
@@ -26,12 +27,10 @@ function plugin(overrides: Record<string, unknown> = {}): ClaudeCompanionPlugin 
     mcpStats: () => ({ running: false, port: null, activeRequests: 0, handledRequests: 0 }),
     companionChrome: () => chromeDeps,
     promptTemplates: async () => [],
-    getActiveConversation: () => null,
-    listConversations: () => [],
+    ...fakes.host,
     secrets: () => ({ available: () => false }),
     composeSystemPrompt: () => "system",
     companionWorkspaceContext: async () => null,
-    distillConversation: vi.fn(async () => "Claude/Chats/x.md"),
     captureConversation: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as ClaudeCompanionPlugin;
@@ -53,7 +52,8 @@ async function flush(): Promise<void> {
 
 describe("distill replaces save-to-vault", () => {
   it("the header menu's Distill this chat distills the view's conversation and writes no raw dump", async () => {
-    const p = plugin();
+    const fakes = conversationFakes();
+    const p = plugin({}, fakes);
     const create = vi.spyOn(p.app.vault, "create");
     const view = await openView(p);
     (view as unknown as { openOverflowMenu(): void }).openOverflowMenu();
@@ -61,15 +61,16 @@ describe("distill replaces save-to-vault", () => {
     const button = content.querySelectorAll("button").find((b) => b.getAttribute("aria-label") === "Distill this chat")!;
     button.dispatchEvent({ type: "click" });
     await flush();
-    expect(p.distillConversation).toHaveBeenCalledWith("c1");
+    expect(fakes.distill).toHaveBeenCalledWith("c1");
     expect(create).not.toHaveBeenCalled();
   });
 
   it("/save distills the same way", async () => {
-    const p = plugin();
+    const fakes = conversationFakes();
+    const p = plugin({}, fakes);
     const view = await openView(p);
     await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "save", description: "", kind: "action", action: "save" });
-    expect(p.distillConversation).toHaveBeenCalledWith("c1");
+    expect(fakes.distill).toHaveBeenCalledWith("c1");
   });
 
   it("files into session memory after a successful distill when ingest-on-save is on", async () => {
@@ -82,7 +83,9 @@ describe("distill replaces save-to-vault", () => {
   });
 
   it("skips memory capture when the distill wrote nothing", async () => {
-    const p = plugin({ distillConversation: vi.fn(async () => null) });
+    const fakes = conversationFakes();
+    fakes.distill.mockResolvedValue(null);
+    const p = plugin({}, fakes);
     p.settings.memoryEnabled = true;
     p.settings.memoryIngestOnSave = true;
     const view = await openView(p);
@@ -92,10 +95,11 @@ describe("distill replaces save-to-vault", () => {
 
   it("a chat with no stored conversation notices and makes no call", async () => {
     clearNotices();
-    const p = plugin();
+    const fakes = conversationFakes();
+    const p = plugin({}, fakes);
     const view = await openView(p, null);
     await view.distillThisChat();
-    expect(p.distillConversation).not.toHaveBeenCalled();
+    expect(fakes.distill).not.toHaveBeenCalled();
     expect(getNoticeMessages()).toContain("Nothing to distill yet.");
   });
 });
