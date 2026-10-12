@@ -497,7 +497,7 @@ export class ChatView extends ItemView {
     const generation = ++this.claimReloadGeneration;
     const claims: ClaimAtSource[] = [];
     try {
-      const repo = this.plugin.researchRepository();
+      const repo = this.plugin.research().researchRepository();
       const projects = (await repo.listProjects()).filter((p) => p.status === "active");
       for (const project of projects) {
         const snapshot = await repo.loadProject(project.path);

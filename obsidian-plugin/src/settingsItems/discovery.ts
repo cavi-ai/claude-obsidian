@@ -6,7 +6,7 @@ import { researchModelOptions } from "../research/researchModel";
 import { setCredential } from "./actions";
 
 export interface DiscoveryItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "clearDiscoveryCache" | "router" | "saveSettings" | "settings">;
+  plugin: Pick<ClaudeCompanionPlugin, "research" | "router" | "saveSettings" | "settings">;
 }
 
 function researchModelChoices(plugin: DiscoveryItemsContext["plugin"]): Record<string, string> {
@@ -45,7 +45,7 @@ export function discoveryItems(ctx: DiscoveryItemsContext): SettingGroupItem[] {
       render: (setting) => {
         setting.addButton((button) =>
           button.setButtonText("Clear cache").onClick(() => {
-            plugin.clearDiscoveryCache();
+            plugin.research().clearDiscoveryCache();
             new Notice("Discovery cache cleared.");
           }),
         );

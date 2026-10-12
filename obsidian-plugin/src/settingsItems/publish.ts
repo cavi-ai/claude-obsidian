@@ -5,7 +5,7 @@ import type ClaudeCompanionPlugin from "../main";
 import { setCredential } from "./actions";
 
 export interface PublishItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "publishedItems" | "saveSettings" | "settings" | "testPublishToken" | "unpublishItem">;
+  plugin: Pick<ClaudeCompanionPlugin, "publishing" | "saveSettings" | "settings">;
   /** Re-render the settings page. */
   update(): void;
   storageBlurb(): string;
@@ -43,7 +43,7 @@ export function publishItems(ctx: PublishItemsContext): SettingGroupItem[] {
             status.toggleClass("is-ok", false);
             status.toggleClass("is-err", false);
             status.setText("Testing…");
-            const result = await plugin.testPublishToken();
+            const result = await plugin.publishing().testPublishToken();
             status.toggleClass("is-ok", result.ok);
             status.toggleClass("is-err", !result.ok);
             status.setText(`${result.ok ? "✓" : "✗"} ${result.message}`);
@@ -56,7 +56,7 @@ export function publishItems(ctx: PublishItemsContext): SettingGroupItem[] {
       name: "Published items",
       render: (setting) => {
         const list = setting.settingEl.createDiv({ cls: "cc-publish-list" });
-        const items = plugin.publishedItems();
+        const items = plugin.publishing().publishedItems();
         if (items.length === 0) list.createDiv({ cls: "cc-publish-empty", text: "Nothing published yet." });
         for (const item of items) {
           const row = list.createDiv({ cls: "cc-publish-row" });
@@ -65,7 +65,7 @@ export function publishItems(ctx: PublishItemsContext): SettingGroupItem[] {
           const remove = row.createEl("button", { text: "Unpublish" });
           remove.addEventListener("click", () => {
             remove.disabled = true;
-            void plugin.unpublishItem(item.key).then(() => ctx.update());
+            void plugin.publishing().unpublishItem(item.key).then(() => ctx.update());
           });
         }
       },

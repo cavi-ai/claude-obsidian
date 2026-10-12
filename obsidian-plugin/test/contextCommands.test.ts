@@ -42,7 +42,7 @@ describe("one-shot commands leave the stored context defaults alone", () => {
 
   it("generatePlanFromNote overrides the active note for the turn", async () => {
     const { plugin, view, saveSettings } = harness();
-    await plugin.generatePlanFromNote();
+    await plugin.research().generatePlanFromNote();
     expect(view.submitPrompt).toHaveBeenCalledWith(expect.any(String), "Generate an implementation plan from this note", expect.any(Number), { context: { activeNote: true } });
     expect(plugin.settings.context).toEqual(OFF);
     expect(saveSettings).not.toHaveBeenCalled();

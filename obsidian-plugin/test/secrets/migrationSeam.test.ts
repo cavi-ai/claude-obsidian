@@ -125,7 +125,7 @@ describe("loadSettings migration seam", () => {
       loadData: async () => structuredClone({ settings: { apiKey: "SENTINEL-KEY" }, conversations: [], published: [item, { key: "bad" }] }),
     });
     await plugin.loadSettings();
-    expect(plugin.publishedItems()).toEqual([item]);
+    expect(plugin.publishing().publishedItems()).toEqual([item]);
     expect((JSON.parse(onDisk()) as { published?: unknown }).published).toEqual([item]);
   });
 

@@ -30,10 +30,12 @@ function stubPlugin(): ClaudeCompanionPlugin & { settings: Record<string, unknow
     clipperSetup: () => ({ templatesStale: () => false }),
     refreshViews: () => {},
     onboarding: () => ({ loadOntologyOnStart: async () => {} }),
-    openDesktopIntegrations: () => {},
-    publishedItems: () => [],
-    unpublishItem: async () => {},
-    testPublishToken: async () => ({ ok: true, message: "" }),
+    desktopIntegrations: () => ({ open: () => {} }),
+    publishing: () => ({
+      publishedItems: () => [],
+      unpublishItem: async () => {},
+      testPublishToken: async () => ({ ok: true, message: "" }),
+    }),
   };
   return plugin as unknown as ClaudeCompanionPlugin & { settings: Record<string, unknown> };
 }

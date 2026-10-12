@@ -6,13 +6,13 @@ import type ClaudeCompanionPlugin from "../main";
 
 export type CommandActionsHost = Pick<
   ClaudeCompanionPlugin,
-  | "activateInboxView" | "activateMemoryView" | "activateRelatedView" | "activateResearchDesk" | "activateSystem" | "activateView"
-  | "app" | "browseConversations" | "conversations" | "createPromptTemplate" | "createStandingOrder" | "deleteActiveConversation"
-  | "dispatchCloudSession" | "enableVaultSearch" | "enrichment" | "enrichNoteFlow" | "generateArtifactFromContext"
-  | "generatePlanFromNote" | "handoffToBuild" | "lastMarkdownFile" | "markNoteAsPlan" | "memory"
-  | "onboarding" | "clipperSetup" | "openNewChatTab" | "openWorkflowPicker" | "optimize" | "organizeClippings" | "pickStandingOrder" | "published"
-  | "publish" | "pullCloudReplies" | "reviewLinkSuggestions" | "semantic" | "settings" | "startInlineEdit"
-  | "startResearchFromActiveNote" | "suggestFrontmatterForActiveNote" | "triageClippingsWithPicker"
+  | "activateInboxView" | "activateMemoryView" | "activateRelatedView" | "activateSystem" | "activateView"
+  | "app" | "browseConversations" | "conversations" | "createPromptTemplate" | "deleteActiveConversation"
+  | "enableVaultSearch" | "enrichment" | "enrichNoteFlow" | "generateArtifactFromContext"
+  | "lastMarkdownFile" | "memory"
+  | "onboarding" | "clipperSetup" | "openNewChatTab" | "openWorkflowPicker" | "optimize" | "orders" | "organizeClippings"
+  | "publish" | "publishing" | "research" | "reviewLinkSuggestions" | "semantic" | "settings" | "startInlineEdit"
+  | "suggestFrontmatterForActiveNote" | "triageClippingsWithPicker"
 >;
 
 export function buildCommandActions(host: CommandActionsHost): CommandActions {
@@ -27,30 +27,30 @@ export function buildCommandActions(host: CommandActionsHost): CommandActions {
     openChat: () => void host.activateView(),
     newChat: () => void host.activateView().then((view) => view?.clearChat()),
     newChatTab: () => void host.openNewChatTab(),
-    generatePlanFromNote: () => host.generatePlanFromNote(),
+    generatePlanFromNote: () => host.research().generatePlanFromNote(),
     generateArtifactFromContext: () => host.generateArtifactFromContext(),
     editWithClaude: (editor, view) => void host.startInlineEdit(editor, view),
     enrichNote: (file) => void host.enrichNoteFlow(file),
     enableVaultSearch: () => void host.enableVaultSearch(),
     rebuildSemanticIndex: () => void host.semantic().rebuildSemanticIndex(),
     openRelatedNotes: () => void host.activateRelatedView(),
-    openResearchDesk: () => host.activateResearchDesk(),
+    openResearchDesk: () => host.research().activateResearchDesk(),
     triageClippings: () => void host.triageClippingsWithPicker(),
-    startResearchFromActiveNote: () => void host.startResearchFromActiveNote(),
+    startResearchFromActiveNote: () => void host.research().startResearchFromActiveNote(),
     showSemanticIndexStatus: () => void host.semantic().showSemanticIndexStatus(),
     browseConversations: () => void host.browseConversations(),
     deleteActiveConversation: () => host.deleteActiveConversation(),
-    handoffToBuild: () => host.handoffToBuild(),
-    markNoteAsPlan: (file) => void host.markNoteAsPlan(file),
+    handoffToBuild: () => host.research().handoffToBuild(),
+    markNoteAsPlan: (file) => void host.research().markNoteAsPlan(file),
     organizeClippings: () => void host.organizeClippings(),
-    dispatchCloudSession: () => void host.dispatchCloudSession(),
-    pullCloudReplies: () => void host.pullCloudReplies(),
+    dispatchCloudSession: () => void host.publishing().dispatchCloudSession(),
+    pullCloudReplies: () => void host.publishing().pullCloudReplies(),
     reviewLinkSuggestions: () => void host.reviewLinkSuggestions(),
     openWorkflowPicker: () => host.openWorkflowPicker(),
     suggestFrontmatterForActiveNote: () => host.suggestFrontmatterForActiveNote(),
     createPromptTemplate: () => void host.createPromptTemplate(),
-    createStandingOrder: () => void host.createStandingOrder(),
-    runStandingOrder: () => host.pickStandingOrder(),
+    createStandingOrder: () => void host.orders().createStandingOrder(),
+    runStandingOrder: () => host.orders().pickStandingOrder(),
     openSessionPicker: () => host.memory().openSessionPicker(),
     openMemoryView: () => void host.activateMemoryView(),
     consolidateMemory: () => void host.memory().consolidateMemory(),
@@ -66,6 +66,6 @@ export function buildCommandActions(host: CommandActionsHost): CommandActions {
     publishNote: (file) => void host.publish().publishNote(file.path),
     copyPublishedLink: (file) => void host.publish().copyLink(file.path),
     unpublishNote: (file) => void host.publish().unpublish(file.path),
-    isPublished: (file) => host.published.some((item) => item.key === file.path),
+    isPublished: (file) => host.publishing().publishedItems().some((item) => item.key === file.path),
   };
 }

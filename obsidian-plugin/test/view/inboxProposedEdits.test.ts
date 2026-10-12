@@ -24,9 +24,7 @@ function harness(queue: QueuedEdit[]) {
     utilityRouting: () => ({ backendLabel: () => "Claude" }),
     linkCandidates: () => [],
     clipperSetup: () => ({ setupNeeded: () => false }),
-    listQueuedEdits: () => queue,
-    reviewQueuedEdit,
-    discardQueuedEdit,
+    orders: () => ({ listQueuedEdits: () => queue, reviewQueuedEdit, discardQueuedEdit }),
   });
   return { app, view: new InboxView(new WorkspaceLeaf(app), plugin), reviewQueuedEdit, discardQueuedEdit };
 }

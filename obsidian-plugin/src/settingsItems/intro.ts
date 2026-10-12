@@ -12,7 +12,7 @@ import type { CliBackend } from "../cli/backends/types";
 import { capitalize } from "./codecs";
 
 export interface IntroItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "openDesktopIntegrations" | "router" | "secrets" | "settings">;
+  plugin: Pick<ClaudeCompanionPlugin, "desktopIntegrations" | "router" | "secrets" | "settings">;
   secretStorageWorking(): boolean;
   storageBlurb(): string;
 }
@@ -82,7 +82,7 @@ export function introItems(ctx: IntroItemsContext): SettingGroupItem[] {
       desc: "Install the CAVI marketplace plugin and merge the Claude Desktop config.",
       aliases: ["marketplace", "claude desktop", "obsidian-agent"],
       render: (setting) => {
-        setting.addButton((btn) => btn.setButtonText("Set up").onClick(() => plugin.openDesktopIntegrations()));
+        setting.addButton((btn) => btn.setButtonText("Set up").onClick(() => plugin.desktopIntegrations().open()));
       },
     },
   ];

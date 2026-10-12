@@ -14,20 +14,18 @@ describe("standing order persistence", () => {
       app: new App(),
       settings: structuredClone(DEFAULT_SETTINGS),
       convState: { conversations: [], activeId: null },
-      ordersState: state,
-      orderEditQueue: queue,
       saveData: async (data: unknown) => { saved = structuredClone(data); },
       loadData: async () => saved,
     });
-    const seam = plugin as unknown as { persist(): Promise<void>; loadSettings(): Promise<void>; ordersState: unknown; orderEditQueue: unknown };
+    const seam = plugin as unknown as { persist(): Promise<void>; loadSettings(): Promise<void> };
+    plugin.orders().restore(state, queue);
 
     await seam.persist();
     expect(saved).toMatchObject({ standingOrders: state, orderEditQueue: queue });
 
-    seam.ordersState = {};
-    seam.orderEditQueue = [];
+    plugin.orders().restore({}, []);
     await seam.loadSettings();
-    expect(seam.ordersState).toEqual(state);
-    expect(seam.orderEditQueue).toEqual(queue);
+    expect(plugin.orders().state()).toEqual(state);
+    expect(plugin.orders().listQueuedEdits()).toEqual(queue);
   });
 });

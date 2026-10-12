@@ -22,7 +22,7 @@ describe("research view activation fallback", () => {
   it("creates and reveals a new leaf for Research Desk when no right leaf exists", async () => {
     const { plugin, workspace, fallbackLeaf } = pluginWithNoRightLeaf();
 
-    await plugin.activateResearchDesk();
+    await plugin.research().activateResearchDesk();
 
     expect(workspace.getRightLeaf).toHaveBeenCalledWith(false);
     expect(workspace.getLeaf).toHaveBeenCalledWith(true);

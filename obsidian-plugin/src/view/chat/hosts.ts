@@ -19,7 +19,7 @@ export type ChatSessions = Pick<SessionActions, "archive" | "distill" | "fork" |
 
 export type ComposerHost = Pick<ClaudeCompanionPlugin, "captureWebPage" | "router" | "saveSettings" | "settings">;
 
-export type TranscriptHost = Pick<ClaudeCompanionPlugin, "activateRelatedView" | "activateResearchDesk" | "companionWorkspaceContext" | "handoffToBuild" | "router" | "settings">;
+export type TranscriptHost = Pick<ClaudeCompanionPlugin, "activateRelatedView" | "companionWorkspaceContext" | "research" | "router" | "settings">;
 
 export type SetupCardHost = Pick<ClaudeCompanionPlugin, "onboarding" | "router" | "saveSettings" | "secrets" | "settings">;
 
@@ -32,11 +32,11 @@ export type ChatViewHost = ComposerHost & TranscriptHost & SetupCardHost & Omit<
   ClaudeCompanionPlugin,
   | "agentTools" | "callExternalMcp" | "captureConversation" | "chatProjectFor" | "cliTurnRunner" | "composeSystemPrompt"
   | "externalMcpTools" | "interruptCliTurn" | "listChatProjects" | "loadedOntology" | "promptTemplates"
-  | "researchRepository" | "router" | "runWorkflow" | "saveSettings" | "settings" | "turnService"
+  | "research" | "router" | "runWorkflow" | "saveSettings" | "settings" | "turnService"
 >;
 
 export type HeaderHost = { conversations: () => HeaderConversations; sessionActions: () => ChatSessions } & Pick<
   ClaudeCompanionPlugin,
-  | "activateInboxView" | "activateRelatedView" | "activateResearchDesk" | "companionChrome" | "composeSystemPrompt" | "deleteActiveConversation"
-  | "dispatchCloudSession" | "mcpStats" | "openNewChatTab" | "openSessionPicker" | "pullCloudReplies" | "router" | "saveSettings" | "setMcpEnabled" | "settings"
+  | "activateInboxView" | "activateRelatedView" | "companionChrome" | "composeSystemPrompt" | "deleteActiveConversation"
+  | "mcpStats" | "openNewChatTab" | "openSessionPicker" | "publishing" | "research" | "router" | "saveSettings" | "setMcpEnabled" | "settings"
 >;

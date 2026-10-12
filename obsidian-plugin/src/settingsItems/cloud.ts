@@ -7,7 +7,7 @@ import { setCredential } from "./actions";
 import { PAGE_DESC } from "./pageDesc";
 
 export interface CloudItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "saveSettings" | "settings" | "testCloudReplies">;
+  plugin: Pick<ClaudeCompanionPlugin, "publishing" | "saveSettings" | "settings">;
   /** Re-render the settings page. */
   update(): void;
   storageBlurb(): string;
@@ -115,7 +115,7 @@ export function repliesItems(ctx: CloudItemsContext): SettingGroupItem[] {
             status.toggleClass("is-ok", false);
             status.toggleClass("is-err", false);
             status.setText("Testing…");
-            const result = await plugin.testCloudReplies();
+            const result = await plugin.publishing().testCloudReplies();
             status.toggleClass("is-ok", result.ok);
             status.toggleClass("is-err", !result.ok);
             status.setText(`${result.ok ? "✓" : "✗"} ${result.message}`);

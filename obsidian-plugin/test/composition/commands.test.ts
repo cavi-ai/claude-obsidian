@@ -21,6 +21,12 @@ function rig(): Rig {
   const enrichment = group("enrichment", ["runEnrich"]);
   const optimize = group("optimize", ["reviewTagMerges", "reviewOrphanLinks", "reviewUntypedNotes"]);
   const publish = group("publish", ["publishNote", "copyLink", "unpublish"]);
+  const research = group("research", ["generatePlanFromNote", "activateResearchDesk", "startResearchFromActiveNote", "handoffToBuild", "markNoteAsPlan"]);
+  const publishing = {
+    ...group("publishing", ["dispatchCloudSession", "pullCloudReplies"]),
+    publishedItems: fn("publishing.publishedItems", () => [{ key: "notes/a.md" }]),
+  };
+  const orders = group("orders", ["createStandingOrder", "pickStandingOrder"]);
   const clipperSetup = group("clipperSetup", ["exportTemplates"]);
   const onboarding = group("onboarding", ["seedOntology", "openSetupWizard"]);
   const clearChat = fn("view.clearChat");
@@ -28,7 +34,9 @@ function rig(): Rig {
     app: { workspace: { getActiveViewOfType: fn("workspace.getActiveViewOfType", () => ({ file })) } },
     settings: { sourceCaptureEnabled: true, ontologyEnabled: true },
     lastMarkdownFile: file,
-    published: [{ key: "notes/a.md" }],
+    research: () => research,
+    publishing: () => publishing,
+    orders: () => orders,
     conversations: () => ({ getActive: fn("conversations.getActive", () => ({ id: "c" })) }),
     activateView: fn("activateView", async () => ({ clearChat })),
     semantic: () => semantic,
@@ -39,11 +47,11 @@ function rig(): Rig {
     clipperSetup: () => clipperSetup,
     onboarding: () => onboarding,
     ...flat([
-      "openNewChatTab", "generatePlanFromNote", "generateArtifactFromContext", "startInlineEdit", "enrichNoteFlow",
-      "enableVaultSearch", "activateRelatedView", "activateResearchDesk", "triageClippingsWithPicker",
-      "startResearchFromActiveNote", "browseConversations", "deleteActiveConversation", "handoffToBuild", "markNoteAsPlan",
-      "organizeClippings", "dispatchCloudSession", "pullCloudReplies", "reviewLinkSuggestions", "openWorkflowPicker",
-      "suggestFrontmatterForActiveNote", "createPromptTemplate", "createStandingOrder", "pickStandingOrder",
+      "openNewChatTab", "generateArtifactFromContext", "startInlineEdit", "enrichNoteFlow",
+      "enableVaultSearch", "activateRelatedView", "triageClippingsWithPicker",
+      "browseConversations", "deleteActiveConversation",
+      "organizeClippings", "reviewLinkSuggestions", "openWorkflowPicker",
+      "suggestFrontmatterForActiveNote", "createPromptTemplate",
       "activateMemoryView", "activateInboxView", "activateSystem",
     ]),
   } as unknown as CommandActionsHost;
@@ -58,30 +66,30 @@ const ROWS: Row[] = [
   ["openChat", [], [["activateView", []]]],
   ["newChat", [], [["activateView", []], ["view.clearChat", []]]],
   ["newChatTab", [], [["openNewChatTab", []]]],
-  ["generatePlanFromNote", [], [["generatePlanFromNote", []]]],
+  ["generatePlanFromNote", [], [["research.generatePlanFromNote", []]]],
   ["generateArtifactFromContext", [], [["generateArtifactFromContext", []]]],
   ["editWithClaude", [editor, view], [["startInlineEdit", [editor, view]]]],
   ["enrichNote", [file], [["enrichNoteFlow", [file]]]],
   ["enableVaultSearch", [], [["enableVaultSearch", []]]],
   ["rebuildSemanticIndex", [], [["semantic.rebuildSemanticIndex", []]]],
   ["openRelatedNotes", [], [["activateRelatedView", []]]],
-  ["openResearchDesk", [], [["activateResearchDesk", []]]],
+  ["openResearchDesk", [], [["research.activateResearchDesk", []]]],
   ["triageClippings", [], [["triageClippingsWithPicker", []]]],
-  ["startResearchFromActiveNote", [], [["startResearchFromActiveNote", []]]],
+  ["startResearchFromActiveNote", [], [["research.startResearchFromActiveNote", []]]],
   ["showSemanticIndexStatus", [], [["semantic.showSemanticIndexStatus", []]]],
   ["browseConversations", [], [["browseConversations", []]]],
   ["deleteActiveConversation", [], [["deleteActiveConversation", []]]],
-  ["handoffToBuild", [], [["handoffToBuild", []]]],
-  ["markNoteAsPlan", [file], [["markNoteAsPlan", [file]]]],
+  ["handoffToBuild", [], [["research.handoffToBuild", []]]],
+  ["markNoteAsPlan", [file], [["research.markNoteAsPlan", [file]]]],
   ["organizeClippings", [], [["organizeClippings", []]]],
-  ["dispatchCloudSession", [], [["dispatchCloudSession", []]]],
-  ["pullCloudReplies", [], [["pullCloudReplies", []]]],
+  ["dispatchCloudSession", [], [["publishing.dispatchCloudSession", []]]],
+  ["pullCloudReplies", [], [["publishing.pullCloudReplies", []]]],
   ["reviewLinkSuggestions", [], [["reviewLinkSuggestions", []]]],
   ["openWorkflowPicker", [], [["openWorkflowPicker", []]]],
   ["suggestFrontmatterForActiveNote", [], [["suggestFrontmatterForActiveNote", []]]],
   ["createPromptTemplate", [], [["createPromptTemplate", []]]],
-  ["createStandingOrder", [], [["createStandingOrder", []]]],
-  ["runStandingOrder", [], [["pickStandingOrder", []]]],
+  ["createStandingOrder", [], [["orders.createStandingOrder", []]]],
+  ["runStandingOrder", [], [["orders.pickStandingOrder", []]]],
   ["openSessionPicker", [], [["memory.openSessionPicker", []]]],
   ["openMemoryView", [], [["activateMemoryView", []]]],
   ["consolidateMemory", [], [["memory.consolidateMemory", []]]],
@@ -136,12 +144,12 @@ describe("buildCommandActions", () => {
     expect(actions.desktop).toBe(!Platform.isMobile);
     expect(actions.isPublished(file)).toBe(true);
     expect(actions.isPublished(new TFile("other.md", "", 0))).toBe(false);
-    expect(host.published).toHaveLength(1);
+    expect(host.publishing().publishedItems()).toHaveLength(1);
   });
 
   it("returns the promise from flows the command layer awaits", async () => {
     const { actions, mocks } = rig();
-    mocks["handoffToBuild"]!.mockResolvedValue("done");
+    mocks["research.handoffToBuild"]!.mockResolvedValue("done");
     await expect(actions.handoffToBuild()).resolves.toBe("done");
   });
 });
