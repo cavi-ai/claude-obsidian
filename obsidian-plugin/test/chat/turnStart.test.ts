@@ -36,8 +36,8 @@ describe("preflightTurn", () => {
     expect(result.ok && result.provider.id).toBe("claude-cli");
   });
 
-  it("blocks with the not-signed-in notice when refresh does not flip, refreshing once", async () => {
-    const { deps, refresh } = cliGate({ signedIn: false, refreshSignsIn: false });
+  it.each(["claude-cli", "codex-cli", "opencode-cli"])("blocks a %s send with the not-signed-in notice when refresh does not flip, refreshing once", async (backend) => {
+    const { deps, refresh } = cliGate({ backend, signedIn: false, refreshSignsIn: false });
     const result = await preflightTurn(deps);
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: false, notice: "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings." });
