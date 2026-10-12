@@ -74,15 +74,22 @@ describe("distill replaces save-to-vault", () => {
     expect(fakes.distill).toHaveBeenCalledWith("c1");
   });
 
-  it("a plugin-level slash command runs through the command actions and clears the composer", async () => {
-    const generatePlanFromNote = vi.fn(async () => undefined);
-    const p = plugin({ commandActions: () => ({ generatePlanFromNote }) });
+  it("a plugin-level slash command clears the composer before running the command action and starts no turn", async () => {
+    const fakes = conversationFakes();
+    const turns = fakes.stubTurns();
+    let composerAtCall: string | undefined;
+    const composer: { input?: { value: string } } = {};
+    const generatePlanFromNote = vi.fn(async () => { composerAtCall = composer.input?.value; });
+    const p = plugin({ commandActions: () => ({ generatePlanFromNote }) }, fakes);
     const view = await openView(p);
     const input = (view as unknown as { inputEl: { value: string } }).inputEl;
+    composer.input = input;
     input.value = "/plan";
     await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "plan", description: "", kind: "action", action: "generatePlanFromNote" });
     expect(generatePlanFromNote).toHaveBeenCalledOnce();
+    expect(composerAtCall).toBe("");
     expect(input.value).toBe("");
+    expect(turns.begin).not.toHaveBeenCalled();
   });
 
   it("an unknown action id notices and runs nothing", async () => {

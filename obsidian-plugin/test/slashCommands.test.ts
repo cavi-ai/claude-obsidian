@@ -1,18 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildSlashCatalog, dispatchSlashAction, parseSlashQuery, filterCommands, moveSelection, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX, skillSlashCommands, SKILL_ACTION_PREFIX, type PluginSlashAction, type SlashActionDeps, type ViewSlashAction } from "../src/view/slashCommands";
+import { buildSlashCatalog, dispatchSlashAction, parseSlashQuery, filterCommands, moveSelection, PLUGIN_SLASH_ACTIONS, REGISTERED_ACTION_COMMANDS, SLASH_COMMANDS, workflowSlashCommands, WORKFLOW_ACTION_PREFIX, skillSlashCommands, SKILL_ACTION_PREFIX, type PluginSlashAction, type SlashActionDeps, type ViewSlashAction } from "../src/view/slashCommands";
 import { WORKFLOWS } from "../src/workflows/catalog";
 import { SKILLS } from "../src/workflows/skillRegistry.generated";
-
-const PLUGIN_ACTIONS: PluginSlashAction[] = [
-  "openWorkflowPicker",
-  "openSessionPicker",
-  "deleteActiveConversation",
-  "generateArtifactFromContext",
-  "generatePlanFromNote",
-  "handoffToBuild",
-  "openResearchDesk",
-  "suggestFrontmatterForActiveNote",
-];
 
 const VIEW_ACTIONS: Array<[ViewSlashAction, keyof SlashActionDeps["view"]]> = [
   ["new-chat", "newChat"],
@@ -22,9 +11,10 @@ const VIEW_ACTIONS: Array<[ViewSlashAction, keyof SlashActionDeps["view"]]> = [
 ];
 
 function slashDeps() {
-  const actions = Object.fromEntries(PLUGIN_ACTIONS.map((name) => [name, vi.fn()])) as Record<PluginSlashAction, ReturnType<typeof vi.fn>>;
+  const actions = Object.fromEntries(PLUGIN_SLASH_ACTIONS.map((name) => [name, vi.fn()])) as Record<PluginSlashAction, ReturnType<typeof vi.fn>>;
   const view = { newChat: vi.fn(), openHistory: vi.fn(), save: vi.fn(async () => undefined), askVault: vi.fn() };
-  return { actions, view, deps: { actions, view } as unknown as SlashActionDeps };
+  const deps: SlashActionDeps = { actions, view };
+  return { actions, view, deps };
 }
 
 describe("dispatchSlashAction", () => {
@@ -43,22 +33,36 @@ describe("dispatchSlashAction", () => {
     for (const fn of Object.values(view)) expect(fn).not.toHaveBeenCalled();
   });
 
-  it.each(PLUGIN_ACTIONS)("runs only %s for its plugin id", async (id) => {
+  it.each(PLUGIN_SLASH_ACTIONS)("runs only %s for its plugin id", async (id) => {
     const { actions, view, deps } = slashDeps();
     expect(await dispatchSlashAction(id, deps)).toBe("handled");
-    for (const name of PLUGIN_ACTIONS) expect(actions[name]).toHaveBeenCalledTimes(name === id ? 1 : 0);
+    for (const name of PLUGIN_SLASH_ACTIONS) expect(actions[name]).toHaveBeenCalledTimes(name === id ? 1 : 0);
     for (const fn of Object.values(view)) expect(fn).not.toHaveBeenCalled();
   });
 
   it("awaits a plugin action that returns a promise", async () => {
     const { actions, deps } = slashDeps();
-    let finished = false;
-    actions.generatePlanFromNote.mockImplementation(async () => {
-      await Promise.resolve();
-      finished = true;
-    });
-    await dispatchSlashAction("generatePlanFromNote", deps);
-    expect(finished).toBe(true);
+    let resolve!: () => void;
+    const pending = new Promise<void>((r) => { resolve = r; });
+    actions.generatePlanFromNote = vi.fn(() => pending);
+    const result = dispatchSlashAction("generatePlanFromNote", deps);
+    let settled = false;
+    void result.then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(false);
+    resolve();
+    await result;
+    expect(settled).toBe(true);
+  });
+
+  it("dispatches every catalog action that is neither a workflow nor a skill", async () => {
+    const ids = SLASH_COMMANDS.flatMap(({ kind, action }) =>
+      kind === "action" && action !== undefined && !action.startsWith(WORKFLOW_ACTION_PREFIX) && !action.startsWith(SKILL_ACTION_PREFIX) ? [action] : []);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      const { deps } = slashDeps();
+      expect(await dispatchSlashAction(id, deps), id).toBe("handled");
+    }
   });
 
   it.each(VIEW_ACTIONS)("runs the view callback for %s", async (id, callback) => {

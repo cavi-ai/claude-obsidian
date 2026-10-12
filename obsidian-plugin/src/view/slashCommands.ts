@@ -1,6 +1,6 @@
 // Pure (Obsidian-free) slash-command registry + filtering. The ChatView owns the
-// menu UI and the actual command handlers; this owns the catalog and the
-// query→matches logic so it can be unit-tested.
+// menu UI; this owns the catalog, the query→matches logic, and the action
+// dispatch so they can be unit-tested.
 
 import type { CommandActions } from "../commands/definitions";
 import type { Workflow } from "../workflows/catalog";
@@ -8,11 +8,13 @@ import type { SkillEntry } from "../workflows/skillRegistry.generated";
 import type { PromptTemplate } from "../templates/promptTemplates";
 
 /** Slash actions that run the command-palette action of the same name. */
-export type PluginSlashAction = Extract<
-  keyof CommandActions,
-  | "openWorkflowPicker" | "openSessionPicker" | "deleteActiveConversation" | "generateArtifactFromContext"
-  | "generatePlanFromNote" | "handoffToBuild" | "openResearchDesk" | "suggestFrontmatterForActiveNote"
->;
+export const PLUGIN_SLASH_ACTIONS = [
+  "openWorkflowPicker", "openSessionPicker", "deleteActiveConversation", "generateArtifactFromContext",
+  "generatePlanFromNote", "handoffToBuild", "openResearchDesk", "suggestFrontmatterForActiveNote",
+] as const satisfies readonly (keyof CommandActions)[];
+export type PluginSlashAction = (typeof PLUGIN_SLASH_ACTIONS)[number];
+
+const PLUGIN_SLASH_ACTION_IDS: ReadonlySet<string> = new Set<string>(PLUGIN_SLASH_ACTIONS);
 
 /** Slash actions that only the chat view can run. */
 export type ViewSlashAction = "new-chat" | "history" | "save" | "ask-vault";
@@ -104,21 +106,10 @@ export interface SlashActionDeps {
   view: { newChat(): void; openHistory(): void; save(): Promise<void>; askVault(): void };
 }
 
-const PLUGIN_SLASH_ACTIONS: ReadonlySet<string> = new Set<PluginSlashAction>([
-  "openWorkflowPicker",
-  "openSessionPicker",
-  "deleteActiveConversation",
-  "generateArtifactFromContext",
-  "generatePlanFromNote",
-  "handoffToBuild",
-  "openResearchDesk",
-  "suggestFrontmatterForActiveNote",
-]);
-
 /** Runs a bare slash action id; "unknown" for an id neither the plugin nor the view owns. */
 export async function dispatchSlashAction(action: string | undefined, deps: SlashActionDeps): Promise<"handled" | "unknown"> {
   if (action === undefined) return "unknown";
-  if (PLUGIN_SLASH_ACTIONS.has(action)) {
+  if (PLUGIN_SLASH_ACTION_IDS.has(action)) {
     await deps.actions[action as PluginSlashAction]();
     return "handled";
   }
