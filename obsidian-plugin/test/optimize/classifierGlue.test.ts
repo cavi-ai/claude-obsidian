@@ -115,7 +115,7 @@ describe("createClassifier", () => {
   });
 
   it("an unloaded plugin names the model check, not the tag check", async () => {
-    const message = readFileSync(fileURLToPath(new URL("../../src/main.ts", import.meta.url)), "utf8");
+    const message = readFileSync(fileURLToPath(new URL("../../src/composition/runtime.ts", import.meta.url)), "utf8");
     expect(message).toContain("while the model check was running");
     expect(message).not.toContain("while the tag check was running");
   });
