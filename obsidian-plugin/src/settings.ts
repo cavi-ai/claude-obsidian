@@ -292,8 +292,8 @@ function applyTiers(items: SettingDefinitionItem[], showAdvanced: () => boolean,
 /** The plugin capabilities the settings tab and its page builders use; Obsidian's base class needs the Plugin itself. */
 export type SettingsHost = Plugin & SemanticItemsContext["plugin"] & LocalModelsItemsContext["plugin"] & Pick<
   ClaudeCompanionPlugin,
-  | "clearDiscoveryCache" | "clipperTemplatesStale" | "deviceChat" | "exportClipperTemplates" | "externalMcp" | "invalidateIndexer" | "loadOntologyOnStart"
-  | "mcpRunning" | "offerOntologySeed" | "ontology" | "openDesktopIntegrations" | "publishedItems" | "rebuildSemanticIndex" | "refreshViews" | "router"
+  | "clearDiscoveryCache" | "clipperTemplatesStale" | "deviceChat" | "exportClipperTemplates" | "externalMcp" | "loadOntologyOnStart"
+  | "mcpRunning" | "offerOntologySeed" | "ontology" | "openDesktopIntegrations" | "publishedItems" | "refreshViews" | "router"
   | "runFirstRunPrompts" | "saveSettings" | "secrets" | "secretsWriteFailures" | "settings" | "testCloudReplies" | "testPublishToken" | "unpublishItem"
 >;
 
@@ -354,10 +354,10 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         this.plugin.refreshViews();
         return;
       case "semanticIndexPdfs":
-        this.plugin.invalidateIndexer();
+        this.plugin.semantic().invalidateIndexer();
         return;
       case "openaiCompatEmbeddingModel":
-        this.plugin.invalidateIndexer();
+        this.plugin.semantic().invalidateIndexer();
         return;
       case "ontologyFolder":
         await this.plugin.ontology()?.load();
@@ -1376,7 +1376,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       ],
       fallback: "later",
       onChoice: (c) => {
-        if (c === "rebuild") void this.plugin.rebuildSemanticIndex();
+        if (c === "rebuild") void this.plugin.semantic().rebuildSemanticIndex();
       },
     }).open();
   }

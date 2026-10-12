@@ -165,7 +165,7 @@ describe("ChatView per-leaf conversation state", () => {
         claudeCli: { hasCredentials: () => false, available: () => false },
         localFallback: async () => null,
       }),
-      semanticSearch: async () => [],
+      semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: async () => null,
       turnService: () => new ChatTurnService(),
       chatProjectFor: async () => project,

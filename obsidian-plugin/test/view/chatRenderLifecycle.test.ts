@@ -73,7 +73,7 @@ describe("Chat render lifecycle", () => {
       }),
       ...fakes.host,
       composeSystemPrompt: () => "system",
-      semanticSearch: async () => [],
+      semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
       turnService: () => new ChatTurnService(),
     } as unknown as ClaudeCompanionPlugin;
@@ -135,7 +135,7 @@ describe("Chat render lifecycle", () => {
       }),
       ...fakes.host,
       composeSystemPrompt: () => "system",
-      semanticSearch: async () => [],
+      semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
       turnService: () => new ChatTurnService(),
     } as unknown as ClaudeCompanionPlugin;
@@ -197,7 +197,7 @@ describe("Chat render lifecycle", () => {
       }),
       ...fakes.host,
       composeSystemPrompt: () => "system",
-      semanticSearch: async () => [],
+      semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
       turnService: () => turnService,
     } as unknown as ClaudeCompanionPlugin;
@@ -427,7 +427,7 @@ describe("Chat render lifecycle", () => {
         localFallback: async () => ({ provider: endpointProvider, model: "local-model" }),
       }),
       composeSystemPrompt: () => "system",
-      semanticSearch: async () => [],
+      semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
       ...fakes.host,
       turnService: () => new ChatTurnService(),

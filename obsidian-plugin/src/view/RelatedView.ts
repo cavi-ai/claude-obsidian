@@ -3,6 +3,7 @@ import type ClaudeCompanionPlugin from "../main";
 import { findUnlinkedMentions, linkMention, type Mention } from "../links/unlinkedMentions";
 import { buildSuggestions } from "../links/suggest";
 import { neighborhood } from "../links/neighborhood";
+import type { SemanticController } from "../semantic/controller";
 import { renderCompanionChrome } from "./companionChrome";
 
 export const RELATED_VIEW_TYPE = "claude-related-view";
@@ -20,7 +21,9 @@ export class RelatedView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private plugin: Pick<ClaudeCompanionPlugin, "activity" | "companionChrome" | "embeddingRecovery" | "linkCandidates" | "linkedTargets" | "ontology" | "relatedNotes" | "reviewLinkSuggestions" | "runActivityRecovery" | "settings">,
+    private plugin: Pick<ClaudeCompanionPlugin, "activity" | "companionChrome" | "linkCandidates" | "linkedTargets" | "ontology" | "reviewLinkSuggestions" | "runActivityRecovery" | "settings"> & {
+      semantic: () => Pick<SemanticController, "embeddingRecovery" | "relatedNotes">;
+    },
   ) {
     super(leaf);
   }
@@ -102,11 +105,11 @@ export class RelatedView extends ItemView {
 
     let hits: { path: string; score: number }[];
     try {
-      hits = await this.plugin.relatedNotes(file.path, 8);
+      hits = await this.plugin.semantic().relatedNotes(file.path, 8);
     } catch (error) {
       if (seq === this.renderSeq) {
         loading.remove();
-        const recovery = this.plugin.embeddingRecovery(error);
+        const recovery = this.plugin.semantic().embeddingRecovery(error);
         const activityId = this.plugin.activity.start({
           id: `semantic-related:${file.path}`,
           kind: "semantic-index",

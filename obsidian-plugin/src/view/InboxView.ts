@@ -8,6 +8,7 @@ import { createInboxRefreshController, type InboxRefreshController } from "./inb
 import { renderCompanionChrome } from "./companionChrome";
 import { relativeTime } from "../conversations/store";
 import type { QueuedEdit } from "../orders/editQueue";
+import type { SemanticController } from "../semantic/controller";
 
 export const INBOX_VIEW_TYPE = "claude-inbox-view";
 const INBOX_REFRESH_DEBOUNCE_MS = 100;
@@ -22,11 +23,11 @@ interface InboxFeedback {
 type InboxEnrichOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxItem"]>>;
 
 /** The plugin capabilities the Inbox uses. */
-export type InboxHost = Pick<
+export type InboxHost = { semantic: () => Pick<SemanticController, "suspendReindex"> } & Pick<
   ClaudeCompanionPlugin,
   | "activity" | "clipperSetupNeeded" | "companionChrome" | "discardQueuedEdit" | "enrichDiagnostics" | "enrichInboxItem" | "linkCandidates"
   | "listQueuedEdits" | "openClipperSetup" | "organizeClippings" | "reviewInboxLinkSuggestions" | "reviewLinkSuggestions" | "reviewQueuedEdit"
-  | "settings" | "sourceEnrichmentBackendLabel" | "suspendReindex" | "triageClippingsWithPicker"
+  | "settings" | "sourceEnrichmentBackendLabel" | "triageClippingsWithPicker"
 >;
 
 function safeActivityDetail(value: string): string {
@@ -493,7 +494,7 @@ export class InboxView extends ItemView {
   private async enrichAll(items: InboxItem[]): Promise<void> {
     if (this.batchOperation !== null) return;
     this.batchOperation = "enrich";
-    const releaseReindex = this.plugin.suspendReindex();
+    const releaseReindex = this.plugin.semantic().suspendReindex();
     this.setOperationFeedback("running", `Enriching ${items.length} note${items.length === 1 ? "" : "s"}…`);
     const activityId = this.plugin.activity.start({
       id: "source-enrichment:inbox-batch",

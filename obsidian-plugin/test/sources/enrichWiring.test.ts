@@ -119,7 +119,6 @@ async function saveHarnessSettings(plugin: ClaudeCompanionPlugin): Promise<void>
     persist: async () => undefined,
     refreshViews: () => undefined,
     syncMcpServer: async () => undefined,
-    invalidateIndexer: () => undefined,
   });
   await plugin.saveSettings();
 }

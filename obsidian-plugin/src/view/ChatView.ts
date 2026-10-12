@@ -929,7 +929,7 @@ export class ChatView extends ItemView {
       this.plugin.settings,
       toggles,
       userText,
-      (q, k) => this.plugin.semanticSearch(q, k, searchScope),
+      (q, k) => this.plugin.semantic().semanticSearch(q, k, searchScope),
       [...this.attachedPaths, ...pinnedPaths],
       this.attachedPages,
       searchScope,
