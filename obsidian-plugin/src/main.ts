@@ -10,6 +10,7 @@ import { InboxView, INBOX_VIEW_TYPE } from "./view/InboxView";
 import { SystemView, SYSTEM_VIEW_TYPE } from "./view/SystemView";
 import { buildChat, type ChatCluster } from "./composition/chat";
 import { buildCommandActions } from "./composition/commands";
+import { buildClippings, buildEnrichment, buildMemory, buildSemantic } from "./composition/knowledge";
 import { buildSystemDeps } from "./composition/system";
 import { vaultToolOptions } from "./composition/vaultTools";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
@@ -23,8 +24,7 @@ import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projec
 import { PROVENANCE_LANGUAGE } from "./research/draftSections";
 import { renderProvenanceReferences } from "./view/research/provenanceReferences";
 import type { ChatTurnService } from "./chat/turnService";
-import { SessionPicker } from "./view/SessionPicker";
-import { MemoryController } from "./memory/controller";
+import type { MemoryController } from "./memory/controller";
 import { McpBridgeController } from "./mcp/bridgeController";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
@@ -58,7 +58,7 @@ import { OrdersFeature } from "./orders/ordersFeature";
 import { PublishFeature } from "./publish/publishFeature";
 import { ResearchFeature } from "./research/researchFeature";
 import { DesktopFeature } from "./integrations/desktopFeature";
-import { ClippingsController } from "./sources/clippings";
+import type { ClippingsController } from "./sources/clippings";
 import { stripFrontmatter } from "./markdown/frontmatter";
 import { generateToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
@@ -76,12 +76,10 @@ import type { CliBackend } from "./cli/backends/types";
 import { type BuildRun } from "./build/run";
 import { BuildController } from "./build/controller";
 import type { PublishController } from "./publish/controller";
-import { resolveTags } from "./tags/resolve";
-import { vaultVocabulary } from "./tags/vaultTags";
 import { OptimizeFeature } from "./optimize/feature";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { loadedOntology } from "./optimize/vaultGlue";
-import { SemanticController } from "./semantic/controller";
+import type { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
@@ -90,13 +88,11 @@ import {
   type ConversationState,
   emptyState,
   fromPersisted,
-  cliSessionIds,
 } from "./conversations/store";
 import { ConversationsController } from "./conversations/controller";
 import type { SessionActions } from "./conversations/sessionActions";
 import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
-import { SourceEnrichmentController } from "./sources/controller";
-import { ChoiceModal } from "./view/ChoiceModal";
+import type { SourceEnrichmentController } from "./sources/controller";
 import { OntologyRegistry } from "./ontology/registry";
 import { captureWebSource } from "./research/webCapture";
 import type { WebCapture } from "./context/webCapture";
@@ -109,16 +105,6 @@ import { NoteFlows } from "./enrich/noteFlows";
 import { ARTIFACT_MAX_TOKENS, WorkspaceViews } from "./view/workspaceViews";
 import { CompanionShell } from "./view/companionShell";
 import type { DesktopPlatform } from "./integrations/desktop";
-
-/**
- * Mobile's native vault bridge expands a full-file read/write into several
- * Java and JS copies. A larger note can exceed Android's renderer heap even
- * though extraction sends only the first 8,000 characters to the model.
- */
-const MOBILE_SOURCE_NOTE_MAX_BYTES = 5 * 1024 * 1024;
-/** PDFs expand substantially during parsing; reject large mobile semantic
- * inputs before the native vault bridge creates its first binary copy. */
-const MOBILE_SEMANTIC_PDF_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Shape of this plugin's persisted data.json (settings + chat history). */
 interface PersistedData {
@@ -299,108 +285,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
   private _semantic: SemanticController | null = null;
   semantic(): SemanticController {
-    return (this._semantic ??= new SemanticController({
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      manifestDir: this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`,
-      manifestId: this.manifest.id,
-      activity: () => this.activity,
-      enrichDiagnostics: () => this.enrichDiagnostics,
-      router: () => this.router(),
-      isMobile: Platform.isMobile,
-      deviceChatBusy: () => this._deviceChat?.busy() ?? false,
-      vault: {
-        adapterSize: async (p) => (await this.app.vault.adapter.stat(p))?.size,
-        adapterExists: (p) => this.app.vault.adapter.exists(p),
-        adapterRead: (p) => this.app.vault.adapter.read(p),
-        adapterWrite: (p, d) => this.app.vault.adapter.write(p, d),
-        getMarkdownFiles: () => this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
-        getPdfFiles: () => this.app.vault.getFiles().filter((f) => f.extension === "pdf").map((f) => ({ path: f.path, mtime: f.stat.mtime, size: f.stat.size })),
-        getAbstractFileByPath: (p) => {
-          const f = this.app.vault.getAbstractFileByPath(p);
-          return f instanceof TFile ? { path: f.path, stat: { mtime: f.stat.mtime, size: f.stat.size } } : null;
-        },
-        cachedRead: (p) => {
-          const f = this.app.vault.getAbstractFileByPath(p);
-          return f instanceof TFile ? this.app.vault.cachedRead(f) : Promise.resolve("");
-        },
-        readBinary: (p) => {
-          const f = this.app.vault.getAbstractFileByPath(p);
-          if (!(f instanceof TFile)) return Promise.reject(new Error(`Not a file: ${p}`));
-          return this.app.vault.readBinary(f);
-        },
-      },
-      notice: (msg, timeout) => new Notice(msg, timeout),
-      openChoiceModal: (opts) => new ChoiceModal(this.app, opts).open(),
-      mobileSourceNoteMaxBytes: MOBILE_SOURCE_NOTE_MAX_BYTES,
-      mobilePdfMaxBytes: MOBILE_SEMANTIC_PDF_MAX_BYTES,
-    }));
+    return (this._semantic ??= buildSemantic(this));
   }
   private _enrichment: SourceEnrichmentController | null = null;
   enrichment(): SourceEnrichmentController {
-    return (this._enrichment ??= new SourceEnrichmentController({
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      isMobile: Platform.isMobile,
-      mobileSourceNoteMaxBytes: MOBILE_SOURCE_NOTE_MAX_BYTES,
-      enrichApp: this.app,
-      vault: {
-        cachedRead: (path) => {
-          const f = this.app.vault.getAbstractFileByPath(path);
-          return f instanceof TFile ? this.app.vault.cachedRead(f) : Promise.resolve("");
-        },
-      },
-      activity: () => this.activity,
-      enrichDiagnostics: () => this.enrichDiagnostics,
-      router: () => this.router(),
-      resolveTags: (tags) => resolveTags(tags, vaultVocabulary(this.app)).map((r) => r.tag),
-      suspendReindex: () => this.semantic().suspendReindex(),
-      isUtilityLifecycleActive: (g) => this.utilityRouting().isLifecycleActive(g),
-      assertUtilityLifecycleActive: (g) => this.utilityRouting().assertLifecycleActive(g),
-      utilityLifecycleEnded: () => this.utilityRouting().isEnded(),
-      utilityLifecycleGeneration: () => this.utilityRouting().lifecycleGeneration(),
-      onEnrichQueueIdle: () => void this.optimize().checkTagMergesInBackground(),
-      notice: (msg, timeout) => new Notice(msg, timeout),
-      openChoiceModal: (opts) => { const m = new ChoiceModal(this.app, opts); m.open(); return m; },
-    }));
+    return (this._enrichment ??= buildEnrichment(this));
   }
   private _memory: MemoryController | null = null;
   memory(): MemoryController {
-    return (this._memory ??= new MemoryController({
-      settings: () => this.settings,
-      isMobile: Platform.isMobile,
-      ingestApp: this.app,
-      vaultBasePath: () => this.vaultBasePath(),
-      vault: {
-        markdownFilesUnder: (prefix) => this.app.vault.getMarkdownFiles()
-          .filter((f) => f.path.startsWith(`${prefix}/`))
-          .map((f) => ({ path: f.path, mtime: f.stat.mtime })),
-        readContent: async (path) => {
-          const f = this.app.vault.getAbstractFileByPath(path);
-          return f instanceof TFile ? this.app.vault.cachedRead(f) : null;
-        },
-        writeContent: async (path, content) => {
-          const f = this.app.vault.getAbstractFileByPath(path);
-          if (f instanceof TFile) await this.app.vault.modify(f, content);
-          else await this.app.vault.create(path, content);
-        },
-      },
-      router: () => this.router(),
-      excludedSessionIds: () => this.conversations().list().flatMap(cliSessionIds),
-      getActiveConversation: () => this.conversations().getActive(),
-      nodeSessionReader: async () => {
-        const { nodeSessionReader, defaultProjectsRoot } = await import("./memory/nodeReader");
-        return { reader: nodeSessionReader, defaultProjectsRoot };
-      },
-      notice: (msg, timeout) => new Notice(msg, timeout),
-      refreshMemoryView: () => this.views().refreshMemoryView(),
-      openFile: async (path) => {
-        const f = this.app.vault.getAbstractFileByPath(path);
-        if (f instanceof TFile) await this.app.workspace.getLeaf(false).openFile(f);
-      },
-      openSessionPicker: (sessions, onPick) => new SessionPicker(this.app, sessions, onPick).open(),
-      normalizePath,
-    }));
+    return (this._memory ??= buildMemory(this));
   }
   private _utilityRouting?: UtilityRouting;
   /** Runtime utility selection, mobile fallback consent, and the unload lifecycle for utility work. */
@@ -835,15 +728,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   clippings(): ClippingsController {
-    return (this._clippings ??= new ClippingsController({
-      app: this.app,
-      settings: () => this.settings,
-      activity: () => this.activity,
-      enrichment: () => this.enrichment(),
-      router: () => this.router(),
-      diagnostics: () => this.enrichDiagnostics,
-      providerErrorHint: (message, provider) => this.utilityRouting().providerErrorHint(message, provider),
-    }));
+    return (this._clippings ??= buildClippings(this));
   }
 
   /** Enrich, infer a folder per clip, review, and move the inbox clippings. */
@@ -1135,6 +1020,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   private _deviceChat?: DeviceChatClient;
+  deviceChatBusy(): boolean { return this._deviceChat?.busy() ?? false; }
   deviceChat(): DeviceChatClient {
     if (!this._deviceChat) {
       this._deviceChat = new DeviceChatClient(createEmbedWorker, () => {
@@ -1383,7 +1269,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Absolute path of the current vault, or null if not a desktop file vault. */
-  private vaultBasePath(): string | null {
+  vaultBasePath(): string | null {
     const adapter = this.app.vault.adapter;
     return adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null;
   }
