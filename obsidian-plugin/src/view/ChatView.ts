@@ -21,7 +21,7 @@ import type { CompletionRequest } from "../providers/types";
 import { SlashMenu } from "./SlashMenu";
 import type { ChatModeState } from "./chat/chatMode";
 import { ChatSession, type TurnState } from "./chat/chatSession";
-import { buildSlashCatalog, type SlashCommand, runNativeSlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
+import { buildSlashCatalog, dispatchSlashAction, type SlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
 import { substitutePlaceholders } from "../templates/promptTemplates";
 import { type AttachedPage } from "../context/urlContext";
 import { WORKFLOWS } from "../workflows/catalog";
@@ -699,17 +699,6 @@ export class ChatView extends ItemView {
 
   /** Execute a chosen slash command — either send a prompt or run an action. */
   private async runSlashCommand(cmd: SlashCommand): Promise<void> {
-    if (await runNativeSlashCommand({
-      command: cmd,
-      backend: this.plugin.router().chatBackend,
-      clearComposer: () => {
-        this.inputEl.value = "";
-        this.composer.autosizeInput();
-      },
-      activateResearchDesk: () => this.plugin.activateResearchDesk(),
-      requestCompletion: async (prompt, display) => { await this.submitPrompt(prompt, display); },
-    })) return;
-
     this.inputEl.value = "";
     this.composer.autosizeInput();
 
@@ -757,47 +746,22 @@ export class ChatView extends ItemView {
     }
 
     // kind: "action" — dispatch to the matching behavior.
-    switch (cmd.action) {
-      case "new-chat":
-        this.clearChat();
-        break;
-      case "workflows":
-        await this.plugin.openWorkflowPicker();
-        break;
-      case "frontmatter":
-        await this.plugin.suggestFrontmatterForActiveNote();
-        break;
-      case "capture-memory":
-        await this.plugin.openSessionPicker();
-        break;
-      case "history":
-        this.openHistory();
-        break;
-      case "save":
-        await this.distillThisChat();
-        break;
-      case "delete-active":
-        await this.plugin.deleteActiveConversation();
-        break;
-      case "ask-vault":
-        this.enableVaultSearchForChat();
-        this.inputEl.value = "";
-        this.inputEl.setAttr("placeholder", "Vault search on — ask your question…");
-        this.inputEl.focus();
-        quickNotice("Vault search on for this chat.");
-        break;
-      case "artifact":
-        await this.plugin.generateArtifactFromContext();
-        break;
-      case "plan":
-        await this.plugin.generatePlanFromNote();
-        break;
-      case "build":
-        await this.plugin.handoffToBuild();
-        break;
-      default:
-        new Notice(`Unknown command: /${cmd.name}`);
-    }
+    const outcome = await dispatchSlashAction(cmd.action, {
+      actions: this.plugin.commandActions(),
+      view: {
+        newChat: () => this.clearChat(),
+        openHistory: () => this.openHistory(),
+        save: () => this.distillThisChat(),
+        askVault: () => {
+          this.enableVaultSearchForChat();
+          this.inputEl.value = "";
+          this.inputEl.setAttr("placeholder", "Vault search on — ask your question…");
+          this.inputEl.focus();
+          quickNotice("Vault search on for this chat.");
+        },
+      },
+    });
+    if (outcome === "unknown") new Notice(`Unknown command: /${cmd.name}`);
   }
 
   private setSending(sending: boolean): void {
