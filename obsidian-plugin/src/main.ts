@@ -8,6 +8,7 @@ import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { InboxView, INBOX_VIEW_TYPE } from "./view/InboxView";
 import { SystemView, SYSTEM_VIEW_TYPE } from "./view/SystemView";
+import { buildChat, type ChatCluster } from "./composition/chat";
 import { buildCommandActions } from "./composition/commands";
 import { buildSystemDeps } from "./composition/system";
 import { vaultToolOptions } from "./composition/vaultTools";
@@ -21,8 +22,7 @@ import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
 import { PROVENANCE_LANGUAGE } from "./research/draftSections";
 import { renderProvenanceReferences } from "./view/research/provenanceReferences";
-import { ChatTurnService } from "./chat/turnService";
-import { shouldNotifyTurnComplete } from "./chat/turnNotice";
+import type { ChatTurnService } from "./chat/turnService";
 import { SessionPicker } from "./view/SessionPicker";
 import { MemoryController } from "./memory/controller";
 import { McpBridgeController } from "./mcp/bridgeController";
@@ -93,9 +93,7 @@ import {
   cliSessionIds,
 } from "./conversations/store";
 import { ConversationsController } from "./conversations/controller";
-import { DistillController } from "./conversations/distillController";
-import { SessionActions } from "./conversations/sessionActions";
-import { saveSummaryNote } from "./artifacts/artifactStore";
+import type { SessionActions } from "./conversations/sessionActions";
 import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
 import { SourceEnrichmentController } from "./sources/controller";
 import { ChoiceModal } from "./view/ChoiceModal";
@@ -157,70 +155,19 @@ export default class ClaudeCompanionPlugin extends Plugin {
     );
   }
   private convState: ConversationState = emptyState();
-  private _conversations?: ConversationsController;
   private _clippings?: ClippingsController;
-  conversations(): ConversationsController {
-    return (this._conversations ??= new ConversationsController({
+  private _chat?: ChatCluster;
+  private chat(): ChatCluster {
+    return this._chat ??= buildChat(this, {
       state: { get: () => this.convState, set: (next) => { this.convState = next; } },
-      persist: () => this.persist(),
-      activity: () => this.activity,
-      settings: () => this.settings,
-    }));
+      onUnattachedTurnDone: (conversationId, title) => this.showTurnCompleteStatusBar(conversationId, title),
+    });
   }
-  private _distiller?: DistillController;
-  private distiller(): DistillController {
-    return (this._distiller ??= new DistillController({
-      get: (id) => this.conversations().list().find((c) => c.id === id),
-      complete: async (req) => (await this.router().complete("utility", req)).text,
-      exists: (path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
-      resolveLink: (link) => this.app.metadataCache.getFirstLinkpathDest(link.replace(/\.md$/, ""), "")?.path ?? (this.app.vault.getAbstractFileByPath(link) instanceof TFile ? link : null),
-      write: async (existing, folder, title, content, created) => {
-        const file = existing === null ? null : this.app.vault.getAbstractFileByPath(existing);
-        if (file instanceof TFile) {
-          await this.app.vault.modify(file, content);
-          return file.path;
-        }
-        return (await saveSummaryNote(this.app, folder, title, content, created)).path;
-      },
-      setDistilledNote: (id, path) => this.conversations().setDistilledNote(id, path),
-      notice: (text) => new Notice(text),
-      settings: () => this.settings,
-    }));
-  }
-  private _sessionActions?: SessionActions;
-  sessionActions(): SessionActions {
-    return (this._sessionActions ??= new SessionActions({
-      find: (id) => this.conversations().list().find((c) => c.id === id),
-      archive: (id) => this.conversations().archive(id),
-      fork: (id) => this.conversations().fork(id),
-      createSeeded: (title, seed, projectId) => this.conversations().createSeeded(title, seed, projectId),
-      distill: (id) => this.distiller().distill(id),
-      readNote: async (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
-      },
-      openInNewTab: async (conversationId) => {
-        const { workspace } = this.app;
-        const leaf = workspace.getLeaf("tab");
-        await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true, state: { conversationId } });
-        await workspace.revealLeaf(leaf);
-      },
-    }));
-  }
-  private _turnService?: ChatTurnService;
+  conversations(): ConversationsController { return this.chat().conversations(); }
+  sessionActions(): SessionActions { return this.chat().sessionActions(); }
   private turnCompleteStatusBarEl: HTMLElement | null = null;
   /** Owns in-flight chat turns independent of any ChatView instance (P5). */
-  turnService(): ChatTurnService {
-    if (this._turnService) return this._turnService;
-    const service = new ChatTurnService();
-    service.onUnattachedDone(({ conversationId, title, result }) => {
-      if (!shouldNotifyTurnComplete(this.settings.notifyOnTurnComplete, result)) return;
-      new Notice(`Claude finished: ${title}`);
-      this.showTurnCompleteStatusBar(conversationId, title);
-    });
-    this._turnService = service;
-    return service;
-  }
+  turnService(): ChatTurnService { return this.chat().turnService(); }
 
   /** Desktop status-bar item pointing at a turn that finished unattended; clears itself once clicked. */
   private showTurnCompleteStatusBar(conversationId: string, title: string): void {
@@ -1047,7 +994,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Write settings + conversation history back to data.json, minus credentials. */
-  private async persist(): Promise<void> {
+  async persist(): Promise<void> {
     const result = (this.persistChain ?? Promise.resolve()).catch(() => {}).then(async () => {
       const store = this.secrets();
       // Credentials the store proved it holds are dropped here; any the backend

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const lines = (rel: string): number => readFileSync(resolve(__dirname, "../src", rel), "utf8").split("\n").length;
 
 describe("plugin entry shape", () => {
-  it("main.ts stays at or under 1500 lines", () => {
-    expect(lines("main.ts")).toBeLessThanOrEqual(1500);
+  it("main.ts stays at or under 1450 lines", () => {
+    expect(lines("main.ts")).toBeLessThanOrEqual(1450);
   });
 });
