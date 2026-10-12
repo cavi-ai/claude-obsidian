@@ -175,32 +175,25 @@ describe("ChatView on the claude-cli backend", () => {
     expect(sub?.textContent).toMatch(/^Claude Code is signed in on this computer/);
   });
 
+  it("shows the not-signed-in Notice and does not start the turn when the preflight blocks the send", async () => {
+    clearNotices();
+    const { plugin, refresh } = gatePluginStub(false, false);
+    const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
+    const started = await (view as unknown as { run(text: string): Promise<boolean> }).run("hello");
+    expect(started).toBe(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(getNoticeMessages()).toEqual(["Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings."]);
+  });
+
   it("re-probes once on a blocked send and proceeds when the CLI is now signed in", async () => {
     clearNotices();
     const { plugin, refresh } = gatePluginStub(false, true);
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
-    await (view as unknown as { run(text: string): Promise<void> }).run("hello");
+    await (view as unknown as { run(text: string): Promise<boolean> }).run("hello");
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(getNoticeMessages().some((m) => m.includes("not signed in"))).toBe(false);
     // Past the gate, the unstubbed persistence call fails — proof the send was not blocked.
     expect(getNoticeMessages().some((m) => m.includes("Couldn't save this request"))).toBe(true);
-  });
-
-  it("shows the existing not-signed-in Notice when the re-probe still fails, calling refresh exactly once", async () => {
-    clearNotices();
-    const { plugin, refresh } = gatePluginStub(false, false);
-    const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
-    await (view as unknown as { run(text: string): Promise<void> }).run("hello");
-    expect(refresh).toHaveBeenCalledTimes(1);
-    expect(getNoticeMessages().some((m) => m === "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings.")).toBe(true);
-  });
-
-  it("never re-probes on a normal send when the CLI is already signed in", async () => {
-    clearNotices();
-    const { plugin, refresh } = gatePluginStub(true, true);
-    const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
-    await (view as unknown as { run(text: string): Promise<void> }).run("hello");
-    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("background-probes the setup card once and renders the CLI button after it flips signed in, never stacking probes", async () => {

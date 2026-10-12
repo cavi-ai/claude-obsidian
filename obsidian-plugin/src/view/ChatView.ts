@@ -4,6 +4,7 @@ import type { ChatMessage, ContextToggles } from "../types";
 import { effectiveToggles } from "./chat/contextScope";
 import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
+import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
 import { toAnthropicTools, executeTool, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
 import { toolAccess } from "../agent/toolAccess";
 import { parseExternalToolName } from "../mcp/external";
@@ -50,13 +51,6 @@ import { Transcript } from "./chat/Transcript";
 import { SetupCard } from "./chat/SetupCard";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
-/** The message list a turn should persist as: `base` plus the assistant reply, when one was produced. */
-function appendAssistantMessage(base: ChatMessage[], result: AgentTurnResult): ChatMessage[] {
-  const full = result.text.trim();
-  if (!full) return base;
-  return [...base, { role: "assistant", content: result.text, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) }];
-}
 
 interface ObsidianAppWithSettings {
   setting?: {
@@ -826,64 +820,45 @@ export class ChatView extends ItemView {
     this.transcript.clearInterruptedTurnRow();
     void this.refreshBackendPill();
     const router = this.plugin.router();
-    let { provider, model } = router.chatProvider();
     const backend = router.chatBackend;
-    let caps = router.chatCapabilities();
-    if ((backend === "claude-cli" || backend === "codex-cli" || backend === "opencode-cli") && !caps.cli && !router.anthropic.hasCredentials()) {
-      const entry = this.cliEntries(router).find((e) => e.backend.id === backend);
-      const label = entry?.backend.label ?? "This backend";
-      // The cached sign-in probe can be stale (user just ran the sign-in command); re-probe once before blocking.
-      if (entry?.provider.available()) {
-        await entry.provider.refresh();
-        caps = router.chatCapabilities();
-        if (caps.cli) {
-          ({ provider, model } = router.chatProvider());
-          void this.refreshBackendPill();
-        }
-      }
-      if (!caps.cli) {
-        new Notice(entry?.provider.available() ? `${label} is not signed in — ${entry.backend.signInHint}, or add an API key in Companion settings.` : `${label} runs on desktop only. Add an API key to chat here.`);
-        return false;
-      }
-    }
-    if (!provider.hasCredentials() && backend !== "auto") {
-      const where =
-        provider.id === "ollama"
-          ? "Start Ollama (`ollama serve`) or set the host in settings."
-          : provider.id === "openai-compat"
-            ? "Set the endpoint host and model in Companion settings → Local models."
-            : "Add your Anthropic credential in Claude Companion settings first.";
-      new Notice(where);
+    const preflight = await preflightTurn({
+      backend,
+      chatProvider: () => router.chatProvider(),
+      chatCapabilities: () => router.chatCapabilities(),
+      anthropicHasCredentials: () => router.anthropic.hasCredentials(),
+      cliSignIn: () => {
+        const entry = this.cliEntries(router).find((e) => e.backend.id === backend);
+        return entry ? { label: entry.backend.label, signInHint: entry.backend.signInHint, available: () => entry.provider.available(), refresh: () => entry.provider.refresh() } : null;
+      },
+    });
+    if (!preflight.ok) {
+      new Notice(preflight.notice);
       return false;
     }
+    const { provider, model, caps } = preflight;
+    if (preflight.reprobed) void this.refreshBackendPill();
 
     const previousTurn = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId)?.activeTurn : undefined;
-    // A capped turn's partial work stays in context — the continuation needs to
-    // see what was already done. Interrupted/failed turns are excluded as before.
-    if (previousTurn && previousTurn.state !== "running" && previousTurn.state !== "capped") {
-      this.messages = this.messages.map((message, index) => index >= previousTurn.userMessageIndex ? { ...message, contextExcluded: true } : message);
-    }
-    this.messages.push({ role: "user", content: userText, ...(display !== undefined ? { display } : {}) });
-    // Snapshot now (not read from `this.messages` at completion) — the view may
-    // switch conversations while this turn is still in flight.
-    const turnMessages = [...this.messages];
-    let turn: { conversationId: string; turnId: string };
-    try {
-      turn = await this.plugin.conversations().beginTurn(this.conversationId, this.messages, {
-        backend,
-        model: this.turnModelOverride ?? model,
-        mode: this.mode.mode,
-        ...(this.continuationDepth > 0 ? { continuationDepth: this.continuationDepth } : {}),
-      });
-    } catch (error) {
-      this.messages.pop();
+    const started = await startTurn((conversationId, messages, input) => this.plugin.conversations().beginTurn(conversationId, messages, input), {
+      conversationId: this.conversationId,
+      messages: this.messages,
+      previousTurn,
+      user: { content: userText, ...(display !== undefined ? { display } : {}) },
+      backend,
+      model: this.turnModelOverride ?? model,
+      mode: this.mode.mode,
+      continuationDepth: this.continuationDepth,
+    });
+    if (!started.ok) {
       if (this.inputEl) {
         this.inputEl.value = userText;
         this.composer.autosizeInput();
       }
-      new Notice(`Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}`);
+      new Notice(started.notice);
       return false;
     }
+    const { turn, turnMessages } = started;
+    this.messages = started.messages;
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
     if (this.pendingProjectId !== null) { await this.plugin.conversations().setProject(turn.conversationId, this.pendingProjectId); this.pendingProjectId = null; }
@@ -994,9 +969,7 @@ export class ChatView extends ItemView {
       turnId: turn.turnId,
       title: display ?? userText,
       run: coreRun,
-      completeTurn: (result) => this.plugin.conversations().completeTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result)),
-      capTurn: (result) => this.plugin.conversations().capTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), result.handoff),
-      interruptTurn: (result, error) => this.plugin.conversations().interruptTurn(turn.conversationId, turn.turnId, appendAssistantMessage(turnMessages, result), error?.message ?? "Interrupted"),
+      ...turnPersistence(this.plugin.conversations(), turn, turnMessages),
       registerTurn: (stop) => this.plugin.conversations().registerTurn(turn.conversationId, turn.turnId, () => {
         controller.abort();
         stop();
