@@ -10,6 +10,18 @@ import { InboxView, INBOX_VIEW_TYPE } from "./view/InboxView";
 import { SystemView, SYSTEM_VIEW_TYPE } from "./view/SystemView";
 import { buildChat, type ChatCluster } from "./composition/chat";
 import { buildCommandActions } from "./composition/commands";
+import {
+  buildClipperSetup,
+  buildDesktopIntegrations,
+  buildNoteFlows,
+  buildOnboarding,
+  buildOrders,
+  buildPublishing,
+  buildResearch,
+  buildShell,
+  buildUtilityRouting,
+  buildWorkspaceViews,
+} from "./composition/features";
 import { buildClippings, buildEnrichment, buildMemory, buildSemantic } from "./composition/knowledge";
 import { buildBuildController, buildMcpBridge, buildOptimize } from "./composition/runtime";
 import { buildSystemDeps } from "./composition/system";
@@ -30,9 +42,9 @@ import type { McpBridgeController } from "./mcp/bridgeController";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter } from "./providers/router";
-import { UtilityRouting } from "./providers/utilityRouting";
-import { ClipperFeature } from "./sources/clipperFeature";
-import { Onboarding } from "./onboarding/onboarding";
+import type { UtilityRouting } from "./providers/utilityRouting";
+import type { ClipperFeature } from "./sources/clipperFeature";
+import type { Onboarding } from "./onboarding/onboarding";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
@@ -54,10 +66,10 @@ import type { AnthropicToolDef } from "./providers/types";
 import { toolAccess, type ToolRunKind } from "./agent/toolAccess";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
 import type { OrdersController } from "./orders/controller";
-import { OrdersFeature } from "./orders/ordersFeature";
-import { PublishFeature } from "./publish/publishFeature";
-import { ResearchFeature } from "./research/researchFeature";
-import { DesktopFeature } from "./integrations/desktopFeature";
+import type { OrdersFeature } from "./orders/ordersFeature";
+import type { PublishFeature } from "./publish/publishFeature";
+import type { ResearchFeature } from "./research/researchFeature";
+import type { DesktopFeature } from "./integrations/desktopFeature";
 import type { ClippingsController } from "./sources/clippings";
 import { stripFrontmatter } from "./markdown/frontmatter";
 import { generateToken } from "./mcp/clientConfig";
@@ -100,9 +112,9 @@ import { ActivityStore } from "./activity/store";
 import { beginActivity } from "./activity/progress";
 import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
 import type { DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
-import { NoteFlows } from "./enrich/noteFlows";
-import { ARTIFACT_MAX_TOKENS, WorkspaceViews } from "./view/workspaceViews";
-import { CompanionShell } from "./view/companionShell";
+import type { NoteFlows } from "./enrich/noteFlows";
+import type { WorkspaceViews } from "./view/workspaceViews";
+import type { CompanionShell } from "./view/companionShell";
 import type { DesktopPlatform } from "./integrations/desktop";
 
 /** Shape of this plugin's persisted data.json (settings + chat history). */
@@ -245,138 +257,55 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _utilityRouting?: UtilityRouting;
   /** Runtime utility selection, mobile fallback consent, and the unload lifecycle for utility work. */
   utilityRouting(): UtilityRouting {
-    return (this._utilityRouting ??= new UtilityRouting({
-      app: this.app,
-      settings: () => this.settings,
-      router: () => this.router(),
-      isMobile: () => Platform.isMobile,
-    }));
+    return (this._utilityRouting ??= buildUtilityRouting(this));
   }
   private _clipperSetup?: ClipperFeature;
   /** Web Clipper template export, setup modal, and clip verification. */
   clipperSetup(): ClipperFeature {
-    return (this._clipperSetup ??= new ClipperFeature({
-      app: this.app,
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      persist: () => this.persist(),
-      activity: () => this.activity,
-    }));
+    return (this._clipperSetup ??= buildClipperSetup(this));
   }
   private _onboarding?: Onboarding;
   /** Setup wizard, first-run prompts, and ontology seeding. */
   onboarding(): Onboarding {
-    return (this._onboarding ??= new Onboarding({
-      app: this.app,
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      router: () => this.router(),
-      secrets: () => this.secrets(),
-      ontology: () => this.ontology(),
-      semantic: () => this.semantic(),
-      openDesktopIntegrations: () => this.desktopIntegrations().open(),
-      isMobile: () => Platform.isMobile,
-    }));
+    return (this._onboarding ??= buildOnboarding(this));
   }
   private _noteFlows?: NoteFlows;
   /** Link suggestions, "Tidy with Claude", and frontmatter suggestions. */
   noteFlows(): NoteFlows {
-    return (this._noteFlows ??= new NoteFlows({
-      app: this.app,
-      settings: () => this.settings,
-      activity: () => this.activity,
-      router: () => this.router(),
-      ontology: () => this.ontology(),
-    }));
+    return (this._noteFlows ??= buildNoteFlows(this));
   }
   private _views?: WorkspaceViews;
   /** Workspace leaves, the active-note card, workflows, and the Source inbox badge. */
   views(): WorkspaceViews {
-    return (this._views ??= new WorkspaceViews({
-      app: this.app,
-      settings: () => this.settings,
-      research: () => this.research(),
-      orders: () => this.orders(),
-      enrichment: () => this.enrichment(),
-    }));
+    return (this._views ??= buildWorkspaceViews(this));
   }
   private _shell?: CompanionShell;
   /** Quick options, settings openers, and activity recovery shared by every view. */
   shell(): CompanionShell {
-    return (this._shell ??= new CompanionShell({
-      app: this.app,
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      activity: () => this.activity,
-      router: () => this.router(),
-      semantic: () => this.semantic(),
-      memory: () => this.memory(),
-      clipperSetup: () => this.clipperSetup(),
-      desktopIntegrations: () => this.desktopIntegrations(),
-      standingOrders: () => this.standingOrders(),
-      conversations: () => this.conversations(),
-      views: () => this.views(),
-      chatLeafFor: (conversationId) => this.chatLeafFor(conversationId),
-    }));
+    return (this._shell ??= buildShell(this));
   }
   private _research?: ResearchFeature;
   /** Research Desk, scholarly discovery, and the plan-to-build handoff. */
   research(): ResearchFeature {
-    return (this._research ??= new ResearchFeature({
-      app: this.app,
-      settings: () => this.settings,
-      activity: () => this.activity,
-      router: () => this.router(),
-      build: () => this.build(),
-      activateView: () => this.views().activateView(),
-      lastMarkdownFile: () => this.lastMarkdownFile,
-      companionChrome: () => this.shell().companionChrome(),
-      openCompanionSettings: () => this.shell().openCompanionSettings(),
-      artifactMaxTokens: ARTIFACT_MAX_TOKENS,
-    }));
+    return (this._research ??= buildResearch(this, { build: () => this.build() }));
   }
   private _desktopIntegrations?: DesktopFeature;
   /** Desktop integrations modal and the read-only bridge it prepares. */
   desktopIntegrations(): DesktopFeature {
-    return (this._desktopIntegrations ??= new DesktopFeature({
-      app: this.app,
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      router: () => this.router(),
+    return (this._desktopIntegrations ??= buildDesktopIntegrations(this, {
       resolvedMcpToken: () => this.resolvedMcpToken(),
-      mcpRunning: () => this.mcpRunning(),
-      openCompanionSettings: () => this.shell().openCompanionSettings(),
-      openObsidianCliSettings: () => this.shell().openObsidianCliSettings(),
       runtimeLoader: () => this._desktopRuntimeLoader(),
     }));
   }
   private _orders?: OrdersFeature;
   /** Standing orders, their queued edits, and the persisted state behind both. */
   orders(): OrdersFeature {
-    return (this._orders ??= new OrdersFeature({
-      app: this.app,
-      settings: () => this.settings,
-      activity: () => this.activity,
-      persist: () => this.persist(),
-      router: () => this.router(),
-      composeSystemPrompt: (opts) => this.composeSystemPrompt(opts),
-      agentTools: () => this.agentTools(),
-      cliTurnRunner: (opts) => this.cliTurnRunner(opts),
-      closeCliSession: (conversationId) => this.cliPool.close(conversationId),
-      syncInboxBadge: () => this.views().syncInboxBadge(),
-      registerEvent: (ref) => this.registerEvent(ref),
-      registerInterval: (id) => this.registerInterval(id),
-    }));
+    return (this._orders ??= buildOrders(this, { closeCliSession: (conversationId) => this.cliPool.close(conversationId) }));
   }
   private _publishing?: PublishFeature;
   /** Gist publishing, the published-note registry, and cloud session dispatch. */
   publishing(): PublishFeature {
-    return (this._publishing ??= new PublishFeature({
-      app: this.app,
-      settings: () => this.settings,
-      activity: () => this.activity,
-      persist: () => this.persist(),
-    }));
+    return (this._publishing ??= buildPublishing(this));
   }
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeFeature;
