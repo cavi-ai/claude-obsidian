@@ -102,6 +102,10 @@ describe("selectEmbedding", () => {
     expect(s.embeddingEngine).toBe("ollama");
   });
 
+  it("offers a rebuild when the index holds a single note", () => {
+    expect(selectEmbedding(fresh(), { key: "embeddingEngine", value: "ollama" }, 1).rebuildLabel).toBe("ollama");
+  });
+
   it("labels a model switch without the builtin prefix", () => {
     const s = fresh();
     s.builtinEmbeddingModel = "builtin:other";

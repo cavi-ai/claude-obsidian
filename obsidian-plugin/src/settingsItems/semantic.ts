@@ -46,7 +46,7 @@ export function semanticItems(ctx: SemanticItemsContext): SettingGroupItem[] {
             await plugin.saveSettings();
             plugin.semantic().invalidateIndexer();
             ctx.update();
-            if (r.rebuildLabel) ctx.offerIndexRebuild(r.rebuildLabel);
+            if (r.rebuildLabel !== null) ctx.offerIndexRebuild(r.rebuildLabel);
           });
         });
       },
@@ -69,7 +69,7 @@ export function semanticItems(ctx: SemanticItemsContext): SettingGroupItem[] {
             await plugin.saveSettings();
             plugin.semantic().invalidateIndexer();
             ctx.update();
-            if (r.rebuildLabel) ctx.offerIndexRebuild(r.rebuildLabel);
+            if (r.rebuildLabel !== null) ctx.offerIndexRebuild(r.rebuildLabel);
           });
         });
       },
