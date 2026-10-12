@@ -4,7 +4,7 @@ import type { ToolRecord } from "../toolRecord";
 import { ensureVaultFolder } from "../../vault/vaultFiles";
 import { hasPathTraversal } from "../../paths";
 
-export type Run = (args: Record<string, unknown>) => Promise<string>;
+type Run = (args: Record<string, unknown>) => Promise<string>;
 
 export const read = (def: McpToolDef, run: Run, unavailable?: string): ToolRecord => ({ def, writes: false, run, ...(unavailable ? { unavailable } : {}) });
 export const write = (def: McpToolDef, run: Run, unavailable?: string): ToolRecord => ({ def, writes: true, run, ...(unavailable ? { unavailable } : {}) });
@@ -54,10 +54,4 @@ export function optStr(v: unknown): string | undefined {
 }
 export function num(v: unknown, dflt: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : dflt;
-}
-export function strArray(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-}
-export function optObj(v: unknown): Record<string, unknown> | undefined {
-  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 }

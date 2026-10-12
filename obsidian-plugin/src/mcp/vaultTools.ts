@@ -10,13 +10,13 @@ import { captureWebSource, type WebCapture } from "../research/webCapture";
 import { ZoteroAdapter, type ZoteroLibrary } from "../discovery/adapters/zotero";
 import { createObsidianDiscoveryHttp } from "../discovery/adapters/obsidianHttp";
 import { assertVaultPath, ensureFolder } from "./tools/context";
-import { MemoryTools, MEMORY_RECORD_OFF_MESSAGE } from "./tools/memoryTools";
+import { MemoryTools } from "./tools/memoryTools";
 import { NoteTools } from "./tools/noteTools";
 import { SearchTools, SEMANTIC_OFF_MESSAGE } from "./tools/searchTools";
 import { StructureTools } from "./tools/structureTools";
 import { WebTools } from "./tools/webTools";
 
-export { assertVaultPath, MEMORY_RECORD_OFF_MESSAGE, SEMANTIC_OFF_MESSAGE };
+export { assertVaultPath, SEMANTIC_OFF_MESSAGE };
 
 /** Optional semantic retriever (local embeddings); absent → keyword-only. */
 export type { SemanticSearch };

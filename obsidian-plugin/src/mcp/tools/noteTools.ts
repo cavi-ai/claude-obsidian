@@ -14,7 +14,14 @@ import { parseResearchRecord } from "../../research/parse";
 import type { ResearchRecord } from "../../research/types";
 import type { ResearchRepository } from "../../research/repository";
 import { applyPatch, type PatchTarget } from "../patch";
-import { assertVaultPath, ensureFolder, optObj, optStr, read, resolveFile, str, strArray, uniquePath, write } from "./context";
+import { assertVaultPath, ensureFolder, optStr, read, resolveFile, str, uniquePath, write } from "./context";
+
+function strArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function optObj(v: unknown): Record<string, unknown> | undefined {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+}
 
 /** note_create base-frontmatter keys the model's `properties` may never overwrite. */
 const PROTECTED_KEYS: ReadonlySet<string> = new Set(["type", "title", "created", "source", "tags"]);

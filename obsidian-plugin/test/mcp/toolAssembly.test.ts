@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { App } from "obsidian";
+import { App, parseYaml } from "obsidian";
 import { VaultTools, type VaultToolsOptions } from "../../src/mcp/vaultTools";
+import { OntologyRegistry } from "../../src/ontology/registry";
+import { SEED_TYPES, schemaNoteContent } from "../../src/ontology/seed";
 import { createResearchRepository } from "../../src/research/repositoryFactory";
 
 vi.mock("../../src/research/repositoryFactory", async (importOriginal) => {
@@ -85,6 +87,23 @@ describe("tool assembly", () => {
     tools.setOptions(options({ allowWrites: false }));
     expect(tools.definitions().some((d) => d.name === "note_create")).toBe(false);
     expect(tools.unavailable("note_create")).toMatch(/Write tools are disabled/);
+    expect(tools.definitions().map((d) => d.name)).toContain("web_search");
+    tools.setOptions(options({ webSearch: undefined }));
+    expect(tools.unavailable("web_search")).toMatch(/Web search is disabled/);
+    expect(tools.definitions().map((d) => d.name)).not.toContain("web_search");
+  });
+
+  it("follows the ontology registry contents when listing note_create", async () => {
+    const registry = new OntologyRegistry({
+      listSchemaNotes: async () => SEED_TYPES.map((def) => ({ path: `Ontology/${def.name}.md`, frontmatter: { ontology: "type", type_name: def.name, version: def.version }, body: schemaNoteContent(def) })),
+      parseYaml,
+    });
+    const tools = new VaultTools(new App() as never, options({ ontology: () => registry }));
+    const schema = () => tools.definitions().find((d) => d.name === "note_create")!.inputSchema.properties as Record<string, unknown>;
+    expect(schema()).not.toHaveProperty("type");
+    await registry.load();
+    expect(schema()).toHaveProperty("type");
+    expect(schema()).toHaveProperty("properties");
   });
 
   it("reads memory_record availability at call time", () => {
