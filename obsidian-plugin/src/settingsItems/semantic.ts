@@ -6,6 +6,7 @@ import type ClaudeCompanionPlugin from "../main";
 import type { SemanticController } from "../semantic/controller";
 import { BUILTIN_EMBEDDING_MODELS, builtinModelById } from "../semantic/transformers/model";
 import type { PluginSettings } from "../types";
+import { cachedModelHint, selectEmbedding, showCachedModelHint } from "./actions";
 
 export interface SemanticItemsContext {
   plugin: Pick<ClaudeCompanionPlugin, "activity" | "router" | "saveSettings" | "settings"> & {
@@ -39,12 +40,13 @@ export function semanticItems(ctx: SemanticItemsContext): SettingGroupItem[] {
           dd.addOption("custom", "OpenAI-compatible endpoint");
           dd.setValue(plugin.settings.embeddingEngine).onChange(async (v) => {
             if (v === plugin.settings.embeddingEngine) return;
-            const hadNotes = ((await plugin.semantic().indexer()?.stats().catch(() => null))?.notes ?? 0) > 0;
-            plugin.settings.embeddingEngine = v as PluginSettings["embeddingEngine"];
+            const notes = (await plugin.semantic().indexer()?.stats().catch(() => null))?.notes ?? 0;
+            const r = selectEmbedding(plugin.settings, { key: "embeddingEngine", value: v as PluginSettings["embeddingEngine"] }, notes);
+            if (!r.changed) return;
             await plugin.saveSettings();
             plugin.semantic().invalidateIndexer();
             ctx.update();
-            if (hadNotes) ctx.offerIndexRebuild(v === "builtin" ? "the built-in model" : v);
+            if (r.rebuildLabel !== null) ctx.offerIndexRebuild(r.rebuildLabel);
           });
         });
       },
@@ -61,13 +63,13 @@ export function semanticItems(ctx: SemanticItemsContext): SettingGroupItem[] {
           }
           dd.setValue(builtinModelById(plugin.settings.builtinEmbeddingModel).id).onChange(async (v) => {
             if (v === plugin.settings.builtinEmbeddingModel) return;
-            const hadNotes = ((await plugin.semantic().indexer()?.stats().catch(() => null))?.notes ?? 0) > 0;
-            const label = v.replace(/^builtin:/, "");
-            plugin.settings.builtinEmbeddingModel = v;
+            const notes = (await plugin.semantic().indexer()?.stats().catch(() => null))?.notes ?? 0;
+            const r = selectEmbedding(plugin.settings, { key: "builtinEmbeddingModel", value: v }, notes);
+            if (!r.changed) return;
             await plugin.saveSettings();
             plugin.semantic().invalidateIndexer();
             ctx.update();
-            if (hadNotes) ctx.offerIndexRebuild(label);
+            if (r.rebuildLabel !== null) ctx.offerIndexRebuild(r.rebuildLabel);
           });
         });
       },
@@ -147,8 +149,8 @@ export function semanticItems(ctx: SemanticItemsContext): SettingGroupItem[] {
           // Distinguish "downloaded earlier, not loaded this session" (offline
           // load) from "never downloaded" (network download needing consent).
           void plugin.semantic().builtinModelCached().then((cached) => {
-            if (!cached || running || plugin.semantic().builtinEmbedder().backend()) return;
-            status.setText(Platform.isMobile ? "Model cached — choose Load or Rebuild index to start this session." : "Model cached — loads on first use.");
+            if (!showCachedModelHint({ cached, running, backendLoaded: !!plugin.semantic().builtinEmbedder().backend() })) return;
+            status.setText(cachedModelHint(Platform.isMobile));
             mainBtn?.setButtonText("Load");
             clearBtn?.buttonEl.show();
           });
