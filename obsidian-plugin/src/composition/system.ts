@@ -14,14 +14,11 @@ import type { SystemViewDeps } from "../view/SystemView";
 
 export type HealthHost = Pick<
   ClaudeCompanionPlugin,
-  | "activity" | "app" | "clipperSetup" | "inboxPendingCount" | "mcpRunning" | "onboarding" | "ontology" | "optimize" | "research"
-  | "router" | "semantic" | "settings" | "standingOrders"
+  | "activity" | "app" | "clipperSetup" | "mcpRunning" | "onboarding" | "ontology" | "optimize" | "research"
+  | "router" | "semantic" | "settings" | "standingOrders" | "views"
 >;
 
-export type SystemHost = HealthHost & Pick<
-  ClaudeCompanionPlugin,
-  | "activateInboxView" | "companionChrome" | "openCompanionSettings"
->;
+export type SystemHost = HealthHost & Pick<ClaudeCompanionPlugin, "shell">;
 
 export function buildHealthController(host: HealthHost): HealthController {
   const repo = (): ResearchRepository => host.research().researchRepository();
@@ -52,7 +49,7 @@ export function buildHealthController(host: HealthHost): HealthController {
       return report.status === "ok" ? report.candidates : null;
     },
     orphanCount: () => findOrphans(linkScanNotes(host.app, host.ontology()), host.app.metadataCache.resolvedLinks, normalizePath(host.settings.ontologyFolder)).length,
-    inboxPending: () => host.inboxPendingCount(),
+    inboxPending: () => host.views().inboxPendingCount(),
     companion: () => ({
       connection: { backend: host.router().chatBackend, needsCredential: needsCredentialSetup(host.onboarding().credentialSetupInputs()) },
       activity: host.activity.snapshot().records
@@ -75,12 +72,12 @@ export function buildSystemDeps(host: SystemHost): SystemViewDeps {
     openResearchDesk: (path) => host.research().activateResearchDesk(path),
     buildIndex: () => host.semantic().rebuildSemanticIndex(),
     catchUpIndex: () => host.semantic().catchUpIndex(),
-    openInbox: () => host.activateInboxView(),
+    openInbox: () => host.views().activateInboxView(),
     openSetupWizard: () => host.onboarding().openSetupWizard(),
-    openSettings: () => host.openCompanionSettings(),
+    openSettings: () => host.shell().openCompanionSettings(),
     openClipperSetup: () => host.clipperSetup().openSetup(),
     runActivityRecovery: (activityId, id) => {
-      const chrome = host.companionChrome();
+      const chrome = host.shell().companionChrome();
       return chrome.runActivityRecovery ? chrome.runActivityRecovery(activityId, id) : chrome.run({ id, page: "system", activityId });
     },
     reviewTagMerges: (done) => void host.optimize().reviewTagMerges(done),

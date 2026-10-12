@@ -154,7 +154,7 @@ describe("Inbox batch link review", () => {
       return read(file);
     };
 
-    const result = plugin.reviewInboxLinkSuggestions([alpha, beta]);
+    const result = plugin.noteFlows().reviewInboxLinkSuggestions([alpha, beta]);
     await settle();
     expect(getLastOpenedModal()).toBeInstanceOf(BatchDiffModal);
     applyButton(getLastOpenedModal() as BatchDiffModal).dispatchEvent({ type: "click" });
@@ -291,9 +291,7 @@ describe("Inbox batch link review", () => {
 
   it("catches a regression that leaves an individual link-review failure unhandled and unactionable", async () => {
     const { plugin, view } = createHarness();
-    Object.assign(plugin, {
-      reviewLinkSuggestions: async () => { throw new Error("model unavailable"); },
-    });
+    vi.spyOn(plugin.noteFlows(), "reviewLinkSuggestions").mockImplementation(async () => { throw new Error("model unavailable"); });
     await view.render();
     await settle();
     const unhandled: unknown[] = [];

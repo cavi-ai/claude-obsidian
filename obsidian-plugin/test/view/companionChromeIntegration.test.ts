@@ -49,7 +49,7 @@ describe("Companion chrome view integration", () => {
       _mcpServersSnapshot: "[]",
     });
 
-    await plugin.companionChrome().save({ id: "embedding-engine", value: "ollama" });
+    await plugin.shell().companionChrome().save({ id: "embedding-engine", value: "ollama" });
 
     expect(plugin.settings.embeddingEngine).toBe("ollama");
     expect(onSettingsChanged).toHaveBeenCalledTimes(1);
@@ -61,7 +61,7 @@ describe("Companion chrome view integration", () => {
     const deps = chrome(app);
     const plugin = {
       settings: structuredClone(DEFAULT_SETTINGS),
-      companionChrome: () => deps,
+      shell: () => ({ companionChrome: () => deps }),
       orders: () => ({ listQueuedEdits: () => [] }),
     } as unknown as ClaudeCompanionPlugin;
     plugin.settings.sourceCaptureEnabled = false;
@@ -85,8 +85,8 @@ describe("Companion chrome view integration", () => {
     const openSessionPicker = vi.fn().mockResolvedValue(undefined);
     const plugin = {
       settings: structuredClone(DEFAULT_SETTINGS),
-      companionChrome: () => deps,
-      openSessionPicker,
+      shell: () => ({ companionChrome: () => deps }),
+      memory: () => ({ openSessionPicker }),
     } as unknown as ClaudeCompanionPlugin;
 
     const related = new RelatedView(new WorkspaceLeaf(app), plugin);

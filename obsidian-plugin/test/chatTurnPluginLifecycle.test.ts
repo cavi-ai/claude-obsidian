@@ -172,11 +172,11 @@ describe("plugin durable Chat turn lifecycle", () => {
     const stop = vi.fn();
     plugin.conversations().registerTurn(active.conversationId, active.turnId, stop);
 
-    await plugin.runActivityRecovery(`chat-turn:${active.conversationId}`, "stop-chat-turn");
+    await plugin.shell().runActivityRecovery(`chat-turn:${active.conversationId}`, "stop-chat-turn");
 
     const view = { loadConversation: vi.fn(), resumeInterruptedTurn: vi.fn(async () => undefined) };
-    vi.spyOn(plugin, "activateView").mockResolvedValue(view as never);
-    await plugin.runActivityRecovery(`chat-turn:${active.conversationId}`, "resume-chat-turn");
+    vi.spyOn(plugin.views(), "activateView").mockResolvedValue(view as never);
+    await plugin.shell().runActivityRecovery(`chat-turn:${active.conversationId}`, "resume-chat-turn");
 
     expect(stop).toHaveBeenCalledOnce();
     expect(view.loadConversation).toHaveBeenCalledWith(expect.objectContaining({ id: active.conversationId }));

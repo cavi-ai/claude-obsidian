@@ -40,14 +40,14 @@ describe("Chat view activation", () => {
     };
     const plugin = pluginForWorkspace(workspace);
 
-    const first = await plugin.activateView();
+    const first = await plugin.views().activateView();
     expect(first).toBe(mainChat.view);
     expect(workspace.getLeaf).toHaveBeenCalledWith("tab");
     expect(workspace.getRightLeaf).not.toHaveBeenCalled();
     expect(mainChat.setViewState).toHaveBeenCalledWith({ type: CHAT_VIEW_TYPE, active: true });
 
     workspace.getLeavesOfType.mockReturnValue([sidebarChat, mainChat]);
-    const second = await plugin.activateView();
+    const second = await plugin.views().activateView();
 
     expect(second).toBe(mainChat.view);
     expect(workspace.getLeaf).toHaveBeenCalledTimes(1);
@@ -66,7 +66,7 @@ describe("Chat view activation", () => {
       revealLeaf: vi.fn(async () => undefined),
     };
 
-    await pluginForWorkspace(workspace).activateView();
+    await pluginForWorkspace(workspace).views().activateView();
 
     expect(workspace.getRightLeaf).toHaveBeenCalledWith(false);
     expect(workspace.getLeaf).not.toHaveBeenCalled();
@@ -89,9 +89,9 @@ describe("Chat view activation", () => {
     const plugin = pluginForWorkspace(workspace);
 
     // Simulate the user having focused the second main tab last.
-    (plugin as unknown as { lastFocusedChatLeaf: unknown }).lastFocusedChatLeaf = secondTab;
+    plugin.views().lastFocusedChatLeaf = secondTab as never;
 
-    const view = await plugin.activateView();
+    const view = await plugin.views().activateView();
 
     expect(view).toBe(secondTab.view);
     expect(workspace.revealLeaf).toHaveBeenCalledWith(secondTab);
@@ -112,9 +112,9 @@ describe("Chat view activation", () => {
     const plugin = pluginForWorkspace(workspace);
 
     // Simulate the user having focused the second tab last.
-    (plugin as unknown as { lastFocusedChatLeaf: unknown }).lastFocusedChatLeaf = secondTab;
+    plugin.views().lastFocusedChatLeaf = secondTab as never;
 
-    const view = await plugin.activateView();
+    const view = await plugin.views().activateView();
 
     expect(view).toBe(secondTab.view);
     expect(workspace.revealLeaf).toHaveBeenCalledWith(secondTab);
@@ -132,7 +132,7 @@ describe("Chat view activation", () => {
     };
     const plugin = pluginForWorkspace(workspace);
 
-    const view = await plugin.openNewChatTab();
+    const view = await plugin.views().openNewChatTab();
 
     expect(view).toBe(secondTab.view);
     expect(workspace.getLeaf).toHaveBeenCalledWith("tab");

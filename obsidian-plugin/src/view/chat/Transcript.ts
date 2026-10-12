@@ -137,7 +137,7 @@ export class Transcript {
   }
 
   private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
-    const workspace = await this.plugin.companionWorkspaceContext();
+    const workspace = await this.plugin.views().companionWorkspaceContext();
     if (!mount.isConnected || this.messages.length > 0 || !workspace) return;
     mount.empty();
     const card = mount.createEl("section", { cls: `cc-context-workspace is-${workspace.kind}`, attr: { "aria-label": "Current Companion workspace" } });
@@ -161,7 +161,7 @@ export class Transcript {
       }
     } else {
       primary.addEventListener("click", () => void this.deps.prepareWorkspaceQuestion(workspace));
-      secondary.addEventListener("click", () => void this.plugin.activateRelatedView());
+      secondary.addEventListener("click", () => void this.plugin.views().activateRelatedView());
     }
   }
 

@@ -6,13 +6,11 @@ import type ClaudeCompanionPlugin from "../main";
 
 export type CommandActionsHost = Pick<
   ClaudeCompanionPlugin,
-  | "activateInboxView" | "activateMemoryView" | "activateRelatedView" | "activateSystem" | "activateView"
   | "app" | "browseConversations" | "conversations" | "createPromptTemplate" | "deleteActiveConversation"
-  | "enableVaultSearch" | "enrichment" | "enrichNoteFlow" | "generateArtifactFromContext"
-  | "lastMarkdownFile" | "memory"
-  | "onboarding" | "clipperSetup" | "openNewChatTab" | "openWorkflowPicker" | "optimize" | "orders" | "organizeClippings"
-  | "publish" | "publishing" | "research" | "reviewLinkSuggestions" | "semantic" | "settings" | "startInlineEdit"
-  | "suggestFrontmatterForActiveNote" | "triageClippingsWithPicker"
+  | "enableVaultSearch" | "enrichment" | "lastMarkdownFile" | "memory" | "noteFlows"
+  | "onboarding" | "clipperSetup" | "optimize" | "orders" | "organizeClippings"
+  | "publish" | "publishing" | "research" | "semantic" | "settings" | "startInlineEdit"
+  | "triageClippingsWithPicker" | "views"
 >;
 
 export function buildCommandActions(host: CommandActionsHost): CommandActions {
@@ -24,16 +22,16 @@ export function buildCommandActions(host: CommandActionsHost): CommandActions {
     ontologyEnabled: () => host.settings.ontologyEnabled,
     desktop: !Platform.isMobile,
 
-    openChat: () => void host.activateView(),
-    newChat: () => void host.activateView().then((view) => view?.clearChat()),
-    newChatTab: () => void host.openNewChatTab(),
+    openChat: () => void host.views().activateView(),
+    newChat: () => void host.views().activateView().then((view) => view?.clearChat()),
+    newChatTab: () => void host.views().openNewChatTab(),
     generatePlanFromNote: () => host.research().generatePlanFromNote(),
-    generateArtifactFromContext: () => host.generateArtifactFromContext(),
+    generateArtifactFromContext: () => host.views().generateArtifactFromContext(),
     editWithClaude: (editor, view) => void host.startInlineEdit(editor, view),
-    enrichNote: (file) => void host.enrichNoteFlow(file),
+    enrichNote: (file) => void host.noteFlows().enrichNoteFlow(file),
     enableVaultSearch: () => void host.enableVaultSearch(),
     rebuildSemanticIndex: () => void host.semantic().rebuildSemanticIndex(),
-    openRelatedNotes: () => void host.activateRelatedView(),
+    openRelatedNotes: () => void host.views().activateRelatedView(),
     openResearchDesk: () => host.research().activateResearchDesk(),
     triageClippings: () => void host.triageClippingsWithPicker(),
     startResearchFromActiveNote: () => void host.research().startResearchFromActiveNote(),
@@ -45,18 +43,18 @@ export function buildCommandActions(host: CommandActionsHost): CommandActions {
     organizeClippings: () => void host.organizeClippings(),
     dispatchCloudSession: () => void host.publishing().dispatchCloudSession(),
     pullCloudReplies: () => void host.publishing().pullCloudReplies(),
-    reviewLinkSuggestions: () => void host.reviewLinkSuggestions(),
-    openWorkflowPicker: () => host.openWorkflowPicker(),
-    suggestFrontmatterForActiveNote: () => host.suggestFrontmatterForActiveNote(),
+    reviewLinkSuggestions: () => void host.noteFlows().reviewLinkSuggestions(),
+    openWorkflowPicker: () => host.views().openWorkflowPicker(),
+    suggestFrontmatterForActiveNote: () => host.noteFlows().suggestFrontmatterForActiveNote(),
     createPromptTemplate: () => void host.createPromptTemplate(),
     createStandingOrder: () => void host.orders().createStandingOrder(),
     runStandingOrder: () => host.orders().pickStandingOrder(),
     openSessionPicker: () => host.memory().openSessionPicker(),
-    openMemoryView: () => void host.activateMemoryView(),
+    openMemoryView: () => void host.views().activateMemoryView(),
     consolidateMemory: () => void host.memory().consolidateMemory(),
     enrichNoteAsSource: (file) => void host.enrichment().runEnrich(file),
-    openSourceInbox: () => void host.activateInboxView(),
-    openSystem: () => void host.activateSystem(),
+    openSourceInbox: () => void host.views().activateInboxView(),
+    openSystem: () => void host.views().activateSystem(),
     exportClipperTemplates: () => void host.clipperSetup().exportTemplates(),
     seedOntology: () => void host.onboarding().seedOntology(),
     optimizeBrain: () => void host.optimize().reviewTagMerges(() => undefined),

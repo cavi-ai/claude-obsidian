@@ -19,7 +19,7 @@ export type ChatSessions = Pick<SessionActions, "archive" | "distill" | "fork" |
 
 export type ComposerHost = Pick<ClaudeCompanionPlugin, "captureWebPage" | "router" | "saveSettings" | "settings">;
 
-export type TranscriptHost = Pick<ClaudeCompanionPlugin, "activateRelatedView" | "companionWorkspaceContext" | "research" | "router" | "settings">;
+export type TranscriptHost = Pick<ClaudeCompanionPlugin, "research" | "router" | "settings" | "views">;
 
 export type SetupCardHost = Pick<ClaudeCompanionPlugin, "onboarding" | "router" | "saveSettings" | "secrets" | "settings">;
 
@@ -30,13 +30,13 @@ export type ChatViewHost = ComposerHost & TranscriptHost & SetupCardHost & Omit<
   commandActions: () => Pick<CommandActions, PluginSlashAction>;
 } & Pick<
   ClaudeCompanionPlugin,
-  | "agentTools" | "callExternalMcp" | "captureConversation" | "chatProjectFor" | "cliTurnRunner" | "composeSystemPrompt"
-  | "externalMcpTools" | "interruptCliTurn" | "listChatProjects" | "loadedOntology" | "promptTemplates"
-  | "research" | "router" | "runWorkflow" | "saveSettings" | "settings" | "turnService"
+  | "agentTools" | "callExternalMcp" | "chatProjectFor" | "cliTurnRunner" | "composeSystemPrompt"
+  | "externalMcpTools" | "interruptCliTurn" | "listChatProjects" | "loadedOntology" | "memory" | "promptTemplates"
+  | "research" | "router" | "saveSettings" | "settings" | "turnService" | "views"
 >;
 
 export type HeaderHost = { conversations: () => HeaderConversations; sessionActions: () => ChatSessions } & Pick<
   ClaudeCompanionPlugin,
-  | "activateInboxView" | "activateRelatedView" | "companionChrome" | "composeSystemPrompt" | "deleteActiveConversation"
-  | "mcpStats" | "openNewChatTab" | "openSessionPicker" | "publishing" | "research" | "router" | "saveSettings" | "setMcpEnabled" | "settings"
+  | "composeSystemPrompt" | "deleteActiveConversation" | "mcpStats" | "memory" | "publishing" | "research" | "router"
+  | "saveSettings" | "setMcpEnabled" | "settings" | "shell" | "views"
 >;

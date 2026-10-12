@@ -29,7 +29,13 @@ function rig(): Rig {
   const orders = group("orders", ["createStandingOrder", "pickStandingOrder"]);
   const clipperSetup = group("clipperSetup", ["exportTemplates"]);
   const onboarding = group("onboarding", ["seedOntology", "openSetupWizard"]);
+  const views = group("views", [
+    "openNewChatTab", "generateArtifactFromContext", "activateRelatedView", "openWorkflowPicker",
+    "activateMemoryView", "activateInboxView", "activateSystem",
+  ]);
+  const noteFlows = group("noteFlows", ["enrichNoteFlow", "reviewLinkSuggestions", "suggestFrontmatterForActiveNote"]);
   const clearChat = fn("view.clearChat");
+  views.activateView = fn("views.activateView", async () => ({ clearChat }));
   const host = {
     app: { workspace: { getActiveViewOfType: fn("workspace.getActiveViewOfType", () => ({ file })) } },
     settings: { sourceCaptureEnabled: true, ontologyEnabled: true },
@@ -38,7 +44,8 @@ function rig(): Rig {
     publishing: () => publishing,
     orders: () => orders,
     conversations: () => ({ getActive: fn("conversations.getActive", () => ({ id: "c" })) }),
-    activateView: fn("activateView", async () => ({ clearChat })),
+    views: () => views,
+    noteFlows: () => noteFlows,
     semantic: () => semantic,
     memory: () => memory,
     enrichment: () => enrichment,
@@ -47,12 +54,9 @@ function rig(): Rig {
     clipperSetup: () => clipperSetup,
     onboarding: () => onboarding,
     ...flat([
-      "openNewChatTab", "generateArtifactFromContext", "startInlineEdit", "enrichNoteFlow",
-      "enableVaultSearch", "activateRelatedView", "triageClippingsWithPicker",
+      "startInlineEdit", "enableVaultSearch", "triageClippingsWithPicker",
       "browseConversations", "deleteActiveConversation",
-      "organizeClippings", "reviewLinkSuggestions", "openWorkflowPicker",
-      "suggestFrontmatterForActiveNote", "createPromptTemplate",
-      "activateMemoryView", "activateInboxView", "activateSystem",
+      "organizeClippings", "createPromptTemplate",
     ]),
   } as unknown as CommandActionsHost;
   return { host, actions: buildCommandActions(host), mocks };
@@ -63,16 +67,16 @@ const ignore = new Set(["workspace.getActiveViewOfType", "conversations.getActiv
 type Row = [key: keyof CommandActions, args: unknown[], expected: Array<[mock: string, args?: unknown[]]>];
 
 const ROWS: Row[] = [
-  ["openChat", [], [["activateView", []]]],
-  ["newChat", [], [["activateView", []], ["view.clearChat", []]]],
-  ["newChatTab", [], [["openNewChatTab", []]]],
+  ["openChat", [], [["views.activateView", []]]],
+  ["newChat", [], [["views.activateView", []], ["view.clearChat", []]]],
+  ["newChatTab", [], [["views.openNewChatTab", []]]],
   ["generatePlanFromNote", [], [["research.generatePlanFromNote", []]]],
-  ["generateArtifactFromContext", [], [["generateArtifactFromContext", []]]],
+  ["generateArtifactFromContext", [], [["views.generateArtifactFromContext", []]]],
   ["editWithClaude", [editor, view], [["startInlineEdit", [editor, view]]]],
-  ["enrichNote", [file], [["enrichNoteFlow", [file]]]],
+  ["enrichNote", [file], [["noteFlows.enrichNoteFlow", [file]]]],
   ["enableVaultSearch", [], [["enableVaultSearch", []]]],
   ["rebuildSemanticIndex", [], [["semantic.rebuildSemanticIndex", []]]],
-  ["openRelatedNotes", [], [["activateRelatedView", []]]],
+  ["openRelatedNotes", [], [["views.activateRelatedView", []]]],
   ["openResearchDesk", [], [["research.activateResearchDesk", []]]],
   ["triageClippings", [], [["triageClippingsWithPicker", []]]],
   ["startResearchFromActiveNote", [], [["research.startResearchFromActiveNote", []]]],
@@ -84,18 +88,18 @@ const ROWS: Row[] = [
   ["organizeClippings", [], [["organizeClippings", []]]],
   ["dispatchCloudSession", [], [["publishing.dispatchCloudSession", []]]],
   ["pullCloudReplies", [], [["publishing.pullCloudReplies", []]]],
-  ["reviewLinkSuggestions", [], [["reviewLinkSuggestions", []]]],
-  ["openWorkflowPicker", [], [["openWorkflowPicker", []]]],
-  ["suggestFrontmatterForActiveNote", [], [["suggestFrontmatterForActiveNote", []]]],
+  ["reviewLinkSuggestions", [], [["noteFlows.reviewLinkSuggestions", []]]],
+  ["openWorkflowPicker", [], [["views.openWorkflowPicker", []]]],
+  ["suggestFrontmatterForActiveNote", [], [["noteFlows.suggestFrontmatterForActiveNote", []]]],
   ["createPromptTemplate", [], [["createPromptTemplate", []]]],
   ["createStandingOrder", [], [["orders.createStandingOrder", []]]],
   ["runStandingOrder", [], [["orders.pickStandingOrder", []]]],
   ["openSessionPicker", [], [["memory.openSessionPicker", []]]],
-  ["openMemoryView", [], [["activateMemoryView", []]]],
+  ["openMemoryView", [], [["views.activateMemoryView", []]]],
   ["consolidateMemory", [], [["memory.consolidateMemory", []]]],
   ["enrichNoteAsSource", [file], [["enrichment.runEnrich", [file]]]],
-  ["openSourceInbox", [], [["activateInboxView", []]]],
-  ["openSystem", [], [["activateSystem", []]]],
+  ["openSourceInbox", [], [["views.activateInboxView", []]]],
+  ["openSystem", [], [["views.activateSystem", []]]],
   ["exportClipperTemplates", [], [["clipperSetup.exportTemplates", []]]],
   ["seedOntology", [], [["onboarding.seedOntology", []]]],
   ["optimizeBrain", [], [["optimize.reviewTagMerges", [expect.any(Function)]]]],

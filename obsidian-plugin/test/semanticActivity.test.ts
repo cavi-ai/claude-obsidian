@@ -131,16 +131,14 @@ describe("semantic activity", () => {
     const file = app.vault.seed("Research/active.md", "Active note");
     Object.assign(app.workspace, { getActiveFile: () => file });
     const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-    const runActivityRecovery = vi.fn().mockResolvedValue(undefined);
     Object.assign(plugin as unknown as Record<string, unknown>, {
       app,
       manifest: { id: "claude-companion", dir: ".obsidian/plugins/claude-companion" },
       settings: { ...structuredClone(DEFAULT_SETTINGS), semanticEnabled: true, embeddingEngine: "ollama" },
       ontology: () => null,
-      linkCandidates: () => [],
-      linkedTargets: () => [],
-      runActivityRecovery,
+      noteFlows: () => ({ linkCandidates: () => [], linkedTargets: () => [] }),
     });
+    const runActivityRecovery = vi.spyOn(plugin.shell(), "runActivityRecovery").mockResolvedValue(undefined);
     vi.spyOn(plugin.semantic(), "relatedNotes").mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:11434"));
     const view = new RelatedView(new WorkspaceLeaf(app), plugin);
 

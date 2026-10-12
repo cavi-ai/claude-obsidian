@@ -21,7 +21,7 @@ export class RelatedView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private plugin: Pick<ClaudeCompanionPlugin, "activity" | "companionChrome" | "linkCandidates" | "linkedTargets" | "ontology" | "reviewLinkSuggestions" | "runActivityRecovery" | "settings"> & {
+    private plugin: Pick<ClaudeCompanionPlugin, "activity" | "noteFlows" | "ontology" | "settings" | "shell"> & {
       semantic: () => Pick<SemanticController, "embeddingRecovery" | "relatedNotes">;
     },
   ) {
@@ -69,7 +69,7 @@ export class RelatedView extends ItemView {
     this.disposeChrome = null;
     root.empty();
     root.addClass("cc-related-view");
-    this.disposeChrome = renderCompanionChrome(root, "related", "Related Notes", this.plugin.companionChrome());
+    this.disposeChrome = renderCompanionChrome(root, "related", "Related Notes", this.plugin.shell().companionChrome());
 
     const file = this.app.workspace.getActiveFile();
     this.shownPath = file?.path ?? null;
@@ -130,7 +130,7 @@ export class RelatedView extends ItemView {
         const actions = card.createDiv({ cls: "cc-embedding-recovery-actions" });
         for (const action of recovery.actions.filter(({ kind }) => kind !== "copy-details")) {
           const button = actions.createEl("button", { text: action.label });
-          button.addEventListener("click", () => void this.plugin.runActivityRecovery(activityId, action.id));
+          button.addEventListener("click", () => void this.plugin.shell().runActivityRecovery(activityId, action.id));
         }
       }
       return;
@@ -223,8 +223,8 @@ export class RelatedView extends ItemView {
   private async renderSuggestions(root: HTMLElement, file: TFile, seq: number): Promise<void> {
     const content = await this.app.vault.cachedRead(file);
     if (seq !== this.renderSeq) return;
-    const mentions = findUnlinkedMentions(content, this.plugin.linkCandidates(), file.path);
-    const suggestions = buildSuggestions(mentions, [], this.plugin.linkedTargets(file)).filter((s) => s.mention);
+    const mentions = findUnlinkedMentions(content, this.plugin.noteFlows().linkCandidates(), file.path);
+    const suggestions = buildSuggestions(mentions, [], this.plugin.noteFlows().linkedTargets(file)).filter((s) => s.mention);
     if (suggestions.length === 0) return;
 
     root.createDiv({ cls: "cc-eyebrow", text: "LINK SUGGESTIONS" });
@@ -247,7 +247,7 @@ export class RelatedView extends ItemView {
     }
     if (suggestions.length > 1) {
       const all = root.createEl("button", { cls: "cc-related-link-all", text: `Review & link all (${suggestions.length})` });
-      all.addEventListener("click", () => void this.plugin.reviewLinkSuggestions(file));
+      all.addEventListener("click", () => void this.plugin.noteFlows().reviewLinkSuggestions(file));
     }
   }
 
