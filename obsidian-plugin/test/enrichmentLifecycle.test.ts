@@ -62,7 +62,6 @@ function inboxPlugin(
     settings: { ...DEFAULT_SETTINGS, sourceCaptureEnabled: true, sourceInboxFolder: "Clippings" },
     views: () => ({ enrichInboxItem }),
     utilityRouting: () => ({ backendLabel: () => "Ollama · utility-model" }),
-    listQueuedEdits: () => [],
     suspendReindex: () => () => {},
   });
   return plugin;
@@ -462,7 +461,6 @@ describe("enrichment lifecycle", () => {
         openaiCompatModel: "remote-model",
       },
       suspendReindex: () => () => {},
-      listQueuedEdits: () => [],
     });
     vi.spyOn(plugin.router().openaiCompat, "complete").mockImplementation(async () => {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
@@ -519,7 +517,6 @@ describe("enrichment lifecycle", () => {
     const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
     Object.assign(plugin, {
       _enrichment: controller,
-      researchRefreshTimer: null,
     });
 
     controller.queueEnrich(file);

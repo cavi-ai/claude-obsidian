@@ -17,8 +17,6 @@ function harnessPlugin(app: App, mutate: (settings: typeof DEFAULT_SETTINGS) => 
     enrichRecentlyWritten: new Set<string>(),
     enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
     reindexTimer: null,
-    researchRefreshTimer: null,
-    inboxBadgeTimer: null,
   });
   return plugin;
 }

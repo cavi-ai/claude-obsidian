@@ -25,8 +25,6 @@ describe("plugin MCP lifecycle", () => {
       mcpSignature: null,
       vaultTools: null,
       reindexTimer: null,
-      researchRefreshTimer: null,
-      inboxBadgeTimer: null,
     });
 
     const syncing = plugin.syncMcpServer();

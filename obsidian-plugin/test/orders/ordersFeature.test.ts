@@ -146,6 +146,20 @@ describe("OrdersFeature start", () => {
     expect(refs).toHaveLength(6);
   });
 
+  it("forwards created notes and metadata changes to the standing orders", () => {
+    const { app, feature } = rig();
+    const noteEvent = vi.spyOn(feature.standingOrders(), "noteEvent").mockResolvedValue(undefined);
+    feature.start();
+    const file = app.vault.getAbstractFileByPath("Notes/Other.md");
+    const fire = (source: unknown, name: string, ...args: unknown[]): void => (source as { trigger(n: string, ...a: unknown[]): void }).trigger(name, ...args);
+    fire(app.vault, "create", file);
+    expect(noteEvent).toHaveBeenCalledTimes(1);
+    expect(noteEvent).toHaveBeenLastCalledWith("Notes/Other.md");
+    fire(app.metadataCache, "changed", file);
+    expect(noteEvent).toHaveBeenCalledTimes(2);
+    expect(noteEvent).toHaveBeenLastCalledWith("Notes/Other.md");
+  });
+
   it("refreshes once, a second after the last change in the templates folder", async () => {
     vi.useFakeTimers();
     const { app, feature } = rig();
