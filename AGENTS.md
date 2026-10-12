@@ -77,7 +77,7 @@ CI (`.github/workflows/obsidian-plugin-ci.yml`) runs `verify:version`, typecheck
 - **`enrich/noteEnrich.ts`** — right-click "Tidy with Claude": a model-driven lint of a note's markdown returned as a full cleaned copy, turned into reviewable edits by `diffToEdits`. Pure; the model call is injected.
 - **`vault/vaultFiles.ts`** — the shared vault-file helpers (folder creation, unique paths) used by `artifactStore`, memory notes, the MCP vault tools, and `main.ts`.
 - **`view/ChatView.ts`** — the side-panel chat UI (streaming, context pills, expandable tool chips in agent mode, per-message Copy/Insert/Save). `view/BatchDiffModal.ts` reviews many notes in one pass over the pure `view/batchDiffState.ts` selection model; `view/inboxRefresh.ts` coalesces Inbox rescans and drops superseded ones.
-- **`settings.ts` / `types.ts`** — settings tab and `PluginSettings` / `DEFAULT_SETTINGS`.
+- **`settings.ts` / `types.ts`** — settings tab shell and `PluginSettings` / `DEFAULT_SETTINGS`. `settingsItems/` holds one module per page builder (each `xItems(ctx)` takes a `Pick` of the plugin members it uses), `codecs.ts` (control value codecs), `tiers.ts` (basic/advanced tiering), and `actions.ts` (the pure settings mutations the handlers call).
 
 ### Testability pattern
 
