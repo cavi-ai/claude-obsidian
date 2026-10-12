@@ -27,6 +27,7 @@ function plugin(overrides: Record<string, unknown> = {}, fakes = conversationFak
     mcpStats: () => ({ running: false, port: null, activeRequests: 0, handledRequests: 0 }),
     companionChrome: () => chromeDeps,
     promptTemplates: async () => [],
+    commandActions: () => ({}),
     ...fakes.host,
     secrets: () => ({ available: () => false }),
     composeSystemPrompt: () => "system",
@@ -71,6 +72,27 @@ describe("distill replaces save-to-vault", () => {
     const view = await openView(p);
     await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "save", description: "", kind: "action", action: "save" });
     expect(fakes.distill).toHaveBeenCalledWith("c1");
+  });
+
+  it("a plugin-level slash command runs through the command actions and clears the composer", async () => {
+    const generatePlanFromNote = vi.fn(async () => undefined);
+    const p = plugin({ commandActions: () => ({ generatePlanFromNote }) });
+    const view = await openView(p);
+    const input = (view as unknown as { inputEl: { value: string } }).inputEl;
+    input.value = "/plan";
+    await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "plan", description: "", kind: "action", action: "generatePlanFromNote" });
+    expect(generatePlanFromNote).toHaveBeenCalledOnce();
+    expect(input.value).toBe("");
+  });
+
+  it("an unknown action id notices and runs nothing", async () => {
+    clearNotices();
+    const generatePlanFromNote = vi.fn();
+    const p = plugin({ commandActions: () => ({ generatePlanFromNote }) });
+    const view = await openView(p);
+    await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "bogus", description: "", kind: "action", action: "bogus" });
+    expect(generatePlanFromNote).not.toHaveBeenCalled();
+    expect(getNoticeMessages()).toContain("Unknown command: /bogus");
   });
 
   it("files into session memory after a successful distill when ingest-on-save is on", async () => {

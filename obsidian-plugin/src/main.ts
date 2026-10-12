@@ -860,8 +860,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Everything `companionCommands` needs, so the definitions stay free of the plugin. */
-  private commandActions(): CommandActions {
-    return {
+  private commandActionsCache?: CommandActions;
+
+  commandActions(): CommandActions {
+    return this.commandActionsCache ??= {
       activeMarkdownFile: () => this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null,
       lastMarkdownFile: () => this.lastMarkdownFile ?? null,
       hasActiveConversation: () => !!this.conversations().getActive(),
@@ -872,30 +874,31 @@ export default class ClaudeCompanionPlugin extends Plugin {
       openChat: () => void this.activateView(),
       newChat: () => void this.activateView().then((view) => view?.clearChat()),
       newChatTab: () => void this.openNewChatTab(),
-      generatePlanFromNote: () => void this.generatePlanFromNote(),
-      generateArtifactFromContext: () => void this.generateArtifactFromContext(),
+      generatePlanFromNote: () => this.generatePlanFromNote(),
+      generateArtifactFromContext: () => this.generateArtifactFromContext(),
       editWithClaude: (editor, view) => void this.startInlineEdit(editor, view),
       enrichNote: (file) => void this.enrichNoteFlow(file),
       enableVaultSearch: () => void this.enableVaultSearch(),
       rebuildSemanticIndex: () => void this.semantic().rebuildSemanticIndex(),
       openRelatedNotes: () => void this.activateRelatedView(),
-      openResearchDesk: () => void this.activateResearchDesk(),
+      openResearchDesk: () => this.activateResearchDesk(),
       triageClippings: () => void this.triageClippingsWithPicker(),
       startResearchFromActiveNote: () => void this.startResearchFromActiveNote(),
       showSemanticIndexStatus: () => void this.semantic().showSemanticIndexStatus(),
       browseConversations: () => void this.browseConversations(),
-      deleteActiveConversation: () => void this.deleteActiveConversation(),
-      handoffToBuild: () => void this.handoffToBuild(),
+      deleteActiveConversation: () => this.deleteActiveConversation(),
+      handoffToBuild: () => this.handoffToBuild(),
       markNoteAsPlan: (file) => void this.markNoteAsPlan(file),
       organizeClippings: () => void this.organizeClippings(),
       dispatchCloudSession: () => void this.dispatchCloudSession(),
       pullCloudReplies: () => void this.pullCloudReplies(),
       reviewLinkSuggestions: () => void this.reviewLinkSuggestions(),
-      openWorkflowPicker: () => void this.openWorkflowPicker(),
+      openWorkflowPicker: () => this.openWorkflowPicker(),
+      suggestFrontmatterForActiveNote: () => this.suggestFrontmatterForActiveNote(),
       createPromptTemplate: () => void this.createPromptTemplate(),
       createStandingOrder: () => void this.createStandingOrder(),
       runStandingOrder: () => this.pickStandingOrder(),
-      openSessionPicker: () => void this.memory().openSessionPicker(),
+      openSessionPicker: () => this.memory().openSessionPicker(),
       openMemoryView: () => void this.activateMemoryView(),
       consolidateMemory: () => void this.memory().consolidateMemory(),
       enrichNoteAsSource: (file) => void this.enrichment().runEnrich(file),
