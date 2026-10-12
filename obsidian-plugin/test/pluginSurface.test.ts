@@ -125,6 +125,14 @@ describe("plugin conversation surface", () => {
     expect(plugin.publish()).toBe(plugin.publishing().publish());
   });
 
+  it("reports the device chat idle without constructing the client", () => {
+    const plugin = builtPlugin();
+    expect(plugin.deviceChatBusy()).toBe(false);
+    expect((plugin as unknown as { _deviceChat?: unknown })._deviceChat).toBeUndefined();
+    Object.assign(plugin, { _deviceChat: { busy: () => true } });
+    expect(plugin.deviceChatBusy()).toBe(true);
+  });
+
   it.each(FORWARDERS)("has no %s forwarder", (name) => {
     expect(name in ClaudeCompanionPlugin.prototype).toBe(false);
   });

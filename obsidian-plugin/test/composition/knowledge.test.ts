@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TFile } from "obsidian";
 
 type Deps = Record<string, (...args: never[]) => unknown> & Record<string, unknown>;
@@ -69,7 +69,7 @@ vi.mock("../../src/tags/vaultTags", () => ({ vaultVocabulary: vi.fn(() => ({ voc
 vi.mock("../../src/tags/resolve", () => ({ resolveTags: vi.fn(() => [{ tag: "a" }, { tag: "b" }]) }));
 vi.mock("../../src/memory/nodeReader", () => ({ nodeSessionReader: { reader: true }, defaultProjectsRoot: "/projects" }));
 
-import { Platform, normalizePath } from "obsidian";
+import { Platform, clearNotices, getNoticeMessages, normalizePath } from "obsidian";
 import {
   buildClippings,
   buildEnrichment,
@@ -136,7 +136,18 @@ beforeEach(() => {
   captured.modals = [];
   vi.mocked(resolveTags).mockClear();
   vi.mocked(vaultVocabulary).mockClear();
+  clearNotices();
 });
+
+afterEach(() => {
+  Platform.isMobile = false;
+  Platform.isDesktop = true;
+});
+
+function setMobile(): void {
+  Platform.isMobile = true;
+  Platform.isDesktop = false;
+}
 
 describe("buildSemantic", () => {
   function rig(manifest: { id: string; dir?: string }) {
@@ -177,6 +188,18 @@ describe("buildSemantic", () => {
     expect(d.isMobile).toBe(Platform.isMobile);
     expect(d.mobileSourceNoteMaxBytes).toBe(5 * 1024 * 1024);
     expect(d.mobilePdfMaxBytes).toBe(10 * 1024 * 1024);
+  });
+
+  it("reads the mobile flag from the platform", () => {
+    setMobile();
+    rig({ id: "x" });
+    expect(captured.semantic!.isMobile).toBe(true);
+  });
+
+  it("shows notices", () => {
+    rig({ id: "x" });
+    call(captured.semantic, "notice", "m", 5);
+    expect(getNoticeMessages()).toEqual(["m"]);
   });
 
   it("maps the adapter lambdas to app.vault.adapter", async () => {
@@ -272,6 +295,18 @@ describe("buildEnrichment", () => {
     expect(d.mobileSourceNoteMaxBytes).toBe(5 * 1024 * 1024);
   });
 
+  it("reads the mobile flag from the platform", () => {
+    setMobile();
+    rig();
+    expect(captured.enrichment!.isMobile).toBe(true);
+  });
+
+  it("shows notices", () => {
+    rig();
+    call(captured.enrichment, "notice", "m", 5);
+    expect(getNoticeMessages()).toEqual(["m"]);
+  });
+
   it("resolves tags against the vault vocabulary and returns the tag names", () => {
     const { host } = rig();
     expect(call(captured.enrichment, "resolveTags", ["x", "y"])).toEqual(["a", "b"]);
@@ -352,6 +387,18 @@ describe("buildMemory", () => {
     expect(d.normalizePath).toBe(normalizePath);
     call(d, "refreshMemoryView");
     expect(m.refreshMemoryView).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the mobile flag from the platform", () => {
+    setMobile();
+    rig();
+    expect(captured.memory!.isMobile).toBe(true);
+  });
+
+  it("shows notices", () => {
+    rig();
+    call(captured.memory, "notice", "m", 5);
+    expect(getNoticeMessages()).toEqual(["m"]);
   });
 
   it("flat-maps CLI session ids over the conversations and forwards the active one", () => {
