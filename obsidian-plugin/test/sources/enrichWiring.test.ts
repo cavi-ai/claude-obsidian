@@ -92,7 +92,6 @@ function mobilePlugin(overrides: Partial<typeof DEFAULT_SETTINGS> = {}): {
     ...overrides,
   };
   Object.assign(plugin, {
-    listQueuedEdits: () => [],
     app,
     enrichTimers: new Map<string, number>(),
     enrichRecentlyWritten: new Set<string>(),

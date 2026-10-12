@@ -1,5 +1,5 @@
 import { App } from "obsidian";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActivityStore } from "../src/activity/store";
 import { ConversationsController } from "../src/conversations/controller";
 import { SessionActions } from "../src/conversations/sessionActions";
@@ -127,5 +127,21 @@ describe("plugin conversation surface", () => {
 
   it.each(FORWARDERS)("has no %s forwarder", (name) => {
     expect(name in ClaudeCompanionPlugin.prototype).toBe(false);
+  });
+});
+
+describe("plugin unload timers", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("clears the pending onboarding, view, research and orders timers", () => {
+    vi.useFakeTimers();
+    const plugin = builtPlugin();
+    plugin.onboarding().scheduleOntologyReload();
+    plugin.views().scheduleInboxBadgeSync();
+    plugin.research().scheduleResearchRefresh("Research/A/Project.md");
+    (plugin.orders() as unknown as { scheduleOrdersRefresh(): void }).scheduleOrdersRefresh();
+    expect(vi.getTimerCount()).toBe(4);
+    plugin.onunload();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

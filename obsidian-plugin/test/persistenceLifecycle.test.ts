@@ -188,6 +188,25 @@ describe("optimize type weave state", () => {
   });
 });
 
+describe("data.json layout", () => {
+  it("writes the top-level keys in a fixed order", async () => {
+    let raw = "";
+    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
+    Object.assign(plugin as unknown as Record<string, unknown>, {
+      app: new App(),
+      settings: structuredClone(DEFAULT_SETTINGS),
+      convState: { conversations: [], activeId: null },
+      optimizeState: { dismissed: [], verdicts: {}, dismissedLinks: [], typeVerdicts: {}, dismissedTypes: [], lastBackgroundRun: null },
+      saveData: async (data: unknown) => { raw = JSON.stringify(data); },
+    });
+    await (plugin as unknown as { persist(): Promise<void> }).persist();
+    expect(Object.keys(JSON.parse(raw) as object)).toEqual([
+      "settings", "conversations", "activeConversationId", "standingOrders", "orderEditQueue",
+      "published", "optimize", "buildRuns", "activeBuildRunId",
+    ]);
+  });
+});
+
 describe("retired desk preferences", () => {
   it("drops researchDeskPreferences from persisted data on the next write", async () => {
     setApiVersion("1.11.5");

@@ -20,7 +20,6 @@ function harness(clipperSetupNeeded = true): { app: App; view: InboxView; organi
     organizeClippings,
     triageClippingsWithPicker,
     clipperSetup: () => ({ setupNeeded: () => clipperSetupNeeded }),
-    listQueuedEdits: () => [],
   });
   return { app, view: new InboxView(new WorkspaceLeaf(app), plugin), organizeClippings, triageClippingsWithPicker };
 }
