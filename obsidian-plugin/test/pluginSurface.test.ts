@@ -4,6 +4,7 @@ import { ActivityStore } from "../src/activity/store";
 import { ConversationsController } from "../src/conversations/controller";
 import { SessionActions } from "../src/conversations/sessionActions";
 import ClaudeCompanionPlugin from "../src/main";
+import { SemanticController } from "../src/semantic/controller";
 import { DEFAULT_SETTINGS } from "../src/types";
 
 const FORWARDERS = [
@@ -12,6 +13,9 @@ const FORWARDERS = [
   "capActiveConversationTurn", "activeConversationId", "setActiveConversation", "startNewConversation", "setChatProject",
   "deleteConversation", "renameConversation", "unarchiveConversation", "distillConversation", "archiveConversation",
   "forkConversation", "forkFromSummary",
+  "embeddingRecovery", "builtinEmbedder", "builtinModelCached", "clearBuiltinModel", "indexer", "promptSemanticModelIfNeeded",
+  "downloadBuiltinModelAndIndex", "invalidateIndexer", "semanticSearch", "relatedNotes", "relatedForTools",
+  "rebuildSemanticIndex", "showSemanticIndexStatus", "queueReindex", "suspendReindex", "canEmbedWithoutDownload",
 ];
 
 function builtPlugin(): ClaudeCompanionPlugin {
@@ -21,6 +25,7 @@ function builtPlugin(): ClaudeCompanionPlugin {
     settings: structuredClone(DEFAULT_SETTINGS),
     convState: { conversations: [], activeId: null },
     _activity: new ActivityStore({ successRetentionMs: 60_000 }),
+    manifest: { id: "claude-companion", dir: ".obsidian/plugins/claude-companion" },
     saveData: async () => {},
   });
   return plugin;
@@ -37,6 +42,12 @@ describe("plugin conversation surface", () => {
     const plugin = builtPlugin();
     expect(plugin.conversations()).toBe(plugin.conversations());
     expect(plugin.sessionActions()).toBe(plugin.sessionActions());
+  });
+
+  it("builds one semantic controller", () => {
+    const plugin = builtPlugin();
+    expect(plugin.semantic()).toBeInstanceOf(SemanticController);
+    expect(plugin.semantic()).toBe(plugin.semantic());
   });
 
   it.each(FORWARDERS)("has no %s forwarder", (name) => {

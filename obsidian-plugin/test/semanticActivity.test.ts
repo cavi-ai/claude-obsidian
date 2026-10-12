@@ -139,9 +139,9 @@ describe("semantic activity", () => {
       ontology: () => null,
       linkCandidates: () => [],
       linkedTargets: () => [],
-      relatedNotes: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:11434"); },
       runActivityRecovery,
     });
+    vi.spyOn(plugin.semantic(), "relatedNotes").mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:11434"));
     const view = new RelatedView(new WorkspaceLeaf(app), plugin);
 
     await view.render();

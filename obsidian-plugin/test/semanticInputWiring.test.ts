@@ -19,8 +19,6 @@ function mobilePlugin(app: App): ClaudeCompanionPlugin {
     settings: { ...structuredClone(DEFAULT_SETTINGS), semanticEnabled: true, embeddingEngine: "builtin" },
     _indexer: null,
     indexerModel: null,
-    builtinEmbedder: () => ({ embed: async (input: string[]) => input.map(() => [1]) }),
-    canEmbedWithoutDownload: async () => true,
   });
   return plugin;
 }
@@ -57,7 +55,7 @@ describe("mobile semantic index file", () => {
     embedsLocally();
     const plugin = mobilePlugin(app);
     const { read, write } = indexFiles(app, { [SHARED]: 17_699_055 });
-    const indexer = plugin.indexer()!;
+    const indexer = plugin.semantic().indexer()!;
 
     await expect(indexer.stats()).resolves.toEqual({ notes: 0, chunks: 0 });
     const result = await indexer.build({ force: true });
@@ -74,7 +72,7 @@ describe("mobile semantic index file", () => {
     const app = new App();
     const plugin = mobilePlugin(app);
     const { read } = indexFiles(app, { [SHARED]: 1024 });
-    await plugin.indexer()!.stats();
+    await plugin.semantic().indexer()!.stats();
     expect(read.mock.calls.map(([path]) => path)).toEqual([SHARED]);
   });
 
@@ -84,7 +82,7 @@ describe("mobile semantic index file", () => {
     const app = new App();
     const plugin = mobilePlugin(app);
     const { read } = indexFiles(app, { [SHARED]: 1024, [PHONE]: 2048 });
-    await plugin.indexer()!.stats();
+    await plugin.semantic().indexer()!.stats();
     expect(read.mock.calls.map(([path]) => path)).toEqual([PHONE]);
   });
 
@@ -95,7 +93,7 @@ describe("mobile semantic index file", () => {
     const plugin = mobilePlugin(app);
     const { read } = indexFiles(app, { [SHARED]: 1024, [PHONE]: 2048 });
     Object.assign(app.vault.adapter, { stat: async () => null });
-    await expect(plugin.indexer()!.stats()).resolves.toEqual({ notes: 0, chunks: 0 });
+    await expect(plugin.semantic().indexer()!.stats()).resolves.toEqual({ notes: 0, chunks: 0 });
     expect(read).not.toHaveBeenCalled();
   });
 
@@ -105,7 +103,7 @@ describe("mobile semantic index file", () => {
     embedsLocally();
     const plugin = mobilePlugin(app);
     const { read, write } = indexFiles(app, { [SHARED]: 17_699_055, [PHONE]: 2048 });
-    await plugin.indexer()!.build({ force: true });
+    await plugin.semantic().indexer()!.build({ force: true });
     expect(read.mock.calls.map(([path]) => path)).toEqual([SHARED]);
     expect(write.mock.calls.map(([path]) => path)).toEqual([SHARED]);
   });
@@ -132,7 +130,7 @@ describe("mobile semantic input limits", () => {
     file.stat.size = (5 * 1024 * 1024) + 1;
     const read = vi.spyOn(app.vault, "cachedRead");
 
-    const result = await mobilePlugin(app).indexer()!.build({ force: true });
+    const result = await mobilePlugin(app).semantic().indexer()!.build({ force: true });
 
     expect(read).not.toHaveBeenCalled();
     expect(result).toMatchObject({ indexed: 0, skipped: 1, failureCount: 1 });
@@ -147,7 +145,7 @@ describe("mobile semantic input limits", () => {
     file.stat.size = (10 * 1024 * 1024) + 1;
     const read = vi.spyOn(app.vault, "readBinary");
 
-    const result = await mobilePlugin(app).indexer()!.build({ force: true });
+    const result = await mobilePlugin(app).semantic().indexer()!.build({ force: true });
 
     expect(read).not.toHaveBeenCalled();
     expect(result).toMatchObject({ indexed: 0, skipped: 1, failureCount: 1 });

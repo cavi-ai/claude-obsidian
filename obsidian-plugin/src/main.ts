@@ -126,7 +126,6 @@ import { findOrphans } from "./optimize/linkScan";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
-import { SemanticIndexer } from "./semantic/indexer";
 import { extractPdfPages } from "./semantic/pdf";
 import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
@@ -136,7 +135,6 @@ import { credentialSetupInputs, needsCredentialSetup, type SetupInputs } from ".
 import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
 import { wizardPlan, wizardPlanExplicit, WIZARD_DISMISSED_SETTINGS, type WizardState, type WizardStep } from "./onboarding/wizard";
 import { SetupWizardModal, type SetupWizardDependencies } from "./view/SetupWizardModal";
-import type { TransformersEmbedder } from "./semantic/transformers/embedder";
 import { builtinModelById } from "./semantic/transformers/model";
 import {
   type Conversation,
@@ -175,7 +173,6 @@ import { ActivityStore } from "./activity/store";
 import { beginActivity } from "./activity/progress";
 import type { CompanionChromeDependencies } from "./view/companionChrome";
 import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./view/quickOptions";
-import type { EmbeddingRecovery } from "./semantic/recovery";
 import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
 import { verifyClipperNote } from "./sources/clipperVerification";
 import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
@@ -444,7 +441,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
   private _semantic: SemanticController | null = null;
-  private semantic(): SemanticController {
+  semantic(): SemanticController {
     return (this._semantic ??= new SemanticController({
       settings: () => this.settings,
       saveSettings: () => this.saveSettings(),
@@ -500,7 +497,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       enrichDiagnostics: () => this.enrichDiagnostics,
       router: () => this.router(),
       resolveTags: (tags) => resolveTags(tags, vaultVocabulary(this.app)).map((r) => r.tag),
-      suspendReindex: () => this.suspendReindex(),
+      suspendReindex: () => this.semantic().suspendReindex(),
       isUtilityLifecycleActive: (g) => this.isUtilityLifecycleActive(g),
       assertUtilityLifecycleActive: (g) => this.assertUtilityLifecycleActive(g),
       utilityLifecycleEnded: () => this.utilityLifecycleEnded,
@@ -692,7 +689,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       icon: "sparkles",
       factory: (controller, containerEl) => new SimilarBasesView(controller, containerEl, {
         semanticEnabled: () => this.settings.semanticEnabled,
-        related: (path, k, accept) => this.relatedForTools(path, k, accept),
+        related: (path, k, accept) => this.semantic().relatedForTools(path, k, accept),
       }),
       options: () => [{ type: "slider", key: "limit", displayName: "Results", min: 5, max: 50, step: 1, default: 20 }],
     });
@@ -742,15 +739,15 @@ export default class ClaudeCompanionPlugin extends Plugin {
       // off). Registered AFTER layout-ready so Obsidian's initial vault scan
       // doesn't fire create/modify for every note and stampede the indexer;
       // catchUpIndex covers notes that changed while Obsidian was closed.
-      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
-      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.queueReindex(f.path); }));
+      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.semantic().queueReindex(f.path); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && (f.extension === "md" || (f.extension === "pdf" && this.settings.semanticIndexPdfs))) this.semantic().queueReindex(f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => {
         if (f instanceof TFile && (f.extension === "md" || f.extension === "csv") && this.settings.sourceCaptureEnabled && this.settings.sourceEnrichOnCreate) this.enrichment().queueEnrich(f);
       }));
       this.registerEvent(this.app.vault.on("create", (f) => {
         if (f instanceof TFile && f.extension === "md") this.queueClipperVerification(f);
       }));
-      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.indexer()?.removeNote(f.path); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().renameNote(oldPath, f.path); }));
       this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
@@ -880,12 +877,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       editWithClaude: (editor, view) => void this.startInlineEdit(editor, view),
       enrichNote: (file) => void this.enrichNoteFlow(file),
       enableVaultSearch: () => void this.enableVaultSearch(),
-      rebuildSemanticIndex: () => void this.rebuildSemanticIndex(),
+      rebuildSemanticIndex: () => void this.semantic().rebuildSemanticIndex(),
       openRelatedNotes: () => void this.activateRelatedView(),
       openResearchDesk: () => void this.activateResearchDesk(),
       triageClippings: () => void this.triageClippingsWithPicker(),
       startResearchFromActiveNote: () => void this.startResearchFromActiveNote(),
-      showSemanticIndexStatus: () => void this.showSemanticIndexStatus(),
+      showSemanticIndexStatus: () => void this.semantic().showSemanticIndexStatus(),
       browseConversations: () => void this.browseConversations(),
       deleteActiveConversation: () => void this.deleteActiveConversation(),
       handoffToBuild: () => void this.handoffToBuild(),
@@ -1663,7 +1660,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       case "embedding-health":
       case "embedding-settings": this.openCompanionSettings(); return;
       case "rebuild-index":
-      case "retry-index": await this.rebuildSemanticIndex(); return;
+      case "retry-index": await this.semantic().rebuildSemanticIndex(); return;
       case "consolidate-memory": await this.memory().consolidateMemory(); return;
       case "refresh-system":
         for (const leaf of this.app.workspace.getLeavesOfType(SYSTEM_VIEW_TYPE)) if (leaf.view instanceof SystemView) await leaf.view.render();
@@ -1671,12 +1668,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       case "clippings-inbox": await this.activateInboxView(); return;
       case "review-inbox-failures": await this.activateInboxView(); return;
       case "utility-settings": this.openCompanionSettings(); return;
-      case "download-builtin": await this.downloadBuiltinModelAndIndex(); return;
+      case "download-builtin": await this.semantic().downloadBuiltinModelAndIndex(); return;
       case "use-builtin-embeddings":
         this.settings.embeddingEngine = "builtin";
         await this.saveSettings();
-        if (!(await this.canEmbedWithoutDownload())) await this.downloadBuiltinModelAndIndex();
-        else await this.rebuildSemanticIndex();
+        if (!(await this.semantic().canEmbedWithoutDownload())) await this.semantic().downloadBuiltinModelAndIndex();
+        else await this.semantic().rebuildSemanticIndex();
         return;
       case "all-settings": this.openCompanionSettings(); return;
       default: throw new Error("That quick action is not available yet.");
@@ -1815,10 +1812,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
         onChoice: (choice) => resolve(choice === "confirm"),
       }).open();
     });
-  }
-
-  embeddingRecovery(error: unknown): EmbeddingRecovery {
-    return this.semantic().embeddingRecovery(error);
   }
 
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
@@ -2126,10 +2119,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     for (const coordinator of this._viewDiscoveryCoordinators ?? []) coordinator.clearCache();
   }
 
-  builtinEmbedder(): TransformersEmbedder { return this.semantic().builtinEmbedder(); }
-  async builtinModelCached(): Promise<boolean> { return this.semantic().builtinModelCached(); }
-  async clearBuiltinModel(): Promise<number> { return this.semantic().clearBuiltinModel(); }
-
   /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
   ontology(): OntologyRegistry | null {
     if (!this.settings.ontologyEnabled) return null;
@@ -2369,7 +2358,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   async runFirstRunPrompts(): Promise<void> {
     for (const prompt of pendingFirstRunPrompts(this.firstRunState())) {
       if (prompt === "ontology") await this.offerOntologySeed();
-      else if (prompt === "semantic") await this.promptSemanticModelIfNeeded();
+      else if (prompt === "semantic") await this.semantic().promptSemanticModelIfNeeded();
       else await this.offerDesktopIntegrations();
     }
   }
@@ -2690,10 +2679,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return {
       allowWrites,
       defaultFolder: this.settings.mcpWriteFolder,
-      semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semanticSearch(q, k, accept),
+      semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semantic().semanticSearch(q, k, accept),
       related: async (p: string, k: number) => {
         if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
-        return this.relatedForTools(p, k);
+        return this.semantic().relatedForTools(p, k);
       },
       ontology: () => this.ontology(),
       ontologyFolder: () => this.settings.ontologyFolder,
@@ -3147,21 +3136,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  // ---------- semantic index (local embeddings) ----------
-
-  indexer(): SemanticIndexer | null { return this.semantic().indexer(); }
-  async promptSemanticModelIfNeeded(): Promise<void> { return this.semantic().promptSemanticModelIfNeeded(); }
-  private async downloadBuiltinModelAndIndex(): Promise<void> { return this.semantic().downloadBuiltinModelAndIndex(); }
-  invalidateIndexer(): void { this.semantic().invalidateIndexer(); }
-  async semanticSearch(query: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; text: string }[]> { return this.semantic().semanticSearch(query, k, accept); }
-  async relatedNotes(path: string, k: number): Promise<{ path: string; score: number }[]> { return this.semantic().relatedNotes(path, k); }
-  async relatedForTools(path: string, k: number, accept?: (path: string) => boolean): Promise<{ path: string; score: number }[]> { return this.semantic().relatedForTools(path, k, accept); }
-  async rebuildSemanticIndex(): Promise<void> { return this.semantic().rebuildSemanticIndex(); }
-  async showSemanticIndexStatus(): Promise<void> { return this.semantic().showSemanticIndexStatus(); }
-  private queueReindex(path: string): void { this.semantic().queueReindex(path); }
-  suspendReindex(): () => void { return this.semantic().suspendReindex(); }
-  private async canEmbedWithoutDownload(): Promise<boolean> { return this.semantic().canEmbedWithoutDownload(); }
-
   // ---------- view ----------
 
   async activateView(): Promise<ChatView | null> {
@@ -3329,7 +3303,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       app: this.app,
       settings: () => this.settings,
       activity: () => this.activity,
-      indexer: () => this.indexer(),
+      indexer: () => this.semantic().indexer(),
       ontology: () => this.ontology(),
       orderTagTriggers: () => this.standingOrders().tagTriggers(),
       router: () => this.router(),
@@ -3364,7 +3338,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       listProjects: () => repo().listProjects(),
       auditProject: async (path) => auditProject(await repo().loadProject(path)),
       index: async () => {
-        const indexer = this.indexer();
+        const indexer = this.semantic().indexer();
         const failed = this.activity.snapshot().records
           .filter((r) => r.kind === "semantic-index" && r.state === "needs-attention")
           .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.details ?? [];
@@ -3404,7 +3378,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       safeFixes: () => controller.safeFixes(),
       openNote: (path) => void this.app.workspace.openLinkText(path, ""),
       openResearchDesk: (path) => this.activateResearchDesk(path),
-      buildIndex: () => this.rebuildSemanticIndex(),
+      buildIndex: () => this.semantic().rebuildSemanticIndex(),
       catchUpIndex: () => this.semantic().catchUpIndex(),
       openInbox: () => this.activateInboxView(),
       openSetupWizard: () => this.openSetupWizard(),

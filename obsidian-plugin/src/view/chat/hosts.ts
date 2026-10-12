@@ -3,6 +3,7 @@
 import type ClaudeCompanionPlugin from "../../main";
 import type { ConversationsController } from "../../conversations/controller";
 import type { SessionActions } from "../../conversations/sessionActions";
+import type { SemanticController } from "../../semantic/controller";
 
 export type HeaderConversations = Pick<ConversationsController, "delete" | "getActive" | "list" | "rename" | "setActive" | "unarchive">;
 
@@ -21,12 +22,12 @@ export type TranscriptHost = Pick<ClaudeCompanionPlugin, "activateRelatedView" |
 export type SetupCardHost = Pick<ClaudeCompanionPlugin, "continueOnboarding" | "router" | "saveSettings" | "secrets" | "settings">;
 
 /** The chat view's own needs plus everything it hands to the composer, header, transcript, and setup card. */
-export type ChatViewHost = ComposerHost & TranscriptHost & SetupCardHost & Omit<HeaderHost, "conversations"> & { conversations: () => ChatConversations } & Pick<
+export type ChatViewHost = ComposerHost & TranscriptHost & SetupCardHost & Omit<HeaderHost, "conversations"> & { conversations: () => ChatConversations; semantic: () => Pick<SemanticController, "semanticSearch"> } & Pick<
   ClaudeCompanionPlugin,
   | "activateResearchDesk" | "agentTools" | "callExternalMcp" | "captureConversation" | "chatProjectFor" | "cliTurnRunner" | "composeSystemPrompt"
   | "deleteActiveConversation" | "externalMcpTools" | "generateArtifactFromContext" | "generatePlanFromNote" | "handoffToBuild"
   | "interruptCliTurn" | "listChatProjects" | "loadedOntology" | "openSessionPicker" | "openWorkflowPicker" | "promptTemplates"
-  | "researchRepository" | "router" | "runWorkflow" | "saveSettings" | "semanticSearch" | "settings" | "suggestFrontmatterForActiveNote" | "turnService"
+  | "researchRepository" | "router" | "runWorkflow" | "saveSettings" | "settings" | "suggestFrontmatterForActiveNote" | "turnService"
 >;
 
 export type HeaderHost = { conversations: () => HeaderConversations; sessionActions: () => ChatSessions } & Pick<

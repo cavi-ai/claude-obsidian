@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS } from "../../src/types";
 import { hydrate, stripVerifiedSecrets, syncSecrets, type SecretStore } from "../../src/secrets/store";
 import { unavailableStore } from "../../src/secrets/store";
 import type { PublishedItem } from "../../src/publish/registry";
+import { fakeSemantic } from "../fakes/semantic";
 import type ClaudeCompanionPlugin from "../../src/main";
 
 type Row = SettingDefinitionItem & { tier?: string; render?: (setting: Setting) => void };
@@ -31,13 +32,10 @@ function stubPlugin(items: PublishedItem[] = []) {
     secretsWriteFailures: () => [],
     externalMcp: () => ({ errorFor: () => null, test: async () => ({ ok: true }) }),
     mcpRunning: () => false,
-    builtinModelCached: async () => true,
-    builtinEmbedder: () => ({ backend: () => "wasm", download: async () => {} }),
-    indexer: () => undefined,
+    semantic: () => fakeSemantic(),
     ontology: () => undefined,
     clipperTemplatesStale: () => false,
     refreshViews: () => {},
-    invalidateIndexer: () => {},
     loadOntologyOnStart: async () => {},
     openDesktopIntegrations: () => {},
     publishedItems: () => items,
