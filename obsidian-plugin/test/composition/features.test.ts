@@ -287,8 +287,10 @@ describe("buildOrders", () => {
     const ref = { ref: true };
     call("orders", "registerEvent", ref);
     expect(m.registerEvent).toHaveBeenCalledWith(ref);
+    expect(m.registerEvent.mock.contexts[0]).toBe(host);
     expect(call("orders", "registerInterval", 42)).toBe(7);
     expect(m.registerInterval).toHaveBeenCalledWith(42);
+    expect(m.registerInterval.mock.contexts[0]).toBe(host);
   });
 });
 
