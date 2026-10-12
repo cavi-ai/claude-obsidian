@@ -11,13 +11,14 @@ import { SystemView, SYSTEM_VIEW_TYPE } from "./view/SystemView";
 import { buildChat, type ChatCluster } from "./composition/chat";
 import { buildCommandActions } from "./composition/commands";
 import { buildClippings, buildEnrichment, buildMemory, buildSemantic } from "./composition/knowledge";
+import { buildBuildController, buildMcpBridge, buildOptimize } from "./composition/runtime";
 import { buildSystemDeps } from "./composition/system";
 import { vaultToolOptions } from "./composition/vaultTools";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchView, ResearchWorkbenchRedirect, RESEARCH_DESK_VIEW_TYPE, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchView";
 import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
 import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesView";
-import { ensureVaultFolder, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
+import { ensureVaultFolder, uniqueNotePath } from "./vault/vaultFiles";
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
@@ -25,11 +26,10 @@ import { PROVENANCE_LANGUAGE } from "./research/draftSections";
 import { renderProvenanceReferences } from "./view/research/provenanceReferences";
 import type { ChatTurnService } from "./chat/turnService";
 import type { MemoryController } from "./memory/controller";
-import { McpBridgeController } from "./mcp/bridgeController";
+import type { McpBridgeController } from "./mcp/bridgeController";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
 import { ProviderRouter } from "./providers/router";
-import { UtilityUnavailableError } from "./providers/endpointPolicy";
 import { UtilityRouting } from "./providers/utilityRouting";
 import { ClipperFeature } from "./sources/clipperFeature";
 import { Onboarding } from "./onboarding/onboarding";
@@ -74,9 +74,9 @@ import { codexBackend } from "./cli/backends/codex";
 import { opencodeBackend } from "./cli/backends/opencode";
 import type { CliBackend } from "./cli/backends/types";
 import { type BuildRun } from "./build/run";
-import { BuildController } from "./build/controller";
+import type { BuildController } from "./build/controller";
 import type { PublishController } from "./publish/controller";
-import { OptimizeFeature } from "./optimize/feature";
+import type { OptimizeFeature } from "./optimize/feature";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
 import { loadedOntology } from "./optimize/vaultGlue";
 import type { SemanticController } from "./semantic/controller";
@@ -100,7 +100,6 @@ import { ActivityStore } from "./activity/store";
 import { beginActivity } from "./activity/progress";
 import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
 import type { DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
-import { ConfirmModal } from "./view/ConfirmModal";
 import { NoteFlows } from "./enrich/noteFlows";
 import { ARTIFACT_MAX_TOKENS, WorkspaceViews } from "./view/workspaceViews";
 import { CompanionShell } from "./view/companionShell";
@@ -193,36 +192,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private _build: BuildController | null = null;
   private build(): BuildController {
-    return (this._build ??= new BuildController({
-      settings: () => this.settings,
-      persist: () => this.persist(),
-      isMobile: Platform.isMobile,
-      vault: {
-        cachedRead: (path) => {
-          const file = this.app.vault.getAbstractFileByPath(path);
-          return file instanceof TFile ? this.app.vault.cachedRead(file) : Promise.reject(new Error(`File not found: ${path}`));
-        },
-        processFile: async (path, fn) => {
-          const file = this.app.vault.getAbstractFileByPath(path);
-          if (file instanceof TFile) await this.app.vault.process(file, fn);
-        },
-      },
-      writeFile: async (path, content) => { await writeOrReplaceFile(this.app, path, content); },
-      ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
-      openFile: async (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-      },
-      normalizePath,
-      notice: (msg, timeout) => new Notice(msg, timeout),
-      confirm: (opts) => new Promise<boolean>((resolve) => {
-        new ConfirmModal(this.app, { ...opts, onResolve: resolve }).open();
-      }),
-      cloud: () => this.publishing().cloud(),
-      vaultBasePath: () => this.vaultBasePath(),
-      desktopProcess: () => (window as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process,
-      desktopRuntimeLoader: () => this._desktopRuntimeLoader(),
-    }));
+    return (this._build ??= buildBuildController(this, { desktopRuntimeLoader: () => this._desktopRuntimeLoader() }));
   }
   /** data.json contains several domains; serialize snapshots so an older write cannot land last. */
   private persistChain: Promise<void> = Promise.resolve();
@@ -255,32 +225,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return normalizePath(`${this.settings.memoryFolder}/${MEMORY_NOTE_BASENAME}.md`);
   }
   private mcpBridge(): McpBridgeController {
-    return (this._mcpBridge ??= new McpBridgeController({
-      settings: () => this.settings,
-      saveSettings: () => this.saveSettings(),
-      isMobile: Platform.isMobile,
+    return (this._mcpBridge ??= buildMcpBridge(this, {
       isLifecycleEnded: () => this.mcpLifecycleEnded,
       lifecycleGeneration: () => this.mcpLifecycleGeneration ?? 0,
-      buildToolOptions: () => vaultToolOptions(this, this.settings.mcpAllowWrites),
-      createTools: (opts) => new VaultTools(this.app, opts),
-      createServer: async (tools, port, token) => {
-        const { McpHttpServer } = await import("./mcp/server");
-        return new McpHttpServer(
-          {
-            port,
-            token,
-            serverInfo: { name: "obsidian-vault", version: this.manifest.version },
-            resources: composeResourceProviders(
-              substrateResourceProvider(this.app, { call: (n, a) => (tools as unknown as VaultTools).call(n, a), memoryPath: () => this.memoryNotePath() }),
-              vaultResourceProvider(this.app),
-            ),
-            prompts: catalogPromptProvider(() => this.promptTemplates()),
-          },
-          tools as unknown as VaultTools,
-          (level, message) => { if (level === "error") console.error("[Claude Companion MCP]", message); },
-        );
-      },
-      notice: (msg) => new Notice(msg),
     }));
   }
   private _semantic: SemanticController | null = null;
@@ -1276,29 +1223,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Optimize brain: tag merges, link weave, type weave. */
   optimize(): OptimizeFeature {
-    return (this._optimize ??= new OptimizeFeature({
-      app: this.app,
-      settings: () => this.settings,
-      activity: () => this.activity,
-      indexer: () => this.semantic().indexer(),
-      ontology: () => this.ontology(),
-      orderTagTriggers: () => this.standingOrders().tagTriggers(),
-      router: () => this.router(),
-      isMobile: Platform.isMobile,
-      passiveUtilitySelection: () => {
-        const selection = this.utilityRouting().runtimeSelection();
-        if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
-        throw new UtilityUnavailableError(this.utilityRouting().unavailableMessage(selection), selection);
-      },
-      assertActive: () => {
-        if (this.utilityRouting().isEnded()) throw new Error("Companion unloaded while the model check was running; no further content was sent.");
-      },
-      getState: () => this.optimizeState,
-      setState: async (next) => {
-        this.optimizeState = next;
-        await this.persist();
-      },
-    }));
+    return (this._optimize ??= buildOptimize(this, { state: { get: () => this.optimizeState, set: (next) => { this.optimizeState = next; } } }));
   }
 
   async loadedOntology(): Promise<OntologyRegistry | null> {
