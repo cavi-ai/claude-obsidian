@@ -4,17 +4,16 @@ import { Notice, TFile } from "obsidian";
 import { saveSummaryNote } from "../artifacts/artifactStore";
 import { ChatTurnService } from "../chat/turnService";
 import { shouldNotifyTurnComplete } from "../chat/turnNotice";
-import { ConversationsController } from "../conversations/controller";
+import { ConversationsController, type ConversationsControllerDeps } from "../conversations/controller";
 import { DistillController } from "../conversations/distillController";
 import { SessionActions } from "../conversations/sessionActions";
-import type { ConversationState } from "../conversations/store";
 import type ClaudeCompanionPlugin from "../main";
 import { CHAT_VIEW_TYPE } from "../view/ChatView";
 
 export type ChatHost = Pick<ClaudeCompanionPlugin, "app" | "activity" | "persist" | "router" | "settings">;
 
 export interface ChatWiring {
-  state: { get(): ConversationState; set(next: ConversationState): void };
+  state: ConversationsControllerDeps["state"];
   onUnattachedTurnDone(conversationId: string, title: string): void;
 }
 

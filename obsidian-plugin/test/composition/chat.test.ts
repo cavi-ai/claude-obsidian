@@ -59,9 +59,9 @@ vi.mock("../../src/chat/turnService", () => ({
   },
 }));
 vi.mock("../../src/artifacts/artifactStore", () => ({ saveSummaryNote: captured.saveSummaryNote }));
+vi.mock("../../src/view/ChatView", () => ({ CHAT_VIEW_TYPE: "claude-companion-chat" }));
 
 import { buildChat, type ChatHost, type ChatWiring } from "../../src/composition/chat";
-import { CHAT_VIEW_TYPE } from "../../src/view/ChatView";
 
 const file = (path: string): TFile => new TFile(path, "", 0);
 const dep = (deps: Deps | undefined, name: string, ...args: unknown[]): unknown => (deps![name] as (...a: unknown[]) => unknown)(...args);
@@ -177,9 +177,12 @@ describe("buildChat distiller", () => {
     await expect(dep(captured.distill, "write", "Chats/x.md", "Chats", "T", "content", "2026-01-01")).resolves.toBe("Chats/x.md");
     expect(r.m.modify).toHaveBeenCalledWith(existing, "content");
     expect(captured.saveSummaryNote).not.toHaveBeenCalled();
+    expect(r.m.getAbstractFileByPath).toHaveBeenCalledTimes(1);
+    expect(r.m.getAbstractFileByPath).toHaveBeenCalledWith("Chats/x.md");
 
     captured.saveSummaryNote.mockResolvedValue({ path: "Chats/new.md" });
     await expect(dep(captured.distill, "write", null, "Chats", "T", "content", "2026-01-01")).resolves.toBe("Chats/new.md");
+    expect(r.m.getAbstractFileByPath).toHaveBeenCalledTimes(1);
     expect(captured.saveSummaryNote).toHaveBeenCalledWith(r.host.app, "Chats", "T", "content", "2026-01-01");
     expect(r.m.modify).toHaveBeenCalledTimes(1);
 
@@ -236,7 +239,7 @@ describe("buildChat sessionActions", () => {
     buildChat(r.host, r.wiring).sessionActions();
     await dep(captured.session, "openInNewTab", "c1");
     expect(r.m.getLeaf).toHaveBeenCalledWith("tab");
-    expect(r.m.setViewState).toHaveBeenCalledWith({ type: CHAT_VIEW_TYPE, active: true, state: { conversationId: "c1" } });
+    expect(r.m.setViewState).toHaveBeenCalledWith({ type: "claude-companion-chat", active: true, state: { conversationId: "c1" } });
     expect(r.m.revealLeaf).toHaveBeenCalledWith(r.leaf);
     expect(r.m.setViewState.mock.invocationCallOrder[0]).toBeLessThan(r.m.revealLeaf.mock.invocationCallOrder[0]!);
   });
