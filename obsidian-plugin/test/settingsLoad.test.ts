@@ -135,10 +135,10 @@ describe("resolveSettings with legacy configs", () => {
         builtinEmbedder: () => ({ backend: () => null, download: async () => {} }),
       }),
       ontology: () => undefined,
-      clipperTemplatesStale: () => false,
+      clipperSetup: () => ({ templatesStale: () => false }),
       publishedItems: () => [],
       refreshViews: () => {},
-      loadOntologyOnStart: async () => {},
+      onboarding: () => ({ loadOntologyOnStart: async () => {} }),
     } as unknown as ClaudeCompanionPlugin;
     const tab = new ClaudeCompanionSettingTab(new App() as never, plugin);
     expect(() => openSettingTab(tab)).not.toThrow();

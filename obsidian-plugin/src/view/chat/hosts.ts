@@ -21,7 +21,7 @@ export type ComposerHost = Pick<ClaudeCompanionPlugin, "captureWebPage" | "route
 
 export type TranscriptHost = Pick<ClaudeCompanionPlugin, "activateRelatedView" | "activateResearchDesk" | "companionWorkspaceContext" | "handoffToBuild" | "router" | "settings">;
 
-export type SetupCardHost = Pick<ClaudeCompanionPlugin, "continueOnboarding" | "router" | "saveSettings" | "secrets" | "settings">;
+export type SetupCardHost = Pick<ClaudeCompanionPlugin, "onboarding" | "router" | "saveSettings" | "secrets" | "settings">;
 
 /** The chat view's own needs plus everything it hands to the composer, header, transcript, and setup card. */
 export type ChatViewHost = ComposerHost & TranscriptHost & SetupCardHost & Omit<HeaderHost, "conversations"> & {

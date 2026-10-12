@@ -60,7 +60,7 @@ function inboxPlugin(
     app,
     settings: { ...DEFAULT_SETTINGS, sourceCaptureEnabled: true, sourceInboxFolder: "Clippings" },
     enrichInboxItem,
-    sourceEnrichmentBackendLabel: () => "Ollama · utility-model",
+    utilityRouting: () => ({ backendLabel: () => "Ollama · utility-model" }),
     listQueuedEdits: () => [],
     suspendReindex: () => () => {},
   });
@@ -518,7 +518,6 @@ describe("enrichment lifecycle", () => {
     const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
     Object.assign(plugin, {
       _enrichment: controller,
-      _ontologyReloadTimer: null,
       researchRefreshTimer: null,
       inboxBadgeTimer: null,
     });

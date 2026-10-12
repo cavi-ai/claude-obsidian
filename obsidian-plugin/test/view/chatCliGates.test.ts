@@ -54,7 +54,7 @@ function pluginStub(settings: Partial<PluginSettings>, caps: ChatCapabilities, c
     interruptCliTurn: vi.fn(),
     secrets: () => ({ available: () => false }),
     saveSettings: vi.fn(async () => undefined),
-    continueOnboarding: vi.fn(async () => undefined),
+    onboarding: () => ({ continueOnboarding: vi.fn(async () => undefined) }),
     composeSystemPrompt: () => "sys",
     agentTools: () => ({ definitions: () => [] }),
     externalMcpTools: async () => [],

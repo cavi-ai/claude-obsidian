@@ -30,7 +30,7 @@ function createHarness(): InboxHarness {
   Object.assign(plugin, {
     app,
     settings: { sourceCaptureEnabled: true, sourceInboxFolder: "Clippings", clipOrganizedFolder: "Library" },
-    clipperSetupNeeded: () => true,
+    clipperSetup: () => ({ setupNeeded: () => true }),
     listQueuedEdits: () => [],
   });
   return { app, plugin, view: new InboxView(new WorkspaceLeaf(app), plugin), alpha, beta };
@@ -54,7 +54,7 @@ afterEach(() => vi.useRealTimers());
 describe("Inbox batch link review", () => {
   it("catches a regression that hides dynamic Inbox feedback and counts from assistive technology", async () => {
     const { app, plugin, view } = createHarness();
-    Object.assign(plugin, { sourceEnrichmentBackendLabel: () => "Ollama · utility-model" });
+    Object.assign(plugin, { utilityRouting: () => ({ backendLabel: () => "Ollama · utility-model" }) });
     app.vault.seed("Clippings/pending.md", "Pending private clip.");
 
     await view.render();

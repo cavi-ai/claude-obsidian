@@ -4,7 +4,10 @@ import { ActivityStore } from "../src/activity/store";
 import { ConversationsController } from "../src/conversations/controller";
 import { SessionActions } from "../src/conversations/sessionActions";
 import ClaudeCompanionPlugin from "../src/main";
+import { Onboarding } from "../src/onboarding/onboarding";
+import { UtilityRouting } from "../src/providers/utilityRouting";
 import { SemanticController } from "../src/semantic/controller";
+import { ClipperFeature } from "../src/sources/clipperFeature";
 import { DEFAULT_SETTINGS } from "../src/types";
 
 const FORWARDERS = [
@@ -16,6 +19,12 @@ const FORWARDERS = [
   "embeddingRecovery", "builtinEmbedder", "builtinModelCached", "clearBuiltinModel", "indexer", "promptSemanticModelIfNeeded",
   "downloadBuiltinModelAndIndex", "invalidateIndexer", "semanticSearch", "relatedNotes", "relatedForTools",
   "rebuildSemanticIndex", "showSemanticIndexStatus", "queueReindex", "suspendReindex", "canEmbedWithoutDownload",
+  "sourceEnrichmentBackendLabel", "providerErrorHint", "isUtilityLifecycleActive", "assertUtilityLifecycleActive",
+  "sourceEnrichmentErrorHint", "resolveUtilitySelectionForSession", "runtimeUtilitySelection", "utilityUnavailableMessage",
+  "askMobileUtilityFallback", "exportClipperTemplates", "clipperSetupNeeded", "openClipperSetup", "queueClipperVerification",
+  "clipperTemplatesStale", "clipperStatus", "seedOntology", "credentialSetupInputs", "runFirstRun", "continueOnboarding",
+  "openSetupWizard", "runFirstRunPrompts", "loadOntologyOnStart", "offerOntologySeed", "offerDesktopIntegrations",
+  "scheduleOntologyReload",
 ];
 
 function builtPlugin(): ClaudeCompanionPlugin {
@@ -48,6 +57,16 @@ describe("plugin conversation surface", () => {
     const plugin = builtPlugin();
     expect(plugin.semantic()).toBeInstanceOf(SemanticController);
     expect(plugin.semantic()).toBe(plugin.semantic());
+  });
+
+  it("builds one utility routing, clipper setup and onboarding module", () => {
+    const plugin = builtPlugin();
+    expect(plugin.utilityRouting()).toBeInstanceOf(UtilityRouting);
+    expect(plugin.utilityRouting()).toBe(plugin.utilityRouting());
+    expect(plugin.clipperSetup()).toBeInstanceOf(ClipperFeature);
+    expect(plugin.clipperSetup()).toBe(plugin.clipperSetup());
+    expect(plugin.onboarding()).toBeInstanceOf(Onboarding);
+    expect(plugin.onboarding()).toBe(plugin.onboarding());
   });
 
   it.each(FORWARDERS)("has no %s forwarder", (name) => {

@@ -25,9 +25,9 @@ type InboxEnrichOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxI
 /** The plugin capabilities the Inbox uses. */
 export type InboxHost = { semantic: () => Pick<SemanticController, "suspendReindex"> } & Pick<
   ClaudeCompanionPlugin,
-  | "activity" | "clipperSetupNeeded" | "companionChrome" | "discardQueuedEdit" | "enrichDiagnostics" | "enrichInboxItem" | "linkCandidates"
-  | "listQueuedEdits" | "openClipperSetup" | "organizeClippings" | "reviewInboxLinkSuggestions" | "reviewLinkSuggestions" | "reviewQueuedEdit"
-  | "settings" | "sourceEnrichmentBackendLabel" | "triageClippingsWithPicker"
+  | "activity" | "clipperSetup" | "companionChrome" | "discardQueuedEdit" | "enrichDiagnostics" | "enrichInboxItem" | "linkCandidates"
+  | "listQueuedEdits" | "organizeClippings" | "reviewInboxLinkSuggestions" | "reviewLinkSuggestions" | "reviewQueuedEdit"
+  | "settings" | "triageClippingsWithPicker" | "utilityRouting"
 >;
 
 function safeActivityDetail(value: string): string {
@@ -174,9 +174,9 @@ export class InboxView extends ItemView {
           ? `Inbox zero — every clip in “${this.plugin.settings.sourceInboxFolder}” is typed already.`
           : `Inbox zero — nothing in “${this.plugin.settings.sourceInboxFolder}” needs typing. Clip something and it'll show up here.`,
       });
-      if (this.plugin.clipperSetupNeeded()) {
+      if (this.plugin.clipperSetup().setupNeeded()) {
         const clipper = root.createEl("button", { cls: "cc-inbox-clipper-setup", text: "Set up Web Clipper" });
-        clipper.addEventListener("click", () => this.plugin.openClipperSetup());
+        clipper.addEventListener("click", () => this.plugin.clipperSetup().openSetup());
       }
     } else {
       const bar = root.createDiv({ cls: "cc-inbox-bar" });
@@ -185,7 +185,7 @@ export class InboxView extends ItemView {
         text: `${items.length} to type`,
         attr: { role: "status", "aria-live": "polite" },
       });
-      bar.createSpan({ cls: "cc-inbox-backend", text: `Utility: ${this.plugin.sourceEnrichmentBackendLabel()}` });
+      bar.createSpan({ cls: "cc-inbox-backend", text: `Utility: ${this.plugin.utilityRouting().backendLabel()}` });
       const all = bar.createEl("button", { cls: "cc-inbox-enrich-all", text: "Enrich all" });
       all.disabled = this.batchOperation !== null;
       all.addEventListener("click", () => void this.enrichAll(items));

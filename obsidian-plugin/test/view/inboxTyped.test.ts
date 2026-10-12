@@ -15,11 +15,11 @@ function harness(clipperSetupNeeded = true): { app: App; view: InboxView; organi
   Object.assign(plugin, {
     app,
     settings: { sourceCaptureEnabled: true, sourceInboxFolder: "Clippings", clipOrganizedFolder: "Library" },
-    sourceEnrichmentBackendLabel: () => "Claude",
+    utilityRouting: () => ({ backendLabel: () => "Claude" }),
     linkCandidates: () => [],
     organizeClippings,
     triageClippingsWithPicker,
-    clipperSetupNeeded: () => clipperSetupNeeded,
+    clipperSetup: () => ({ setupNeeded: () => clipperSetupNeeded }),
     listQueuedEdits: () => [],
   });
   return { app, view: new InboxView(new WorkspaceLeaf(app), plugin), organizeClippings, triageClippingsWithPicker };

@@ -21,6 +21,8 @@ function rig(): Rig {
   const enrichment = group("enrichment", ["runEnrich"]);
   const optimize = group("optimize", ["reviewTagMerges", "reviewOrphanLinks", "reviewUntypedNotes"]);
   const publish = group("publish", ["publishNote", "copyLink", "unpublish"]);
+  const clipperSetup = group("clipperSetup", ["exportTemplates"]);
+  const onboarding = group("onboarding", ["seedOntology", "openSetupWizard"]);
   const clearChat = fn("view.clearChat");
   const host = {
     app: { workspace: { getActiveViewOfType: fn("workspace.getActiveViewOfType", () => ({ file })) } },
@@ -34,13 +36,15 @@ function rig(): Rig {
     enrichment: () => enrichment,
     optimize: () => optimize,
     publish: () => publish,
+    clipperSetup: () => clipperSetup,
+    onboarding: () => onboarding,
     ...flat([
       "openNewChatTab", "generatePlanFromNote", "generateArtifactFromContext", "startInlineEdit", "enrichNoteFlow",
       "enableVaultSearch", "activateRelatedView", "activateResearchDesk", "triageClippingsWithPicker",
       "startResearchFromActiveNote", "browseConversations", "deleteActiveConversation", "handoffToBuild", "markNoteAsPlan",
       "organizeClippings", "dispatchCloudSession", "pullCloudReplies", "reviewLinkSuggestions", "openWorkflowPicker",
       "suggestFrontmatterForActiveNote", "createPromptTemplate", "createStandingOrder", "pickStandingOrder",
-      "activateMemoryView", "activateInboxView", "activateSystem", "exportClipperTemplates", "seedOntology", "openSetupWizard",
+      "activateMemoryView", "activateInboxView", "activateSystem",
     ]),
   } as unknown as CommandActionsHost;
   return { host, actions: buildCommandActions(host), mocks };
@@ -84,12 +88,12 @@ const ROWS: Row[] = [
   ["enrichNoteAsSource", [file], [["enrichment.runEnrich", [file]]]],
   ["openSourceInbox", [], [["activateInboxView", []]]],
   ["openSystem", [], [["activateSystem", []]]],
-  ["exportClipperTemplates", [], [["exportClipperTemplates", []]]],
-  ["seedOntology", [], [["seedOntology", []]]],
+  ["exportClipperTemplates", [], [["clipperSetup.exportTemplates", []]]],
+  ["seedOntology", [], [["onboarding.seedOntology", []]]],
   ["optimizeBrain", [], [["optimize.reviewTagMerges", [expect.any(Function)]]]],
   ["optimizeLinks", [], [["optimize.reviewOrphanLinks", [expect.any(Function)]]]],
   ["optimizeTypes", [], [["optimize.reviewUntypedNotes", [expect.any(Function)]]]],
-  ["openSetupWizard", [], [["openSetupWizard", []]]],
+  ["openSetupWizard", [], [["onboarding.openSetupWizard", []]]],
   ["publishNote", [file], [["publish.publishNote", [file.path]]]],
   ["copyPublishedLink", [file], [["publish.copyLink", [file.path]]]],
   ["unpublishNote", [file], [["publish.unpublish", [file.path]]]],

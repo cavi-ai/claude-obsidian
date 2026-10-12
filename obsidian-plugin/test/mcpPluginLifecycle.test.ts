@@ -24,10 +24,7 @@ describe("plugin MCP lifecycle", () => {
       mcpServer: null,
       mcpSignature: null,
       vaultTools: null,
-      utilityLifecycleEnded: false,
-      utilityLifecycleGeneration: 0,
       reindexTimer: null,
-      _ontologyReloadTimer: null,
       researchRefreshTimer: null,
       inboxBadgeTimer: null,
     });

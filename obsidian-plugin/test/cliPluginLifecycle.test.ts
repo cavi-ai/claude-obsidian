@@ -24,8 +24,6 @@ function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
     app,
     settings: { ...structuredClone(DEFAULT_SETTINGS), chatBackend: "claude-cli", apiKey: "" },
     convState: { conversations: [{ id: "c1", title: "t", createdAt: 1, updatedAt: 1, messages: [] }, { id: "c2", title: "t", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" },
-    utilityLifecycleEnded: false,
-    utilityLifecycleGeneration: 0,
     mcpLifecycleGeneration: 0,
     mcpLifecycleEnded: false,
     _router: null,
@@ -167,7 +165,6 @@ describe("plugin Claude CLI lifecycle", () => {
   function forWizardRace(p: ClaudeCompanionPlugin): void {
     p.settings = { ...p.settings, ontologyEnabled: false, semanticEnabled: false, desktopIntegrationsOffered: true, setupWizardDone: false };
   }
-  type RunFirstRun = { runFirstRun(cliProbe?: Promise<unknown>): Promise<void> };
 
   it("awaits the in-flight Claude Code probe before planning the wizard: signed-in resolves to no wizard", async () => {
     const rt = runtime();
@@ -179,7 +176,7 @@ describe("plugin Claude CLI lifecycle", () => {
     forWizardRace(p);
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
     const cliProbe = p.router().claudeCli.refresh();
-    await (p as unknown as RunFirstRun).runFirstRun(cliProbe);
+    await p.onboarding().runFirstRun(cliProbe);
     expect(openSpy).not.toHaveBeenCalled();
     expect(p.router().claudeCli.hasCredentials()).toBe(true);
   });
@@ -191,7 +188,7 @@ describe("plugin Claude CLI lifecycle", () => {
     forWizardRace(p);
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
     const cliProbe = p.router().claudeCli.refresh();
-    await (p as unknown as RunFirstRun).runFirstRun(cliProbe);
+    await p.onboarding().runFirstRun(cliProbe);
     expect(openSpy).not.toHaveBeenCalled();
     expect(p.router().claudeCli.hasCredentials()).toBe(false);
   });
@@ -203,10 +200,10 @@ describe("plugin Claude CLI lifecycle", () => {
     p.settings = { ...p.settings, desktopIntegrationsOffered: false, semanticEnabled: true, semanticModelPrompted: false };
     await p.router().claudeCli.refresh();
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open");
-    await Promise.all([p.continueOnboarding(), p.continueOnboarding()]);
+    await Promise.all([p.onboarding().continueOnboarding(), p.onboarding().continueOnboarding()]);
     expect(openSpy).toHaveBeenCalledTimes(1);
     (openSpy.mock.contexts[0] as SetupWizardModal).close();
-    p.openSetupWizard();
+    p.onboarding().openSetupWizard();
     expect(openSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -216,7 +213,7 @@ describe("plugin Claude CLI lifecycle", () => {
     const p = plugin(rt);
     forWizardRace(p);
     const openSpy = vi.spyOn(SetupWizardModal.prototype, "open").mockImplementation(() => undefined);
-    await (p as unknown as RunFirstRun).runFirstRun();
+    await p.onboarding().runFirstRun();
     expect(openSpy).not.toHaveBeenCalled();
   });
 });

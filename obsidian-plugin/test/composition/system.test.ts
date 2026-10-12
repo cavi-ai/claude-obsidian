@@ -77,10 +77,10 @@ function rig(over: { runActivityRecovery?: boolean } = {}) {
     },
     settings: { semanticEnabled: true, ontologyFolder: "Ont", mcpEnabled: true, mcpPort: 1234, sourceCaptureEnabled: true },
     activity: { snapshot: () => ({ records: m.records }) },
-    credentialSetupInputs: () => ({ inputs: true }),
+    onboarding: () => ({ credentialSetupInputs: () => ({ inputs: true }), openSetupWizard: m.openSetupWizard }),
     inboxPendingCount: () => 7,
     mcpRunning: () => true,
-    clipperStatus: () => "current",
+    clipperSetup: () => ({ status: () => "current", openSetup: m.openClipperSetup }),
     ontology: () => m.ontology,
     optimize: () => ({
       tags: () => ({ scan: m.tagsScan }),
@@ -96,9 +96,7 @@ function rig(over: { runActivityRecovery?: boolean } = {}) {
     activateInboxView: m.activateInboxView,
     activateResearchDesk: m.activateResearchDesk,
     companionChrome: () => ({ run: m.run, ...(over.runActivityRecovery ? { runActivityRecovery: m.runActivityRecovery } : {}) }),
-    openClipperSetup: m.openClipperSetup,
     openCompanionSettings: m.openCompanionSettings,
-    openSetupWizard: m.openSetupWizard,
   } as unknown as SystemHost;
   m.getFileByPath.mockReturnValue({ path: "a.md" });
   (host.app.vault as unknown as Record<string, unknown>).getFileByPath = m.getFileByPath;
