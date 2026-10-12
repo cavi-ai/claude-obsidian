@@ -8,9 +8,10 @@ import { App, FileSystemAdapter, MarkdownView, Notice, parseYaml, Platform, Plug
 import { ChatView, CHAT_VIEW_TYPE } from "./view/ChatView";
 import { MemoryView, MEMORY_VIEW_TYPE } from "./view/MemoryView";
 import { InboxView, INBOX_VIEW_TYPE } from "./view/InboxView";
-import { SystemView, SYSTEM_VIEW_TYPE, type SystemViewDeps } from "./view/SystemView";
-import { SafeFixModal } from "./view/SafeFixModal";
-import { HealthController } from "./health/controller";
+import { SystemView, SYSTEM_VIEW_TYPE } from "./view/SystemView";
+import { buildCommandActions } from "./composition/commands";
+import { buildSystemDeps } from "./composition/system";
+import { vaultToolOptions } from "./composition/vaultTools";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchView, ResearchWorkbenchRedirect, RESEARCH_DESK_VIEW_TYPE, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchView";
 import { DiscoveryModal } from "./view/research/discoveryModal";
@@ -22,7 +23,7 @@ import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesVi
 import { ResearchRepository } from "./research/repository";
 import { createResearchRepository } from "./research/repositoryFactory";
 import { resolveSourceText } from "./research/evidenceExtraction";
-import { ensureVaultFolder, lookupRelationTargetType, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
+import { ensureVaultFolder, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
@@ -39,7 +40,6 @@ import { ArxivAdapter } from "./discovery/adapters/arxiv";
 import { ChatTurnService } from "./chat/turnService";
 import { shouldNotifyTurnComplete } from "./chat/turnNotice";
 import { createObsidianDiscoveryHttp } from "./discovery/adapters/obsidianHttp";
-import type { ZoteroLibrary } from "./discovery/adapters/zotero";
 import { resolveModelId } from "./claude/models";
 import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
 import type { ProjectSnapshot } from "./research/graph";
@@ -72,16 +72,14 @@ import { DiffModal } from "./view/DiffModal";
 import { BatchDiffModal } from "./view/BatchDiffModal";
 import { ARTIFACT_HEIGHT, renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
 import type { McpHttpServer } from "./mcp/server";
-import { VaultTools, SEMANTIC_OFF_MESSAGE, type VaultToolsOptions } from "./mcp/vaultTools";
+import { VaultTools } from "./mcp/vaultTools";
 import { catalogPromptProvider, composeResourceProviders, substrateResourceProvider, vaultResourceProvider } from "./mcp/providers";
-import { MEMORY_NOTE_BASENAME, renderMemoryNote } from "./memory/consolidate";
+import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
 import type { AnthropicToolDef, CompletionRequest, Provider, ProviderId } from "./providers/types";
 import { executeTool } from "./agent/tools";
 import { toolAccess, type ToolRunKind } from "./agent/toolAccess";
-import { braveSearch, duckDuckGoSearch, formatSearchResults } from "./web/search";
-import { webFetch as webFetchPage } from "./web/fetch";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
 import { OrdersController } from "./orders/controller";
 import { discardQueuedEdit as discardQueuedOrderEdit, reviewQueuedEdit as reviewQueuedOrderEdit, type QueueReviewDeps } from "./orders/queueReview";
@@ -121,8 +119,7 @@ import { resolveTags } from "./tags/resolve";
 import { vaultVocabulary } from "./tags/vaultTags";
 import { OptimizeFeature } from "./optimize/feature";
 import { normalizeOptimizeState, type OptimizeState } from "./optimize/state";
-import { linkScanNotes, loadedOntology } from "./optimize/vaultGlue";
-import { findOrphans } from "./optimize/linkScan";
+import { loadedOntology } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
@@ -399,17 +396,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private mcpLifecycleGeneration = 0;
   private mcpLifecycleEnded = false;
   private _mcpBridge: McpBridgeController | null = null;
-  private memoryNotePath(): string {
+  memoryNotePath(): string {
     return normalizePath(`${this.settings.memoryFolder}/${MEMORY_NOTE_BASENAME}.md`);
-  }
-  private memoryRecordDeps(source?: string): NonNullable<VaultToolsOptions["memoryRecord"]> {
-    return {
-      enabled: () => this.settings.memoryRecordEnabled,
-      path: () => this.memoryNotePath(),
-      today: () => new Date().toISOString().slice(0, 10),
-      newNote: (body) => renderMemoryNote(body, { updated: new Date().toISOString().slice(0, 10), digestCount: 0, baseTags: [...this.settings.memoryBaseTags, "memory"] }),
-      ...(source ? { source } : {}),
-    };
   }
   private mcpBridge(): McpBridgeController {
     return (this._mcpBridge ??= new McpBridgeController({
@@ -418,7 +406,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       isMobile: Platform.isMobile,
       isLifecycleEnded: () => this.mcpLifecycleEnded,
       lifecycleGeneration: () => this.mcpLifecycleGeneration ?? 0,
-      buildToolOptions: () => this.vaultToolOptions(this.settings.mcpAllowWrites),
+      buildToolOptions: () => vaultToolOptions(this, this.settings.mcpAllowWrites),
       createTools: (opts) => new VaultTools(this.app, opts),
       createServer: async (tools, port, token) => {
         const { McpHttpServer } = await import("./mcp/server");
@@ -480,7 +468,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }));
   }
   private _enrichment: SourceEnrichmentController | null = null;
-  private enrichment(): SourceEnrichmentController {
+  enrichment(): SourceEnrichmentController {
     return (this._enrichment ??= new SourceEnrichmentController({
       settings: () => this.settings,
       saveSettings: () => this.saveSettings(),
@@ -558,7 +546,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private inboxBadgeTimer: number | null = null;
   private ordersState: OrdersState = {};
   private orderEditQueue: QueuedEdit[] = [];
-  private published: PublishedItem[] = [];
+  published: PublishedItem[] = [];
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeFeature;
   private _publish?: PublishController;
@@ -667,7 +655,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
     this.registerView(MEMORY_VIEW_TYPE, (leaf: WorkspaceLeaf) => new MemoryView(leaf, this));
     this.registerView(INBOX_VIEW_TYPE, (leaf: WorkspaceLeaf) => new InboxView(leaf, this));
-    this.registerView(SYSTEM_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SystemView(leaf, this, this.systemDeps()));
+    this.registerView(SYSTEM_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SystemView(leaf, this, buildSystemDeps(this)));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
     this.registerView(BUILD_VIEW_TYPE, (leaf: WorkspaceLeaf) => new BuildView(leaf, this.build().viewDependencies()));
     this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchView(leaf, this.researchRepository(), {
@@ -863,62 +851,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private commandActionsCache?: CommandActions;
 
   commandActions(): CommandActions {
-    return this.commandActionsCache ??= {
-      activeMarkdownFile: () => this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null,
-      lastMarkdownFile: () => this.lastMarkdownFile ?? null,
-      hasActiveConversation: () => !!this.conversations().getActive(),
-      sourceCaptureEnabled: () => this.settings.sourceCaptureEnabled,
-      ontologyEnabled: () => this.settings.ontologyEnabled,
-      desktop: !Platform.isMobile,
-
-      openChat: () => void this.activateView(),
-      newChat: () => void this.activateView().then((view) => view?.clearChat()),
-      newChatTab: () => void this.openNewChatTab(),
-      generatePlanFromNote: () => this.generatePlanFromNote(),
-      generateArtifactFromContext: () => this.generateArtifactFromContext(),
-      editWithClaude: (editor, view) => void this.startInlineEdit(editor, view),
-      enrichNote: (file) => void this.enrichNoteFlow(file),
-      enableVaultSearch: () => void this.enableVaultSearch(),
-      rebuildSemanticIndex: () => void this.semantic().rebuildSemanticIndex(),
-      openRelatedNotes: () => void this.activateRelatedView(),
-      openResearchDesk: () => this.activateResearchDesk(),
-      triageClippings: () => void this.triageClippingsWithPicker(),
-      startResearchFromActiveNote: () => void this.startResearchFromActiveNote(),
-      showSemanticIndexStatus: () => void this.semantic().showSemanticIndexStatus(),
-      browseConversations: () => void this.browseConversations(),
-      deleteActiveConversation: () => this.deleteActiveConversation(),
-      handoffToBuild: () => this.handoffToBuild(),
-      markNoteAsPlan: (file) => void this.markNoteAsPlan(file),
-      organizeClippings: () => void this.organizeClippings(),
-      dispatchCloudSession: () => void this.dispatchCloudSession(),
-      pullCloudReplies: () => void this.pullCloudReplies(),
-      reviewLinkSuggestions: () => void this.reviewLinkSuggestions(),
-      openWorkflowPicker: () => this.openWorkflowPicker(),
-      suggestFrontmatterForActiveNote: () => this.suggestFrontmatterForActiveNote(),
-      createPromptTemplate: () => void this.createPromptTemplate(),
-      createStandingOrder: () => void this.createStandingOrder(),
-      runStandingOrder: () => this.pickStandingOrder(),
-      openSessionPicker: () => this.memory().openSessionPicker(),
-      openMemoryView: () => void this.activateMemoryView(),
-      consolidateMemory: () => void this.memory().consolidateMemory(),
-      enrichNoteAsSource: (file) => void this.enrichment().runEnrich(file),
-      openSourceInbox: () => void this.activateInboxView(),
-      openSystem: () => void this.activateSystem(),
-      exportClipperTemplates: () => void this.exportClipperTemplates(),
-      seedOntology: () => void this.seedOntology(),
-      optimizeBrain: () => void this.optimize().reviewTagMerges(() => undefined),
-      optimizeLinks: () => void this.optimize().reviewOrphanLinks(() => undefined),
-      optimizeTypes: () => void this.optimize().reviewUntypedNotes(() => undefined),
-      openSetupWizard: () => this.openSetupWizard(),
-      publishNote: (file) => void this.publish().publishNote(file.path),
-      copyPublishedLink: (file) => void this.publish().copyLink(file.path),
-      unpublishNote: (file) => void this.publish().unpublish(file.path),
-      isPublished: (file) => this.published.some((item) => item.key === file.path),
-    };
+    return this.commandActionsCache ??= buildCommandActions(this);
   }
 
   /** Turn vault search on for the active chat tab and tell the user which engine answers. */
-  private async enableVaultSearch(): Promise<void> {
+  async enableVaultSearch(): Promise<void> {
     const view = await this.activateView();
     if (!view) return;
     view.enableVaultSearchForChat();
@@ -1273,7 +1210,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Tracks the Build header-action element we added to each plan-note view. */  private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
   /** Most recently focused markdown file — side views (Desk, Chat) steal active-leaf, so "active note" flows must remember it. */
-  private lastMarkdownFile: TFile | null = null;
+  lastMarkdownFile: TFile | null = null;
   /** Most recently focused Chat leaf, for activateView()'s desktop reuse preference. */
   private lastFocusedChatLeaf: WorkspaceLeaf | null = null;
 
@@ -1314,7 +1251,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * selection (rewrite) or at the cursor (insert); the flow lives in
    * editor/inlineEdit.ts and writes only through review.
    */
-  private async startInlineEdit(editor: Editor, view: MarkdownView): Promise<void> {
+  async startInlineEdit(editor: Editor, view: MarkdownView): Promise<void> {
     const file = view.file;
     const cm = editorViewOf(editor);
     if (!file || !cm) {
@@ -1474,7 +1411,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
    * note as the first source, then land on Discover so the preliminary
    * scholarly search is one click away.
    */
-  private async startResearchFromActiveNote(): Promise<void> {
+  async startResearchFromActiveNote(): Promise<void> {
     const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? this.lastMarkdownFile;
     if (!file) {
       new Notice("Open a note first — it becomes the project's first source.");
@@ -1577,7 +1514,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
-  private clipperStatus(): "not-set-up" | "current" | "update-available" {
+  clipperStatus(): "not-set-up" | "current" | "update-available" {
     const statuses = this.clipperSetups().map(({ status }) => status);
     return statuses.includes("update-available") ? "update-available" : statuses.every((status) => status === "current") ? "current" : "not-set-up";
   }
@@ -1966,7 +1903,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return projects.find((p) => p.id === projectId) ?? null;
   }
 
-  private async browseConversations(): Promise<void> {
+  async browseConversations(): Promise<void> {
     const view = await this.activateView();
     view?.openHistory();
   }
@@ -2144,7 +2081,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Create missing default schema notes and upgrade unedited superseded ones (never overwrites edits), then reload and report. */
-  private async seedOntology(): Promise<void> {
+  async seedOntology(): Promise<void> {
     const folder = normalizePath(this.settings.ontologyFolder);
     await ensureVaultFolder(this.app, folder);
     const current = new Map<string, string | null>();
@@ -2669,52 +2606,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.clippings().organizeFolder(folder);
   }
 
-  /** Configured Zotero library for zotero_key import resolution; undefined until a user id is set. */
-  private zoteroLibrary(): ZoteroLibrary | undefined {
-    const userId = this.settings.zoteroUserId.trim();
-    if (!userId) return undefined;
-    const apiKey = this.settings.zoteroApiKey.trim();
-    return { userId, ...(apiKey ? { apiKey } : {}) };
-  }
-
-  /** Vault tool options for the MCP bridge and the in-chat agent; they differ only in the write gate and memory source. */
-  private vaultToolOptions(allowWrites: boolean, memorySource?: string): VaultToolsOptions {
-    return {
-      allowWrites,
-      defaultFolder: this.settings.mcpWriteFolder,
-      semantic: (q: string, k: number, accept?: (path: string) => boolean) => this.semantic().semanticSearch(q, k, accept),
-      related: async (p: string, k: number) => {
-        if (!this.settings.semanticEnabled) throw new Error(SEMANTIC_OFF_MESSAGE);
-        return this.semantic().relatedForTools(p, k);
-      },
-      ontology: () => this.ontology(),
-      ontologyFolder: () => this.settings.ontologyFolder,
-      zotero: () => this.zoteroLibrary(),
-      enrichSource: (path: string) => this.enrichImportedResearchSource(path),
-      memoryRecord: this.memoryRecordDeps(memorySource),
-      ...this.webToolImpls(),
-    };
-  }
-
   /** Vault tools for the in-chat agent loop, options refreshed from settings on every call. */
   agentTools(): VaultTools {
-    const opts = this.vaultToolOptions(this.settings.agentAllowWrites, "companion");
+    const opts = vaultToolOptions(this, this.settings.agentAllowWrites, "companion");
     if (!this.agentVaultTools) this.agentVaultTools = new VaultTools(this.app, opts);
     else this.agentVaultTools.setOptions(opts);
     return this.agentVaultTools;
-  }
-
-  /** Run the source-enrichment pipeline on a research source the agent just imported. */
-  private async enrichImportedResearchSource(path: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) return;
-    const outcome = await this.enrichment().enrichResearchSource({
-      path: file.path,
-      basename: file.basename,
-      extension: file.extension,
-      stat: { size: file.stat.size },
-    });
-    if (outcome.status === "failed") throw outcome.error;
   }
 
   /** Desktop only: the Node ports shared by every CLI chat backend. Tests override this. */
@@ -2859,60 +2756,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
   }
 
-  /**
-   * The agent's web tools, built from settings on every call. Each fires only
-   * on an explicit model tool call — nothing searches or fetches in the
-   * background. DOMParser-less environments (headless tests) get no tools.
-   */
-  private webToolImpls(): Pick<VaultToolsOptions, "webSearch" | "webFetch"> {
-    const s = this.settings;
-    const out: { webSearch?: (query: string, count: number) => Promise<string>; webFetch?: (url: string) => Promise<string> } = {};
-    if (s.webSearchEnabled) {
-      out.webSearch = async (query, count) => {
-        if (s.webSearchEngine === "brave") {
-          if (!s.braveSearchApiKey.trim()) {
-            throw new Error("Brave Search needs an API key — add it in Companion settings → Agent, or switch to DuckDuckGo.");
-          }
-          return formatSearchResults(query, await braveSearch(createObsidianDiscoveryHttp(), s.braveSearchApiKey, query, count));
-        }
-        if (typeof DOMParser === "undefined") throw new Error("Web search is unavailable in this environment.");
-        return formatSearchResults(
-          query,
-          await duckDuckGoSearch(
-            {
-              fetchHtml: async (url) => {
-                const response = await requestUrl({ url, method: "GET", throw: false });
-                if (response.status >= 400) throw new Error(`Search failed (${response.status}).`);
-                return response.text;
-              },
-              parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
-            },
-            query,
-            count,
-          ),
-        );
-      };
-    }
-    if (s.webFetchEnabled && typeof DOMParser !== "undefined") {
-      out.webFetch = (url) =>
-        webFetchPage(url, {
-          fetchHtml: async (target) => {
-            const response = await requestUrl({ url: target, method: "GET", throw: false });
-            if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
-            return response.text;
-          },
-          parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
-        });
-    }
-    return out;
-  }
-
   // ---------- standing orders ----------
   private templatesRoot(): string {
     return normalizePath(this.settings.templatesFolder).replace(/\/+$/, "");
   }
 
-  private standingOrders(): OrdersController {
+  standingOrders(): OrdersController {
     return (this._standingOrders ??= new OrdersController({
       enabled: () => this.settings.standingOrdersEnabled,
       now: () => new Date(),
@@ -3079,7 +2928,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     new Notice("Standing order created — edit the trigger and prompt, then set enabled: true.");
   }
 
-  private pickStandingOrder(): void {
+  pickStandingOrder(): void {
     const orders = this.standingOrders().validOrders();
     if (orders.length === 0) {
       new Notice("No standing orders yet — run “New standing order” first.");
@@ -3301,7 +3150,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Optimize brain: tag merges, link weave, type weave. */
-  private optimize(): OptimizeFeature {
+  optimize(): OptimizeFeature {
     return (this._optimize ??= new OptimizeFeature({
       app: this.app,
       settings: () => this.settings,
@@ -3331,76 +3180,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return loadedOntology(this.ontology());
   }
 
-  private healthController(): HealthController {
-    const repo = (): ResearchRepository => this.researchRepository();
-    return new HealthController({
-      markdownFiles: () => this.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, frontmatter: this.app.metadataCache.getFileCache(f)?.frontmatter })),
-      unresolvedLinks: () => this.app.metadataCache.unresolvedLinks,
-      ontology: () => this.ontology(),
-      lookupTargetType: (target) => { const registry = this.ontology(); return registry ? lookupRelationTargetType(this.app, registry, target) : undefined; },
-      listProjects: () => repo().listProjects(),
-      auditProject: async (path) => auditProject(await repo().loadProject(path)),
-      index: async () => {
-        const indexer = this.semantic().indexer();
-        const failed = this.activity.snapshot().records
-          .filter((r) => r.kind === "semantic-index" && r.state === "needs-attention")
-          .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.details ?? [];
-        return {
-          enabled: this.settings.semanticEnabled,
-          built: indexer ? (await indexer.stats()).notes > 0 : false,
-          failed: failed.map((d) => ({ path: d.label, message: d.message })),
-        };
-      },
-      tags: async () => {
-        const report = await this.optimize().tags().scan({ semantic: false });
-        return { total: report.totalTags, singleUse: report.singleUse, candidates: report.candidates.length };
-      },
-      untypedCount: async () => {
-        const report = await this.optimize().types().scan();
-        return report.status === "ok" ? report.candidates : null;
-      },
-      orphanCount: () => findOrphans(linkScanNotes(this.app, this.ontology()), this.app.metadataCache.resolvedLinks, normalizePath(this.settings.ontologyFolder)).length,
-      inboxPending: () => this.inboxPendingCount(),
-      companion: () => ({
-        connection: { backend: this.router().chatBackend, needsCredential: needsCredentialSetup(this.credentialSetupInputs()) },
-        activity: this.activity.snapshot().records
-          .filter((r) => r.state === "needs-attention")
-          .map((r) => ({ id: r.id, title: r.title, failed: r.failed, recovery: r.recovery.map(({ id, label }) => ({ id, label })) })),
-        bridge: { applicable: !Platform.isMobile, enabled: this.settings.mcpEnabled, running: this.mcpRunning(), port: this.settings.mcpPort },
-        clipper: { applicable: this.settings.sourceCaptureEnabled, status: this.clipperStatus() },
-        orders: { invalid: this.standingOrders().invalidOrders() },
-      }),
-      now: () => new Date().toISOString(),
-    });
-  }
-
-  private systemDeps(): SystemViewDeps {
-    const controller = this.healthController();
-    return {
-      scan: () => controller.scan(),
-      safeFixes: () => controller.safeFixes(),
-      openNote: (path) => void this.app.workspace.openLinkText(path, ""),
-      openResearchDesk: (path) => this.activateResearchDesk(path),
-      buildIndex: () => this.semantic().rebuildSemanticIndex(),
-      catchUpIndex: () => this.semantic().catchUpIndex(),
-      openInbox: () => this.activateInboxView(),
-      openSetupWizard: () => this.openSetupWizard(),
-      openSettings: () => this.openCompanionSettings(),
-      openClipperSetup: () => this.openClipperSetup(),
-      runActivityRecovery: (activityId, id) => {
-        const chrome = this.companionChrome();
-        return chrome.runActivityRecovery ? chrome.runActivityRecovery(activityId, id) : chrome.run({ id, page: "system", activityId });
-      },
-      reviewTagMerges: (done) => void this.optimize().reviewTagMerges(done),
-      connectOrphans: (done) => void this.optimize().reviewOrphanLinks(done),
-      typeUntypedNotes: (done) => void this.optimize().reviewUntypedNotes(done),
-      reviewSafeFixes: (fixes, done) => new SafeFixModal(this.app, fixes, async (path, patch) => {
-        const file = this.app.vault.getFileByPath(path);
-        if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => { Object.assign(fm, patch); });
-      }, () => done()).open(),
-    };
-  }
-
   /** Inbox-view entry point: guard + consent + enrich, then refresh open inbox views. */
   async enrichInboxItem(file: TFile, options?: { inline?: boolean; refreshInboxViews?: boolean }): Promise<EnrichRunOutcome> {
     const outcome = await this.enrichment().enrichFile(file, !options?.inline);
@@ -3418,7 +3197,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   /** Unenriched inbox files right now (drives the ribbon badge). */
-  private inboxPendingCount(): number {
+  inboxPendingCount(): number {
     const entries = this.app.vault.getFiles().map((f: TFile) => ({
       path: f.path,
       basename: f.basename,
@@ -3616,7 +3395,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   // ---------- publish to GitHub Gist ----------
 
-  private publish(): PublishController {
+  publish(): PublishController {
     return (this._publish ??= new PublishController({
       token: () => this.settings.publishGithubToken,
       apiBase: () => this.settings.publishApiBase,
