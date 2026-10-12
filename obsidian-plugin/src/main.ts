@@ -14,35 +14,19 @@ import { buildSystemDeps } from "./composition/system";
 import { vaultToolOptions } from "./composition/vaultTools";
 import { RelatedView, RELATED_VIEW_TYPE } from "./view/RelatedView";
 import { ResearchView, ResearchWorkbenchRedirect, RESEARCH_DESK_VIEW_TYPE, RESEARCH_WORKBENCH_VIEW_TYPE } from "./view/ResearchView";
-import { DiscoveryModal } from "./view/research/discoveryModal";
-import { ResearchActions } from "./view/research/actions";
-import { ProjectCreateModal } from "./view/research/projectCreateModal";
-import { QUESTION_INSTRUCTION } from "./view/research/shared";
 import { BuildView, BUILD_VIEW_TYPE } from "./view/BuildView";
 import { SimilarBasesView, SIMILAR_BASES_VIEW_TYPE } from "./view/SimilarBasesView";
-import { ResearchRepository } from "./research/repository";
-import { createResearchRepository } from "./research/repositoryFactory";
-import { resolveSourceText } from "./research/evidenceExtraction";
 import { ensureVaultFolder, uniqueNotePath, writeOrReplaceFile } from "./vault/vaultFiles";
 import { listChatProjects } from "./projects/registry";
 import { ProjectPicker } from "./projects/ProjectPicker";
 import { projectSystemPrompt, projectNoteBody, type ChatProject } from "./projects/model";
-import { DiscoveryCoordinator } from "./discovery/coordinator";
-import { RESEARCH_MODELS, researchCoordinatorMode, researchModelChip, type ResearchModel } from "./research/researchModel";
-import { DISCOVERY_CACHE_HOURS, DISCOVERY_EXPANSION_LIMIT, DISCOVERY_MAX_RESULTS } from "./discovery/limits";
-import { DraftCoordinator } from "./research/draftCoordinator";
+import { RESEARCH_MODELS, researchModelChip, type ResearchModel } from "./research/researchModel";
 import { PROVENANCE_LANGUAGE } from "./research/draftSections";
 import { renderProvenanceReferences } from "./view/research/provenanceReferences";
-import { RevisionCoordinator } from "./research/revisionCoordinator";
-import { OpenAlexAdapter } from "./discovery/adapters/openAlex";
-import { CrossrefAdapter } from "./discovery/adapters/crossref";
-import { ArxivAdapter } from "./discovery/adapters/arxiv";
 import { ChatTurnService } from "./chat/turnService";
 import { shouldNotifyTurnComplete } from "./chat/turnNotice";
-import { createObsidianDiscoveryHttp } from "./discovery/adapters/obsidianHttp";
 import { resolveModelId } from "./claude/models";
-import { inferResearchProjectPath, projectPathForActivation } from "./research/workbenchRouting";
-import type { ProjectSnapshot } from "./research/graph";
+import { inferResearchProjectPath } from "./research/workbenchRouting";
 import { SessionPicker } from "./view/SessionPicker";
 import { WorkflowPicker } from "./view/WorkflowPicker";
 import { WORKFLOWS, type Workflow } from "./workflows/catalog";
@@ -57,7 +41,7 @@ import { UtilityRouting } from "./providers/utilityRouting";
 import { ClipperFeature } from "./sources/clipperFeature";
 import { Onboarding } from "./onboarding/onboarding";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
-import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
+import { DESIGN_SYSTEM_PROMPT } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
 import { findUnlinkedMentions, linkMention, withLinktext, type LinkCandidate } from "./links/unlinkedMentions";
 import { mentionEdits } from "./links/suggest";
@@ -68,7 +52,6 @@ import { selectionActionExtension } from "./editor/selectionAction";
 import { editorViewOf } from "./editor/reviewEdits";
 import { inlinePromptExtension, openInlinePrompt } from "./editor/inlinePrompt";
 import { commitModalRewrite, inlineEditMenuTitle, planModalRewrite, runInlineEdit, type ModalRewrite } from "./editor/inlineEdit";
-import { REWRITE_SYSTEM, buildRewriteUser, buildGroundedRewriteUser, rewriteMaxTokens, parseRewrite } from "./edit/rewrite";
 import { DiffModal } from "./view/DiffModal";
 import { BatchDiffModal } from "./view/BatchDiffModal";
 import { ARTIFACT_HEIGHT, renderArtifactInline, ArtifactModal, openArtifactExternally } from "./artifacts/renderInline";
@@ -78,27 +61,22 @@ import { catalogPromptProvider, composeResourceProviders, substrateResourceProvi
 import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
-import type { AnthropicToolDef, CompletionRequest, Provider } from "./providers/types";
-import { executeTool } from "./agent/tools";
+import type { AnthropicToolDef } from "./providers/types";
 import { toolAccess, type ToolRunKind } from "./agent/toolAccess";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
-import { OrdersController } from "./orders/controller";
-import { discardQueuedEdit as discardQueuedOrderEdit, reviewQueuedEdit as reviewQueuedOrderEdit, type QueueReviewDeps } from "./orders/queueReview";
-import { normalizeEditQueue, type QueuedEdit } from "./orders/editQueue";
-import { ORDER_SCAFFOLD, parseOrder, type StandingOrder } from "./orders/order";
-import { ORDERS_OUTPUT_ROOT } from "./orders/output";
-import { runOrder, type OrderRunResult, type OrderTrigger } from "./orders/runner";
-import { normalizeOrdersState, type OrdersState } from "./orders/state";
-import { OrderPicker } from "./view/OrderPicker";
+import type { OrdersController } from "./orders/controller";
+import { OrdersFeature } from "./orders/ordersFeature";
+import { PublishFeature } from "./publish/publishFeature";
+import { ResearchFeature } from "./research/researchFeature";
+import { DesktopFeature } from "./integrations/desktopFeature";
 import { ClippingsController } from "./sources/clippings";
 import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./enrich/noteEnrich";
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "./view/EnrichModal";
 import { sanitizeFileName } from "./artifacts/parse";
 import { stripFrontmatter } from "./markdown/frontmatter";
-import { noteExcerpt } from "./markdown/excerpt";
-import { generateToken, bridgeHeaderValue, bridgeUrl, resolveMcpToken } from "./mcp/clientConfig";
+import { generateToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
-import { providerTurnRunner, type AgentTurnRunner } from "./agent/loop";
+import type { AgentTurnRunner } from "./agent/loop";
 import { CliSession } from "./cli/session";
 import { CliSessionPool, type PoolEntry } from "./cli/sessionPool";
 import { mcpConfigJson } from "./cli/argv";
@@ -111,10 +89,7 @@ import { opencodeBackend } from "./cli/backends/opencode";
 import type { CliBackend } from "./cli/backends/types";
 import { type BuildRun } from "./build/run";
 import { BuildController } from "./build/controller";
-import { CloudController } from "./cloud/controller";
-import { PublishController, publishConfirmMessage } from "./publish/controller";
-import { normalizePublished, type PublishedItem } from "./publish/registry";
-import { CloudDispatchModal } from "./view/CloudDispatchModal";
+import type { PublishController } from "./publish/controller";
 import { normalizeTags } from "./indexing/frontmatter";
 import { resolveTags } from "./tags/resolve";
 import { vaultVocabulary } from "./tags/vaultTags";
@@ -124,7 +99,6 @@ import { loadedOntology } from "./optimize/vaultGlue";
 import { selectPromptTags } from "./tags/vocabulary";
 import { frontmatterSuggestSystem, parseFrontmatterSuggestion } from "./indexing/frontmatterSuggest";
 import { FrontmatterModal } from "./view/FrontmatterModal";
-import { extractPdfPages } from "./semantic/pdf";
 import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
@@ -142,10 +116,9 @@ import { DistillController } from "./conversations/distillController";
 import { SessionActions } from "./conversations/sessionActions";
 import { saveSummaryNote } from "./artifacts/artifactStore";
 import type { ChatMessage } from "./types";
-import { getAllTags, normalizePath, TFile, TFolder, type Editor } from "obsidian";
+import { normalizePath, TFile, TFolder, type Editor } from "obsidian";
 import { inboxItems } from "./sources/inbox";
-import { parseClipUrl } from "./sources/detect";
-import { SourceEnrichmentController, sourceActivityDetail, type EnrichRunOutcome } from "./sources/controller";
+import { SourceEnrichmentController, type EnrichRunOutcome } from "./sources/controller";
 import { ChoiceModal } from "./view/ChoiceModal";
 import { OntologyRegistry } from "./ontology/registry";
 import { auditProject } from "./research/audit";
@@ -163,10 +136,9 @@ import { beginActivity } from "./activity/progress";
 import type { CompanionChromeDependencies } from "./view/companionChrome";
 import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./view/quickOptions";
 import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
-import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
-import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
+import type { DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { ConfirmModal } from "./view/ConfirmModal";
-import { OBSIDIAN_GENERAL_SETTINGS_TAB, claudeDesktopConfigPath, type DesktopPlatform } from "./integrations/desktop";
+import { OBSIDIAN_GENERAL_SETTINGS_TAB, type DesktopPlatform } from "./integrations/desktop";
 
 /** Output-token ceiling for artifact-producing flows (plans, artifacts, workflows),
  *  which routinely run past the chat default. A ceiling, not a target — you only
@@ -347,7 +319,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       confirm: (opts) => new Promise<boolean>((resolve) => {
         new ConfirmModal(this.app, { ...opts, onResolve: resolve }).open();
       }),
-      cloud: () => this.cloud(),
+      cloud: () => this.publishing().cloud(),
       vaultBasePath: () => this.vaultBasePath(),
       desktopProcess: () => (window as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process,
       desktopRuntimeLoader: () => this._desktopRuntimeLoader(),
@@ -364,14 +336,11 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _cliProvider: CliProvider | null = null;
   private _codexProvider: CliProvider | null = null;
   private _opencodeProvider: CliProvider | null = null;
-  private _discoveryCoordinator: DiscoveryCoordinator | null = null;
-  private _viewDiscoveryCoordinators?: Set<DiscoveryCoordinator>;
   private _cliPool?: CliSessionPool<CliSession>;
   private get cliPool(): CliSessionPool<CliSession> {
     return (this._cliPool ??= new CliSessionPool<CliSession>(3));
   }
   private _cliRuntime: CliRuntime | null | undefined;
-  private _desktopIntegrationModals?: Set<DesktopIntegrationsModal>;
   private _desktopRuntimeLoader: () => Promise<{
     createNodeDesktopRuntime(platform: DesktopPlatform, homeDir: string, env: Record<string, string | undefined>, bridge?: BridgeSetupInput): Promise<DesktopIntegrationRuntime>;
     createNodeManagedProcessPort(): import("./build/desktopExecutor").ManagedProcessPort;
@@ -552,26 +521,76 @@ export default class ClaudeCompanionPlugin extends Plugin {
       secrets: () => this.secrets(),
       ontology: () => this.ontology(),
       semantic: () => this.semantic(),
-      openDesktopIntegrations: () => this.openDesktopIntegrations(),
+      openDesktopIntegrations: () => this.desktopIntegrations().open(),
       isMobile: () => Platform.isMobile,
     }));
   }
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
   private inboxRibbonEl: HTMLElement | null = null;
   private inboxBadgeTimer: number | null = null;
-  private ordersState: OrdersState = {};
-  private orderEditQueue: QueuedEdit[] = [];
-  published: PublishedItem[] = [];
+  private _research?: ResearchFeature;
+  /** Research Desk, scholarly discovery, and the plan-to-build handoff. */
+  research(): ResearchFeature {
+    return (this._research ??= new ResearchFeature({
+      app: this.app,
+      settings: () => this.settings,
+      activity: () => this.activity,
+      router: () => this.router(),
+      build: () => this.build(),
+      activateView: () => this.activateView(),
+      lastMarkdownFile: () => this.lastMarkdownFile,
+      companionChrome: () => this.companionChrome(),
+      openCompanionSettings: () => this.openCompanionSettings(),
+      artifactMaxTokens: ARTIFACT_MAX_TOKENS,
+    }));
+  }
+  private _desktopIntegrations?: DesktopFeature;
+  /** Desktop integrations modal and the read-only bridge it prepares. */
+  desktopIntegrations(): DesktopFeature {
+    return (this._desktopIntegrations ??= new DesktopFeature({
+      app: this.app,
+      settings: () => this.settings,
+      saveSettings: () => this.saveSettings(),
+      router: () => this.router(),
+      resolvedMcpToken: () => this.resolvedMcpToken(),
+      mcpRunning: () => this.mcpRunning(),
+      openCompanionSettings: () => this.openCompanionSettings(),
+      openObsidianCliSettings: () => this.openObsidianCliSettings(),
+      runtimeLoader: () => this._desktopRuntimeLoader(),
+    }));
+  }
+  private _orders?: OrdersFeature;
+  /** Standing orders, their queued edits, and the persisted state behind both. */
+  orders(): OrdersFeature {
+    return (this._orders ??= new OrdersFeature({
+      app: this.app,
+      settings: () => this.settings,
+      activity: () => this.activity,
+      persist: () => this.persist(),
+      router: () => this.router(),
+      composeSystemPrompt: (opts) => this.composeSystemPrompt(opts),
+      agentTools: () => this.agentTools(),
+      cliTurnRunner: (opts) => this.cliTurnRunner(opts),
+      closeCliSession: (conversationId) => this.cliPool.close(conversationId),
+      syncInboxBadge: () => this.syncInboxBadge(),
+      registerEvent: (ref) => this.registerEvent(ref),
+      registerInterval: (id) => this.registerInterval(id),
+    }));
+  }
+  private _publishing?: PublishFeature;
+  /** Gist publishing, the published-note registry, and cloud session dispatch. */
+  publishing(): PublishFeature {
+    return (this._publishing ??= new PublishFeature({
+      app: this.app,
+      settings: () => this.settings,
+      activity: () => this.activity,
+      persist: () => this.persist(),
+    }));
+  }
   private optimizeState: OptimizeState = { dismissed: [], verdicts: {} };
   private _optimize?: OptimizeFeature;
-  private _publish?: PublishController;
-  private _standingOrders?: OrdersController;
-  private ordersRefreshTimer: number | null = null;
   /** Lazily-built ontology registry; null while the feature is disabled. */
   private _ontology: OntologyRegistry | null = null;
-  /** Debounces research-only metadata changes without reacting to unrelated vault notes. */
-  private researchRefreshTimer: number | null = null;
-  private researchRefreshChanges: Array<{ path: string; oldPath?: string }> = [];
   /** Teardown callbacks registered by extracted controllers; run in reverse order on unload. */
   private disposables?: Array<() => void>;
   /** Listeners notified after every successful saveSettings() (per-domain reactions). */
@@ -669,19 +688,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.registerView(SYSTEM_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SystemView(leaf, this, buildSystemDeps(this)));
     this.registerView(RELATED_VIEW_TYPE, (leaf: WorkspaceLeaf) => new RelatedView(leaf, this));
     this.registerView(BUILD_VIEW_TYPE, (leaf: WorkspaceLeaf) => new BuildView(leaf, this.build().viewDependencies()));
-    this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchView(leaf, this.researchRepository(), {
-      chrome: this.companionChrome(),
-      actions: this.createResearchActions(),
-      askResearch: (projectPath, prompt, display) => this.askResearch(projectPath, prompt, display),
-      openPath: (path) => this.openResearchPath(path),
-      webSearchEnabled: () => this.settings.webSearchEnabled,
-      draftCoordinator: new DraftCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
-      revisionCoordinator: new RevisionCoordinator({ selection: () => this.requireResearchSelection(), maxTokens: () => this.settings.maxTokens }),
-      openDiscovery: (snapshot) => this.openDiscovery(snapshot),
-      startFromActiveNote: () => void this.startResearchFromActiveNote(),
-      researchStatus: () => this.router().researchStatus(),
-      openResearchSettings: () => this.openCompanionSettings(),
-    }));
+    this.registerView(RESEARCH_DESK_VIEW_TYPE, (leaf: WorkspaceLeaf) => this.research().createDeskView(leaf));
     this.registerView(RESEARCH_WORKBENCH_VIEW_TYPE, (leaf: WorkspaceLeaf) => new ResearchWorkbenchRedirect(leaf));
     this.registerBasesView(SIMILAR_BASES_VIEW_TYPE, {
       name: "Similar notes",
@@ -726,7 +733,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private startAfterLayout(): void {
     const cliProbe = Platform.isMobile ? undefined : this.chatCliProvider().refresh().then(() => this.refreshViews());
       void this.syncMcpServer();
-      this.syncPlanBuildActions();
+      this.research().syncPlanBuildActions();
       void this.onboarding().runFirstRun(cliProbe).then(() => this.semantic().catchUpIndex());
       // Schemas/inbox changed since the clipper templates were exported →
       // the clipper is clipping against a stale schema. Offer once per session.
@@ -748,9 +755,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().renameNote(oldPath, f.path); }));
-      this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
-      this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.scheduleResearchRefresh(f.path); }));
-      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleResearchRefresh(f.path, oldPath); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.research().scheduleResearchRefresh(f.path); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.research().scheduleResearchRefresh(f.path); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.research().scheduleResearchRefresh(f.path, oldPath); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.publish().renameNote(oldPath, f.path); }));
 
       // Inbox ribbon badge: pending count, refreshed on vault + frontmatter
@@ -769,14 +776,14 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.onboarding().scheduleOntologyReload(); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.onboarding().scheduleOntologyReload(); }));
 
-      this.startStandingOrders();
+      this.orders().start();
   }
 
   /** Keeps the plan Build action and the last-seen note in step with the workspace. */
   private registerNoteTracking(): void {
     // Show a "Build" action in the header of any `type: plan` note.
-    this.registerEvent(this.app.workspace.on("file-open", () => this.syncPlanBuildActions()));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.research().syncPlanBuildActions()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.research().syncPlanBuildActions()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
       if (file) this.lastMarkdownFile = file;
@@ -790,9 +797,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       const id = leaf.view.getState().conversationId;
       if (typeof id === "string" && id !== this.convState.activeId) void this.conversations().setActive(id);
     }));
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.syncPlanBuildActions()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.research().syncPlanBuildActions()));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
-      this.scheduleResearchRefresh(file.path);
+      this.research().scheduleResearchRefresh(file.path);
     }));
   }
 
@@ -819,7 +826,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
               .setIcon("sparkles")
               .onClick(() => void this.enrichNoteFlow(file)),
           );
-          const published = this.published.some((entry) => entry.key === file.path);
+          const published = this.publishing().publishedItems().some((entry) => entry.key === file.path);
           menu.addItem((item) =>
             item
               .setTitle(published ? "Republish to GitHub Gist" : "Publish note to GitHub Gist")
@@ -892,43 +899,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     return this.clippings().organizeClippings();
   }
 
-  /** Tracks the Build header-action element we added to each plan-note view. */  private planBuildActions = new WeakMap<MarkdownView, HTMLElement>();
   /** Most recently focused markdown file — side views (Desk, Chat) steal active-leaf, so "active note" flows must remember it. */
   lastMarkdownFile: TFile | null = null;
   /** Most recently focused Chat leaf, for activateView()'s desktop reuse preference. */
   private lastFocusedChatLeaf: WorkspaceLeaf | null = null;
-
-  /**
-   * Add (or remove) a "Build" icon in the header of every open markdown note that
-   * declares `type: plan` in frontmatter, wired to build that specific note. A
-   * note becomes "canonical" by carrying `type: plan`.
-   */
-  private syncPlanBuildActions(): void {
-    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-      const view = leaf.view;
-      if (!(view instanceof MarkdownView)) continue;
-      const fm = view.file ? this.app.metadataCache.getFileCache(view.file)?.frontmatter : null;
-      const isPlan = fm?.type === "plan";
-      const existing = this.planBuildActions.get(view);
-      if (isPlan && !existing) {
-        const file = view.file;
-        const action = view.addAction("hammer", "Build this plan with Claude", () => void this.handoffToBuild(file ?? undefined));
-        this.planBuildActions.set(view, action);
-      } else if (!isPlan && existing) {
-        existing.remove();
-        this.planBuildActions.delete(view);
-      }
-    }
-  }
-
-  /** Stamp `type: plan` onto a note so it gets the Build affordance. */
-  async markNoteAsPlan(file: TFile): Promise<void> {
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      (fm as Record<string, unknown>).type = "plan";
-    });
-    this.syncPlanBuildActions();
-    new Notice("Marked as a plan — a Build icon is now in the note's header.");
-  }
 
   /**
    * Edit with Claude at the cursor: the inline prompt opens over the
@@ -977,108 +951,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     await commitModalRewrite((transform) => this.app.vault.process(file, transform), prepared, accepted, (message) => new Notice(message));
   }
 
-  /** One step runner shared by the Research Desk and Workbench. */
-  private createResearchActions(): ResearchActions {
-    return new ResearchActions({
-      app: this.app,
-      repository: this.researchRepository(),
-      rewriteText: this.researchRewriteText(),
-      completeResearch: async ({ system, user, maxTokens }) => (await this.router().completeResolved(this.requireResearchSelection(), { system, user, maxTokens: maxTokens ?? 1024, temperature: 0.2 })).text,
-      researchLabel: () => researchModelChip(this.router().researchStatus()).text.replace(/^AI · /, ""),
-      sourceText: (source) => resolveSourceText(source, {
-        readPdfPages: async (assetPath) => {
-          const file = this.app.vault.getAbstractFileByPath(assetPath);
-          if (!(file instanceof TFile)) return null;
-          const { loadPdf } = await import("./semantic/pdfjs");
-          return extractPdfPages(loadPdf, await this.app.vault.readBinary(file));
-        },
-        readNote: async (path) => {
-          const file = this.app.vault.getAbstractFileByPath(path);
-          return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
-        },
-      }),
-      ...(typeof DOMParser === "undefined" ? {} : {
-        captureWeb: (url: string) => captureWebSource(url, {
-          fetchHtml: async (target) => {
-            const response = await requestUrl({ url: target, method: "GET", throw: false });
-            if (response.status >= 400) throw new Error(`Fetch failed with status ${response.status}`);
-            return response.text;
-          },
-          parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
-        }),
-      }),
-      saveAsset: async (projectPath, name, data) => {
-        const folder = `${projectPath.slice(0, -"/Project.md".length)}/Sources/assets`;
-        await ensureVaultFolder(this.app, folder);
-        let path = normalizePath(`${folder}/${name}`);
-        if (this.app.vault.getAbstractFileByPath(path)) {
-          const base = name.replace(/\.[^.]+$/, "");
-          const ext = name.includes(".") ? `.${name.split(".").pop()}` : "";
-          path = normalizePath(`${folder}/${base}-${Date.now()}${ext}`);
-        }
-        await this.app.vault.createBinary(path, data);
-        return path;
-      },
-      suggestTags: async (content) => {
-        try {
-          const { tags } = await summarizeAndTag(this.router(), content, vaultVocabulary(this.app));
-          return tags;
-        } catch (e) {
-          console.warn("[companion] source tagging failed", e);
-          return [];
-        }
-      },
-      openPath: (path) => this.openResearchPath(path),
-      changed: () => this.refreshResearchViews(),
-      selectProject: async (path) => {
-        for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchView) await leaf.view.setProjectPath(path);
-      },
-    });
-  }
-
-  private async openResearchPath(path: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-    else new Notice(`Research note not found: ${path}`);
-  }
-
-  async askResearch(projectPath: string, prompt: string, display: string): Promise<boolean> {
-    const view = await this.activateView();
-    if (!view) return false;
-    view.attachNote(projectPath);
-    const started = await view.submitPrompt(prompt, display);
-    if (!started) new Notice("Claude is still busy — try again when the current reply finishes.");
-    return started;
-  }
-
-  private openDiscovery(snapshot: ProjectSnapshot): void {
-    const coordinator = this.createDiscoveryCoordinator();
-    new DiscoveryModal(this.app, coordinator, snapshot, () => this.researchRepository().loadProject(snapshot.project.path), (path) => this.openResearchPath(path), () => this.releaseDiscoveryCoordinator(coordinator)).open();
-  }
-
-  private async refreshResearchViews(): Promise<void> {
-    for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) if (leaf.view instanceof ResearchView) await leaf.view.render();
-  }
-
-  private requireResearchSelection(): { provider: Provider; model: string } {
-    const selection = this.router().researchSelection();
-    if (!selection) throw new Error("Research AI is off. Turn it on in Settings → Research Desk & discovery.");
-    return selection;
-  }
-
-  /** Shared chat-free rewrite helper for the research surfaces (claims, evidence, project questions). */
-  private researchRewriteText(): (input: { text: string; instruction: string; context?: string }) => Promise<string> {
-    return async ({ text, instruction, context }) => {
-      const { text: raw } = await this.router().completeResolved(this.requireResearchSelection(), {
-        system: REWRITE_SYSTEM,
-        user: context ? buildGroundedRewriteUser(text, instruction, context) : buildRewriteUser(text, instruction),
-        maxTokens: rewriteMaxTokens(text),
-        temperature: 0.3,
-      });
-      return parseRewrite(raw, text);
-    };
-  }
-
   /** Group a folder's clippings into research themes and write its Triage.md board. */
   private async triageClippings(folderOverride?: string): Promise<void> {
     return this.clippings().triage(folderOverride);
@@ -1087,48 +959,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Command-palette entry: pick the folder first so moved/organized notes can be triaged too. */
   async triageClippingsWithPicker(): Promise<void> {
     return this.clippings().triageWithPicker();
-  }
-
-  /**
-   * Seed a research project from the open note: pre-draft a sharp question
-   * grounded in the note, confirm via the create-project modal, import the
-   * note as the first source, then land on Discover so the preliminary
-   * scholarly search is one click away.
-   */
-  async startResearchFromActiveNote(): Promise<void> {
-    const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? this.lastMarkdownFile;
-    if (!file) {
-      new Notice("Open a note first — it becomes the project's first source.");
-      return;
-    }
-    const content = await this.app.vault.cachedRead(file);
-    if (content.trim().length < 200) {
-      new Notice("That note is too short to seed a research project.");
-      return;
-    }
-    let question: string | undefined;
-    const drafting = beginActivity(this.activity, "Drafting a research question from the note…");
-    try {
-      question = await this.researchRewriteText()({ text: file.basename, instruction: QUESTION_INSTRUCTION, context: noteExcerpt(content, 3000) });
-    } catch (e) {
-      drafting.fail(e);
-      console.warn("[companion] question drafting failed", e);
-    } finally {
-      drafting.finish();
-    }
-    new ProjectCreateModal(this.app, async (input) => {
-      const record = await this.researchRepository().createProject(input);
-      const url = parseClipUrl(content);
-      const body = stripFrontmatter(content).trim();
-      await this.researchRepository().importSource(record.path, {
-        title: file.basename,
-        sourceKind: "vault",
-        ...(url ? { url } : {}),
-        capturedContent: body.slice(0, 50000),
-      });
-      new Notice(`Project started with “${file.basename}” as the first source.`);
-      await this.activateResearchDesk(record.path);
-    }, this.researchRewriteText(), { title: file.basename, folder: `Research/${file.basename}`, ...(question ? { question } : {}) }).open();
   }
 
   override onunload(): void {
@@ -1142,13 +972,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.utilityRouting().end();
     this._enrichment?.destroy();
     this._clipperSetup?.dispose();
-    this._discoveryCoordinator?.cancel();
-    this._discoveryCoordinator?.clearCache();
-    this._discoveryCoordinator = null;
-    for (const modal of this._desktopIntegrationModals ?? []) modal.close();
-    this._desktopIntegrationModals?.clear();
-    for (const coordinator of this._viewDiscoveryCoordinators ?? []) { coordinator.cancel(); coordinator.clearCache(); }
-    this._viewDiscoveryCoordinators?.clear();
+    this._research?.dispose();
+    this._desktopIntegrations?.dispose();
     this._build?.destroy();
     this.mcpLifecycleEnded = true;
     this.mcpLifecycleGeneration = (this.mcpLifecycleGeneration ?? 0) + 1;
@@ -1157,9 +982,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._externalMcp = null;
     this._semantic?.destroy();
     this._onboarding?.dispose();
-    if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
     if (this.inboxBadgeTimer !== null) window.clearTimeout(this.inboxBadgeTimer);
-    if (this.ordersRefreshTimer !== null) window.clearTimeout(this.ordersRefreshTimer);
+    this._orders?.dispose();
   }
 
   /** Lazy external-MCP manager; null until first configured use. */
@@ -1189,7 +1013,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       save: (change) => this.saveQuickOption(change),
       run: (action) => this.runQuickOption(action),
       openAllSettings: () => this.openCompanionSettings(),
-      openDesktopIntegrations: () => this.openDesktopIntegrations(),
+      openDesktopIntegrations: () => this.desktopIntegrations().open(),
       runActivityRecovery: (activityId, actionId) => this.runActivityRecovery(activityId, actionId),
       dismissActivity: (activityId) => this.activity.dismiss(activityId),
     };
@@ -1318,118 +1142,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     app.commands?.executeCommandById?.("app:open-settings");
   }
 
-  openDesktopIntegrations(): void {
-    if (Platform.isMobile) {
-      this.openDesktopIntegrationsModal(this.mobileDesktopIntegrationsController());
-      return;
-    }
-    void this.createDesktopIntegrationController()
-      .then((controller) => this.openDesktopIntegrationsModal(controller))
-      .catch((cause: unknown) => {
-        new Notice(`Desktop integrations could not open: ${sourceActivityDetail(cause instanceof Error ? cause.message : String(cause))}`);
-      });
-  }
-
-  async configureClaudeDesktopBridge(): Promise<{ port: number; token: string }> {
-    this.settings.mcpAllowWrites = false;
-    this.settings.mcpEnabled = true;
-    if (!this.resolvedMcpToken()) this.settings.mcpToken = generateToken();
-    await this.saveSettings();
-    if (!this.mcpRunning()) throw new Error(`The read-only MCP bridge could not start on port ${this.settings.mcpPort}.`);
-    const token = this.resolvedMcpToken();
-    if (!token) throw new Error("The MCP bridge did not produce an access token.");
-    return { port: this.settings.mcpPort, token };
-  }
-
-  /** enabled=false, never a partial bridge: no working step without a resolvable token. */
-  private claudeCodeBridgeInput(env: Record<string, string | undefined>): BridgeSetupInput {
-    const resolved = resolveMcpToken(env, this.settings.mcpToken);
-    if (!this.settings.mcpEnabled || !resolved.token) return { enabled: false, url: "", headerValue: "" };
-    return { enabled: true, url: bridgeUrl(this.settings.mcpPort), headerValue: bridgeHeaderValue(resolved) };
-  }
-
-  private async createDesktopIntegrationController(): Promise<DesktopIntegrationCoordinator> {
-    const adapter = this.app.vault.adapter;
-    if (!(adapter instanceof FileSystemAdapter)) throw new Error("This vault does not expose a desktop filesystem path.");
-    const processLike = (window as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process;
-    const platform: DesktopPlatform = processLike?.platform === "darwin" || processLike?.platform === "win32" || processLike?.platform === "linux"
-      ? processLike.platform
-      : "unsupported";
-    const env = processLike?.env ?? {};
-    const homeDir = env.HOME || env.USERPROFILE || "";
-    if (!homeDir) throw new Error("The desktop home directory is unavailable.");
-    const module = await this._desktopRuntimeLoader();
-    const runtime = await module.createNodeDesktopRuntime(platform, homeDir, { APPDATA: env.APPDATA }, this.claudeCodeBridgeInput(env));
-    return new DesktopIntegrationCoordinator({
-      runtime,
-      providerReady: () => this.router().anthropic.hasCredentials() || this.settings.chatBackend !== "claude",
-      vaultPath: adapter.getBasePath(),
-      prepareClaudeDesktopBridge: () => this.configureClaudeDesktopBridge(),
-      copy: async (text) => {
-        if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
-        await navigator.clipboard.writeText(text);
-      },
-    });
-  }
-
-  private openDesktopIntegrationsModal(controller: DesktopIntegrationsController): void {
-    const processLike = (window as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process;
-    const env = processLike?.env ?? {};
-    const platform = processLike?.platform === "darwin" || processLike?.platform === "win32" || processLike?.platform === "linux"
-      ? processLike.platform
-      : "unsupported";
-    let configPath: string | undefined;
-    if (!Platform.isMobile) {
-      try {
-        configPath = claudeDesktopConfigPath(platform, env.HOME || env.USERPROFILE || "", { APPDATA: env.APPDATA });
-      } catch (e) {
-        console.debug("Claude Companion: could not resolve Desktop config path", e);
-        configPath = undefined;
-      }
-    }
-    const modal = new DesktopIntegrationsModal(this.app, {
-      controller,
-      mobile: Platform.isMobile,
-      platform,
-      openConnectionSettings: () => this.openCompanionSettings(),
-      openBridgeSettings: () => this.openCompanionSettings(),
-      openObsidianCliSettings: () => this.openObsidianCliSettings(),
-      confirm: (target, message) => this.confirmDesktopIntegration(target, message),
-      ...(configPath ? { claudeDesktopConfigPath: configPath } : {}),
-      closed: () => this._desktopIntegrationModals?.delete(modal),
-    });
-    (this._desktopIntegrationModals ??= new Set()).add(modal);
-    modal.open();
-  }
-
-  private mobileDesktopIntegrationsController(): DesktopIntegrationsController {
-    const state = { status: "idle" as const, providerReady: this.router().anthropic.hasCredentials() || this.settings.chatBackend !== "claude" };
-    return {
-      snapshot: () => state,
-      subscribe: () => () => undefined,
-      refresh: async () => undefined,
-      setupClaudeCode: async () => undefined,
-      connectClaudeDesktop: async () => undefined,
-      openTerminal: async () => undefined,
-      dispose: () => undefined,
-    };
-  }
-
-  private confirmDesktopIntegration(target: "claude-code" | "claude-desktop", message: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      new ChoiceModal(this.app, {
-        title: target === "claude-code" ? "Set up Claude Code?" : "Connect Claude Desktop?",
-        message,
-        buttons: [
-          { label: "Cancel", value: "cancel" as const },
-          { label: target === "claude-code" ? "Set up" : "Connect read-only", value: "confirm" as const, cta: true },
-        ],
-        fallback: "cancel" as const,
-        onChoice: (choice) => resolve(choice === "confirm"),
-      }).open();
-    });
-  }
-
   async runActivityRecovery(activityId: string, actionId: string): Promise<void> {
     if (activityId.startsWith("order:")) {
       if (actionId === "retry") return this.standingOrders().retry(activityId);
@@ -1504,9 +1216,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
       isNamespacedData(raw) ? raw.buildRuns : undefined,
       isNamespacedData(raw) ? raw.activeBuildRunId : null,
     );
-    this.ordersState = normalizeOrdersState(isNamespacedData(raw) ? raw.standingOrders : undefined);
-    this.orderEditQueue = normalizeEditQueue(isNamespacedData(raw) ? raw.orderEditQueue : undefined);
-    this.published = normalizePublished(isNamespacedData(raw) ? raw.published : undefined);
+    this.orders().restore(isNamespacedData(raw) ? raw.standingOrders : undefined, isNamespacedData(raw) ? raw.orderEditQueue : undefined);
+    this.publishing().restore(isNamespacedData(raw) ? raw.published : undefined);
     this.optimizeState = normalizeOptimizeState(isNamespacedData(raw) ? raw.optimize : undefined);
 
     // Any plaintext credential still in data.json moves to the secret store now,
@@ -1533,9 +1244,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
         settings: stripped.settings,
         conversations: this.convState.conversations,
         activeConversationId: this.convState.activeId,
-        standingOrders: this.ordersState,
-        orderEditQueue: this.orderEditQueue,
-        published: this.published,
+        ...this.orders().serializeState(),
+        ...this.publishing().serializeState(),
         optimize: this.optimizeState,
         ...this.build().serializeState(),
       })) as PersistedData;
@@ -1567,7 +1277,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   /** Every chat project available in this vault (chat-project notes + Research Desk projects). */
   async listChatProjects(): Promise<ChatProject[]> {
-    return listChatProjects(this.app, this.researchRepository());
+    return listChatProjects(this.app, this.research().researchRepository());
   }
 
   /** The chat project a conversation is scoped to, or null when it has none. */
@@ -1674,65 +1384,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
     }
     return this._deviceChat;
-  }
-
-  /** One lazy coordinator shared by every discovery surface. */
-  discoveryCoordinator(): DiscoveryCoordinator {
-    if (!this._discoveryCoordinator) {
-      this._discoveryCoordinator = this.buildDiscoveryCoordinator();
-    }
-    return this._discoveryCoordinator;
-  }
-
-  createDiscoveryCoordinator(): DiscoveryCoordinator {
-    const coordinator = this.buildDiscoveryCoordinator();
-    (this._viewDiscoveryCoordinators ??= new Set()).add(coordinator);
-    return coordinator;
-  }
-
-  releaseDiscoveryCoordinator(coordinator: DiscoveryCoordinator): void {
-    if (!this._viewDiscoveryCoordinators?.delete(coordinator)) return;
-    coordinator.cancel();
-    coordinator.clearCache();
-  }
-
-  retainDiscoveryCoordinator(coordinator: DiscoveryCoordinator): void {
-    (this._viewDiscoveryCoordinators ??= new Set()).add(coordinator);
-  }
-
-  private buildDiscoveryCoordinator(): DiscoveryCoordinator {
-      const http = createObsidianDiscoveryHttp();
-      const openAlex = {
-        search: (query: Parameters<OpenAlexAdapter["search"]>[0], cursor?: string, signal?: AbortSignal) =>
-          new OpenAlexAdapter(http, {
-            maxResults: DISCOVERY_MAX_RESULTS,
-            ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
-          }).search(query, cursor, signal),
-        expand: (input: Parameters<OpenAlexAdapter["expand"]>[0], signal?: AbortSignal) =>
-          new OpenAlexAdapter(http, {
-            maxResults: DISCOVERY_EXPANSION_LIMIT,
-            ...(this.settings.openAlexContactEmail.trim() ? { contact: this.settings.openAlexContactEmail.trim() } : {}),
-          }).expand(input, signal),
-      };
-      return new DiscoveryCoordinator({
-        openAlex,
-        crossref: new CrossrefAdapter(http),
-        arxiv: new ArxivAdapter(http),
-        repository: this.researchRepository(),
-        enabled: () => this.settings.discoveryEnabled,
-        cacheHours: () => DISCOVERY_CACHE_HOURS,
-        rerankerMode: () => researchCoordinatorMode(this.settings.researchModel),
-        chatBackend: () => this.settings.chatBackend,
-        anthropic: () => ({ provider: this.router().anthropic, model: resolveModelId(this.settings.model, this.settings.customModel) }),
-        local: () => ({ provider: this.router().ollama, model: this.settings.ollamaModel }),
-        chat: () => this.router().chatProvider(),
-        localAvailable: () => this.router().localAvailable(),
-      });
-  }
-
-  clearDiscoveryCache(): void {
-    this._discoveryCoordinator?.clearCache();
-    for (const coordinator of this._viewDiscoveryCoordinators ?? []) coordinator.clearCache();
   }
 
   /** Lazy ontology registry; null while the feature is disabled. IO is wired here; logic is pure. */
@@ -2140,186 +1791,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
 
   // ---------- standing orders ----------
-  private templatesRoot(): string {
-    return normalizePath(this.settings.templatesFolder).replace(/\/+$/, "");
-  }
-
   standingOrders(): OrdersController {
-    return (this._standingOrders ??= new OrdersController({
-      enabled: () => this.settings.standingOrdersEnabled,
-      now: () => new Date(),
-      loadOrders: () => this.loadStandingOrders(),
-      excludedRoots: () => [this.templatesRoot(), ORDERS_OUTPUT_ROOT].filter(Boolean),
-      noteFacts: (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile) || file.extension !== "md") return null;
-        const cache = this.app.metadataCache.getFileCache(file);
-        const tags = (cache ? getAllTags(cache) ?? [] : []).map((tag) => tag.replace(/^#/, "").toLowerCase());
-        return { path, ctime: file.stat.ctime, tags };
-      },
-      readNote: (path) => this.readVaultNote(path),
-      writeRunNote: async (path, content) => {
-        const slash = path.lastIndexOf("/");
-        await ensureVaultFolder(this.app, path.slice(0, slash));
-        const unique = await uniqueNotePath(this.app, path.slice(0, slash), path.slice(slash + 1).replace(/\.md$/, ""), "md");
-        await this.app.vault.create(unique, content);
-        return unique;
-      },
-      run: (order, trigger, now) => this.runStandingOrder(order, trigger, now),
-      getState: () => this.ordersState,
-      setState: async (next) => {
-        if (JSON.stringify(next) === JSON.stringify(this.ordersState)) return;
-        this.ordersState = next;
-        await this.persist();
-      },
-      getQueue: () => this.orderEditQueue,
-      setQueue: async (next) => {
-        this.orderEditQueue = next;
-        await this.persist();
-      },
-      activity: this.activity,
-      onQueueChanged: () => this.onOrderQueueChanged(),
-    }));
-  }
-
-  private async readVaultNote(path: string): Promise<string> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`);
-    return this.app.vault.cachedRead(file);
-  }
-
-  private async loadStandingOrders(): Promise<{ orders: StandingOrder[]; invalid: Array<{ path: string; reason: string }> }> {
-    const orders: StandingOrder[] = [];
-    const invalid: Array<{ path: string; reason: string }> = [];
-    const folder = this.templatesRoot();
-    if (!folder) return { orders, invalid };
-    for (const f of this.app.vault.getMarkdownFiles()) {
-      if (!f.path.startsWith(`${folder}/`)) continue;
-      try {
-        const fm = (this.app.metadataCache.getFileCache(f)?.frontmatter as Record<string, unknown> | undefined) ?? {};
-        const template = parseTemplateNote(f.path, f.basename, fm, stripFrontmatter(await this.app.vault.cachedRead(f)));
-        if (!template) continue;
-        const parsed = parseOrder(template, fm);
-        if (parsed.kind === "order") orders.push(parsed.order);
-        else if (parsed.kind === "invalid") invalid.push({ path: parsed.path, reason: parsed.reason });
-      } catch (e) {
-        console.debug("Claude Companion: skipping unreadable order", f.path, e);
-      }
-    }
-    orders.sort((a, b) => a.name.localeCompare(b.name));
-    return { orders, invalid };
-  }
-
-  /** Runs under the turn's propose-only access: reads plus propose_note_edit; writes are refused. */
-  private async runStandingOrder(order: StandingOrder, trigger: OrderTrigger, now: Date): Promise<OrderRunResult> {
-    const router = this.router();
-    const caps = router.chatCapabilities();
-    const toolsSupported = await router.chatToolCapable();
-    const { provider, model: providerModel } = router.chatProvider();
-    return runOrder(order, trigger, now, {
-      vaultTools: this.agentTools().definitions(),
-      toolsSupported,
-      readNote: (path) => this.readVaultNote(path),
-      runTurn: async (turn, proposeEdit) => {
-        const model = caps.local ? providerModel : turn.model ?? providerModel;
-        const request: CompletionRequest = {
-          system: this.composeSystemPrompt({ agent: true, plan: false }),
-          messages: [{ role: "user", content: turn.prompt }],
-          model,
-          maxTokens: this.settings.maxTokens,
-          ...(turn.tools.length > 0 ? { tools: turn.tools } : {}),
-        };
-        const handlers = { onText: () => undefined };
-        if (!caps.cli) {
-          return providerTurnRunner({
-            stream: (req, h) => provider.stream(req, h),
-            execute: (block, signal) => executeTool({ access: toolAccess(turn.run, this.agentTools().definitions()), unavailable: (name) => this.agentTools().unavailable(name), ...(signal ? { signal } : {}), call: (name, args) => this.agentTools().call(name, args), proposeEdit }, block),
-            maxIterations: this.settings.agentMaxIterations,
-          }).run(request, handlers);
-        }
-        const conversationId = `order:${order.id}`;
-        try {
-          const runner = await this.cliTurnRunner({ conversationId, run: turn.run, model, deps: { confirmWrite: async () => false, proposeEdit }, transcript: "" });
-          return await runner.run(request, handlers);
-        } finally {
-          await this.cliPool.close(conversationId);
-        }
-      },
-    });
-  }
-
-  listQueuedEdits(): QueuedEdit[] {
-    return this.orderEditQueue;
-  }
-
-  private queueReviewDeps(): QueueReviewDeps {
-    return {
-      app: this.app,
-      getQueue: () => this.orderEditQueue,
-      setQueue: async (next) => { this.orderEditQueue = next; await this.persist(); },
-      inlineEnabled: () => this.settings.inlineDiffEnabled,
-      onChanged: () => this.onOrderQueueChanged(),
-    };
-  }
-
-  reviewQueuedEdit(id: string): Promise<void> {
-    return reviewQueuedOrderEdit(this.queueReviewDeps(), id);
-  }
-
-  discardQueuedEdit(id: string): Promise<void> {
-    return discardQueuedOrderEdit(this.queueReviewDeps(), id);
-  }
-
-  private onOrderQueueChanged(): void {
-    this.syncInboxBadge();
-    for (const leaf of this.app.workspace.getLeavesOfType(INBOX_VIEW_TYPE)) {
-      if (leaf.view instanceof InboxView) void leaf.view.render();
-    }
-  }
-
-  private scheduleOrdersRefresh(): void {
-    if (this.ordersRefreshTimer !== null) window.clearTimeout(this.ordersRefreshTimer);
-    this.ordersRefreshTimer = window.setTimeout(() => {
-      this.ordersRefreshTimer = null;
-      void this.standingOrders().refresh();
-    }, 1000);
-  }
-
-  /** Registered after layout-ready so Obsidian's initial scan does not look like new notes. */
-  private startStandingOrders(): void {
-    const controller = this.standingOrders();
-    void controller.refresh().then(() => controller.tick()).catch((error: unknown) => console.error("[Claude Companion] standing orders failed to start", error));
-    this.registerInterval(window.setInterval(() => void controller.tick(), 60_000));
-    this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile) void controller.noteEvent(f.path); }));
-    const inTemplates = (path: string): boolean => path.startsWith(`${this.templatesRoot()}/`);
-    this.registerEvent(this.app.metadataCache.on("changed", (f) => {
-      void controller.noteEvent(f.path);
-      if (inTemplates(f.path)) this.scheduleOrdersRefresh();
-    }));
-    this.registerEvent(this.app.vault.on("create", (f) => { if (inTemplates(f.path)) this.scheduleOrdersRefresh(); }));
-    this.registerEvent(this.app.vault.on("modify", (f) => { if (inTemplates(f.path)) this.scheduleOrdersRefresh(); }));
-    this.registerEvent(this.app.vault.on("delete", (f) => { if (inTemplates(f.path)) this.scheduleOrdersRefresh(); }));
-    this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (inTemplates(f.path) || inTemplates(oldPath)) this.scheduleOrdersRefresh(); }));
-  }
-
-  async createStandingOrder(): Promise<void> {
-    const folder = this.templatesRoot();
-    await ensureVaultFolder(this.app, folder);
-    const path = await uniqueNotePath(this.app, folder, "My standing order", "md");
-    const file = await this.app.vault.create(path, ORDER_SCAFFOLD);
-    await this.app.workspace.getLeaf(false).openFile(file);
-    new Notice("Standing order created — edit the trigger and prompt, then set enabled: true.");
-  }
-
-  pickStandingOrder(): void {
-    const orders = this.standingOrders().validOrders();
-    if (orders.length === 0) {
-      new Notice("No standing orders yet — run “New standing order” first.");
-      return;
-    }
-    new OrderPicker(this.app, orders, (order) => {
-      void this.standingOrders().runNow(order.id).catch((error: unknown) => new Notice(`Standing order failed: ${error instanceof Error ? error.message : String(error)}`));
-    }).open();
+    return this.orders().standingOrders();
   }
 
   // ---------- prompt templates (user slash commands) ----------
@@ -2427,9 +1900,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const projectPath = inferResearchProjectPath(active.path, frontmatter);
     if (projectPath) {
       try {
-        const snapshot = await this.researchRepository().loadProject(projectPath);
+        const snapshot = await this.research().researchRepository().loadProject(projectPath);
         const audit = auditProject(snapshot);
-        const document = await documentSections(snapshot, (path) => this.researchRepository().loadDraftSections(path));
+        const document = await documentSections(snapshot, (path) => this.research().researchRepository().loadDraftSections(path));
         const steps = nextSteps({ snapshot, audit, ...(document ? { sections: document.sections } : {}), webSearch: this.settings.webSearchEnabled });
         return resolveCompanionWorkspace({
           activeNote: { path: active.path, title: active.basename },
@@ -2602,7 +2075,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const el = this.inboxRibbonEl;
     if (!el) return;
     const pending = this.settings.sourceCaptureEnabled ? this.inboxPendingCount() : 0;
-    const queued = this.orderEditQueue.length;
+    const queued = this.orders().listQueuedEdits().length;
     const n = pending + queued;
     const waiting = [...(pending > 0 ? [`${pending} to type`] : []), ...(queued > 0 ? [`${queued} to review`] : [])];
     el.setAttr("aria-label", n > 0 ? `Source inbox — ${waiting.join(", ")}` : "Source inbox");
@@ -2634,57 +2107,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     if (leaf) await workspace.revealLeaf(leaf);
   }
 
-  async activateResearchDesk(projectPath?: string): Promise<void> {
-    const active = this.app.workspace.getActiveFile();
-    const frontmatter = active ? this.app.metadataCache.getFileCache(active)?.frontmatter as Record<string, unknown> | undefined : undefined;
-    const inferred = active ? inferResearchProjectPath(active.path, frontmatter) : undefined;
-    const { workspace } = this.app;
-    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)[0] ?? null;
-    if (!leaf) {
-      leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
-      if (leaf) await leaf.setViewState({ type: RESEARCH_DESK_VIEW_TYPE, active: true });
-    }
-    if (leaf?.view instanceof ResearchView) {
-      const selected = leaf.view.getProjectPath();
-      const next = projectPathForActivation(projectPath, inferred, selected);
-      if (next && next !== selected) await leaf.view.setProjectPath(next);
-    }
-    if (leaf) await workspace.revealLeaf(leaf);
-  }
-
-  private scheduleResearchRefresh(path: string, oldPath?: string): void {
-    this.researchRefreshChanges.push({ path, ...(oldPath ? { oldPath } : {}) });
-    if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
-    this.researchRefreshTimer = window.setTimeout(() => {
-      this.researchRefreshTimer = null;
-      const changes = this.researchRefreshChanges;
-      this.researchRefreshChanges = [];
-      for (const leaf of this.app.workspace.getLeavesOfType(RESEARCH_DESK_VIEW_TYPE)) {
-        const view = leaf.view;
-        if (view instanceof ResearchView && changes.some(({ path, oldPath }) => view.isRelevantChange(path, oldPath))) void view.render();
-      }
-    }, 250);
-  }
-
-  researchRepository(): ResearchRepository {
-    return createResearchRepository(this.app, {
-      ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
-      includeBinary: true,
-    });
-  }
-
   // ---------- command helpers ----------
-
-  async generatePlanFromNote(): Promise<void> {
-    const view = await this.activateView();
-    if (!view) return;
-    await view.submitPrompt(
-      `${PLANNING_INSTRUCTION}\n\nBase the plan entirely on the content of my current note.`,
-      "Generate an implementation plan from this note",
-      ARTIFACT_MAX_TOKENS,
-      { context: { activeNote: true } },
-    );
-  }
 
   /**
    * "/frontmatter": propose type / tags / summary for the ACTIVE note using the
@@ -2747,128 +2170,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
-  async handoffToBuild(planFile?: TFile): Promise<void> {
-    const file = planFile ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.file ?? null;
-    const runId = await this.build().handoffToBuild(
-      file instanceof TFile ? { path: file.path, basename: file.basename } : null,
-    );
-    if (runId) await this.activateBuildView(runId);
-  }
-
-  activeBuildRun(): BuildRun | null {
-    return this.build().activeBuildRun();
-  }
-
-  async activateBuildView(runId?: string): Promise<BuildView | null> {
-    if (runId) this.build().selectActiveRun(runId);
-    const { workspace } = this.app;
-    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(BUILD_VIEW_TYPE)[0] ?? null;
-    if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
-      if (leaf) await leaf.setViewState({ type: BUILD_VIEW_TYPE, active: true });
-    }
-    if (leaf) {
-      await workspace.revealLeaf(leaf);
-      const run = this.activeBuildRun();
-      if (run && leaf.view instanceof BuildView) leaf.view.setRun(run);
-      return leaf.view instanceof BuildView ? leaf.view : null;
-    }
-    return null;
-  }
-
-  // ---------- publish to GitHub Gist ----------
-
   publish(): PublishController {
-    return (this._publish ??= new PublishController({
-      token: () => this.settings.publishGithubToken,
-      apiBase: () => this.settings.publishApiBase,
-      request: async (req) => {
-        const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, ...(req.body ? { body: req.body } : {}), throw: false });
-        let json: unknown = null;
-        try {
-          json = res.json;
-        } catch {
-          // an empty or non-JSON body parses as null
-        }
-        return { status: res.status, json };
-      },
-      readNote: async (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile)) throw new Error(`${path} is not in the vault`);
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        return view?.file?.path === path ? view.editor.getValue() : this.app.vault.read(file);
-      },
-      confirm: (kind, title) => new Promise<boolean>((resolve) => {
-        new ChoiceModal<"publish" | "cancel">(this.app, {
-          title: `Publish ${title} to GitHub Gist?`,
-          message: publishConfirmMessage(kind),
-          buttons: [{ label: "Publish", value: "publish", cta: true }, { label: "Cancel", value: "cancel" }],
-          fallback: "cancel",
-          onChoice: (choice) => resolve(choice === "publish"),
-        }).open();
-      }),
-      copy: (text) => navigator.clipboard.writeText(text),
-      notice: (text) => { new Notice(text, 8000); },
-      getItems: () => this.published,
-      setItems: async (items) => {
-        this.published = items;
-        await this.persist();
-      },
-      now: () => Date.now(),
-    }));
-  }
-
-  publishedItems(): readonly PublishedItem[] {
-    return this.published;
-  }
-
-  unpublishItem(key: string): Promise<void> {
-    return this.publish().unpublish(key);
-  }
-
-  testPublishToken(): Promise<{ ok: boolean; message: string }> {
-    return this.publish().testToken();
-  }
-
-  // ---------- cloud session dispatch ----------
-
-  private _cloud?: CloudController;
-  private cloud(): CloudController {
-    return (this._cloud ??= new CloudController({
-      settings: () => this.settings,
-      activity: () => this.activity,
-      http: async (req) => {
-        const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, ...(req.body ? { body: req.body } : {}), throw: false });
-        return { status: res.status, text: res.text };
-      },
-      vault: {
-        fileExists: (path) => !!this.app.vault.getAbstractFileByPath(path),
-        create: async (path, content) => { await this.app.vault.create(path, content); },
-        ensureFolder: (folder) => ensureVaultFolder(this.app, folder),
-        normalizePath,
-      },
-      ui: {
-        notice: (msg, timeout) => new Notice(msg, timeout),
-        clipboard: (text) => navigator.clipboard.writeText(text),
-        activeSelection: () => {
-          const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-          return { path: mdView?.file?.path, selection: mdView?.editor.getSelection().trim() || undefined };
-        },
-        promptInstruction: (context, onSubmit) => new CloudDispatchModal(this.app, context, onSubmit).open(),
-      },
-    }));
-  }
-
-  async dispatchCloudSession(): Promise<void> {
-    return this.cloud().dispatchSession();
-  }
-
-  async testCloudReplies(): Promise<{ ok: boolean; message: string }> {
-    return this.cloud().testReplies();
-  }
-
-  async pullCloudReplies(): Promise<void> {
-    return this.cloud().pullReplies();
+    return this.publishing().publish();
   }
 
   async generateArtifactFromContext(): Promise<void> {

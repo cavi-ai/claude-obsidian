@@ -15,7 +15,7 @@ import { introItems, type IntroItemsContext } from "./settingsItems/intro";
 import { localModelsItems, type DetectedModels, type LocalModelsItemsContext } from "./settingsItems/localModels";
 import { mcpItems, type McpBridgeItemsContext } from "./settingsItems/mcpBridge";
 import { mcpClientItems, type McpClientItemsContext } from "./settingsItems/mcpClient";
-import { publishItems, type PublishItemsContext } from "./settingsItems/publish";
+import { publishItems } from "./settingsItems/publish";
 import { semanticItems, type SemanticItemsContext } from "./settingsItems/semantic";
 import { sourceCaptureItems, type SourceCaptureItemsContext } from "./settingsItems/sourceCapture";
 
@@ -25,7 +25,7 @@ export type { SettingsTier } from "./settingsItems/tiers";
 export type SettingsHost = Plugin
   & AgentItemsContext["plugin"] & CloudItemsContext["plugin"] & ConnectionItemsContext["plugin"] & DiscoveryItemsContext["plugin"]
   & IntroItemsContext["plugin"] & LocalModelsItemsContext["plugin"] & McpBridgeItemsContext["plugin"] & McpClientItemsContext["plugin"]
-  & PublishItemsContext["plugin"] & SemanticItemsContext["plugin"] & SourceCaptureItemsContext["plugin"]
+  & SemanticItemsContext["plugin"] & SourceCaptureItemsContext["plugin"]
   & Pick<ClaudeCompanionPlugin, "onboarding" | "ontology" | "refreshViews" | "router" | "secrets" | "secretsWriteFailures" | "settings">;
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {

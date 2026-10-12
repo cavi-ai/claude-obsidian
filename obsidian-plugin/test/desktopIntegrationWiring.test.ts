@@ -35,7 +35,6 @@ async function pluginHarness(runtime: DesktopIntegrationRuntime = readyRuntime()
     app,
     settings: structuredClone(DEFAULT_SETTINGS),
     _desktopRuntimeLoader: vi.fn(async () => ({ createNodeDesktopRuntime: async () => runtime })),
-    _desktopIntegrationModals: new Set(),
     router: () => ({ anthropic: { hasCredentials: () => true } }),
     persist: async () => undefined,
     refreshViews: () => undefined,
@@ -53,7 +52,7 @@ afterEach(() => {
 describe("desktop integration plugin wiring", () => {
   it("lazily loads the desktop runtime and opens the focused modal", async () => {
     const plugin = await pluginHarness();
-    plugin.openDesktopIntegrations();
+    plugin.desktopIntegrations().open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const loader = (plugin as unknown as { _desktopRuntimeLoader: ReturnType<typeof vi.fn> })._desktopRuntimeLoader;
     expect(loader).toHaveBeenCalledTimes(1);
@@ -64,7 +63,7 @@ describe("desktop integration plugin wiring", () => {
     Platform.isMobile = true;
     Platform.isDesktop = false;
     const plugin = await pluginHarness();
-    plugin.openDesktopIntegrations();
+    plugin.desktopIntegrations().open();
     await Promise.resolve();
     const loader = (plugin as unknown as { _desktopRuntimeLoader: ReturnType<typeof vi.fn> })._desktopRuntimeLoader;
     expect(loader).not.toHaveBeenCalled();
@@ -73,7 +72,7 @@ describe("desktop integration plugin wiring", () => {
 
   it("closes active desktop integration work during plugin unload", async () => {
     const plugin = await pluginHarness();
-    plugin.openDesktopIntegrations();
+    plugin.desktopIntegrations().open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const modal = getLastOpenedModal();
     expect(modal?.closed).toBe(false);
@@ -86,7 +85,7 @@ describe("desktop integration plugin wiring", () => {
     plugin.settings.mcpAllowWrites = true;
     plugin.settings.mcpEnabled = false;
     plugin.settings.mcpToken = "existing-bridge-token";
-    const result = await plugin.configureClaudeDesktopBridge();
+    const result = await plugin.desktopIntegrations().configureClaudeDesktopBridge();
     expect(plugin.settings.mcpEnabled).toBe(true);
     expect(plugin.settings.mcpAllowWrites).toBe(false);
     expect(result).toEqual({ port: 22360, token: "existing-bridge-token" });
@@ -96,6 +95,6 @@ describe("desktop integration plugin wiring", () => {
     const plugin = await pluginHarness();
     plugin.settings.mcpToken = "private-bridge-token";
     Object.assign(plugin as unknown as Record<string, unknown>, { mcpRunning: () => false });
-    await expect(plugin.configureClaudeDesktopBridge()).rejects.not.toThrow("private-bridge-token");
+    await expect(plugin.desktopIntegrations().configureClaudeDesktopBridge()).rejects.not.toThrow("private-bridge-token");
   });
 });

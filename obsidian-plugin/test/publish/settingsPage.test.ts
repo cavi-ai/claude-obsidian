@@ -15,6 +15,11 @@ const ITEM: PublishedItem = { key: "n/A.md", kind: "note", title: "A", gistId: "
 function stubPlugin(items: PublishedItem[] = []) {
   const ok = { ok: true, detail: "" };
   const cli = { probe: () => null, hasCredentials: () => false, test: async () => ({ ok: false, detail: "" }), refresh: async () => ({ ok: false, detail: "" }) };
+  const publishing = {
+    publishedItems: () => items,
+    unpublishItem: vi.fn(async () => {}),
+    testPublishToken: vi.fn(async () => ({ ok: true, message: "GitHub accepted the token." })),
+  };
   const plugin = {
     settings: structuredClone(DEFAULT_SETTINGS),
     saveSettings: vi.fn(async () => {}),
@@ -37,10 +42,8 @@ function stubPlugin(items: PublishedItem[] = []) {
     clipperSetup: () => ({ templatesStale: () => false }),
     refreshViews: () => {},
     onboarding: () => ({ loadOntologyOnStart: async () => {} }),
-    openDesktopIntegrations: () => {},
-    publishedItems: () => items,
-    unpublishItem: vi.fn(async () => {}),
-    testPublishToken: vi.fn(async () => ({ ok: true, message: "GitHub accepted the token." })),
+    desktopIntegrations: () => ({ open: () => {} }),
+    publishing: () => publishing,
   };
   return plugin;
 }
@@ -92,7 +95,7 @@ describe("Publishing settings page", () => {
     const { setting, container } = renderRow(publishingPage(plugin).rows, "Test Gist token");
     (setting.components[0] as ButtonComponent).simulateClick();
     await vi.waitFor(() => expect(container.querySelector(".cc-conn-status")?.textContent).toBe("✓ GitHub accepted the token."));
-    expect(plugin.testPublishToken).toHaveBeenCalledTimes(1);
+    expect(plugin.publishing().testPublishToken).toHaveBeenCalledTimes(1);
   });
 
   it("lists published items with a link and an Unpublish button", async () => {
@@ -103,7 +106,7 @@ describe("Publishing settings page", () => {
     expect(link?.getAttribute("href")).toBe(ITEM.url);
     const unpublish = container.querySelectorAll("button").find((b) => b.textContent === "Unpublish");
     unpublish!.dispatchEvent({ type: "click" });
-    expect(plugin.unpublishItem).toHaveBeenCalledWith("n/A.md");
+    expect(plugin.publishing().unpublishItem).toHaveBeenCalledWith("n/A.md");
   });
 
   it("says so when nothing is published", () => {

@@ -25,8 +25,8 @@ type InboxEnrichOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxI
 /** The plugin capabilities the Inbox uses. */
 export type InboxHost = { semantic: () => Pick<SemanticController, "suspendReindex"> } & Pick<
   ClaudeCompanionPlugin,
-  | "activity" | "clipperSetup" | "companionChrome" | "discardQueuedEdit" | "enrichDiagnostics" | "enrichInboxItem" | "linkCandidates"
-  | "listQueuedEdits" | "organizeClippings" | "reviewInboxLinkSuggestions" | "reviewLinkSuggestions" | "reviewQueuedEdit"
+  | "activity" | "clipperSetup" | "companionChrome" | "enrichDiagnostics" | "enrichInboxItem" | "linkCandidates"
+  | "orders" | "organizeClippings" | "reviewInboxLinkSuggestions" | "reviewLinkSuggestions"
   | "settings" | "triageClippingsWithPicker" | "utilityRouting"
 >;
 
@@ -215,7 +215,7 @@ export class InboxView extends ItemView {
 
   /** Edits a standing order proposed; nothing is written until the user reviews them. */
   private renderProposedEdits(root: HTMLElement): void {
-    const queue = this.plugin.listQueuedEdits();
+    const queue = this.plugin.orders().listQueuedEdits();
     if (queue.length === 0) return;
     const section = root.createDiv({ cls: "cc-inbox-orders" });
     section.createDiv({ cls: "cc-eyebrow", text: "PROPOSED EDITS" });
@@ -237,12 +237,12 @@ export class InboxView extends ItemView {
     if (item.description) detail.createDiv({ cls: "cc-inbox-order-description", text: item.description });
     if (file) {
       const review = row.createEl("button", { cls: "cc-inbox-order-review mod-cta", text: "Review" });
-      review.addEventListener("click", () => void this.plugin.reviewQueuedEdit(item.id));
+      review.addEventListener("click", () => void this.plugin.orders().reviewQueuedEdit(item.id));
     } else {
       row.createSpan({ cls: "cc-inbox-order-missing", text: "Note missing" });
     }
     const discard = row.createEl("button", { cls: "cc-inbox-order-discard", text: "Discard" });
-    discard.addEventListener("click", () => void this.plugin.discardQueuedEdit(item.id));
+    discard.addEventListener("click", () => void this.plugin.orders().discardQueuedEdit(item.id));
   }
 
   /** Enriched clips still in the inbox, newest first; organizing files them into folders. */

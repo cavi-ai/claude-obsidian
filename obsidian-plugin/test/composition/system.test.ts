@@ -89,12 +89,14 @@ function rig(over: { runActivityRecovery?: boolean } = {}) {
       reviewOrphanLinks: m.reviewOrphanLinks,
       reviewUntypedNotes: m.reviewUntypedNotes,
     }),
-    researchRepository: () => ({ listProjects: m.listProjects, loadProject: m.loadProject }),
+    research: () => ({
+      researchRepository: () => ({ listProjects: m.listProjects, loadProject: m.loadProject }),
+      activateResearchDesk: m.activateResearchDesk,
+    }),
     router: () => ({ chatBackend: "claude" }),
     semantic: () => ({ indexer: () => ({ stats: m.stats }), rebuildSemanticIndex: m.rebuildSemanticIndex, catchUpIndex: m.catchUpIndex }),
     standingOrders: () => ({ invalidOrders: m.invalidOrders }),
     activateInboxView: m.activateInboxView,
-    activateResearchDesk: m.activateResearchDesk,
     companionChrome: () => ({ run: m.run, ...(over.runActivityRecovery ? { runActivityRecovery: m.runActivityRecovery } : {}) }),
     openCompanionSettings: m.openCompanionSettings,
   } as unknown as SystemHost;

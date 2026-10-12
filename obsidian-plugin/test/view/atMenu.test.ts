@@ -23,7 +23,7 @@ function fixture() {
     listProjects: async () => [],
     loadProject: async () => ({ claims: [] }),
   }));
-  const plugin = { settings, saveSettings, researchRepository } as unknown as ClaudeCompanionPlugin;
+  const plugin = { settings, saveSettings, research: () => ({ researchRepository }) } as unknown as ClaudeCompanionPlugin;
   const view = new ChatView(new WorkspaceLeaf(app), plugin);
   const seam = view as unknown as {
     attachedPaths: AttachedPath[];

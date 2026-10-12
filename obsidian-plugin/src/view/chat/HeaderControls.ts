@@ -314,7 +314,7 @@ export class HeaderControls {
     const items: ActionModalItem[] = [
       { title: "Source inbox", icon: "inbox", run: () => void this.plugin.activateInboxView() },
       { title: "Related notes", icon: "link", run: () => void this.plugin.activateRelatedView() },
-      { title: "Research Desk", icon: "flask-conical", run: () => void this.plugin.activateResearchDesk() },
+      { title: "Research Desk", icon: "flask-conical", run: () => void this.plugin.research().activateResearchDesk() },
       { title: "New chat", icon: "plus", run: () => this.deps.clearChat() },
       { title: "New chat tab", icon: "plus", run: () => void this.plugin.openNewChatTab() },
       { title: "History", icon: "history", run: () => this.openHistory() },
@@ -353,8 +353,8 @@ export class HeaderControls {
     // bounces a "feature is off" notice is noise.
     const cloudDispatch = this.plugin.settings.cloudDispatchEnabled;
     const cloudReplies = this.plugin.settings.cloudReplyRepo.trim().length > 0;
-    if (cloudDispatch) items.push({ title: "Send to cloud session", icon: "cloud", separatorBefore: true, run: () => void this.plugin.dispatchCloudSession() });
-    if (cloudReplies) items.push({ title: "Pull cloud replies", icon: "cloud-download", separatorBefore: !cloudDispatch, run: () => void this.plugin.pullCloudReplies() });
+    if (cloudDispatch) items.push({ title: "Send to cloud session", icon: "cloud", separatorBefore: true, run: () => void this.plugin.publishing().dispatchCloudSession() });
+    if (cloudReplies) items.push({ title: "Pull cloud replies", icon: "cloud-download", separatorBefore: !cloudDispatch, run: () => void this.plugin.publishing().pullCloudReplies() });
     items.push({ title: "Settings", icon: "settings", separatorBefore: true, run: () => this.deps.openSettings() });
     new ActionModal(this.app, "Companion actions", items).open();
   }

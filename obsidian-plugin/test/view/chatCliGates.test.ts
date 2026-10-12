@@ -119,7 +119,8 @@ describe("ChatView on the claude-cli backend", () => {
 
   it("offers Research Desk in the mobile overflow and activates it", () => {
     const plugin = pluginStub({ chatBackend: "claude-cli" }, CLI, true);
-    plugin.activateResearchDesk = vi.fn();
+    const activateResearchDesk = vi.fn();
+    Object.assign(plugin, { research: () => ({ activateResearchDesk }) });
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
 
     (view as unknown as { openOverflowMenu(): void }).openOverflowMenu();
@@ -129,7 +130,7 @@ describe("ChatView on the claude-cli backend", () => {
     item?.dispatchEvent({ type: "click" });
 
     expect(item).toBeDefined();
-    expect(plugin.activateResearchDesk).toHaveBeenCalledTimes(1);
+    expect(activateResearchDesk).toHaveBeenCalledTimes(1);
   });
 
   it("offers Claude Code sign-in on the setup card when the CLI is signed in and no key exists", () => {

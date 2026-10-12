@@ -14,17 +14,17 @@ import type { SystemViewDeps } from "../view/SystemView";
 
 export type HealthHost = Pick<
   ClaudeCompanionPlugin,
-  | "activity" | "app" | "clipperSetup" | "inboxPendingCount" | "mcpRunning" | "onboarding" | "ontology" | "optimize" | "researchRepository"
+  | "activity" | "app" | "clipperSetup" | "inboxPendingCount" | "mcpRunning" | "onboarding" | "ontology" | "optimize" | "research"
   | "router" | "semantic" | "settings" | "standingOrders"
 >;
 
 export type SystemHost = HealthHost & Pick<
   ClaudeCompanionPlugin,
-  | "activateInboxView" | "activateResearchDesk" | "companionChrome" | "openCompanionSettings"
+  | "activateInboxView" | "companionChrome" | "openCompanionSettings"
 >;
 
 export function buildHealthController(host: HealthHost): HealthController {
-  const repo = (): ResearchRepository => host.researchRepository();
+  const repo = (): ResearchRepository => host.research().researchRepository();
   return new HealthController({
     markdownFiles: () => host.app.vault.getMarkdownFiles().map((f) => ({ path: f.path, frontmatter: host.app.metadataCache.getFileCache(f)?.frontmatter })),
     unresolvedLinks: () => host.app.metadataCache.unresolvedLinks,
@@ -72,7 +72,7 @@ export function buildSystemDeps(host: SystemHost): SystemViewDeps {
     scan: () => controller.scan(),
     safeFixes: () => controller.safeFixes(),
     openNote: (path) => void host.app.workspace.openLinkText(path, ""),
-    openResearchDesk: (path) => host.activateResearchDesk(path),
+    openResearchDesk: (path) => host.research().activateResearchDesk(path),
     buildIndex: () => host.semantic().rebuildSemanticIndex(),
     catchUpIndex: () => host.semantic().catchUpIndex(),
     openInbox: () => host.activateInboxView(),

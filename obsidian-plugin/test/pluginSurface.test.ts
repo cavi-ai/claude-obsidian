@@ -4,8 +4,12 @@ import { ActivityStore } from "../src/activity/store";
 import { ConversationsController } from "../src/conversations/controller";
 import { SessionActions } from "../src/conversations/sessionActions";
 import ClaudeCompanionPlugin from "../src/main";
+import { DesktopFeature } from "../src/integrations/desktopFeature";
 import { Onboarding } from "../src/onboarding/onboarding";
+import { OrdersFeature } from "../src/orders/ordersFeature";
 import { UtilityRouting } from "../src/providers/utilityRouting";
+import { PublishFeature } from "../src/publish/publishFeature";
+import { ResearchFeature } from "../src/research/researchFeature";
 import { SemanticController } from "../src/semantic/controller";
 import { ClipperFeature } from "../src/sources/clipperFeature";
 import { DEFAULT_SETTINGS } from "../src/types";
@@ -25,6 +29,17 @@ const FORWARDERS = [
   "clipperTemplatesStale", "clipperStatus", "seedOntology", "credentialSetupInputs", "runFirstRun", "continueOnboarding",
   "openSetupWizard", "runFirstRunPrompts", "loadOntologyOnStart", "offerOntologySeed", "offerDesktopIntegrations",
   "scheduleOntologyReload",
+  "syncPlanBuildActions", "markNoteAsPlan", "createResearchActions", "openResearchPath", "askResearch", "openDiscovery",
+  "refreshResearchViews", "requireResearchSelection", "researchRewriteText", "startResearchFromActiveNote", "discoveryCoordinator",
+  "createDiscoveryCoordinator", "releaseDiscoveryCoordinator", "retainDiscoveryCoordinator", "buildDiscoveryCoordinator",
+  "clearDiscoveryCache", "activateResearchDesk", "scheduleResearchRefresh", "researchRepository", "generatePlanFromNote",
+  "handoffToBuild", "activeBuildRun", "activateBuildView",
+  "openDesktopIntegrations", "configureClaudeDesktopBridge", "claudeCodeBridgeInput", "createDesktopIntegrationController",
+  "openDesktopIntegrationsModal", "mobileDesktopIntegrationsController", "confirmDesktopIntegration",
+  "templatesRoot", "readVaultNote", "loadStandingOrders", "runStandingOrder", "listQueuedEdits", "queueReviewDeps",
+  "reviewQueuedEdit", "discardQueuedEdit", "onOrderQueueChanged", "scheduleOrdersRefresh", "startStandingOrders",
+  "createStandingOrder", "pickStandingOrder",
+  "publishedItems", "unpublishItem", "testPublishToken", "cloud", "dispatchCloudSession", "testCloudReplies", "pullCloudReplies",
 ];
 
 function builtPlugin(): ClaudeCompanionPlugin {
@@ -67,6 +82,24 @@ describe("plugin conversation surface", () => {
     expect(plugin.clipperSetup()).toBe(plugin.clipperSetup());
     expect(plugin.onboarding()).toBeInstanceOf(Onboarding);
     expect(plugin.onboarding()).toBe(plugin.onboarding());
+  });
+
+  it("builds one research, desktop integrations, orders and publishing module", () => {
+    const plugin = builtPlugin();
+    expect(plugin.research()).toBeInstanceOf(ResearchFeature);
+    expect(plugin.research()).toBe(plugin.research());
+    expect(plugin.desktopIntegrations()).toBeInstanceOf(DesktopFeature);
+    expect(plugin.desktopIntegrations()).toBe(plugin.desktopIntegrations());
+    expect(plugin.orders()).toBeInstanceOf(OrdersFeature);
+    expect(plugin.orders()).toBe(plugin.orders());
+    expect(plugin.publishing()).toBeInstanceOf(PublishFeature);
+    expect(plugin.publishing()).toBe(plugin.publishing());
+  });
+
+  it("serves the controller accessors from their modules", () => {
+    const plugin = builtPlugin();
+    expect(plugin.standingOrders()).toBe(plugin.orders().standingOrders());
+    expect(plugin.publish()).toBe(plugin.publishing().publish());
   });
 
   it.each(FORWARDERS)("has no %s forwarder", (name) => {

@@ -136,7 +136,7 @@ describe("resolveSettings with legacy configs", () => {
       }),
       ontology: () => undefined,
       clipperSetup: () => ({ templatesStale: () => false }),
-      publishedItems: () => [],
+      publishing: () => ({ publishedItems: () => [] }),
       refreshViews: () => {},
       onboarding: () => ({ loadOntologyOnStart: async () => {} }),
     } as unknown as ClaudeCompanionPlugin;
