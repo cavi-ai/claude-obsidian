@@ -390,13 +390,13 @@ test.describe("README captures", () => {
           const w = window as unknown as {
             app: {
               vault: { getAbstractFileByPath(path: string): unknown };
-              plugins: { plugins: Record<string, { enrichNoteFlow(file: unknown, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<void> }> };
+              plugins: { plugins: Record<string, { noteFlows(): { enrichNoteFlow(file: unknown, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<void> } }> };
             };
           };
           const file = w.app.vault.getAbstractFileByPath("Build plan.md");
           // Fire and forget: enrichNoteFlow() only resolves once the review
           // modal it opens is closed, which this test never does.
-          void w.app.plugins.plugins["claude-companion"]!.enrichNoteFlow(file, { rename: false, frontmatter: false, links: false, lint: true });
+          void w.app.plugins.plugins["claude-companion"]!.noteFlows().enrichNoteFlow(file, { rename: false, frontmatter: false, links: false, lint: true });
         });
         const modal = page.locator(".modal", { has: page.locator(".cc-diff-hunk") });
         await expect(modal.locator(".cc-diff-hunk")).toHaveCount(2, { timeout: 15_000 });

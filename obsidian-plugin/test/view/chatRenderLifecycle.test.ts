@@ -497,12 +497,12 @@ describe("Chat render lifecycle", () => {
         chatProvider: () => ({ provider: { id: "anthropic" }, model: DEFAULT_SETTINGS.model }),
       }),
       mcpStats: () => ({ running: false, port: null, activeRequests: 0, handledRequests: 0 }),
-      companionChrome: () => chromeDeps,
+      shell: () => ({ companionChrome: () => chromeDeps }),
       promptTemplates: async () => [],
       ...conversationFakes({}, settings).host,
       secrets: () => ({ available: () => false }),
       composeSystemPrompt: () => "system",
-      companionWorkspaceContext: async () => null,
+      views: () => ({ companionWorkspaceContext: async () => null }),
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(app), plugin);
     (view as unknown as { containerEl: { style: { setProperty(name: string, value: string): void } } }).containerEl = {

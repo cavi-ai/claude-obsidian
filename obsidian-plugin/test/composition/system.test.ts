@@ -78,7 +78,7 @@ function rig(over: { runActivityRecovery?: boolean } = {}) {
     settings: { semanticEnabled: true, ontologyFolder: "Ont", mcpEnabled: true, mcpPort: 1234, sourceCaptureEnabled: true },
     activity: { snapshot: () => ({ records: m.records }) },
     onboarding: () => ({ credentialSetupInputs: () => ({ inputs: true }), openSetupWizard: m.openSetupWizard }),
-    inboxPendingCount: () => 7,
+    views: () => ({ inboxPendingCount: () => 7, activateInboxView: m.activateInboxView }),
     mcpRunning: () => true,
     clipperSetup: () => ({ status: () => "current", openSetup: m.openClipperSetup }),
     ontology: () => m.ontology,
@@ -96,9 +96,10 @@ function rig(over: { runActivityRecovery?: boolean } = {}) {
     router: () => ({ chatBackend: "claude" }),
     semantic: () => ({ indexer: () => ({ stats: m.stats }), rebuildSemanticIndex: m.rebuildSemanticIndex, catchUpIndex: m.catchUpIndex }),
     standingOrders: () => ({ invalidOrders: m.invalidOrders }),
-    activateInboxView: m.activateInboxView,
-    companionChrome: () => ({ run: m.run, ...(over.runActivityRecovery ? { runActivityRecovery: m.runActivityRecovery } : {}) }),
-    openCompanionSettings: m.openCompanionSettings,
+    shell: () => ({
+      companionChrome: () => ({ run: m.run, ...(over.runActivityRecovery ? { runActivityRecovery: m.runActivityRecovery } : {}) }),
+      openCompanionSettings: m.openCompanionSettings,
+    }),
   } as unknown as SystemHost;
   m.getFileByPath.mockReturnValue({ path: "a.md" });
   (host.app.vault as unknown as Record<string, unknown>).getFileByPath = m.getFileByPath;

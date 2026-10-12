@@ -9,6 +9,7 @@ import { renderCompanionChrome } from "./companionChrome";
 import { relativeTime } from "../conversations/store";
 import type { QueuedEdit } from "../orders/editQueue";
 import type { SemanticController } from "../semantic/controller";
+import type { WorkspaceViews } from "./workspaceViews";
 
 export const INBOX_VIEW_TYPE = "claude-inbox-view";
 const INBOX_REFRESH_DEBOUNCE_MS = 100;
@@ -20,14 +21,14 @@ interface InboxFeedback {
   message: string;
 }
 
-type InboxEnrichOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxItem"]>>;
+type InboxEnrichOutcome = Awaited<ReturnType<WorkspaceViews["enrichInboxItem"]>>;
 
 /** The plugin capabilities the Inbox uses. */
 export type InboxHost = { semantic: () => Pick<SemanticController, "suspendReindex"> } & Pick<
   ClaudeCompanionPlugin,
-  | "activity" | "clipperSetup" | "companionChrome" | "enrichDiagnostics" | "enrichInboxItem" | "linkCandidates"
-  | "orders" | "organizeClippings" | "reviewInboxLinkSuggestions" | "reviewLinkSuggestions"
-  | "settings" | "triageClippingsWithPicker" | "utilityRouting"
+  | "activity" | "clipperSetup" | "enrichDiagnostics" | "noteFlows"
+  | "orders" | "organizeClippings" | "settings" | "shell"
+  | "triageClippingsWithPicker" | "utilityRouting" | "views"
 >;
 
 function safeActivityDetail(value: string): string {
@@ -151,7 +152,7 @@ export class InboxView extends ItemView {
     this.disposeChrome = null;
     root.empty();
     root.addClass("cc-inbox-view");
-    this.disposeChrome = renderCompanionChrome(root, "inbox", "Source Inbox", this.plugin.companionChrome());
+    this.disposeChrome = renderCompanionChrome(root, "inbox", "Source Inbox", this.plugin.shell().companionChrome());
     root.createDiv({ cls: "cc-eyebrow", text: "SOURCE INBOX" });
     this.renderProposedEdits(root);
 
@@ -398,7 +399,7 @@ export class InboxView extends ItemView {
         // batch result keeps its actionable error details visible below.
       }
     }
-    const items = wireUpItems(entries, this.plugin.linkCandidates(), inbox);
+    const items = wireUpItems(entries, this.plugin.noteFlows().linkCandidates(), inbox);
     if ((items.length === 0 && !this.linkSummary) || !this.refresh.isCurrent(generation)) return;
 
     const section = root.createDiv({ cls: "cc-inbox-wireup" });
@@ -447,7 +448,7 @@ export class InboxView extends ItemView {
     this.setOperationFeedback("running", `Reviewing links for ${basename}…`);
     try {
       await this.renderSafely();
-      await this.plugin.reviewLinkSuggestions(file);
+      await this.plugin.noteFlows().reviewLinkSuggestions(file);
       this.setOperationFeedback("success", `Reviewed links for ${basename}.`);
     } catch (error) {
       const detail = safeActivityDetail(error instanceof Error ? error.message : String(error));
@@ -469,7 +470,7 @@ export class InboxView extends ItemView {
     if (!fromBatch) this.setOperationFeedback("running", `Enriching ${item.basename}…`);
     try {
       if (!fromBatch) await this.renderSafely();
-      const outcome = await this.plugin.enrichInboxItem(f, { inline: true, refreshInboxViews: !fromBatch });
+      const outcome = await this.plugin.views().enrichInboxItem(f, { inline: true, refreshInboxViews: !fromBatch });
       if (outcome.status === "enriched") {
         this.enrichedOptimistically.add(item.path);
         this.enrichmentFeedback.delete(item.path);
@@ -599,7 +600,7 @@ export class InboxView extends ItemView {
     this.setOperationFeedback("running", "Reviewing Inbox link suggestions…");
     try {
       await this.renderSafely();
-      const result = await this.plugin.reviewInboxLinkSuggestions(this.enrichedInboxFiles());
+      const result = await this.plugin.noteFlows().reviewInboxLinkSuggestions(this.enrichedInboxFiles());
       if (result) {
         this.linkSummary = this.describeLinkResult(result);
         this.linkResult = result;

@@ -16,7 +16,7 @@ function harness(clipperSetupNeeded = true): { app: App; view: InboxView; organi
     app,
     settings: { sourceCaptureEnabled: true, sourceInboxFolder: "Clippings", clipOrganizedFolder: "Library" },
     utilityRouting: () => ({ backendLabel: () => "Claude" }),
-    linkCandidates: () => [],
+    noteFlows: () => ({ linkCandidates: () => [] }),
     organizeClippings,
     triageClippingsWithPicker,
     clipperSetup: () => ({ setupNeeded: () => clipperSetupNeeded }),

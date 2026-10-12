@@ -11,9 +11,10 @@ import { DEFAULT_SETTINGS, type PluginSettings } from "../src/types";
 import { ExtractError } from "../src/sources/extract";
 import { InboxView, INBOX_VIEW_TYPE } from "../src/view/InboxView";
 import { ChoiceModal } from "../src/view/ChoiceModal";
+import type { WorkspaceViews } from "../src/view/workspaceViews";
 import { SourceEnrichmentController, type SourceEnrichmentControllerDeps } from "../src/sources/controller";
 
-type EnrichRunOutcome = Awaited<ReturnType<ClaudeCompanionPlugin["enrichInboxItem"]>>;
+type EnrichRunOutcome = Awaited<ReturnType<WorkspaceViews["enrichInboxItem"]>>;
 
 interface ControllerPrivates {
   enrichTimers: Map<string, number>;
@@ -59,7 +60,7 @@ function inboxPlugin(
   Object.assign(plugin, {
     app,
     settings: { ...DEFAULT_SETTINGS, sourceCaptureEnabled: true, sourceInboxFolder: "Clippings" },
-    enrichInboxItem,
+    views: () => ({ enrichInboxItem }),
     utilityRouting: () => ({ backendLabel: () => "Ollama · utility-model" }),
     listQueuedEdits: () => [],
     suspendReindex: () => () => {},
@@ -105,7 +106,7 @@ describe("enrichment lifecycle", () => {
     controller.queueEnrich(file);
     await vi.advanceTimersByTimeAsync(1500);
     await settle();
-    const inbox = plugin.enrichInboxItem(file, { inline: true, refreshInboxViews: false });
+    const inbox = plugin.views().enrichInboxItem(file, { inline: true, refreshInboxViews: false });
     await settle();
 
     expect(started).toEqual([file.path]);
@@ -144,7 +145,7 @@ describe("enrichment lifecycle", () => {
     controller.queueEnrich(automatic);
     await vi.advanceTimersByTimeAsync(1500);
     await settle();
-    const inboxResult = plugin.enrichInboxItem(inbox, { inline: true, refreshInboxViews: false });
+    const inboxResult = plugin.views().enrichInboxItem(inbox, { inline: true, refreshInboxViews: false });
     await settle();
 
     expect(started).toEqual([automatic.path]);
@@ -519,7 +520,6 @@ describe("enrichment lifecycle", () => {
     Object.assign(plugin, {
       _enrichment: controller,
       researchRefreshTimer: null,
-      inboxBadgeTimer: null,
     });
 
     controller.queueEnrich(file);
@@ -613,8 +613,10 @@ describe("enrichment lifecycle", () => {
     app.vault.seed("Notes/Project Atlas.md", "");
     const plugin = inboxPlugin(app, async () => ({ status: "enriched" }));
     Object.assign(plugin, {
-      linkCandidates: () => [{ path: "Notes/Project Atlas.md", basename: "Project Atlas", aliases: [] }],
-      reviewInboxLinkSuggestions: async () => ({ appliedFiles: 0, appliedHunks: 0, conflicts: [], failures: [] }),
+      noteFlows: () => ({
+        linkCandidates: () => [{ path: "Notes/Project Atlas.md", basename: "Project Atlas", aliases: [] }],
+        reviewInboxLinkSuggestions: async () => ({ appliedFiles: 0, appliedHunks: 0, conflicts: [], failures: [] }),
+      }),
     });
     const view = new InboxView(new WorkspaceLeaf(app), plugin);
     await view.render();

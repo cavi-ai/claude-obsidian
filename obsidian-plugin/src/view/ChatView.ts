@@ -439,7 +439,7 @@ export class ChatView extends ItemView {
     }
     const path = await this.plugin.sessionActions().distill(this.conversationId);
     if (path !== null && this.plugin.settings.memoryEnabled && this.plugin.settings.memoryIngestOnSave) {
-      await this.plugin.captureConversation(this.messages);
+      await this.plugin.memory().captureConversation(this.messages);
     }
   }
 
@@ -740,7 +740,7 @@ export class ChatView extends ItemView {
     if (cmd.action?.startsWith(WORKFLOW_ACTION_PREFIX)) {
       const id = cmd.action.slice(WORKFLOW_ACTION_PREFIX.length);
       const wf = WORKFLOWS.find((w) => w.id === id);
-      if (wf) await this.plugin.runWorkflow(wf);
+      if (wf) await this.plugin.views().runWorkflow(wf);
       else new Notice(`Unknown workflow: ${id}`);
       return;
     }

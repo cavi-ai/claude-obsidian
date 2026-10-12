@@ -7,7 +7,10 @@ import { ChatView } from "../../src/view/ChatView";
 import type { CompanionChromeDependencies } from "../../src/view/companionChrome";
 import { conversationFakes } from "../fakes/conversations";
 
+const memoryFake = { captureConversation: vi.fn(async () => undefined) };
+
 function plugin(overrides: Record<string, unknown> = {}, fakes = conversationFakes()): ClaudeCompanionPlugin {
+  memoryFake.captureConversation.mockClear();
   const app = new App();
   (app.workspace as unknown as { getActiveViewOfType(): null; getActiveFile(): null }).getActiveViewOfType = () => null;
   (app.workspace as unknown as { getActiveFile(): null }).getActiveFile = () => null;
@@ -25,14 +28,14 @@ function plugin(overrides: Record<string, unknown> = {}, fakes = conversationFak
       chatProvider: () => ({ provider: { id: "anthropic" }, model: DEFAULT_SETTINGS.model }),
     }),
     mcpStats: () => ({ running: false, port: null, activeRequests: 0, handledRequests: 0 }),
-    companionChrome: () => chromeDeps,
+    shell: () => ({ companionChrome: () => chromeDeps }),
     promptTemplates: async () => [],
     commandActions: () => ({}),
     ...fakes.host,
     secrets: () => ({ available: () => false }),
     composeSystemPrompt: () => "system",
-    companionWorkspaceContext: async () => null,
-    captureConversation: vi.fn(async () => undefined),
+    views: () => ({ companionWorkspaceContext: async () => null }),
+    memory: () => memoryFake,
     ...overrides,
   } as unknown as ClaudeCompanionPlugin;
 }
@@ -108,7 +111,7 @@ describe("distill replaces save-to-vault", () => {
     p.settings.memoryIngestOnSave = true;
     const view = await openView(p);
     await view.distillThisChat();
-    expect(p.captureConversation).toHaveBeenCalledOnce();
+    expect(memoryFake.captureConversation).toHaveBeenCalledOnce();
   });
 
   it("skips memory capture when the distill wrote nothing", async () => {
@@ -119,7 +122,7 @@ describe("distill replaces save-to-vault", () => {
     p.settings.memoryIngestOnSave = true;
     const view = await openView(p);
     await view.distillThisChat();
-    expect(p.captureConversation).not.toHaveBeenCalled();
+    expect(memoryFake.captureConversation).not.toHaveBeenCalled();
   });
 
   it("a chat with no stored conversation notices and makes no call", async () => {

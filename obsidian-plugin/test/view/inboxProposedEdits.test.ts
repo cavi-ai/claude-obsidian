@@ -22,7 +22,7 @@ function harness(queue: QueuedEdit[]) {
     app,
     settings: { sourceCaptureEnabled: true, sourceInboxFolder: "Clippings", clipOrganizedFolder: "Library" },
     utilityRouting: () => ({ backendLabel: () => "Claude" }),
-    linkCandidates: () => [],
+    noteFlows: () => ({ linkCandidates: () => [] }),
     clipperSetup: () => ({ setupNeeded: () => false }),
     orders: () => ({ listQueuedEdits: () => queue, reviewQueuedEdit, discardQueuedEdit }),
   });

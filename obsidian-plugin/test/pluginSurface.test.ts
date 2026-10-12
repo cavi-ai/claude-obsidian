@@ -13,6 +13,9 @@ import { ResearchFeature } from "../src/research/researchFeature";
 import { SemanticController } from "../src/semantic/controller";
 import { ClipperFeature } from "../src/sources/clipperFeature";
 import { DEFAULT_SETTINGS } from "../src/types";
+import { NoteFlows } from "../src/enrich/noteFlows";
+import { CompanionShell } from "../src/view/companionShell";
+import { WorkspaceViews } from "../src/view/workspaceViews";
 
 const FORWARDERS = [
   "listConversations", "getActiveConversation", "beginActiveConversationTurn", "registerActiveChatTurn", "stopActiveChatTurn",
@@ -40,6 +43,16 @@ const FORWARDERS = [
   "reviewQueuedEdit", "discardQueuedEdit", "onOrderQueueChanged", "scheduleOrdersRefresh", "startStandingOrders",
   "createStandingOrder", "pickStandingOrder",
   "publishedItems", "unpublishItem", "testPublishToken", "cloud", "dispatchCloudSession", "testCloudReplies", "pullCloudReplies",
+  "linkCandidates", "linkedTargets", "reviewLinkSuggestions", "reviewInboxLinkSuggestions", "enrichNoteFlow", "enrichFolderFlow",
+  "buildEnrichProposal", "applyEnrichDecision", "organizeFolderFlow", "suggestFrontmatterForActiveNote",
+  "generateArtifactFromContext",
+  "companionChrome", "quickOptionsSnapshot", "saveQuickOption", "runQuickOption", "openCompanionSettings",
+  "openObsidianCliSettings", "openSettingsTab", "runActivityRecovery",
+  "activateView", "openNewChatTab", "companionWorkspaceContext", "askCompanionAboutProject", "activateMemoryView",
+  "activateInboxView", "activateSystem", "refreshMemoryView", "activateRelatedView", "enrichInboxItem", "inboxPendingCount",
+  "scheduleInboxBadgeSync", "syncInboxBadge", "openWorkflowPicker", "runWorkflow",
+  "listVaultSessions", "openSessionPicker", "captureSession", "consolidateMemory", "captureLatestSession",
+  "captureConversation", "reingestSession",
 ];
 
 function builtPlugin(): ClaudeCompanionPlugin {
@@ -94,6 +107,16 @@ describe("plugin conversation surface", () => {
     expect(plugin.orders()).toBe(plugin.orders());
     expect(plugin.publishing()).toBeInstanceOf(PublishFeature);
     expect(plugin.publishing()).toBe(plugin.publishing());
+  });
+
+  it("builds one note flows, workspace views and companion shell module", () => {
+    const plugin = builtPlugin();
+    expect(plugin.noteFlows()).toBeInstanceOf(NoteFlows);
+    expect(plugin.noteFlows()).toBe(plugin.noteFlows());
+    expect(plugin.views()).toBeInstanceOf(WorkspaceViews);
+    expect(plugin.views()).toBe(plugin.views());
+    expect(plugin.shell()).toBeInstanceOf(CompanionShell);
+    expect(plugin.shell()).toBe(plugin.shell());
   });
 
   it("serves the controller accessors from their modules", () => {

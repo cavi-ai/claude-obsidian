@@ -93,7 +93,7 @@ export class HeaderControls {
       more.addEventListener("click", () => cb.onOverflow());
       // Quick options reaches mobile through that one ⋯ menu; a second control on
       // a phone-width header is the crowding this row exists to avoid.
-      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
+      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.shell().companionChrome(), {
         host: actions,
         compact: true,
         omitOptionsButton: true,
@@ -118,7 +118,7 @@ export class HeaderControls {
       this.iconButton(primary, "more-horizontal", "More actions", () => cb.onOverflow());
       // Quick options joins this row rather than owning a header of its own, and
       // replaces the gear: its own sheet already offers "Open all settings".
-      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.companionChrome(), {
+      this.disposeChrome = renderCompanionChrome(root, "chat", "Chat", this.plugin.shell().companionChrome(), {
         host: primary,
         compact: true,
       });
@@ -312,23 +312,23 @@ export class HeaderControls {
   /** The single ⋯ menu: on mobile it replaces the header icon row entirely; on desktop it carries the actions the 3-icon row + model chip don't. */
   openOverflowMenu(): void {
     const items: ActionModalItem[] = [
-      { title: "Source inbox", icon: "inbox", run: () => void this.plugin.activateInboxView() },
-      { title: "Related notes", icon: "link", run: () => void this.plugin.activateRelatedView() },
+      { title: "Source inbox", icon: "inbox", run: () => void this.plugin.views().activateInboxView() },
+      { title: "Related notes", icon: "link", run: () => void this.plugin.views().activateRelatedView() },
       { title: "Research Desk", icon: "flask-conical", run: () => void this.plugin.research().activateResearchDesk() },
       { title: "New chat", icon: "plus", run: () => this.deps.clearChat() },
-      { title: "New chat tab", icon: "plus", run: () => void this.plugin.openNewChatTab() },
+      { title: "New chat tab", icon: "plus", run: () => void this.plugin.views().openNewChatTab() },
       { title: "History", icon: "history", run: () => this.openHistory() },
       { title: "Distill this chat", icon: "sparkles", run: () => void this.deps.distillChat() },
     ];
     if (!Platform.isMobile) {
       if (this.plugin.settings.memoryEnabled) {
-        items.push({ title: "Capture a Claude Code session…", icon: "import", run: () => void this.plugin.openSessionPicker() });
+        items.push({ title: "Capture a Claude Code session…", icon: "import", run: () => void this.plugin.memory().openSessionPicker() });
       }
       items.push({ title: "MCP bridge…", icon: "plug-zap", run: () => this.openMcpMenu(this.mcpStatusEl) });
     }
     items.push(
       { title: "Model controls…", icon: "sliders-horizontal", run: () => this.openTuneModal() },
-      { title: "Options…", icon: "settings-2", run: () => new QuickOptionsModal(this.app, "chat", this.plugin.companionChrome()).open() },
+      { title: "Options…", icon: "settings-2", run: () => new QuickOptionsModal(this.app, "chat", this.plugin.shell().companionChrome()).open() },
     );
     // Session toggles from the desktop controls bar. Phones set Ask / Plan / Act
     // from the composer toolbar, so the mode items are desktop-only here.
