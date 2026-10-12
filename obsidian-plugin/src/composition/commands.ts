@@ -8,10 +8,10 @@ export type CommandActionsHost = Pick<
   ClaudeCompanionPlugin,
   | "activateInboxView" | "activateMemoryView" | "activateRelatedView" | "activateResearchDesk" | "activateSystem" | "activateView"
   | "app" | "browseConversations" | "conversations" | "createPromptTemplate" | "createStandingOrder" | "deleteActiveConversation"
-  | "dispatchCloudSession" | "enableVaultSearch" | "enrichment" | "enrichNoteFlow" | "exportClipperTemplates" | "generateArtifactFromContext"
+  | "dispatchCloudSession" | "enableVaultSearch" | "enrichment" | "enrichNoteFlow" | "generateArtifactFromContext"
   | "generatePlanFromNote" | "handoffToBuild" | "lastMarkdownFile" | "markNoteAsPlan" | "memory"
-  | "openNewChatTab" | "openSetupWizard" | "openWorkflowPicker" | "optimize" | "organizeClippings" | "pickStandingOrder" | "published"
-  | "publish" | "pullCloudReplies" | "reviewLinkSuggestions" | "seedOntology" | "semantic" | "settings" | "startInlineEdit"
+  | "onboarding" | "clipperSetup" | "openNewChatTab" | "openWorkflowPicker" | "optimize" | "organizeClippings" | "pickStandingOrder" | "published"
+  | "publish" | "pullCloudReplies" | "reviewLinkSuggestions" | "semantic" | "settings" | "startInlineEdit"
   | "startResearchFromActiveNote" | "suggestFrontmatterForActiveNote" | "triageClippingsWithPicker"
 >;
 
@@ -57,12 +57,12 @@ export function buildCommandActions(host: CommandActionsHost): CommandActions {
     enrichNoteAsSource: (file) => void host.enrichment().runEnrich(file),
     openSourceInbox: () => void host.activateInboxView(),
     openSystem: () => void host.activateSystem(),
-    exportClipperTemplates: () => void host.exportClipperTemplates(),
-    seedOntology: () => void host.seedOntology(),
+    exportClipperTemplates: () => void host.clipperSetup().exportTemplates(),
+    seedOntology: () => void host.onboarding().seedOntology(),
     optimizeBrain: () => void host.optimize().reviewTagMerges(() => undefined),
     optimizeLinks: () => void host.optimize().reviewOrphanLinks(() => undefined),
     optimizeTypes: () => void host.optimize().reviewUntypedNotes(() => undefined),
-    openSetupWizard: () => host.openSetupWizard(),
+    openSetupWizard: () => host.onboarding().openSetupWizard(),
     publishNote: (file) => void host.publish().publishNote(file.path),
     copyPublishedLink: (file) => void host.publish().copyLink(file.path),
     unpublishNote: (file) => void host.publish().unpublish(file.path),

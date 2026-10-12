@@ -19,7 +19,6 @@ import { SourceEnrichmentController } from "../../src/sources/controller";
 import { OptimizeFeature } from "../../src/optimize/feature";
 
 interface PrivateEnrich {
-  sourceEnrichmentErrorHint(message: string): string | null;
   triageClippings(): Promise<void>;
   buildEnrichProposal(file: TFile, options: { rename: boolean; frontmatter: boolean; links: boolean; lint: boolean }): Promise<unknown>;
   organizeFolderFlow(folder: TFolder): Promise<void>;
@@ -516,7 +515,7 @@ describe("source enrichment wiring", () => {
       openaiCompatModel: "remote-model",
     });
 
-    expect((plugin as unknown as PrivateEnrich).sourceEnrichmentErrorHint("failed to fetch")).toContain(
+    expect(plugin.utilityRouting().enrichmentErrorHint("failed to fetch")).toContain(
       "OpenAI-compatible endpoint at https://models.example.com",
     );
   });
@@ -1079,7 +1078,7 @@ describe("source enrichment wiring", () => {
     expect(closedOnUnload).toBe(true);
     expect(complete).not.toHaveBeenCalled();
     expect(await app.vault.cachedRead(file)).toBe(before);
-    const consent = (plugin as unknown as { utilityConsent: { current(context: unknown): unknown } }).utilityConsent;
+    const consent = (plugin.utilityRouting() as unknown as { consent: { current(context: unknown): unknown } }).consent;
     expect(consent.current(plugin.router().utilityFallbackConsentContext(true))).toBeUndefined();
   });
 
@@ -1143,9 +1142,7 @@ describe("source enrichment wiring", () => {
     await settle();
     expect(complete).toHaveBeenCalledTimes(1);
     plugin.onunload();
-    const lifecycle = plugin as unknown as { utilityLifecycleEnded: boolean; utilityLifecycleGeneration: number };
-    lifecycle.utilityLifecycleEnded = false;
-    lifecycle.utilityLifecycleGeneration += 1;
+    plugin.utilityRouting().start();
     finish(JSON.stringify({ title: "Private note", site: "Vault", summary: "Private content." }));
     await pending;
 

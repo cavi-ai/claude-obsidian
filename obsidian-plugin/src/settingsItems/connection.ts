@@ -16,7 +16,7 @@ import type { CliProvider } from "../providers/cliProvider";
 import { canDeleteDeviceModel, setCredential } from "./actions";
 
 export interface ConnectionItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "deviceChat" | "refreshViews" | "router" | "runFirstRunPrompts" | "saveSettings" | "settings">;
+  plugin: Pick<ClaudeCompanionPlugin, "deviceChat" | "onboarding" | "refreshViews" | "router" | "saveSettings" | "settings">;
   storageBlurb(): string;
   renderStatus(el: HTMLElement, status: ProviderStatus): void;
 }
@@ -41,7 +41,7 @@ function cliStatusItems(ctx: ConnectionItemsContext, backend: CliBackend, cliOf:
               const result = await cliOf(plugin.router()).test();
               ctx.renderStatus(status, result);
               plugin.refreshViews();
-              if (result.ok) await plugin.runFirstRunPrompts();
+              if (result.ok) await plugin.onboarding().runFirstRunPrompts();
             }),
         );
       },
@@ -186,7 +186,7 @@ export function connectionItems(ctx: ConnectionItemsContext): SettingGroupItem[]
               const result = await plugin.router().anthropic.test();
               ctx.renderStatus(status, result);
               // Prompts held back while there was no credential can run now.
-              if (result.ok) await plugin.runFirstRunPrompts();
+              if (result.ok) await plugin.onboarding().runFirstRunPrompts();
             }),
         );
       },

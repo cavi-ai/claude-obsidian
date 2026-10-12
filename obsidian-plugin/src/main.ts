@@ -51,10 +51,11 @@ import { MemoryController } from "./memory/controller";
 import { McpBridgeController } from "./mcp/bridgeController";
 import { ClaudeCompanionSettingTab } from "./settings";
 import { companionCommands, type CommandActions } from "./commands/definitions";
-import { ProviderRouter, type ProviderSelection, type RuntimeUtilitySelection, type UtilityFallbackConsentContext } from "./providers/router";
-import { sanitizeEndpointForDisplay, UtilityUnavailableError, type UtilityFallbackApproval } from "./providers/endpointPolicy";
-import { sameConsentKey, UtilityFallbackConsent, type ConsentDialog } from "./providers/utilityConsent";
-import { ANTHROPIC_DEFAULT_BASE_URL } from "./providers/auth";
+import { ProviderRouter } from "./providers/router";
+import { sanitizeEndpointForDisplay, UtilityUnavailableError } from "./providers/endpointPolicy";
+import { UtilityRouting } from "./providers/utilityRouting";
+import { ClipperFeature } from "./sources/clipperFeature";
+import { Onboarding } from "./onboarding/onboarding";
 import { DEFAULT_SETTINGS, type PluginSettings, type ArtifactOpenTarget } from "./types";
 import { DESIGN_SYSTEM_PROMPT, PLANNING_INSTRUCTION } from "./artifacts/designSystem";
 import { AGENT_INSTRUCTION, PLAN_MODE_INSTRUCTION } from "./agent/prompt";
@@ -77,7 +78,7 @@ import { catalogPromptProvider, composeResourceProviders, substrateResourceProvi
 import { MEMORY_NOTE_BASENAME } from "./memory/consolidate";
 import { ExternalMcpManager } from "./mcp/externalManager";
 import { externalAnthropicTools } from "./mcp/external";
-import type { AnthropicToolDef, CompletionRequest, Provider, ProviderId } from "./providers/types";
+import type { AnthropicToolDef, CompletionRequest, Provider } from "./providers/types";
 import { executeTool } from "./agent/tools";
 import { toolAccess, type ToolRunKind } from "./agent/toolAccess";
 import { parseTemplateNote, TEMPLATE_SCAFFOLD, type PromptTemplate } from "./templates/promptTemplates";
@@ -128,10 +129,6 @@ import { SemanticController } from "./semantic/controller";
 import { isNamespacedData, resolveSettings } from "./settingsLoad";
 import { createSecretStore, hydrate, stripVerifiedSecrets, syncSecrets, type SecretField, type SecretStore } from "./secrets/store";
 import { migrateSecrets, migrationNotice } from "./secrets/migrate";
-import { credentialSetupInputs, needsCredentialSetup, type SetupInputs } from "./providers/setupState";
-import { pendingFirstRunPrompts, type FirstRunState } from "./onboarding/firstRun";
-import { wizardPlan, wizardPlanExplicit, WIZARD_DISMISSED_SETTINGS, type WizardState, type WizardStep } from "./onboarding/wizard";
-import { SetupWizardModal, type SetupWizardDependencies } from "./view/SetupWizardModal";
 import { builtinModelById } from "./semantic/transformers/model";
 import {
   type Conversation,
@@ -149,13 +146,8 @@ import { getAllTags, normalizePath, TFile, TFolder, type Editor } from "obsidian
 import { inboxItems } from "./sources/inbox";
 import { parseClipUrl } from "./sources/detect";
 import { SourceEnrichmentController, sourceActivityDetail, type EnrichRunOutcome } from "./sources/controller";
-import { getSchema } from "./sources/registry";
-import { clipperTemplateFor, clipperTemplateFileName, serializeClipperTemplate, clipperFingerprint } from "./sources/clipperTemplate";
-import type { SourceType } from "./sources/types";
-import { errorHint } from "./providers/errorHints";
 import { ChoiceModal } from "./view/ChoiceModal";
 import { OntologyRegistry } from "./ontology/registry";
-import { planSeed, seedFiles } from "./ontology/seed";
 import { auditProject } from "./research/audit";
 import { nextSteps } from "./research/nextSteps";
 import { documentSections } from "./research/sectionStatus";
@@ -170,10 +162,7 @@ import { ActivityStore } from "./activity/store";
 import { beginActivity } from "./activity/progress";
 import type { CompanionChromeDependencies } from "./view/companionChrome";
 import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./view/quickOptions";
-import { clipperSetupFor, type ClipperSetupViewModel } from "./sources/clipperSetup";
-import { verifyClipperNote } from "./sources/clipperVerification";
 import { EnrichDiagnostics } from "./sources/enrichDiagnostics";
-import { ClipperSetupModal } from "./view/ClipperSetupModal";
 import { DesktopIntegrationCoordinator, type DesktopIntegrationRuntime } from "./integrations/desktopCoordinator";
 import { DesktopIntegrationsModal, type DesktopIntegrationsController } from "./view/DesktopIntegrationsModal";
 import { ConfirmModal } from "./view/ConfirmModal";
@@ -368,8 +357,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private persistChain: Promise<void> = Promise.resolve();
   /** Credentials live here, not in data.json. Lazy so tests can construct the plugin. */
   private _secrets: SecretStore | null = null;
-  /** Layout-ready and the chat setup card can both continue onboarding; only one wizard may be open. */
-  private setupWizardOpen = false;
   /** Set by the last persist: credentials the store refused, still in data.json. */
   private unverifiedSecrets: SecretField[] = [];
   private _router: ProviderRouter | null = null;
@@ -486,10 +473,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       router: () => this.router(),
       resolveTags: (tags) => resolveTags(tags, vaultVocabulary(this.app)).map((r) => r.tag),
       suspendReindex: () => this.semantic().suspendReindex(),
-      isUtilityLifecycleActive: (g) => this.isUtilityLifecycleActive(g),
-      assertUtilityLifecycleActive: (g) => this.assertUtilityLifecycleActive(g),
-      utilityLifecycleEnded: () => this.utilityLifecycleEnded,
-      utilityLifecycleGeneration: () => this.utilityLifecycleGeneration ?? 0,
+      isUtilityLifecycleActive: (g) => this.utilityRouting().isLifecycleActive(g),
+      assertUtilityLifecycleActive: (g) => this.utilityRouting().assertLifecycleActive(g),
+      utilityLifecycleEnded: () => this.utilityRouting().isEnded(),
+      utilityLifecycleGeneration: () => this.utilityRouting().lifecycleGeneration(),
       onEnrichQueueIdle: () => void this.optimize().checkTagMergesInBackground(),
       notice: (msg, timeout) => new Notice(msg, timeout),
       openChoiceModal: (opts) => { const m = new ChoiceModal(this.app, opts); m.open(); return m; },
@@ -533,13 +520,41 @@ export default class ClaudeCompanionPlugin extends Plugin {
       normalizePath,
     }));
   }
-  private clipperVerificationTimers = new Map<string, number>();
-  private utilityLifecycleEnded = false;
-  private utilityLifecycleGeneration = 0;
-  /** Mobile loopback → Claude consent for this plugin session. */
-  private _utilityConsent?: UtilityFallbackConsent;
-  private get utilityConsent(): UtilityFallbackConsent {
-    return (this._utilityConsent ??= new UtilityFallbackConsent((context) => this.askMobileUtilityFallback(context)));
+  private _utilityRouting?: UtilityRouting;
+  /** Runtime utility selection, mobile fallback consent, and the unload lifecycle for utility work. */
+  utilityRouting(): UtilityRouting {
+    return (this._utilityRouting ??= new UtilityRouting({
+      app: this.app,
+      settings: () => this.settings,
+      router: () => this.router(),
+      isMobile: () => Platform.isMobile,
+    }));
+  }
+  private _clipperSetup?: ClipperFeature;
+  /** Web Clipper template export, setup modal, and clip verification. */
+  clipperSetup(): ClipperFeature {
+    return (this._clipperSetup ??= new ClipperFeature({
+      app: this.app,
+      settings: () => this.settings,
+      saveSettings: () => this.saveSettings(),
+      persist: () => this.persist(),
+      activity: () => this.activity,
+    }));
+  }
+  private _onboarding?: Onboarding;
+  /** Setup wizard, first-run prompts, and ontology seeding. */
+  onboarding(): Onboarding {
+    return (this._onboarding ??= new Onboarding({
+      app: this.app,
+      settings: () => this.settings,
+      saveSettings: () => this.saveSettings(),
+      router: () => this.router(),
+      secrets: () => this.secrets(),
+      ontology: () => this.ontology(),
+      semantic: () => this.semantic(),
+      openDesktopIntegrations: () => this.openDesktopIntegrations(),
+      isMobile: () => Platform.isMobile,
+    }));
   }
   /** Source-inbox ribbon icon + its pending-count badge (debounced). */
   private inboxRibbonEl: HTMLElement | null = null;
@@ -554,8 +569,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private ordersRefreshTimer: number | null = null;
   /** Lazily-built ontology registry; null while the feature is disabled. */
   private _ontology: OntologyRegistry | null = null;
-  /** Debounce timer for ontology reloads on schema-note changes. */
-  private _ontologyReloadTimer: number | null = null;
   /** Debounces research-only metadata changes without reacting to unrelated vault notes. */
   private researchRefreshTimer: number | null = null;
   private researchRefreshChanges: Array<{ path: string; oldPath?: string }> = [];
@@ -579,10 +592,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
   override async onload(): Promise<void> {
     this.mcpLifecycleGeneration = (this.mcpLifecycleGeneration ?? 0) + 1;
     this.mcpLifecycleEnded = false;
-    this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
-    this.utilityLifecycleEnded = false;
+    this.utilityRouting().start();
     this._enrichment?.resetLifecycle();
-    this.utilityConsent.start();
     await this.loadSettings();
 
     this.registerViews();
@@ -716,10 +727,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     const cliProbe = Platform.isMobile ? undefined : this.chatCliProvider().refresh().then(() => this.refreshViews());
       void this.syncMcpServer();
       this.syncPlanBuildActions();
-      void this.runFirstRun(cliProbe).then(() => this.semantic().catchUpIndex());
+      void this.onboarding().runFirstRun(cliProbe).then(() => this.semantic().catchUpIndex());
       // Schemas/inbox changed since the clipper templates were exported →
       // the clipper is clipping against a stale schema. Offer once per session.
-      if (this.settings.sourceCaptureEnabled && this.clipperTemplatesStale()) {
+      if (this.settings.sourceCaptureEnabled && this.clipperSetup().templatesStale()) {
         new Notice("Source schemas changed since your Web Clipper templates were exported — re-export from Settings → Source capture.", 9000);
       }
 
@@ -733,7 +744,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (f instanceof TFile && (f.extension === "md" || f.extension === "csv") && this.settings.sourceCaptureEnabled && this.settings.sourceEnrichOnCreate) this.enrichment().queueEnrich(f);
       }));
       this.registerEvent(this.app.vault.on("create", (f) => {
-        if (f instanceof TFile && f.extension === "md") this.queueClipperVerification(f);
+        if (f instanceof TFile && f.extension === "md") this.clipperSetup().queueVerification(f);
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().renameNote(oldPath, f.path); }));
@@ -753,10 +764,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
       // Reload the ontology when schema notes under the ontology folder change
       // (debounced; no-op while the feature is off).
       const inOntology = (path: string): boolean => path.startsWith(`${normalizePath(this.settings.ontologyFolder)}/`);
-      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
-      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
-      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.scheduleOntologyReload(); }));
-      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("modify", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.onboarding().scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("create", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.onboarding().scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && inOntology(f.path)) this.onboarding().scheduleOntologyReload(); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md" && this.settings.ontologyEnabled && (inOntology(f.path) || inOntology(oldPath))) this.onboarding().scheduleOntologyReload(); }));
 
       this.startStandingOrders();
   }
@@ -864,333 +875,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
     new Notice(`Vault search on for this chat (${how}) — ask your question in the chat panel.`);
   }
 
-  /** Plugin-owned runtime/privacy hook used by every router utility completion. */
-  private async resolveUtilitySelectionForSession(): Promise<ProviderSelection> {
-    if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
-    let selection = this.runtimeUtilitySelection();
-    if (selection.state === "unavailable-loopback") {
-      const promptedContext = this.router().utilityFallbackConsentContext(Platform.isMobile);
-      if (!promptedContext) throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
-      const approval = await this.utilityConsent.decide(promptedContext);
-      if (this.utilityLifecycleEnded) throw new Error("Companion unloaded before utility approval completed; no content was sent.");
-
-      // Settings may rebuild the router while the modal is open. Reacquire it,
-      // inspect the full current source + destination identity, and never apply
-      // consent obtained for a different gateway or auth context.
-      const currentRouter = this.router();
-      const current = currentRouter.resolveUtilityForRuntime({ isMobile: Platform.isMobile });
-      const currentContext = currentRouter.utilityFallbackConsentContext(Platform.isMobile);
-      if (!sameConsentKey(promptedContext, currentContext)) {
-        this.utilityConsent.forget(promptedContext);
-        if (current.state === "unavailable-loopback" || current.state === "unavailable-without-Claude") {
-          if (current.state === "unavailable-loopback" && currentContext) {
-            throw new Error(
-              `The utility destination changed while fallback approval was open. ` +
-              `The current Anthropic fallback endpoint is ${currentContext.fallbackEndpoint}. Retry the utility action to review the current destination.`,
-            );
-          }
-          throw new UtilityUnavailableError(this.utilityUnavailableMessage(current), current);
-        }
-        throw new Error(
-          `Utility settings changed while Claude fallback approval was open. ` +
-          `The current ${current.backend} utility backend is ${current.endpoint ?? current.provider.label}. Retry the utility action to use the current settings.`,
-        );
-      }
-      selection = currentRouter.resolveUtilityForRuntime({
-        isMobile: Platform.isMobile,
-        fallbackApproval: approval,
-      });
-    }
-    if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") {
-      return selection;
-    }
-    throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
-  }
-
-  private runtimeUtilitySelection(): RuntimeUtilitySelection {
-    const router = this.router();
-    const decision = this.utilityConsent.current(router.utilityFallbackConsentContext(Platform.isMobile));
-    return router.resolveUtilityForRuntime({ isMobile: Platform.isMobile, ...(decision ? { fallbackApproval: decision } : {}) });
-  }
-
-  /** Runtime-selected utility backend shown alongside Inbox batch controls. */
-  sourceEnrichmentBackendLabel(): string {
-    const selection = this.runtimeUtilitySelection();
-    if (selection.state === "unavailable-loopback") return "Unavailable on mobile · Claude approval required";
-    if (selection.state === "unavailable-without-Claude") {
-      return selection.reason === "invalid-endpoint" ? "Unavailable · invalid utility endpoint" : "Unavailable on mobile";
-    }
-    if (selection.provider.id === "anthropic") return `Claude (Anthropic API) · ${selection.model}`;
-    if (selection.provider.id === "ollama") return `Ollama · ${selection.model}`;
-    return `OpenAI-compatible endpoint · ${selection.model}`;
-  }
-
-  private providerEndpoint(provider: ProviderId): string | undefined {
-    if (provider === "ollama") return sanitizeEndpointForDisplay(this.settings.ollamaHost);
-    if (provider === "openai-compat") return sanitizeEndpointForDisplay(this.settings.openaiCompatHost);
-    return this.settings.baseUrl.trim() ? sanitizeEndpointForDisplay(this.settings.baseUrl) : undefined;
-  }
-
-  private providerErrorHint(message: string, provider: ProviderId): string | null {
-    return errorHint(message, provider, this.providerEndpoint(provider));
-  }
-
-  private sourceEnrichmentErrorHint(message: string): string | null {
-    const selection = this.runtimeUtilitySelection();
-    const provider: ProviderId =
-      selection.state === "configured-provider" || selection.state === "approved-Claude-fallback"
-        ? selection.provider.id
-        : selection.backend === "ollama"
-          ? "ollama"
-          : "openai-compat";
-    return this.providerErrorHint(message, provider);
-  }
-
-  private askMobileUtilityFallback(context: UtilityFallbackConsentContext): ConsentDialog {
-    let modal!: ChoiceModal<UtilityFallbackApproval>;
-    const decision = new Promise<UtilityFallbackApproval>((resolve) => {
-      let settled = false;
-      const finish = (choice: UtilityFallbackApproval): void => {
-        if (settled) return;
-        settled = true;
-        resolve(choice);
-      };
-      modal = new ChoiceModal<UtilityFallbackApproval>(this.app, {
-        title: "Use Claude for mobile enrichment?",
-        message:
-          `The utility model at ${context.configuredEndpoint} is local to your desktop and cannot be reached from this mobile device. ` +
-          `If you continue, ${this.mobileFallbackDestinationLabel(context.fallbackEndpoint)} may receive content for source enrichment, tagging and organization, ` +
-          "summaries and frontmatter, and memory consolidation including session content. " +
-          "Allow this fallback for the current plugin session?",
-        buttons: [
-          { label: "Use Claude this session", value: "allow", cta: true },
-          { label: "Don't send", value: "deny" },
-        ],
-        fallback: "deny",
-        onChoice: finish,
-      });
-      modal.open();
-    });
-    return { decision, close: () => modal.close() };
-  }
-
-  private mobileFallbackDestinationLabel(endpoint: string): string {
-    return endpoint === ANTHROPIC_DEFAULT_BASE_URL
-      ? `Claude (Anthropic API at ${endpoint})`
-      : `an Anthropic-compatible gateway at ${endpoint}`;
-  }
-
-  private utilityUnavailableMessage(selection: Exclude<RuntimeUtilitySelection, { state: "configured-provider" | "approved-Claude-fallback" }>): string {
-    const endpoint = selection.endpoint || "(empty endpoint)";
-    if (selection.state === "unavailable-loopback") {
-      return `The configured ${selection.backend} utility endpoint ${endpoint} is unavailable on mobile until Claude fallback is approved.`;
-    }
-    if (selection.reason === "invalid-endpoint") {
-      return `The configured ${selection.backend} utility endpoint “${endpoint}” is invalid. Configure a valid LAN or remote endpoint in Companion settings.`;
-    }
-    if (selection.reason === "mobile-local-endpoint") {
-      return `The configured ${selection.backend} utility endpoint ${endpoint} is local to this device and unavailable for mobile utility calls. Configure a LAN or remote endpoint.`;
-    }
-    if (selection.reason === "claude-unavailable") {
-      if (selection.backend === "claude") {
-        return `The Claude utility backend is unavailable because no Anthropic credential is configured. Add a credential in Companion settings.`;
-      }
-      return `The configured ${selection.backend} utility endpoint ${endpoint} is unavailable on mobile, and no Anthropic credential is configured for Claude fallback. Add a credential or configure a LAN or remote endpoint in Companion settings.`;
-    }
-    return `The configured ${selection.backend} utility endpoint ${endpoint} is unavailable on mobile, and sending note content to Claude was not approved for this session. Configure a LAN or remote endpoint, or restart Obsidian to choose again.`;
-  }
-
-  /**
-   * Write one Web Clipper template per source type into the vault so clips land
-   * pre-typed (schema keys + page-known values) instead of clip-then-convert.
-   * The user imports the JSON files in the clipper's template settings.
-   */
-  async exportClipperTemplates(): Promise<{ folder: string; count: number }> {
-    const folder = "Claude/Clipper templates";
-    const opts = { path: this.settings.sourceInboxFolder, tags: this.settings.sourceBaseTags };
-    const types: SourceType[] = ["article", "video", "dataset"];
-    const schemas = types.map((t) => getSchema(t, this.settings.sourceSchemaOverrides));
-    await ensureVaultFolder(this.app, folder);
-    for (const schema of schemas) {
-      const template = clipperTemplateFor(schema, opts);
-      await writeOrReplaceFile(this.app, normalizePath(`${folder}/${clipperTemplateFileName(template)}`), serializeClipperTemplate(template));
-    }
-    this.settings.clipperTemplateFingerprint = clipperFingerprint(schemas, opts);
-    await this.saveSettings();
-    new Notice(
-      `Wrote ${types.length} clipper templates to “${folder}”. In the Web Clipper extension: Settings → Templates → Import each file — clips will then arrive already typed for Companion.`,
-      10000,
-    );
-    return { folder, count: types.length };
-  }
-
-  private clipperSetups(): ClipperSetupViewModel[] {
-    const schemas = (["article", "video", "dataset"] as SourceType[]).map((type) => getSchema(type, this.settings.sourceSchemaOverrides));
-    return (["article", "video", "dataset"] as SourceType[]).map((type) => clipperSetupFor(type, schemas, {
-      inboxFolder: this.settings.sourceInboxFolder,
-      baseTags: this.settings.sourceBaseTags,
-      savedFingerprint: this.settings.clipperVerification[type]?.fingerprint ?? this.settings.clipperTemplateFingerprint,
-      ...(this.settings.clipperVerification[type] ? { verification: this.settings.clipperVerification[type] } : {}),
-    }));
-  }
-
-  /** False once any Web Clipper template is verified against the current schemas. */
-  clipperSetupNeeded(): boolean {
-    return !this.clipperSetups().some((setup) => setup.status === "verified");
-  }
-
-  openClipperSetup(): void {
-    new ClipperSetupModal(this.app, {
-      setups: () => this.clipperSetups(),
-      copyText: async (text) => {
-        if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable on this device.");
-        await navigator.clipboard.writeText(text);
-      },
-      onCopied: async (type, fingerprint) => {
-        this.settings.clipperVerification[type] = {
-          fingerprint,
-          state: "waiting",
-          startedAt: Date.now(),
-          mismatches: [],
-        };
-        await this.persist();
-        this.activity.start({
-          id: `clipper-verification:${type}`,
-          kind: "clipper-verification",
-          title: `Waiting for a ${type} test clip`,
-        });
-      },
-      saveJson: async (setup) => {
-        const folder = "Claude/Clipper templates";
-        await ensureVaultFolder(this.app, folder);
-        await writeOrReplaceFile(this.app, normalizePath(`${folder}/companion-${setup.type}-clipper.json`), setup.json);
-        new Notice(`Saved ${setup.templateName} JSON to ${folder}.`, 4000);
-      },
-    }).open();
-  }
-
-  private queueClipperVerification(file: TFile, attempt = 0): void {
-    const waiting = Object.entries(this.settings.clipperVerification)
-      .filter((entry): entry is [SourceType, NonNullable<typeof entry[1]>] => entry[1]?.state === "waiting")
-      .sort((left, right) => right[1].startedAt - left[1].startedAt)[0];
-    const inbox = this.settings.sourceInboxFolder.replace(/\/+$/, "");
-    if (!waiting && !(inbox && file.path.startsWith(`${inbox}/`))) return;
-    const previous = this.clipperVerificationTimers.get(file.path);
-    if (previous !== undefined) window.clearTimeout(previous);
-    const timer = window.setTimeout(() => {
-      this.clipperVerificationTimers.delete(file.path);
-      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-      if (!frontmatter && attempt < 4) {
-        this.queueClipperVerification(file, attempt + 1);
-        return;
-      }
-      if (!waiting) {
-        if (frontmatter) void this.verifyStampedClip(file, frontmatter);
-        return;
-      }
-      // A clip that lands in the inbox carrying nothing is proof the template
-      // never applied — report it instead of waiting for a note that can't come.
-      if (!frontmatter) {
-        if (inbox && file.path.startsWith(`${inbox}/`)) void this.verifyArrivingClip(file, waiting[0], {});
-        return;
-      }
-      const observedType = frontmatter.type;
-      const typedWaiting = (observedType === "article" || observedType === "video" || observedType === "dataset")
-        && this.settings.clipperVerification[observedType]?.state === "waiting"
-        ? observedType
-        : undefined;
-      const resemblesClip = frontmatter.source !== undefined || frontmatter.url !== undefined || frontmatter.schema_version !== undefined;
-      const expectedType = typedWaiting ?? (resemblesClip ? waiting[0] : undefined);
-      if (!expectedType) return;
-      void this.verifyArrivingClip(file, expectedType, frontmatter);
-    }, 600);
-    this.clipperVerificationTimers.set(file.path, timer);
-  }
-
-  /** Templates imported without the setup modal still verify from a matching stamped clip; mismatches stay silent. */
-  private async verifyStampedClip(file: TFile, frontmatter: Record<string, unknown>): Promise<void> {
-    const type = frontmatter.type;
-    if ((type !== "article" && type !== "video" && type !== "dataset") || frontmatter.schema_version === undefined) return;
-    const setup = this.clipperSetups().find((candidate) => candidate.type === type);
-    if (!setup || setup.status === "verified") return;
-    const result = verifyClipperNote({ path: file.path, frontmatter }, {
-      type,
-      schemaVersion: setup.schemaVersion,
-      destination: this.settings.sourceInboxFolder,
-      fingerprint: setup.fingerprint,
-      baseTags: this.settings.sourceBaseTags,
-    });
-    if (result.state !== "verified") return;
-    const now = Date.now();
-    this.settings.clipperVerification[type] = { fingerprint: setup.fingerprint, state: "verified", startedAt: now, verifiedAt: now, path: result.path, mismatches: [] };
-    await this.persist();
-  }
-
-  private async verifyArrivingClip(file: TFile, type: SourceType, frontmatter: Record<string, unknown>): Promise<void> {
-    const metadata = this.settings.clipperVerification[type];
-    if (!metadata || metadata.state !== "waiting") return;
-    const schema = getSchema(type, this.settings.sourceSchemaOverrides);
-    const result = verifyClipperNote({ path: file.path, frontmatter }, {
-      type,
-      schemaVersion: schema.version,
-      destination: this.settings.sourceInboxFolder,
-      fingerprint: metadata.fingerprint,
-      baseTags: this.settings.sourceBaseTags,
-    });
-    this.settings.clipperVerification[type] = {
-      fingerprint: metadata.fingerprint,
-      state: result.state,
-      startedAt: metadata.startedAt,
-      ...(result.state === "verified" ? { verifiedAt: Date.now() } : {}),
-      path: result.path,
-      mismatches: result.mismatches.slice(0, 12),
-    };
-    await this.persist();
-    const activityId = `clipper-verification:${type}`;
-    if (!this.activity.snapshot().records.some(({ id }) => id === activityId)) {
-      this.activity.start({ id: activityId, kind: "clipper-verification", title: `Verifying ${type} Web Clipper template`, total: 1 });
-    }
-    if (result.state === "verified") {
-      this.activity.finish(activityId, {
-        completed: 1,
-        total: 1,
-        succeeded: 1,
-        details: [{ label: result.path, message: "Template verified from an arriving clip", state: "success" }],
-      });
-    } else {
-      this.activity.fail(activityId, {
-        completed: 1,
-        total: 1,
-        failed: 1,
-        details: result.mismatches.map(({ field, expected, observed }) => ({
-          label: field,
-          message: `Expected ${expected}; observed ${observed}`,
-          state: "error" as const,
-        })),
-        recovery: [{ id: "clipper-schemas", label: "Copy updated JSON", kind: "retry" }],
-      });
-    }
-  }
-
-  /** True when schemas/inbox/tags moved on since the last template export. */
-  clipperTemplatesStale(): boolean {
-    const saved = this.settings.clipperTemplateFingerprint;
-    if (!saved) return false; // never exported → nothing to be stale
-    const opts = { path: this.settings.sourceInboxFolder, tags: this.settings.sourceBaseTags };
-    const schemas = (["article", "video", "dataset"] as SourceType[]).map((t) => getSchema(t, this.settings.sourceSchemaOverrides));
-    return clipperFingerprint(schemas, opts) !== saved;
-  }
-
-  private isUtilityLifecycleActive(generation: number): boolean {
-    return !this.utilityLifecycleEnded && (this.utilityLifecycleGeneration ?? 0) === generation;
-  }
-
-  private assertUtilityLifecycleActive(generation: number): void {
-    if (!this.isUtilityLifecycleActive(generation)) {
-      throw new Error("Companion unloaded while utility work was in flight; the result was discarded without writing.");
-    }
-  }
-
   private clippings(): ClippingsController {
     return (this._clippings ??= new ClippingsController({
       app: this.app,
@@ -1199,7 +883,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       enrichment: () => this.enrichment(),
       router: () => this.router(),
       diagnostics: () => this.enrichDiagnostics,
-      providerErrorHint: (message, provider) => this.providerErrorHint(message, provider),
+      providerErrorHint: (message, provider) => this.utilityRouting().providerErrorHint(message, provider),
     }));
   }
 
@@ -1272,7 +956,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         begin: (label) => beginActivity(this.activity, label),
         failureMessage: (e) => {
           const message = e instanceof Error ? e.message : String(e);
-          const hint = this.providerErrorHint(message, this.router().resolve("chat").provider.id);
+          const hint = this.utilityRouting().providerErrorHint(message, this.router().resolve("chat").provider.id);
           return `Edit failed — ${hint ?? message}`;
         },
       },
@@ -1455,12 +1139,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
     void this.closeCliSessions();
     for (const cli of [this._cliProvider, this._codexProvider, this._opencodeProvider]) cli?.cancelAll();
     this._activity?.dispose();
-    this.utilityLifecycleEnded = true;
-    this.utilityLifecycleGeneration = (this.utilityLifecycleGeneration ?? 0) + 1;
+    this.utilityRouting().end();
     this._enrichment?.destroy();
-    this.utilityConsent.end();
-    for (const timer of this.clipperVerificationTimers?.values() ?? []) window.clearTimeout(timer);
-    this.clipperVerificationTimers?.clear();
+    this._clipperSetup?.dispose();
     this._discoveryCoordinator?.cancel();
     this._discoveryCoordinator?.clearCache();
     this._discoveryCoordinator = null;
@@ -1475,7 +1156,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     void this._externalMcp?.close();
     this._externalMcp = null;
     this._semantic?.destroy();
-    if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
+    this._onboarding?.dispose();
     if (this.researchRefreshTimer !== null) window.clearTimeout(this.researchRefreshTimer);
     if (this.inboxBadgeTimer !== null) window.clearTimeout(this.inboxBadgeTimer);
     if (this.ordersRefreshTimer !== null) window.clearTimeout(this.ordersRefreshTimer);
@@ -1514,13 +1195,8 @@ export default class ClaudeCompanionPlugin extends Plugin {
     };
   }
 
-  clipperStatus(): "not-set-up" | "current" | "update-available" {
-    const statuses = this.clipperSetups().map(({ status }) => status);
-    return statuses.includes("update-available") ? "update-available" : statuses.every((status) => status === "current") ? "current" : "not-set-up";
-  }
-
   private quickOptionsSnapshot(): QuickOptionsState {
-    const clipperStatus = this.clipperStatus();
+    const clipperStatus = this.clipperSetup().status();
     const embeddingModel = this.settings.embeddingEngine === "builtin"
       ? builtinModelById(this.settings.builtinEmbeddingModel).hfRepo.split("/").at(-1) ?? "Built-in model"
       : this.settings.embeddingEngine === "ollama"
@@ -1596,7 +1272,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
 
   private async runQuickOption(action: QuickOptionAction): Promise<void> {
     switch (action.id) {
-      case "clipper-schemas": this.openClipperSetup(); return;
+      case "clipper-schemas": this.clipperSetup().openSetup(); return;
       case "embedding-health":
       case "embedding-settings": this.openCompanionSettings(); return;
       case "rebuild-index":
@@ -1975,7 +1651,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._codexProvider ??= new CliProvider(codexBackend, runtime, () => this.vaultBasePath());
     this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime, () => this.vaultBasePath());
     if (!this._router) {
-      this._router = new ProviderRouter(this.settings, () => this.resolveUtilitySelectionForSession(), {
+      this._router = new ProviderRouter(this.settings, () => this.utilityRouting().resolveSession(), {
         cliRuntime: runtime,
         isMobile: Platform.isMobile,
         cliProvider: this._cliProvider,
@@ -2078,299 +1754,6 @@ export default class ClaudeCompanionPlugin extends Plugin {
       });
     }
     return this._ontology;
-  }
-
-  /** Create missing default schema notes and upgrade unedited superseded ones (never overwrites edits), then reload and report. */
-  async seedOntology(): Promise<void> {
-    const folder = normalizePath(this.settings.ontologyFolder);
-    await ensureVaultFolder(this.app, folder);
-    const current = new Map<string, string | null>();
-    for (const f of seedFiles()) {
-      const file = this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/${f.fileName}`));
-      current.set(f.fileName, file instanceof TFile ? await this.app.vault.read(file) : file ? "" : null);
-    }
-    let created = 0;
-    let upgraded = 0;
-    for (const w of planSeed((fileName) => current.get(fileName) ?? null)) {
-      const path = normalizePath(`${folder}/${w.fileName}`);
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (w.upgrade && file instanceof TFile) {
-        await this.app.vault.modify(file, w.content);
-        upgraded++;
-      } else if (!w.upgrade && !file) {
-        await this.app.vault.create(path, w.content);
-        created++;
-      }
-    }
-    const result = await this.ontology()?.load();
-    const errors = result?.errors ?? [];
-    const changes = [created > 0 ? `seeded ${created}` : "", upgraded > 0 ? `upgraded ${upgraded}` : ""].filter(Boolean).join(", ");
-    new Notice(changes ? `Ontology: ${changes} type${created + upgraded === 1 ? "" : "s"} → ${folder}/` : "Ontology already seeded — nothing to do.");
-    if (errors.length > 0) {
-      new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
-      console.warn("[Claude Companion] ontology schema errors:", errors);
-    }
-  }
-
-  // ---------- first run ----------
-
-  /** Inputs for needsCredentialSetup; ChatView's send gate and System share them. */
-  credentialSetupInputs(): SetupInputs {
-    return credentialSetupInputs(this.router());
-  }
-
-  /** Settings-level view of what a fresh install still owes the user. */
-  private firstRunState(): FirstRunState {
-    const router = this.router();
-    return {
-      needsCredential: needsCredentialSetup({
-        backend: router.chatBackend,
-        hasAnthropicCredential: router.anthropic.hasCredentials(),
-        hasClaudeCli: router.claudeCli.hasCredentials(),
-        hasCodexCli: router.codexCli.hasCredentials(),
-        hasOpencodeCli: router.opencodeCli.hasCredentials(),
-      }),
-      ontologyPending: this.settings.ontologyEnabled && !this.settings.ontologySeedPrompted,
-      semanticPending: this.settings.semanticEnabled && !this.settings.semanticModelPrompted,
-      integrationsPending: !Platform.isMobile && !this.settings.desktopIntegrationsOffered,
-    };
-  }
-
-  /**
-   * Layout-ready first run: load the ontology, then the wizard (or the legacy
-   * one-shot prompts). Awaits the in-flight Claude Code probe first — the
-   * wizard's plan must never be computed off a stale credential read.
-   */
-  private async runFirstRun(cliProbe?: Promise<unknown>): Promise<void> {
-    await cliProbe;
-    if (this.settings.ontologyEnabled) await this.loadOntologyOnStart();
-    await this.continueOnboarding();
-  }
-
-  /**
-   * Open the wizard for whatever auto-eligible steps remain (never the
-   * connect step — while a credential is missing, `wizardPlan` is empty and
-   * the chat setup card is the only step 1), else fall back to the legacy
-   * one-shot prompts. Shared by layout-ready and by the chat setup card once
-   * it has just saved a credential.
-   */
-  async continueOnboarding(): Promise<void> {
-    if (!this.settings.setupWizardDone) {
-      const steps = wizardPlan(this.wizardState());
-      if (steps.length > 0) {
-        this.openSetupWizardWithSteps(steps);
-        return;
-      }
-    }
-    await this.runFirstRunPrompts();
-  }
-
-  /** Settings-level view of what the setup wizard still has to offer. */
-  private wizardState(): WizardState {
-    const router = this.router();
-    return {
-      needsCredential: needsCredentialSetup({
-        backend: router.chatBackend,
-        hasAnthropicCredential: router.anthropic.hasCredentials(),
-        hasClaudeCli: router.claudeCli.hasCredentials(),
-      }),
-      isDesktop: !Platform.isMobile,
-      desktopIntegrationsOffered: this.settings.desktopIntegrationsOffered,
-      // A disabled feature has nothing left to decide, same as an already-prompted one.
-      semanticModelPrompted: !this.settings.semanticEnabled || this.settings.semanticModelPrompted,
-      ontologySeedPrompted: !this.settings.ontologyEnabled || this.settings.ontologySeedPrompted,
-    };
-  }
-
-  /**
-   * Command entry point: reopens the wizard for whatever is still pending,
-   * including the connect step when a credential is missing — unlike the
-   * auto path, the user asked for this directly.
-   */
-  openSetupWizard(): void {
-    const steps = wizardPlanExplicit(this.wizardState());
-    if (steps.length === 0) {
-      new Notice("Nothing left to set up.");
-      return;
-    }
-    this.openSetupWizardWithSteps(steps);
-  }
-
-  /**
-   * The vault-tools step's own offer is spent the moment it is shown, same as
-   * the legacy one-shot `offerDesktopIntegrations()` prompt it replaces —
-   * regardless of which button the user ends up clicking.
-   */
-  private openSetupWizardWithSteps(steps: WizardStep[]): void {
-    if (this.setupWizardOpen) return;
-    this.setupWizardOpen = true;
-    if (steps.includes("vault-tools") && !this.settings.desktopIntegrationsOffered) {
-      this.settings.desktopIntegrationsOffered = true;
-      void this.saveSettings();
-    }
-    new SetupWizardModal(this.app, this.buildWizardDependencies(steps)).open();
-  }
-
-  private buildWizardDependencies(steps: WizardStep[]): SetupWizardDependencies {
-    const router = this.router();
-    return {
-      steps,
-      storageBlurb: this.secrets().available()
-        ? "Stored in your device's secret storage, not in this vault."
-        : "Stored locally in this vault's plugin data.",
-      cliAvailable: router.claudeCli.available(),
-      cliSignedIn: router.claudeCli.hasCredentials(),
-      hasCredential: () => !needsCredentialSetup({
-        backend: this.router().chatBackend,
-        hasAnthropicCredential: this.router().anthropic.hasCredentials(),
-        hasClaudeCli: this.router().claudeCli.hasCredentials(),
-      }),
-      useClaudeCli: () => this.wizardUseClaudeCli(),
-      saveApiKey: (key) => this.wizardSaveApiKey(key),
-      ollamaHostDefault: DEFAULT_SETTINGS.ollamaHost,
-      useLocal: (host) => this.wizardUseLocal(host),
-      connectVaultTools: () => this.wizardConnectVaultTools(),
-      agentAllowWrites: this.settings.agentAllowWrites,
-      setAgentAllowWrites: (v) => this.wizardSetAgentWrites(v),
-      semanticPending: this.settings.semanticEnabled && !this.settings.semanticModelPrompted,
-      ontologyPending: this.settings.ontologyEnabled && !this.settings.ontologySeedPrompted,
-      downloadEmbeddings: () => this.wizardDownloadEmbeddings(),
-      seedOntology: () => this.wizardSeedOntology(),
-      finish: () => this.wizardFinish(),
-      onClosed: () => { this.setupWizardOpen = false; },
-    };
-  }
-
-  private async wizardUseClaudeCli(): Promise<void> {
-    this.settings.chatBackend = "claude-cli";
-    await this.saveSettings();
-  }
-
-  private async wizardSaveApiKey(key: string): Promise<{ ok: boolean; detail?: string }> {
-    this.settings.authMode = "apiKey";
-    this.settings.apiKey = key;
-    await this.saveSettings();
-    const result = await this.router().anthropic.test();
-    return result.ok ? { ok: true } : { ok: false, detail: result.detail };
-  }
-
-  private async wizardUseLocal(host: string): Promise<void> {
-    this.settings.chatBackend = "local";
-    this.settings.ollamaHost = host;
-    await this.saveSettings();
-  }
-
-  /** Marks the offer spent, then reuses the real desktop-integrations flow. */
-  private wizardConnectVaultTools(): void {
-    this.settings.desktopIntegrationsOffered = true;
-    void this.saveSettings();
-    this.openDesktopIntegrations();
-  }
-
-  private async wizardSetAgentWrites(value: boolean): Promise<void> {
-    this.settings.agentAllowWrites = value;
-    await this.saveSettings();
-  }
-
-  private async wizardDownloadEmbeddings(): Promise<void> {
-    this.settings.semanticModelPrompted = true;
-    await this.saveSettings();
-    await this.semantic().downloadBuiltinModelAndIndex();
-  }
-
-  private async wizardSeedOntology(): Promise<void> {
-    this.settings.ontologySeedPrompted = true;
-    await this.saveSettings();
-    await this.seedOntology();
-  }
-
-  /** Both Finish and Skip/close call this — a dismissal doesn't reopen the wizard on its own. */
-  private async wizardFinish(): Promise<void> {
-    Object.assign(this.settings, WIZARD_DISMISSED_SETTINGS);
-    await this.saveSettings();
-  }
-
-  /**
-   * Open the optional consent prompts one at a time, in order, skipping them
-   * entirely while no credential exists. Each prompt keeps its own deeper
-   * preconditions (registry already populated, model already cached).
-   */
-  async runFirstRunPrompts(): Promise<void> {
-    for (const prompt of pendingFirstRunPrompts(this.firstRunState())) {
-      if (prompt === "ontology") await this.offerOntologySeed();
-      else if (prompt === "semantic") await this.semantic().promptSemanticModelIfNeeded();
-      else await this.offerDesktopIntegrations();
-    }
-  }
-
-  /** Startup ontology load: surface schema errors instead of dropping them. */
-  async loadOntologyOnStart(): Promise<void> {
-    const registry = this.ontology();
-    if (!registry) return;
-    const { errors } = await registry.load();
-    if (errors.length > 0) {
-      new Notice(`Ontology has ${errors.length} schema error${errors.length === 1 ? "" : "s"} — check the console.`);
-      console.warn("[Claude Companion] ontology schema errors:", errors);
-    }
-  }
-
-  /** One-time offer to write the default type schemas. Resolves when dismissed. */
-  async offerOntologySeed(): Promise<void> {
-    const registry = this.ontology();
-    if (!registry) return;
-    if (registry.resolved().size > 0 || this.settings.ontologySeedPrompted) return;
-    this.settings.ontologySeedPrompted = true;
-    await this.saveSettings();
-    await new Promise<void>((resolve) => {
-      new ChoiceModal<"seed" | "skip">(this.app, {
-        title: "Set up the vault ontology",
-        message:
-          `The ontology lets Claude write typed notes (person, project, source…) that conform to schema notes in your vault. ` +
-          `Create the default schemas in ${this.settings.ontologyFolder}/ now? You can edit or delete them afterwards, or re-run “Seed ontology” any time.`,
-        buttons: [
-          { label: "Create default schemas", value: "seed", cta: true },
-          { label: "Not now", value: "skip" },
-        ],
-        fallback: "skip",
-        onChoice: (c) => {
-          if (c === "seed") void this.seedOntology();
-          resolve();
-        },
-      }).open();
-    });
-  }
-
-  /** One-time offer to wire Claude Code and Claude Desktop to this vault. Resolves when dismissed. */
-  async offerDesktopIntegrations(): Promise<void> {
-    if (Platform.isMobile || this.settings.desktopIntegrationsOffered) return;
-    this.settings.desktopIntegrationsOffered = true;
-    await this.saveSettings();
-    await new Promise<void>((resolve) => {
-      new ChoiceModal<"open" | "skip">(this.app, {
-        title: "Set up desktop integrations",
-        message:
-          "Install the obsidian-agent plugin for Claude Code and connect Claude Desktop to this vault. " +
-          "Both are available later under Settings → Desktop integrations.",
-        buttons: [
-          { label: "Open desktop integrations", value: "open", cta: true },
-          { label: "Not now", value: "skip" },
-        ],
-        fallback: "skip",
-        onChoice: (c) => {
-          if (c === "open") this.openDesktopIntegrations();
-          resolve();
-        },
-      }).open();
-    });
-  }
-
-  /** Queue an ontology reload after schema-note changes (debounced ~500ms). */
-  private scheduleOntologyReload(): void {
-    if (this._ontologyReloadTimer !== null) window.clearTimeout(this._ontologyReloadTimer);
-    this._ontologyReloadTimer = window.setTimeout(() => {
-      this._ontologyReloadTimer = null;
-      void this.ontology()?.load();
-    }, 500);
   }
 
   composeSystemPrompt(opts?: { agent?: boolean; plan?: boolean; project?: ChatProject | null; compact?: boolean }): string {
@@ -3161,12 +2544,12 @@ export default class ClaudeCompanionPlugin extends Plugin {
       router: () => this.router(),
       isMobile: Platform.isMobile,
       passiveUtilitySelection: () => {
-        const selection = this.runtimeUtilitySelection();
+        const selection = this.utilityRouting().runtimeSelection();
         if (selection.state === "configured-provider" || selection.state === "approved-Claude-fallback") return selection;
-        throw new UtilityUnavailableError(this.utilityUnavailableMessage(selection), selection);
+        throw new UtilityUnavailableError(this.utilityRouting().unavailableMessage(selection), selection);
       },
       assertActive: () => {
-        if (this.utilityLifecycleEnded) throw new Error("Companion unloaded while the model check was running; no further content was sent.");
+        if (this.utilityRouting().isEnded()) throw new Error("Companion unloaded while the model check was running; no further content was sent.");
       },
       getState: () => this.optimizeState,
       setState: async (next) => {

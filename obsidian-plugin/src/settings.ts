@@ -26,7 +26,7 @@ export type SettingsHost = Plugin
   & AgentItemsContext["plugin"] & CloudItemsContext["plugin"] & ConnectionItemsContext["plugin"] & DiscoveryItemsContext["plugin"]
   & IntroItemsContext["plugin"] & LocalModelsItemsContext["plugin"] & McpBridgeItemsContext["plugin"] & McpClientItemsContext["plugin"]
   & PublishItemsContext["plugin"] & SemanticItemsContext["plugin"] & SourceCaptureItemsContext["plugin"]
-  & Pick<ClaudeCompanionPlugin, "loadOntologyOnStart" | "offerOntologySeed" | "ontology" | "refreshViews" | "router" | "secrets" | "secretsWriteFailures" | "settings">;
+  & Pick<ClaudeCompanionPlugin, "onboarding" | "ontology" | "refreshViews" | "router" | "secrets" | "secretsWriteFailures" | "settings">;
 
 export class ClaudeCompanionSettingTab extends PluginSettingTab {
   /** Models from the last Detect (Ollama; the OpenAI-compatible endpoint such as LM Studio, mlx-lm, vLLM, Jan), for the dropdowns. */
@@ -97,8 +97,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         // Turning it on here is an explicit ask, so the seed offer follows
         // regardless of credential — the gate is a startup ordering rule.
         if (this.plugin.settings.ontologyEnabled) {
-          await this.plugin.loadOntologyOnStart();
-          void this.plugin.offerOntologySeed();
+          await this.plugin.onboarding().loadOntologyOnStart();
+          void this.plugin.onboarding().offerOntologySeed();
         }
         return;
       case "sourceEnrichOnCreate":

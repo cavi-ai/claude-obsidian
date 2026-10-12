@@ -14,13 +14,13 @@ import type { SystemViewDeps } from "../view/SystemView";
 
 export type HealthHost = Pick<
   ClaudeCompanionPlugin,
-  | "activity" | "app" | "credentialSetupInputs" | "inboxPendingCount" | "mcpRunning" | "ontology" | "optimize" | "researchRepository"
-  | "router" | "semantic" | "settings" | "standingOrders" | "clipperStatus"
+  | "activity" | "app" | "clipperSetup" | "inboxPendingCount" | "mcpRunning" | "onboarding" | "ontology" | "optimize" | "researchRepository"
+  | "router" | "semantic" | "settings" | "standingOrders"
 >;
 
 export type SystemHost = HealthHost & Pick<
   ClaudeCompanionPlugin,
-  | "activateInboxView" | "activateResearchDesk" | "companionChrome" | "openClipperSetup" | "openCompanionSettings" | "openSetupWizard"
+  | "activateInboxView" | "activateResearchDesk" | "companionChrome" | "openCompanionSettings"
 >;
 
 export function buildHealthController(host: HealthHost): HealthController {
@@ -54,12 +54,12 @@ export function buildHealthController(host: HealthHost): HealthController {
     orphanCount: () => findOrphans(linkScanNotes(host.app, host.ontology()), host.app.metadataCache.resolvedLinks, normalizePath(host.settings.ontologyFolder)).length,
     inboxPending: () => host.inboxPendingCount(),
     companion: () => ({
-      connection: { backend: host.router().chatBackend, needsCredential: needsCredentialSetup(host.credentialSetupInputs()) },
+      connection: { backend: host.router().chatBackend, needsCredential: needsCredentialSetup(host.onboarding().credentialSetupInputs()) },
       activity: host.activity.snapshot().records
         .filter((r) => r.state === "needs-attention")
         .map((r) => ({ id: r.id, title: r.title, failed: r.failed, recovery: r.recovery.map(({ id, label }) => ({ id, label })) })),
       bridge: { applicable: !Platform.isMobile, enabled: host.settings.mcpEnabled, running: host.mcpRunning(), port: host.settings.mcpPort },
-      clipper: { applicable: host.settings.sourceCaptureEnabled, status: host.clipperStatus() },
+      clipper: { applicable: host.settings.sourceCaptureEnabled, status: host.clipperSetup().status() },
       orders: { invalid: host.standingOrders().invalidOrders() },
     }),
     now: () => new Date().toISOString(),
@@ -76,9 +76,9 @@ export function buildSystemDeps(host: SystemHost): SystemViewDeps {
     buildIndex: () => host.semantic().rebuildSemanticIndex(),
     catchUpIndex: () => host.semantic().catchUpIndex(),
     openInbox: () => host.activateInboxView(),
-    openSetupWizard: () => host.openSetupWizard(),
+    openSetupWizard: () => host.onboarding().openSetupWizard(),
     openSettings: () => host.openCompanionSettings(),
-    openClipperSetup: () => host.openClipperSetup(),
+    openClipperSetup: () => host.clipperSetup().openSetup(),
     runActivityRecovery: (activityId, id) => {
       const chrome = host.companionChrome();
       return chrome.runActivityRecovery ? chrome.runActivityRecovery(activityId, id) : chrome.run({ id, page: "system", activityId });

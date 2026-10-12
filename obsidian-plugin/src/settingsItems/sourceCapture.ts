@@ -4,7 +4,7 @@ import type { SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 
 export interface SourceCaptureItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "clipperTemplatesStale" | "exportClipperTemplates" | "settings">;
+  plugin: Pick<ClaudeCompanionPlugin, "clipperSetup" | "settings">;
 }
 
 export function sourceCaptureItems(ctx: SourceCaptureItemsContext): SettingGroupItem[] {
@@ -21,14 +21,14 @@ export function sourceCaptureItems(ctx: SourceCaptureItemsContext): SettingGroup
       render: (setting) => {
         const status = setting.settingEl.createDiv({ cls: "cc-conn-status setting-item-description" });
         if (plugin.settings.clipperTemplateFingerprint !== "") {
-          const stale = plugin.clipperTemplatesStale();
+          const stale = plugin.clipperSetup().templatesStale();
           status.setText(stale ? "✗ Templates out of date — schemas or inbox changed since export." : "✓ Templates current with your schemas.");
           status.toggleClass("is-err", stale);
           status.toggleClass("is-ok", !stale);
         }
         setting.addButton((b) =>
           b.setButtonText("Export templates").onClick(async () => {
-            await plugin.exportClipperTemplates();
+            await plugin.clipperSetup().exportTemplates();
             status.setText("✓ Templates current with your schemas.");
             status.toggleClass("is-err", false);
             status.toggleClass("is-ok", true);

@@ -21,9 +21,9 @@ function harness(queue: QueuedEdit[]) {
   Object.assign(plugin, {
     app,
     settings: { sourceCaptureEnabled: true, sourceInboxFolder: "Clippings", clipOrganizedFolder: "Library" },
-    sourceEnrichmentBackendLabel: () => "Claude",
+    utilityRouting: () => ({ backendLabel: () => "Claude" }),
     linkCandidates: () => [],
-    clipperSetupNeeded: () => false,
+    clipperSetup: () => ({ setupNeeded: () => false }),
     listQueuedEdits: () => queue,
     reviewQueuedEdit,
     discardQueuedEdit,
