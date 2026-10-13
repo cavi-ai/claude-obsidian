@@ -115,6 +115,8 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
 
 /** Custom `render` rows with no `control.key`, promoted to basic by name. */
 const BASIC_ACTION_NAMES: ReadonlySet<string> = new Set([
+  "Codex model",
+  "OpenCode model",
   "On-device model download",
   "Desktop integrations", // "vault tools connect"
   "Embedding model", // "semantic on/off + download"

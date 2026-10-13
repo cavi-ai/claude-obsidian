@@ -15,6 +15,7 @@ import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, forma
 import { ActionModal, type ActionModalItem } from "../ActionModal";
 import { QuickOptionsModal } from "../QuickOptionsModal";
 import { quickNotice } from "../../notice";
+import { CliModelPicker } from "../CliModelPicker";
 
 export interface HeaderControlsCallbacks {
   onModelClick: () => void;
@@ -201,11 +202,13 @@ export class HeaderControls {
   }
 
   refreshModelLabel(): void {
-    const { model: resolvedModel } = this.plugin.router().chatProvider();
-    const caps = this.plugin.router().chatCapabilities();
+    const router = this.plugin.router();
+    const { model: resolvedModel, provider } = router.chatProvider();
+    const caps = router.chatCapabilities();
     const chosen = modelLabel(this.controls?.model ?? this.plugin.settings.model);
     const deviceName = DEVICE_MODELS.find((model) => model.id === resolvedModel)?.name ?? resolvedModel;
-    const label = this.plugin.settings.chatBackend === "device" ? `${deviceName} · on-device` : caps.local ? `${modelLabel(resolvedModel)} · local` : chosen;
+    const cliLabel = provider.id === "codex-cli" ? router.codexCli.modelLabel(resolvedModel) : provider.id === "opencode-cli" ? router.opencodeCli.modelLabel(resolvedModel) : null;
+    const label = cliLabel ?? (this.plugin.settings.chatBackend === "device" ? `${deviceName} · on-device` : caps.local ? `${modelLabel(resolvedModel)} · local` : chosen);
     // Desktop nests the dot + chevron inside cc-model, so the name text goes into
     // its own child span; mobile has no such child and keeps setting cc-model directly.
     (this.modelTextEl ?? this.modelLabelEl).setText(label);
@@ -361,6 +364,14 @@ export class HeaderControls {
 
   /** Model picker opened by tapping the model name in the header. */
   openModelMenu(): void {
+    const backend = this.plugin.settings.chatBackend;
+    if (!Platform.isMobile && (backend === "codex-cli" || backend === "opencode-cli")) {
+      const router = this.plugin.router();
+      const provider = backend === "codex-cli" ? router.codexCli : router.opencodeCli;
+      const current = backend === "codex-cli" ? this.plugin.settings.codexModel : this.plugin.settings.opencodeModel;
+      new CliModelPicker(this.app, provider.label, current, () => provider.listModels(), (id) => void this.onModelSelect(`${backend}:${id}`), () => this.deps.openSettings()).open();
+      return;
+    }
     const resolved = this.plugin.router().chatProvider();
     const activeModel = resolved.provider.id === "anthropic" ? this.controls.model : resolved.model;
     const deviceItems: ActionModalItem[] = DEVICE_MODELS.map((model) => ({
@@ -393,7 +404,13 @@ export class HeaderControls {
    * back to Claude (backend → auto, so it still falls back to local when needed).
    */
   async onModelSelect(value: string): Promise<void> {
-    if (value.startsWith("device:")) {
+    if (!Platform.isMobile && value.startsWith("codex-cli:")) {
+      this.plugin.settings.codexModel = value.slice("codex-cli:".length);
+      this.plugin.settings.chatBackend = "codex-cli";
+    } else if (!Platform.isMobile && value.startsWith("opencode-cli:")) {
+      this.plugin.settings.opencodeModel = value.slice("opencode-cli:".length);
+      this.plugin.settings.chatBackend = "opencode-cli";
+    } else if (value.startsWith("device:")) {
       const model = DEVICE_MODELS.find((m) => m.id === value.slice("device:".length));
       if (!model) return;
       this.plugin.settings.deviceChatModel = model.id;
@@ -408,7 +425,7 @@ export class HeaderControls {
       this.plugin.settings.chatBackend = "custom";
     } else {
       this.controls.model = value;
-      if (this.plugin.settings.chatBackend === "local" || this.plugin.settings.chatBackend === "custom" || this.plugin.settings.chatBackend === "device") this.plugin.settings.chatBackend = "auto";
+      if (this.plugin.settings.chatBackend === "local" || this.plugin.settings.chatBackend === "custom" || this.plugin.settings.chatBackend === "device" || this.plugin.settings.chatBackend === "codex-cli" || this.plugin.settings.chatBackend === "opencode-cli") this.plugin.settings.chatBackend = "auto";
     }
     await this.plugin.saveSettings();
     this.deps.renderKnobs(); // capabilities/provider changed → rebuild dependent knobs

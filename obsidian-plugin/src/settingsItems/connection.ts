@@ -14,6 +14,7 @@ import { opencodeBackend } from "../cli/backends/opencode";
 import type { CliBackend } from "../cli/backends/types";
 import type { CliProvider } from "../providers/cliProvider";
 import { canDeleteDeviceModel, setCredential } from "./actions";
+import { cliModelItem } from "./cliModels";
 
 export interface ConnectionItemsContext {
   plugin: Pick<ClaudeCompanionPlugin, "deviceChat" | "onboarding" | "refreshViews" | "router" | "saveSettings" | "settings">;
@@ -223,19 +224,9 @@ export function connectionItems(ctx: ConnectionItemsContext): SettingGroupItem[]
     deviceModelDownloadItem(ctx),
     ...(Platform.isMobile ? [] : cliStatusItems(ctx, claudeBackend, (r) => r.claudeCli)),
     ...(Platform.isMobile ? [] : cliStatusItems(ctx, codexBackend, (r) => r.codexCli)),
-    {
-      name: "Codex model",
-      visible: () => !Platform.isMobile,
-      desc: "Optional model id passed as -m to codex exec. Leave blank to use Codex's own default.",
-      control: { type: "text", key: "codexModel", placeholder: "e.g. gpt-5.1-codex" },
-    },
+    cliModelItem(ctx, codexBackend, "codexModel"),
     ...(Platform.isMobile ? [] : cliStatusItems(ctx, opencodeBackend, (r) => r.opencodeCli)),
-    {
-      name: "OpenCode model",
-      visible: () => !Platform.isMobile,
-      desc: "Optional model id passed as -m to opencode run (e.g. anthropic/claude-sonnet-5). Leave blank to use OpenCode's own default.",
-      control: { type: "text", key: "opencodeModel", placeholder: "e.g. anthropic/claude-sonnet-5" },
-    },
+    cliModelItem(ctx, opencodeBackend, "opencodeModel"),
     {
       name: "Max response tokens",
       desc: "Upper bound on a single reply (cap 64000). Higher values leave less context-window room.",
