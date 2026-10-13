@@ -17,7 +17,9 @@ import { builtinModelById } from "../semantic/transformers/model";
 import type { SemanticController } from "../semantic/controller";
 import type { ClipperFeature } from "../sources/clipperFeature";
 import type { PluginSettings } from "../types";
+import { selectEmbedding } from "../settingsItems/actions";
 import { ChatView } from "./ChatView";
+import { offerIndexRebuild } from "./rebuildOffer";
 import { SYSTEM_VIEW_TYPE, SystemView } from "./SystemView";
 import type { CompanionChromeDependencies } from "./companionChrome";
 import type { QuickOptionAction, QuickOptionChange, QuickOptionsState } from "./quickOptions";
@@ -124,9 +126,15 @@ export class CompanionShell {
       case "source-capture": this.settings.sourceCaptureEnabled = value === true; break;
       case "semantic-search": this.settings.semanticEnabled = value === true; break;
       case "embedding-engine":
-        if (value === "builtin" || value === "ollama" || value === "custom") this.settings.embeddingEngine = value;
-        else throw new Error("Choose a valid embedding engine.");
-        break;
+        if (value !== "builtin" && value !== "ollama" && value !== "custom") throw new Error("Choose a valid embedding engine.");
+        {
+          const notes = (await this.deps.semantic().indexer()?.stats().catch(() => null))?.notes ?? 0;
+          const r = selectEmbedding(this.settings, { key: "embeddingEngine", value }, notes);
+          if (!r.changed) return;
+          await this.deps.saveSettings();
+          if (r.rebuildLabel !== null) offerIndexRebuild(this.app, r.rebuildLabel, () => this.deps.semantic().rebuildSemanticIndex());
+        }
+        return;
       case "memory-enabled": this.settings.memoryEnabled = value === true; break;
       case "memory-folder": this.settings.memoryFolder = String(value).trim() || "Claude/Memory"; break;
       case "discovery-enabled": this.settings.discoveryEnabled = value === true; break;
