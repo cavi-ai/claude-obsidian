@@ -85,7 +85,7 @@ describe("Chat render lifecycle", () => {
       sendBtn: HTMLButtonElement;
       usageEl: HTMLElement;
       gaugeFillEl: HTMLElement;
-      renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
+      renderer: { renderInto(el: HTMLElement, markdown: string): Promise<void> };
       run(userText: string): Promise<void>;
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
@@ -95,7 +95,7 @@ describe("Chat render lifecycle", () => {
     seam.gaugeFillEl = fakeElement();
     seam.app.workspace.getActiveViewOfType = () => null;
     seam.app.workspace.getActiveFile = () => null;
-    seam.renderMarkdownInto = async () => undefined;
+    seam.renderer.renderInto =async () => undefined;
 
     const running = seam.run("Research this");
     await Promise.resolve();
@@ -147,7 +147,7 @@ describe("Chat render lifecycle", () => {
       sendBtn: HTMLButtonElement;
       usageEl: HTMLElement;
       gaugeFillEl: HTMLElement;
-      renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
+      renderer: { renderInto(el: HTMLElement, markdown: string): Promise<void> };
       run(userText: string): Promise<void>;
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
@@ -157,7 +157,7 @@ describe("Chat render lifecycle", () => {
     seam.gaugeFillEl = fakeElement();
     seam.app.workspace.getActiveViewOfType = () => null;
     seam.app.workspace.getActiveFile = () => null;
-    seam.renderMarkdownInto = async () => undefined;
+    seam.renderer.renderInto =async () => undefined;
 
     await seam.run("Research this");
     expect(stream).toHaveBeenCalledOnce();
@@ -209,7 +209,7 @@ describe("Chat render lifecycle", () => {
       sendBtn: HTMLButtonElement;
       usageEl: HTMLElement;
       gaugeFillEl: HTMLElement;
-      renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
+      renderer: { renderInto(el: HTMLElement, markdown: string): Promise<void> };
       run(userText: string): Promise<void>;
       onClose(): Promise<void>;
       loadConversation(conversation: Conversation): void;
@@ -221,7 +221,7 @@ describe("Chat render lifecycle", () => {
     seam.gaugeFillEl = fakeElement();
     seam.app.workspace.getActiveViewOfType = () => null;
     seam.app.workspace.getActiveFile = () => null;
-    seam.renderMarkdownInto = async () => undefined;
+    seam.renderer.renderInto =async () => undefined;
 
     const running = seam.run("Hello");
     await started;
@@ -319,11 +319,11 @@ describe("Chat render lifecycle", () => {
     const messagesEl = fakeElement();
     const seam = view as unknown as {
       messagesEl: HTMLElement;
-      renderMarkdownInto(element: HTMLElement, markdown: string): Promise<void>;
+      renderer: { renderInto(element: HTMLElement, markdown: string): Promise<void> };
       renderStoredMessage(message: { role: "assistant"; content: string }): void;
     };
     seam.messagesEl = messagesEl;
-    seam.renderMarkdownInto = async () => { throw new Error("renderer unavailable"); };
+    seam.renderer.renderInto =async () => { throw new Error("renderer unavailable"); };
 
     seam.renderStoredMessage({ role: "assistant", content: "Still readable" });
     await Promise.resolve();
@@ -335,9 +335,9 @@ describe("Chat render lifecycle", () => {
   it("lets the user copy an earlier prompt after reopening a chat", () => {
     const plugin = { settings: structuredClone(DEFAULT_SETTINGS) } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
-    const seam = view as unknown as { messagesEl: HTMLElement; renderMarkdownInto(el: HTMLElement, text: string): Promise<void>; renderStoredMessage(message: { role: "user"; content: string }): void };
+    const seam = view as unknown as { messagesEl: HTMLElement; renderer: { renderInto(el: HTMLElement, text: string): Promise<void> }; renderStoredMessage(message: { role: "user"; content: string }): void };
     seam.messagesEl = fakeElement();
-    seam.renderMarkdownInto = async () => undefined;
+    seam.renderer.renderInto =async () => undefined;
     seam.renderStoredMessage({ role: "user", content: "Please revise the note" });
     expect(seam.messagesEl.querySelector(".cc-actions")?.querySelector("button")?.getAttribute("aria-label")).toBe("Copy prompt");
   });
@@ -345,13 +345,13 @@ describe("Chat render lifecycle", () => {
   it("offers to review the saved edit proposal when a conversation is reopened", () => {
     const plugin = { settings: structuredClone(DEFAULT_SETTINGS), turnService: () => new ChatTurnService(), chatProjectFor: async () => null } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
-    const seam = view as unknown as { messagesEl: HTMLElement; sendBtn: HTMLButtonElement; usageEl: HTMLElement; gaugeFillEl: HTMLElement; controls: ReturnType<typeof defaultChatControls>; renderMarkdownInto(el: HTMLElement, text: string): Promise<void>; updateUsageBar(): void; loadConversation(conversation: Conversation): void };
+    const seam = view as unknown as { messagesEl: HTMLElement; sendBtn: HTMLButtonElement; usageEl: HTMLElement; gaugeFillEl: HTMLElement; controls: ReturnType<typeof defaultChatControls>; renderer: { renderInto(el: HTMLElement, text: string): Promise<void> }; updateUsageBar(): void; loadConversation(conversation: Conversation): void };
     seam.messagesEl = fakeElement();
     seam.sendBtn = fakeElement() as unknown as HTMLButtonElement;
     seam.usageEl = fakeElement();
     seam.gaugeFillEl = fakeElement();
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
-    seam.renderMarkdownInto = async () => undefined;
+    seam.renderer.renderInto =async () => undefined;
     seam.updateUsageBar = () => undefined;
     seam.loadConversation({
       id: "c1", title: "Revise", createdAt: 1, updatedAt: 2,
@@ -442,7 +442,7 @@ describe("Chat render lifecycle", () => {
       sendBtn: HTMLButtonElement;
       usageEl: HTMLElement;
       gaugeFillEl: HTMLElement;
-      renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
+      renderer: { renderInto(el: HTMLElement, markdown: string): Promise<void> };
       run(userText: string): Promise<void>;
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
@@ -455,7 +455,7 @@ describe("Chat render lifecycle", () => {
     seam.app.workspace.getActiveViewOfType = () => null;
     seam.app.workspace.getActiveFile = () => null;
     // Bypass Obsidian's real MarkdownRenderer (unavailable in this fake env).
-    seam.renderMarkdownInto = async () => undefined;
+    seam.renderer.renderInto =async () => undefined;
 
     await seam.run("Summarize my vault in one line.");
 
