@@ -22,7 +22,7 @@ describe("plugin test harness", () => {
     const offenders = testFiles(resolve(__dirname)).flatMap((file) =>
       readFileSync(file, "utf8")
         .split("\n")
-        .flatMap((text, index) => (hack.test(text) ?[`${relative(resolve(__dirname), file)}:${index + 1}`] : [])),
+        .flatMap((text, index) => (hack.test(text) ? [`${relative(resolve(__dirname), file)}:${index + 1}`] : [])),
     );
     expect(offenders).toEqual([]);
   });
