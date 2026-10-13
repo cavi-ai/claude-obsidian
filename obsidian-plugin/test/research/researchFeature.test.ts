@@ -4,8 +4,9 @@ import { ActivityStore } from "../../src/activity/store";
 import { PLANNING_INSTRUCTION } from "../../src/artifacts/designSystem";
 import { ResearchFeature, type ResearchFeatureDeps } from "../../src/research/researchFeature";
 import { DEFAULT_SETTINGS } from "../../src/types";
-import { BuildView, BUILD_VIEW_TYPE } from "../../src/view/BuildView";
+import { BUILD_VIEW_TYPE } from "../../src/view/BuildView";
 import { ResearchView, RESEARCH_DESK_VIEW_TYPE } from "../../src/view/ResearchView";
+import { buildView, researchView } from "../fakes/view";
 
 const modals = vi.hoisted(() => [] as Array<{ submit: (input: unknown) => Promise<void>; rewriteText: unknown; initial: Record<string, unknown> }>);
 vi.mock("../../src/view/research/projectCreateModal", () => ({
@@ -125,10 +126,10 @@ describe("ResearchFeature build handoff", () => {
     const run = { id: "run-1" };
     build.activeBuildRun.mockReturnValue(run);
     const setRun = vi.fn();
-    const buildView = Object.assign(Object.create(BuildView.prototype) as BuildView, { setRun });
+    const view = buildView(undefined, { setRun });
     const reveal = vi.fn(async () => undefined);
-    workspace(app, { [BUILD_VIEW_TYPE]: [{ view: buildView }] }, { revealLeaf: reveal });
-    await expect(feature.activateBuildView("run-1")).resolves.toBe(buildView);
+    workspace(app, { [BUILD_VIEW_TYPE]: [{ view }] }, { revealLeaf: reveal });
+    await expect(feature.activateBuildView("run-1")).resolves.toBe(view);
     expect(build.selectActiveRun).toHaveBeenCalledWith("run-1");
     expect(setRun).toHaveBeenCalledWith(run);
     expect(reveal).toHaveBeenCalledTimes(1);
@@ -176,7 +177,7 @@ describe("ResearchFeature desk activation", () => {
   it("selects the requested project on the open Research Desk and reveals it", async () => {
     const { app, feature } = rig();
     const setProjectPath = vi.fn(async () => undefined);
-    const desk = Object.assign(Object.create(ResearchView.prototype) as ResearchView, { getProjectPath: () => "R/Old/Project.md", setProjectPath });
+    const desk = researchView(undefined, undefined, { getProjectPath: () => "R/Old/Project.md", setProjectPath });
     const reveal = vi.fn(async () => undefined);
     workspace(app, { "claude-research-desk": [{ view: desk }] }, { revealLeaf: reveal });
     await feature.activateResearchDesk("R/New/Project.md");
@@ -187,7 +188,7 @@ describe("ResearchFeature desk activation", () => {
   it("keeps the selection when the requested project is already open", async () => {
     const { app, feature } = rig();
     const setProjectPath = vi.fn(async () => undefined);
-    const desk = Object.assign(Object.create(ResearchView.prototype) as ResearchView, { getProjectPath: () => "R/Same/Project.md", setProjectPath });
+    const desk = researchView(undefined, undefined, { getProjectPath: () => "R/Same/Project.md", setProjectPath });
     workspace(app, { "claude-research-desk": [{ view: desk }] }, { revealLeaf: async () => undefined });
     await feature.activateResearchDesk("R/Same/Project.md");
     expect(setProjectPath).not.toHaveBeenCalled();
@@ -203,7 +204,7 @@ describe("ResearchFeature refresh", () => {
   function deskWith(relevant: boolean | ((path: string) => boolean)) {
     const render = vi.fn(async () => undefined);
     const isRelevantChange = vi.fn((path: string, _oldPath?: string) => (typeof relevant === "function" ? relevant(path) : relevant));
-    return { render, isRelevantChange, view: Object.assign(Object.create(ResearchView.prototype) as ResearchView, { render, isRelevantChange }) };
+    return { render, isRelevantChange, view: researchView(undefined, undefined, { render, isRelevantChange }) };
   }
 
   it("renders the open desk once, 250 ms after the last relevant change", async () => {

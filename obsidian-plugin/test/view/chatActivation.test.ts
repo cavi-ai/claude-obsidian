@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type ClaudeCompanionPlugin from "../../src/main";
 import { CHAT_VIEW_TYPE, ChatView } from "../../src/view/ChatView";
 import { buildPlugin } from "../fakes/plugin";
+import { chatView } from "../fakes/view";
 
 function chatLeaf(parent: unknown = undefined): {
   parent?: unknown;
@@ -11,7 +12,7 @@ function chatLeaf(parent: unknown = undefined): {
 } {
   return {
     parent,
-    view: Object.create(ChatView.prototype) as ChatView,
+    view: chatView(),
     setViewState: vi.fn(async () => undefined),
   };
 }

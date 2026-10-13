@@ -2,17 +2,18 @@ import { App, FakeElement, Platform, TFile, clearNotices, getNoticeMessages } fr
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import { WORKFLOWS } from "../../src/workflows/catalog";
-import { CHAT_VIEW_TYPE, ChatView } from "../../src/view/ChatView";
-import { INBOX_VIEW_TYPE, InboxView } from "../../src/view/InboxView";
-import { MEMORY_VIEW_TYPE, MemoryView } from "../../src/view/MemoryView";
+import { CHAT_VIEW_TYPE } from "../../src/view/ChatView";
+import { INBOX_VIEW_TYPE } from "../../src/view/InboxView";
+import { MEMORY_VIEW_TYPE } from "../../src/view/MemoryView";
 import { RELATED_VIEW_TYPE } from "../../src/view/RelatedView";
 import { SYSTEM_VIEW_TYPE } from "../../src/view/SystemView";
 import { ARTIFACT_MAX_TOKENS, WorkspaceViews, type WorkspaceViewsDeps } from "../../src/view/workspaceViews";
+import { chatView as buildChatView, inboxView, memoryView } from "../fakes/view";
 
 interface Leaf { parent?: unknown; view: unknown; setViewState: ReturnType<typeof vi.fn> }
 
 const leaf = (view: unknown = {}, parent: unknown = undefined): Leaf => ({ parent, view, setViewState: vi.fn(async () => undefined) });
-const chatLeaf = (parent: unknown = undefined): Leaf => leaf(Object.create(ChatView.prototype), parent);
+const chatLeaf = (parent: unknown = undefined): Leaf => leaf(buildChatView(), parent);
 
 interface Rig {
   app: App;
@@ -59,7 +60,7 @@ afterEach(() => { Platform.isMobile = false; vi.useRealTimers(); });
 describe("WorkspaceViews chat activation", () => {
   it("opens a right-sidebar chat leaf on desktop when none exists", async () => {
     const r = rig();
-    r.rightLeaf.view = Object.create(ChatView.prototype);
+    r.rightLeaf.view = buildChatView();
     const view = await r.views.activateView();
     expect(r.rightLeaf.setViewState).toHaveBeenCalledWith({ type: CHAT_VIEW_TYPE, active: true });
     expect(r.workspace.revealLeaf).toHaveBeenCalledWith(r.rightLeaf);
@@ -148,7 +149,7 @@ describe("WorkspaceViews side views", () => {
 
   it("renders every open memory view and skips other leaves", async () => {
     const r = rig();
-    const memory = Object.create(MemoryView.prototype) as MemoryView;
+    const memory = memoryView();
     const render = vi.spyOn(memory, "render").mockResolvedValue(undefined);
     r.leaves.set(MEMORY_VIEW_TYPE, [leaf(memory), leaf({})]);
     await r.views.refreshMemoryView();
@@ -158,7 +159,7 @@ describe("WorkspaceViews side views", () => {
 
 describe("WorkspaceViews chat prompts", () => {
   function chatView() {
-    return Object.assign(Object.create(ChatView.prototype) as ChatView, {
+    return buildChatView(undefined, {
       submitPrompt: vi.fn(async () => undefined),
       prepareWorkspaceQuestion: vi.fn(),
     });
@@ -235,7 +236,7 @@ describe("WorkspaceViews active note card", () => {
 describe("WorkspaceViews inbox", () => {
   it("enriches a file and refreshes open inbox views, with consent prompting unless inline", async () => {
     const r = rig();
-    const inbox = Object.create(InboxView.prototype) as InboxView;
+    const inbox = inboxView();
     const render = vi.spyOn(inbox, "render").mockResolvedValue(undefined);
     r.leaves.set(INBOX_VIEW_TYPE, [leaf(inbox), leaf({})]);
     const file = new TFile("Clippings/a.md", "", 0);
@@ -248,7 +249,7 @@ describe("WorkspaceViews inbox", () => {
 
   it("skips the refresh on request and survives a failing inbox render", async () => {
     const r = rig();
-    const inbox = Object.create(InboxView.prototype) as InboxView;
+    const inbox = inboxView();
     const render = vi.spyOn(inbox, "render").mockRejectedValue(new Error("paint failed"));
     r.leaves.set(INBOX_VIEW_TYPE, [leaf(inbox)]);
     const file = new TFile("Clippings/a.md", "", 0);
