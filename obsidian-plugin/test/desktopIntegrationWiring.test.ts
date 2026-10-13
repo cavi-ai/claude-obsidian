@@ -2,8 +2,8 @@ import { App, FileSystemAdapter, getLastOpenedModal, Platform } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopIntegrationRuntime } from "../src/integrations/desktopCoordinator";
 import { DesktopIntegrationsModal } from "../src/view/DesktopIntegrationsModal";
-import { DEFAULT_SETTINGS } from "../src/types";
 import type ClaudeCompanionPlugin from "../src/main";
+import { buildPlugin } from "./fakes/plugin";
 
 const readyRuntime = (): DesktopIntegrationRuntime => ({
   inspectClaudeCode: async () => ({
@@ -27,21 +27,16 @@ const readyRuntime = (): DesktopIntegrationRuntime => ({
 });
 
 async function pluginHarness(runtime: DesktopIntegrationRuntime = readyRuntime()): Promise<ClaudeCompanionPlugin> {
-  const Plugin = (await import("../src/main")).default;
-  const plugin = Object.create(Plugin.prototype) as ClaudeCompanionPlugin;
   const app = new App();
   (app.vault as unknown as { adapter: FileSystemAdapter }).adapter = new FileSystemAdapter("/Vault Root");
-  Object.assign(plugin as unknown as Record<string, unknown>, {
-    app,
-    settings: structuredClone(DEFAULT_SETTINGS),
+  return buildPlugin({
     _desktopRuntimeLoader: vi.fn(async () => ({ createNodeDesktopRuntime: async () => runtime })),
     router: () => ({ anthropic: { hasCredentials: () => true } }),
     persist: async () => undefined,
     refreshViews: () => undefined,
     syncMcpServer: async () => undefined,
     mcpRunning: () => true,
-  });
-  return plugin;
+  }, app);
 }
 
 afterEach(() => {

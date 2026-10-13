@@ -5,6 +5,7 @@ import { McpHttpServer } from "../src/mcp/server";
 import { CliSession } from "../src/cli/session";
 import { DEFAULT_SETTINGS } from "../src/types";
 import { SetupWizardModal } from "../src/view/SetupWizardModal";
+import { buildPlugin } from "./fakes/plugin";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -19,12 +20,9 @@ const runtime = () => ({
 function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
   const app = new App();
   (app.vault as unknown as { adapter: unknown }).adapter = new FileSystemAdapter("/vault");
-  const p = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(p as unknown as Record<string, unknown>, {
-    app,
+  return buildPlugin({
     settings: { ...structuredClone(DEFAULT_SETTINGS), chatBackend: "claude-cli", apiKey: "" },
     convState: { conversations: [{ id: "c1", title: "t", createdAt: 1, updatedAt: 1, messages: [] }, { id: "c2", title: "t", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" },
-    mcpLifecycleGeneration: 0,
     mcpLifecycleEnded: false,
     _router: null,
     persist: async () => undefined,
@@ -32,8 +30,7 @@ function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
     cliRuntime: () => rt,
     composeSystemPrompt: () => "sys",
     agentTools: () => ({ definitions: () => [], call: async () => "" }),
-  });
-  return p;
+  }, app);
 }
 
 describe("plugin Claude CLI lifecycle", () => {

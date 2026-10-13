@@ -1,7 +1,8 @@
 import { Platform } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../../src/main";
+import type ClaudeCompanionPlugin from "../../src/main";
 import { CHAT_VIEW_TYPE, ChatView } from "../../src/view/ChatView";
+import { buildPlugin } from "../fakes/plugin";
 
 function chatLeaf(parent: unknown = undefined): {
   parent?: unknown;
@@ -16,9 +17,7 @@ function chatLeaf(parent: unknown = undefined): {
 }
 
 function pluginForWorkspace(workspace: Record<string, unknown>): ClaudeCompanionPlugin {
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(plugin as unknown as Record<string, unknown>, { app: { workspace } });
-  return plugin;
+  return buildPlugin({ app: { workspace } });
 }
 
 describe("Chat view activation", () => {

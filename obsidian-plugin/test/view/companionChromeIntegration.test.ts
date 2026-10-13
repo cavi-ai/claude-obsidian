@@ -9,6 +9,7 @@ import { RelatedView } from "../../src/view/RelatedView";
 import { ResearchView } from "../../src/view/ResearchView";
 import type { CompanionChromeDependencies } from "../../src/view/companionChrome";
 import type { QuickOptionsState } from "../../src/view/quickOptions";
+import { buildPlugin } from "../fakes/plugin";
 
 const state = (): QuickOptionsState => ({
   chatBackend: "auto", chatModel: "Claude Sonnet 5", agentModeEnabled: false, vaultContextEnabled: true,
@@ -37,11 +38,8 @@ const optionLabel = (root: HTMLElement): string | null => {
 
 describe("Companion chrome view integration", () => {
   it("routes a quick embedding change through real saveSettings invalidation", async () => {
-    const plugin = Object.create((await import("../../src/main")).default.prototype) as ClaudeCompanionPlugin;
     const onSettingsChanged = vi.fn();
-    Object.assign(plugin as unknown as Record<string, unknown>, {
-      app: new App(),
-      settings: structuredClone(DEFAULT_SETTINGS),
+    const plugin = buildPlugin({
       persist: async () => undefined,
       refreshViews: () => undefined,
       syncMcpServer: async () => undefined,

@@ -1,24 +1,22 @@
 import { App } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../../src/main";
+import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
+import { buildPlugin } from "../fakes/plugin";
 
 afterEach(() => vi.useRealTimers());
 
 function harnessPlugin(app: App, mutate: (settings: typeof DEFAULT_SETTINGS) => void, withPersist = true): ClaudeCompanionPlugin {
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   const settings = structuredClone(DEFAULT_SETTINGS);
   mutate(settings);
-  Object.assign(plugin as unknown as Record<string, unknown>, {
-    app,
+  return buildPlugin({
     settings,
     ...(withPersist ? { persist: async () => undefined } : {}),
     enrichTimers: new Map<string, number>(),
     enrichRecentlyWritten: new Set<string>(),
     enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
     reindexTimer: null,
-  });
-  return plugin;
+  }, app);
 }
 
 describe("Clipper first-note verification wiring", () => {

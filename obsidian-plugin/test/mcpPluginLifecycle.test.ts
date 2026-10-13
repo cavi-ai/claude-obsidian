@@ -1,8 +1,7 @@
-import { App } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../src/main";
 import { McpHttpServer } from "../src/mcp/server";
 import { DEFAULT_SETTINGS } from "../src/types";
+import { buildPlugin } from "./fakes/plugin";
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
   let resolve!: () => void;
@@ -16,9 +15,7 @@ describe("plugin MCP lifecycle", () => {
     const startGate = deferred();
     const start = vi.spyOn(McpHttpServer.prototype, "start").mockImplementation(() => startGate.promise);
     const stop = vi.spyOn(McpHttpServer.prototype, "stop").mockResolvedValue(undefined);
-    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-    Object.assign(plugin as unknown as Record<string, unknown>, {
-      app: new App(),
+    const plugin = buildPlugin({
       settings: { ...structuredClone(DEFAULT_SETTINGS), mcpEnabled: true, mcpToken: "secret" },
       mcpSyncChain: Promise.resolve(),
       mcpServer: null,

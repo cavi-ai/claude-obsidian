@@ -1,11 +1,11 @@
 import { App, Platform } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../src/main";
+import type ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
 import { SemanticController } from "../src/semantic/controller";
+import { buildPlugin } from "./fakes/plugin";
 
 function mobilePlugin(app: App): ClaudeCompanionPlugin {
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   Object.assign(app.vault as unknown as Record<string, unknown>, {
     adapter: {
       exists: async () => false,
@@ -13,14 +13,11 @@ function mobilePlugin(app: App): ClaudeCompanionPlugin {
       write: async () => undefined,
     },
   });
-  Object.assign(plugin as unknown as Record<string, unknown>, {
-    app,
-    manifest: { id: "claude-companion", dir: ".obsidian/plugins/claude-companion" },
+  return buildPlugin({
     settings: { ...structuredClone(DEFAULT_SETTINGS), semanticEnabled: true, embeddingEngine: "builtin" },
     _indexer: null,
     indexerModel: null,
-  });
-  return plugin;
+  }, app);
 }
 
 /** The built-in model is ready and embeds every input as one fixed vector. */
