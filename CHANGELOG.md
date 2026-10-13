@@ -4,6 +4,15 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] — 2026-10-13
+
+### Added
+- Codex and OpenCode model pickers list the models each CLI reports, with search, refresh, and default or custom entries; the header and composer selections stay in sync.
+- OpenCode connection status comes from its auth command.
+
+### Fixed
+- Switching the embedding engine from quick options offers to rebuild the index, as the settings page does.
+
 ## [0.44.3] — 2026-10-10
 
 ### Fixed
