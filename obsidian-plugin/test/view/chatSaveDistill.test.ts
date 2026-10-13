@@ -73,7 +73,7 @@ describe("distill replaces save-to-vault", () => {
     const fakes = conversationFakes();
     const p = plugin({}, fakes);
     const view = await openView(p);
-    await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "save", description: "", kind: "action", action: "save" });
+    await (view as unknown as { slash: { run(c: unknown): Promise<void> } }).slash.run({ name: "save", description: "", kind: "action", action: "save" });
     expect(fakes.distill).toHaveBeenCalledWith("c1");
   });
 
@@ -88,7 +88,7 @@ describe("distill replaces save-to-vault", () => {
     const input = (view as unknown as { inputEl: { value: string } }).inputEl;
     composer.input = input;
     input.value = "/plan";
-    await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "plan", description: "", kind: "action", action: "generatePlanFromNote" });
+    await (view as unknown as { slash: { run(c: unknown): Promise<void> } }).slash.run({ name: "plan", description: "", kind: "action", action: "generatePlanFromNote" });
     expect(generatePlanFromNote).toHaveBeenCalledOnce();
     expect(composerAtCall).toBe("");
     expect(input.value).toBe("");
@@ -100,7 +100,7 @@ describe("distill replaces save-to-vault", () => {
     const generatePlanFromNote = vi.fn();
     const p = plugin({ commandActions: () => ({ generatePlanFromNote }) });
     const view = await openView(p);
-    await (view as unknown as { runSlashCommand(c: unknown): Promise<void> }).runSlashCommand({ name: "bogus", description: "", kind: "action", action: "bogus" });
+    await (view as unknown as { slash: { run(c: unknown): Promise<void> } }).slash.run({ name: "bogus", description: "", kind: "action", action: "bogus" });
     expect(generatePlanFromNote).not.toHaveBeenCalled();
     expect(getNoticeMessages()).toContain("Unknown command: /bogus");
   });

@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
+import { ItemView, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
 import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
 import { effectiveToggles } from "./chat/contextScope";
@@ -13,13 +13,9 @@ import { routeTurn } from "../providers/chatTurn";
 import { SlashMenu } from "./SlashMenu";
 import type { ChatModeState } from "./chat/chatMode";
 import { ChatSession, type TurnState } from "./chat/chatSession";
-import { buildSlashCatalog, dispatchSlashAction, type SlashCommand, WORKFLOW_ACTION_PREFIX, SKILL_ACTION_PREFIX } from "./slashCommands";
-import { substitutePlaceholders } from "../templates/promptTemplates";
 import { type AttachedPage } from "../context/urlContext";
-import { WORKFLOWS } from "../workflows/catalog";
 import { SKILLS } from "../workflows/skillRegistry.generated";
 import { composeSkillPrompt, parseSkillInvocation, skillDisplay } from "../skills/compose";
-import { splitStreamingArtifact } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { type MediaAttachment } from "../context/attachments";
 import { type AtItem } from "../context/atMention";
@@ -43,6 +39,8 @@ import { Transcript } from "./chat/Transcript";
 import { TurnRunners } from "./chat/turnRunners";
 import { ChatProjectBinding } from "./chat/projectBinding";
 import { SetupCard } from "./chat/SetupCard";
+import { SlashRunner } from "./chat/slashRunner";
+import { VersionedMarkdownRenderer } from "./chat/markdownRender";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
 
@@ -67,6 +65,8 @@ export class ChatView extends ItemView {
   private transcript: Transcript;
   private runners: TurnRunners;
   private projects: ChatProjectBinding;
+  private slash: SlashRunner;
+  private renderer: VersionedMarkdownRenderer;
   private setupCard: SetupCard;
   private get messagesEl(): HTMLElement { return this.transcript.messagesEl; }
   private set messagesEl(v: HTMLElement) { this.transcript.messagesEl = v; }
@@ -130,9 +130,6 @@ export class ChatView extends ItemView {
   private lastDisplay: string | undefined = undefined;
   private get slashMenu(): SlashMenu { return this.composer.slashMenu; }
   private set slashMenu(v: SlashMenu) { this.composer.slashMenu = v; }
-  /** User-defined prompt templates (notes in the templates folder). */
-  private templateCommands: SlashCommand[] = [];
-  private templateReloadGeneration = 0;
   /** The chat project this.conversationId is scoped to (null = none), kept in sync with the conversation. */
   private get currentChatProject(): ChatProject | null { return this.chat.project; }
   private set currentChatProject(v: ChatProject | null) { this.chat.project = v; }
@@ -150,7 +147,6 @@ export class ChatView extends ItemView {
   private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
 
-  private renderVersions = new WeakMap<HTMLElement, number>();
   /** The conversation this leaf shows; null for an unstarted "New chat tab". Persisted via getState/setState. */
   private conversationId: string | null = null;
 
@@ -174,14 +170,40 @@ export class ChatView extends ItemView {
       refreshModelLabel: () => this.refreshModelLabel(),
       openSettings: () => this.openSettings(),
     });
+    this.renderer = new VersionedMarkdownRenderer(this.app, this);
+    this.slash = new SlashRunner(this.app, plugin, {
+      clearInput: () => {
+        this.inputEl.value = "";
+        this.composer.autosizeInput();
+      },
+      setDraft: (text) => this.composer.setDraft(text),
+      updateUsageBar: () => this.updateUsageBar(),
+      submitPrompt: (...args) => this.submitPrompt(...args),
+      setCommands: (commands) => {
+        this.slashMenu.setCommands(commands);
+        this.composer.syncSlashMenu();
+      },
+      view: {
+        newChat: () => this.clearChat(),
+        openHistory: () => this.openHistory(),
+        save: () => this.distillThisChat(),
+        askVault: () => {
+          this.enableVaultSearchForChat();
+          this.inputEl.value = "";
+          this.inputEl.setAttr("placeholder", "Vault search on — ask your question…");
+          this.inputEl.focus();
+          quickNotice("Vault search on for this chat.");
+        },
+      },
+    });
     this.transcript = new Transcript(this.app, plugin, this.chat, {
       setDraft: (text) => this.composer.setDraft(text),
       onSend: (...args) => this.onSend(...args),
       prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
       regenerate: (...args) => this.regenerate(...args),
-      renderMarkdownInto: (...args) => this.renderMarkdownInto(...args),
+      renderMarkdownInto: (...args) => this.renderer.renderInto(...args),
       renderSetupCard: (parent) => this.setupCard.render(parent),
-      renderStreamingArtifactInto: (...args) => this.renderStreamingArtifactInto(...args),
+      renderStreamingArtifactInto: (...args) => this.renderer.renderStreamingArtifactInto(...args),
       resumeInterruptedTurn: (...args) => this.resumeInterruptedTurn(...args),
       reviewLastProposedEdit: (...args) => this.runners.reviewLastProposedEdit(...args),
       discardLastProposedEdit: (...args) => this.runners.discardLastProposedEdit(...args),
@@ -230,7 +252,7 @@ export class ChatView extends ItemView {
       cachedClaims: () => this.projects.claims(),
       cachedProjects: () => this.projects.projectOptions(),
       mountUsage: (parent) => this.header.mountUsage(parent),
-      onSlashCommand: (cmd) => void this.runSlashCommand(cmd),
+      onSlashCommand: (cmd) => void this.slash.run(cmd),
       pickAtItems: () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()),
       onAtChoose: (item) => this.onAtChoose(item),
       toggleAutomatic: (key, enabled) => this.toggleAutomaticContext(key, enabled),
@@ -238,7 +260,7 @@ export class ChatView extends ItemView {
       retrySource: (id) => this.retryContextSource(id),
       addContext: () => this.openContextPicker(),
       onSend: () => void this.onSend(),
-      syncSlashMenu: () => this.syncSlashMenu(),
+      syncSlashMenu: () => this.composer.syncSlashMenu(),
       chooseProject: (id) => this.projects.chooseById(id),
     });
   }
@@ -311,25 +333,14 @@ export class ChatView extends ItemView {
     // ---- composer ----
     this.composer.mount(
       root,
-      buildSlashCatalog(WORKFLOWS, SKILLS, []),
+      this.slash.initialCatalog(),
     );
     this.unpinKeyboard?.();
     this.unpinKeyboard = Platform.isMobile ? pinChatAboveKeyboard(root, window) : null;
     this.renderContextManager();
 
     // User templates: load now, refresh when a note in the folder changes.
-    void this.reloadTemplates();
-    const templateTouched = (file: { path: string }): boolean =>
-      file.path.startsWith(`${this.plugin.settings.templatesFolder.replace(/\/+$/, "")}/`);
-    const scheduleTemplateReload = (file: { path: string }) => {
-      if (templateTouched(file)) void this.reloadTemplates();
-    };
-    this.registerEvent(this.app.vault.on("create", scheduleTemplateReload));
-    this.registerEvent(this.app.vault.on("modify", scheduleTemplateReload));
-    this.registerEvent(this.app.vault.on("delete", scheduleTemplateReload));
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-      if (templateTouched(file) || templateTouched({ path: oldPath })) void this.reloadTemplates();
-    }));
+    this.slash.watch((ref) => this.registerEvent(ref));
 
     this.projects.watch((ref) => this.registerEvent(ref));
 
@@ -440,7 +451,7 @@ export class ChatView extends ItemView {
   private updateUsageBar(): void { return this.header.updateUsageBar(); }
 
   override async onClose(): Promise<void> {
-    this.templateReloadGeneration++;
+    this.slash.dispose();
     this.projects.dispose();
     this.header.teardown(false);
     // A live turn keeps running (and persisting) after the pane closes — only
@@ -591,86 +602,6 @@ export class ChatView extends ItemView {
     this.inputEl.value = "";
     this.composer.autosizeInput();
     await this.run(text);
-  }
-
-  private syncSlashMenu(): void { return this.composer.syncSlashMenu(); }
-
-  /** Re-read the templates folder and rebuild the slash catalog (templates last). */
-  private async reloadTemplates(): Promise<void> {
-    const generation = ++this.templateReloadGeneration;
-    const templates = await this.plugin.promptTemplates();
-    if (generation !== this.templateReloadGeneration) return;
-    const commands = buildSlashCatalog(WORKFLOWS, SKILLS, templates);
-    this.templateCommands = commands.filter((command) => command.template);
-    this.slashMenu.setCommands(commands);
-    this.syncSlashMenu();
-  }
-
-  /** Execute a chosen slash command — either send a prompt or run an action. */
-  private async runSlashCommand(cmd: SlashCommand): Promise<void> {
-    this.inputEl.value = "";
-    this.composer.autosizeInput();
-
-    // User template: substitute placeholders against the live editor state,
-    // then send with the note's optional model/context overrides for this turn.
-    if (cmd.template) {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      const selection = view?.editor.getSelection() ?? "";
-      const activeNote = view?.file ? await this.app.vault.cachedRead(view.file) : "";
-      const prompt = substitutePlaceholders(cmd.template.prompt, { selection, activeNote });
-      await this.submitPrompt(prompt, `/${cmd.name}`, undefined, {
-        ...(cmd.template.model ? { model: cmd.template.model } : {}),
-        ...(cmd.template.context ? { context: cmd.template.context } : {}),
-      });
-      return;
-    }
-
-    if (cmd.kind === "prompt" && cmd.prompt) {
-      if (cmd.awaitsInput) {
-        // Insert the template and let the user finish typing (e.g. "/explain ").
-        this.composer.setDraft(cmd.prompt);
-        this.updateUsageBar();
-        return;
-      }
-      // Hide the verbose template behind the command name; the model still gets cmd.prompt.
-      await this.submitPrompt(cmd.prompt, `/${cmd.name}`);
-      return;
-    }
-
-    // A skill takes arguments: insert its token and let the user finish typing; Enter sends through onSend.
-    if (cmd.action?.startsWith(SKILL_ACTION_PREFIX)) {
-      this.composer.setDraft(`/${cmd.action.slice(SKILL_ACTION_PREFIX.length)} `);
-      this.updateUsageBar();
-      return;
-    }
-
-    // A workflow slash command ("/manifest-pm", "/frontmatter-audit", …) runs the
-    // matching catalog workflow directly.
-    if (cmd.action?.startsWith(WORKFLOW_ACTION_PREFIX)) {
-      const id = cmd.action.slice(WORKFLOW_ACTION_PREFIX.length);
-      const wf = WORKFLOWS.find((w) => w.id === id);
-      if (wf) await this.plugin.views().runWorkflow(wf);
-      else new Notice(`Unknown workflow: ${id}`);
-      return;
-    }
-
-    // kind: "action" — dispatch to the matching behavior.
-    const outcome = await dispatchSlashAction(cmd.action, {
-      actions: this.plugin.commandActions(),
-      view: {
-        newChat: () => this.clearChat(),
-        openHistory: () => this.openHistory(),
-        save: () => this.distillThisChat(),
-        askVault: () => {
-          this.enableVaultSearchForChat();
-          this.inputEl.value = "";
-          this.inputEl.setAttr("placeholder", "Vault search on — ask your question…");
-          this.inputEl.focus();
-          quickNotice("Vault search on for this chat.");
-        },
-      },
-    });
-    if (outcome === "unknown") new Notice(`Unknown command: /${cmd.name}`);
   }
 
   private setSending(sending: boolean): void {
@@ -934,45 +865,6 @@ export class ChatView extends ItemView {
   private openOverflowMenu(): void { return this.header.openOverflowMenu(); }
 
   private openModelMenu(): void { return this.header.openModelMenu(); }
-
-  private async renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void> {
-    const version = this.bumpRenderVersion(el);
-    const rendered = createDiv();
-    await MarkdownRenderer.render(this.app, markdown, rendered, this.app.workspace.getActiveFile()?.path ?? "", this);
-    if (this.renderVersions.get(el) !== version) return;
-    el.replaceChildren(...Array.from(rendered.childNodes));
-  }
-
-  /**
-   * While a `claude-html` artifact is streaming, don't dump its raw HTML source
-   * into the bubble. Render whatever prose preceded the fence as markdown and put
-   * a compact "building" chip in the artifact's place; the final `renderMarkdownInto`
-   * on `onDone` swaps in the sandboxed iframe. Painted once per artifact (flush
-   * guards re-entry) so the chip and lead-in prose stay stable, not re-rendered
-   * every frame.
-   */
-  private renderStreamingArtifactInto(el: HTMLElement, buffer: string): void {
-    const { before } = splitStreamingArtifact(buffer);
-    const version = this.bumpRenderVersion(el);
-    const rendered = createDiv();
-    const paint = (): void => {
-      if (this.renderVersions.get(el) !== version) return;
-      const chip = rendered.createDiv({ cls: "cc-artifact-building" });
-      chip.createSpan({ cls: "cc-artifact-building-label", text: "Building artifact…" });
-      el.replaceChildren(...Array.from(rendered.childNodes));
-    };
-    if (before.trim().length > 0) {
-      void MarkdownRenderer.render(this.app, before, rendered, this.app.workspace.getActiveFile()?.path ?? "", this).then(paint);
-    } else {
-      paint();
-    }
-  }
-
-  private bumpRenderVersion(el: HTMLElement): number {
-    const version = (this.renderVersions.get(el) ?? 0) + 1;
-    this.renderVersions.set(el, version);
-    return version;
-  }
 
   /** Drop the last assistant reply and re-run the previous user turn. */
   private async regenerate(opts?: { maxTokens?: number }): Promise<void> {

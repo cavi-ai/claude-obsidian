@@ -66,7 +66,7 @@ interface Seam {
   usageEl: HTMLElement;
   gaugeFillEl: HTMLElement;
   conversationId: string | null;
-  renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
+  renderer: { renderInto(el: HTMLElement, markdown: string): Promise<void> };
   renderEmptyState(): void;
   getState(): Record<string, unknown>;
   setState(state: unknown, result: unknown): Promise<void>;
@@ -91,7 +91,7 @@ function buildView(plugin: ClaudeCompanionPlugin): Seam {
   seam.gaugeFillEl = fakeElement();
   seam.app.workspace.getActiveViewOfType = () => null;
   seam.app.workspace.getActiveFile = () => null;
-  seam.renderMarkdownInto = async () => undefined;
+  seam.renderer.renderInto =async () => undefined;
   // clearChat's empty-state render pulls in the setup-card/credential chain;
   // that path isn't what this file is about, so it's stubbed to a no-op.
   seam.renderEmptyState = () => undefined;
