@@ -4,8 +4,8 @@ import { ActivityStore } from "../../src/activity/store";
 import { OBSIDIAN_GENERAL_SETTINGS_TAB } from "../../src/integrations/desktop";
 import { DEFAULT_SETTINGS, type PluginSettings } from "../../src/types";
 import { CompanionShell } from "../../src/view/companionShell";
-import { ChatView } from "../../src/view/ChatView";
-import { SYSTEM_VIEW_TYPE, SystemView } from "../../src/view/SystemView";
+import { SYSTEM_VIEW_TYPE } from "../../src/view/SystemView";
+import { chatView, systemView } from "../fakes/view";
 
 interface Rig {
   app: App;
@@ -255,7 +255,7 @@ describe("CompanionShell quick actions", () => {
 
   it("re-renders open System views", async () => {
     const r = rig();
-    const system = Object.create(SystemView.prototype) as SystemView;
+    const system = systemView();
     const render = vi.spyOn(system, "render").mockResolvedValue(undefined);
     (r.workspace.getLeavesOfType as ReturnType<typeof vi.fn>).mockImplementation((type: string) => (type === SYSTEM_VIEW_TYPE ? [{ view: system }, { view: {} }] : []));
     await r.shell.companionChrome().run({ id: "refresh-system", page });
@@ -348,7 +348,7 @@ describe("CompanionShell activity recovery", () => {
     const active = { id: "c1", activeTurn: { id: "t1", state: "interrupted" } };
     r.conversations.list!.mockReturnValue([conversation]);
     r.conversations.getActive!.mockReturnValue(active);
-    const view = Object.assign(Object.create(ChatView.prototype) as ChatView, {
+    const view = chatView(undefined, {
       loadConversation: vi.fn(),
       resumeInterruptedTurn: vi.fn(async () => undefined),
     });

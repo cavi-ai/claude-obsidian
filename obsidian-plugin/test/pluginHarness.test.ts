@@ -4,7 +4,9 @@ import { App } from "obsidian";
 import { describe, expect, it } from "vitest";
 import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
+import { ChatView } from "../src/view/ChatView";
 import { buildPlugin } from "./fakes/plugin";
+import { chatView } from "./fakes/view";
 
 function testFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -15,13 +17,13 @@ function testFiles(dir: string): string[] {
 }
 
 describe("plugin test harness", () => {
-  it("no test builds the plugin from its prototype", () => {
-    const hack = new RegExp(
-      ["Object\\.create\\(", "(?:\\(await import\\([^)]*\\)\\)\\.default|Plugin|ClaudeCompanionPlugin)", "\\.prototype\\)"].join(""),
+  it("no test builds a class from its prototype", () => {
+    const hack = /Object\.create\([^)]*\.prototype\)/;
+    const offenders = testFiles(resolve(__dirname)).flatMap((file) =>
+      readFileSync(file, "utf8")
+        .split("\n")
+        .flatMap((text, index) => (hack.test(text) ?[`${relative(resolve(__dirname), file)}:${index + 1}`] : [])),
     );
-    const offenders = testFiles(resolve(__dirname))
-      .filter((file) => hack.test(readFileSync(file, "utf8")))
-      .map((file) => relative(resolve(__dirname), file));
     expect(offenders).toEqual([]);
   });
 
@@ -48,5 +50,13 @@ describe("plugin test harness", () => {
       },
     });
     expect(plugin.conversations().list().map((c) => c.id)).toEqual(["c1"]);
+  });
+
+  it("builds a view through its constructor on the plugin's app", () => {
+    const plugin = buildPlugin();
+    const view = chatView(plugin);
+    expect(view).toBeInstanceOf(ChatView);
+    expect(view.leaf.app).toBe(plugin.app);
+    expect(view.app).toBe(plugin.app);
   });
 });
