@@ -272,12 +272,12 @@ describe("Chat render lifecycle", () => {
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
     const seam = view as unknown as {
       controls: ReturnType<typeof defaultChatControls>;
-      agentTurn(messages: [], handlers: AgentTurnHandlers, signal: AbortSignal): Promise<{ text: string; trace: unknown[]; error?: Error }>;
+      runners: { agentTurn(messages: [], handlers: AgentTurnHandlers, signal: AbortSignal): Promise<{ text: string; trace: unknown[]; error?: Error }> };
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
     const handlers: AgentTurnHandlers = { onText: vi.fn() };
 
-    const result = await seam.agentTurn([], handlers, new AbortController().signal);
+    const result = await seam.runners.agentTurn([], handlers, new AbortController().signal);
 
     expect(result.text).toBe("");
     expect(result.error?.message).toBe("router unavailable");
@@ -297,18 +297,20 @@ describe("Chat render lifecycle", () => {
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);
     const seam = view as unknown as {
       controls: ReturnType<typeof defaultChatControls>;
-      agentTurn(messages: [], handlers: AgentTurnHandlers, signal: AbortSignal, conversationId: string): Promise<{ aborted?: boolean }>;
-      turnRunnerFor: ReturnType<typeof vi.fn>;
+      runners: {
+        agentTurn(messages: [], handlers: AgentTurnHandlers, signal: AbortSignal, conversationId: string): Promise<{ aborted?: boolean }>;
+        turnRunnerFor: ReturnType<typeof vi.fn>;
+      };
     };
     seam.controls = defaultChatControls(DEFAULT_SETTINGS.model);
     view.mode.setCapable(true);
-    seam.turnRunnerFor = vi.fn();
+    seam.runners.turnRunnerFor = vi.fn();
     const controller = new AbortController();
-    const running = seam.agentTurn([], { onText: vi.fn() }, controller.signal, "c1");
+    const running = seam.runners.agentTurn([], { onText: vi.fn() }, controller.signal, "c1");
     controller.abort();
     finishDiscovery();
     await expect(running).resolves.toMatchObject({ aborted: true });
-    expect(seam.turnRunnerFor).not.toHaveBeenCalled();
+    expect(seam.runners.turnRunnerFor).not.toHaveBeenCalled();
   });
 
   it("falls back to readable text when one stored message cannot render as markdown", async () => {
@@ -394,8 +396,8 @@ describe("Chat render lifecycle", () => {
       ...fakes.host,
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(app), plugin);
-    const seam = view as unknown as { reviewLastProposedEdit(conversation: Conversation): Promise<void> };
-    const reviewing = seam.reviewLastProposedEdit(conversation);
+    const seam = view as unknown as { runners: { reviewLastProposedEdit(conversation: Conversation): Promise<void> } };
+    const reviewing = seam.runners.reviewLastProposedEdit(conversation);
     await vi.waitFor(() => expect(getLastOpenedModal()?.titleEl.textContent).toContain("A.md"));
     expect(file._content).toBe("alpha beta\n");
     (getLastOpenedModal()!.contentEl.querySelector(".cc-diff-buttons")!.querySelector("button") as unknown as FakeElement).dispatchEvent({ type: "click" });
