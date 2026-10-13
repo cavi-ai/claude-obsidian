@@ -173,13 +173,13 @@ describe("ChatView per-leaf conversation state", () => {
     const seam = buildView(plugin) as unknown as Seam & {
       applyChosenProject(p: ChatProject): Promise<void>;
       run(userText: string): Promise<void>;
-      pendingProjectId: string | null;
+      projects: { pendingProjectId: string | null };
     };
 
     await seam.applyChosenProject(project);
 
     expect(setProject).not.toHaveBeenCalled();
-    expect(seam.pendingProjectId).toBe(project.id);
+    expect(seam.projects.pendingProjectId).toBe(project.id);
     expect(seam.conversationId).toBeNull();
 
     await seam.run("Hello");
@@ -187,7 +187,7 @@ describe("ChatView per-leaf conversation state", () => {
     expect(turns.begin).toHaveBeenCalledOnce();
     expect(setProject).toHaveBeenCalledOnce();
     expect(setProject).toHaveBeenCalledWith("conversation-1", project.id);
-    expect(seam.pendingProjectId).toBeNull();
+    expect(seam.projects.pendingProjectId).toBeNull();
   });
 });
 
