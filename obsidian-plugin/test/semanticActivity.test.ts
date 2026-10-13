@@ -1,7 +1,7 @@
 import { App, clearNotices, FakeElement, WorkspaceLeaf } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS } from "../src/types";
+import { buildPlugin } from "./fakes/plugin";
 import type { BuildResult } from "../src/semantic/indexer";
 import { RelatedView } from "../src/view/RelatedView";
 import { SemanticController, type SemanticControllerDeps } from "../src/semantic/controller";
@@ -130,14 +130,11 @@ describe("semantic activity", () => {
     const app = new App();
     const file = app.vault.seed("Research/active.md", "Active note");
     Object.assign(app.workspace, { getActiveFile: () => file });
-    const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-    Object.assign(plugin as unknown as Record<string, unknown>, {
-      app,
-      manifest: { id: "claude-companion", dir: ".obsidian/plugins/claude-companion" },
+    const plugin = buildPlugin({
       settings: { ...structuredClone(DEFAULT_SETTINGS), semanticEnabled: true, embeddingEngine: "ollama" },
       ontology: () => null,
       noteFlows: () => ({ linkCandidates: () => [], linkedTargets: () => [] }),
-    });
+    }, app);
     const runActivityRecovery = vi.spyOn(plugin.shell(), "runActivityRecovery").mockResolvedValue(undefined);
     vi.spyOn(plugin.semantic(), "relatedNotes").mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:11434"));
     const view = new RelatedView(new WorkspaceLeaf(app), plugin);

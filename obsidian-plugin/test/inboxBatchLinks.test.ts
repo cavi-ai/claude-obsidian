@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, FakeElement, getLastOpenedModal, TFile, WorkspaceLeaf } from "obsidian";
-import ClaudeCompanionPlugin from "../src/main";
+import type ClaudeCompanionPlugin from "../src/main";
 import { reviewInboxBatchLinks } from "../src/links/inboxBatchReview";
 import { BatchDiffModal } from "../src/view/BatchDiffModal";
 import { InboxView } from "../src/view/InboxView";
+import { buildPlugin } from "./fakes/plugin";
 
 const settle = async (turns = 24): Promise<void> => {
   for (let turn = 0; turn < turns; turn++) await Promise.resolve();
@@ -26,12 +27,10 @@ function createHarness(): InboxHarness {
   app.vault.seed("Notes/Project Atlas.md", "", {});
   app.vault.seed("Notes/Ada Lovelace.md", "", {});
 
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(plugin, {
-    app,
+  const plugin = buildPlugin({
     settings: { sourceCaptureEnabled: true, sourceInboxFolder: "Clippings", clipOrganizedFolder: "Library" },
     clipperSetup: () => ({ setupNeeded: () => true }),
-  });
+  }, app);
   return { app, plugin, view: new InboxView(new WorkspaceLeaf(app), plugin), alpha, beta };
 }
 

@@ -1,18 +1,15 @@
-import { App } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
 import { ActivityStore } from "../src/activity/store";
-import ClaudeCompanionPlugin from "../src/main";
-import { DEFAULT_SETTINGS, type ChatMessage } from "../src/types";
+import type ClaudeCompanionPlugin from "../src/main";
+import type { ChatMessage } from "../src/types";
 import { fromPersisted } from "../src/conversations/store";
+import { buildPlugin } from "./fakes/plugin";
 
 const user = (content: string): ChatMessage => ({ role: "user", content });
 
 function harness(): { plugin: ClaudeCompanionPlugin; saves: unknown[] } {
   const saves: unknown[] = [];
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(plugin as unknown as Record<string, unknown>, {
-    app: new App(),
-    settings: structuredClone(DEFAULT_SETTINGS),
+  const plugin = buildPlugin({
     convState: { conversations: [], activeId: null },
     _activity: new ActivityStore({ successRetentionMs: 60_000 }),
     saveData: async (data: unknown) => { saves.push(structuredClone(data)); },

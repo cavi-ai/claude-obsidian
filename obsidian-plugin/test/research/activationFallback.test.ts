@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../../src/main";
+import { buildPlugin } from "../fakes/plugin";
 
 function pluginWithNoRightLeaf() {
   const fallbackLeaf = {
@@ -13,8 +13,7 @@ function pluginWithNoRightLeaf() {
     getLeaf: vi.fn(() => fallbackLeaf),
     revealLeaf: vi.fn(async () => undefined),
   };
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(plugin as unknown as Record<string, unknown>, { app: { workspace } });
+  const plugin = buildPlugin({ app: { workspace } });
   return { plugin, workspace, fallbackLeaf };
 }
 

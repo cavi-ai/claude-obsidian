@@ -1,8 +1,8 @@
 import { App } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../src/main";
 import { DEFAULT_SETTINGS, type ContextToggles } from "../src/types";
 import { WORKFLOWS } from "../src/workflows/catalog";
+import { buildPlugin } from "./fakes/plugin";
 
 const OFF: ContextToggles = { activeNote: false, selection: false, linkedNotes: false, searchVault: false };
 
@@ -17,8 +17,7 @@ function harness() {
   const settings = structuredClone(DEFAULT_SETTINGS);
   settings.context = { ...OFF };
   const saveSettings = vi.fn(async () => undefined);
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(plugin as unknown as Record<string, unknown>, { app, settings, saveSettings });
+  const plugin = buildPlugin({ settings, saveSettings }, app);
   vi.spyOn(plugin.views(), "activateView").mockResolvedValue(view as never);
   return { plugin, view, saveSettings };
 }

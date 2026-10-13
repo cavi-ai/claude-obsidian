@@ -1,6 +1,6 @@
 import { App, FakeElement, Platform, TFile, clearNotices, getLastOpenedModal, getNoticeMessages } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ClaudeCompanionPlugin from "../../src/main";
+import { buildPlugin } from "../fakes/plugin";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { CLOUD_ROUTINE_BETA_HEADER } from "../../src/cloud/routines";
 import type { BuildRun } from "../../src/build/run";
@@ -9,14 +9,12 @@ const flush = async (): Promise<void> => { await Promise.resolve(); await Promis
 
 function pluginHarness() {
   const app = new App();
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
   const activateBuildView = vi.fn(async () => null);
-  Object.assign(plugin as unknown as Record<string, unknown>, {
-    app,
+  const plugin = buildPlugin({
     settings: { ...structuredClone(DEFAULT_SETTINGS), mcpWriteFolder: "Claude/Builds" },
     convState: { conversations: [], activeId: null },
     persist: vi.fn(async () => undefined),
-  });
+  }, app);
   Object.assign(plugin.research() as unknown as Record<string, unknown>, { activateBuildView });
   return { app, plugin, activateBuildView };
 }

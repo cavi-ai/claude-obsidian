@@ -10,8 +10,8 @@ vi.mock("obsidian", async (importOriginal) => ({
   PluginSettingTab: class {},
 }));
 
-import ClaudeCompanionPlugin from "../../src/main";
-import { DEFAULT_SETTINGS } from "../../src/types";
+import type ClaudeCompanionPlugin from "../../src/main";
+import { buildPlugin } from "../fakes/plugin";
 import type { Provider } from "../../src/providers/types";
 import { buildProjectSnapshot } from "../../src/research/graph";
 
@@ -29,8 +29,7 @@ function provider(id: "anthropic" | "ollama", credentials = true): Provider {
 }
 
 function pluginHarness(anthropic = provider("anthropic"), ollama = provider("ollama"), localAvailable = async () => true): ClaudeCompanionPlugin {
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  plugin.settings = { ...DEFAULT_SETTINGS };
+  const plugin = buildPlugin();
   const chatProvider = () => plugin.settings.chatBackend === "local" ? { provider: ollama, model: plugin.settings.ollamaModel } : { provider: anthropic, model: plugin.settings.model };
   Object.defineProperty(plugin, "router", { value: () => ({ anthropic, ollama, localAvailable, chatProvider }) });
   Object.defineProperty(plugin.research(), "researchRepository", { value: () => ({ importSource: vi.fn() }) });

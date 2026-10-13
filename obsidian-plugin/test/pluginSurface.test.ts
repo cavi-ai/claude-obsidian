@@ -1,4 +1,3 @@
-import { App } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActivityStore } from "../src/activity/store";
 import { ConversationsController } from "../src/conversations/controller";
@@ -12,7 +11,7 @@ import { PublishFeature } from "../src/publish/publishFeature";
 import { ResearchFeature } from "../src/research/researchFeature";
 import { SemanticController } from "../src/semantic/controller";
 import { ClipperFeature } from "../src/sources/clipperFeature";
-import { DEFAULT_SETTINGS } from "../src/types";
+import { buildPlugin } from "./fakes/plugin";
 import { NoteFlows } from "../src/enrich/noteFlows";
 import { CompanionShell } from "../src/view/companionShell";
 import { WorkspaceViews } from "../src/view/workspaceViews";
@@ -56,16 +55,10 @@ const FORWARDERS = [
 ];
 
 function builtPlugin(): ClaudeCompanionPlugin {
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  Object.assign(plugin as unknown as Record<string, unknown>, {
-    app: new App(),
-    settings: structuredClone(DEFAULT_SETTINGS),
+  return buildPlugin({
     convState: { conversations: [], activeId: null },
     _activity: new ActivityStore({ successRetentionMs: 60_000 }),
-    manifest: { id: "claude-companion", dir: ".obsidian/plugins/claude-companion" },
-    saveData: async () => {},
   });
-  return plugin;
 }
 
 describe("plugin conversation surface", () => {

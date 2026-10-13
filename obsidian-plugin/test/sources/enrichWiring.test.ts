@@ -5,8 +5,9 @@ vi.mock("obsidian", async (importOriginal) => ({
   PluginSettingTab: class {},
 }));
 
-import ClaudeCompanionPlugin from "../../src/main";
+import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
+import { buildPlugin } from "../fakes/plugin";
 import type { EnrichDeps } from "../../src/sources/enrich";
 import { App, clearNotices, FakeElement, getLastOpenedModal, getNoticeMessages, getNotices, Platform, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import { ChoiceModal } from "../../src/view/ChoiceModal";
@@ -82,21 +83,19 @@ function mobilePlugin(overrides: Partial<typeof DEFAULT_SETTINGS> = {}): {
     getLeaf: () => ({ openFile: async () => undefined }),
     getLeavesOfType: () => [],
   } as never;
-  const plugin = Object.create(ClaudeCompanionPlugin.prototype) as ClaudeCompanionPlugin;
-  plugin.settings = {
-    ...DEFAULT_SETTINGS,
-    apiKey: "sk-ant-api-test",
-    sourceCaptureConsent: "allow",
-    utilityBackend: "ollama",
-    ollamaHost: "http://localhost:11434",
-    ...overrides,
-  };
-  Object.assign(plugin, {
-    app,
+  const plugin = buildPlugin({
+    settings: {
+      ...DEFAULT_SETTINGS,
+      apiKey: "sk-ant-api-test",
+      sourceCaptureConsent: "allow",
+      utilityBackend: "ollama",
+      ollamaHost: "http://localhost:11434",
+      ...overrides,
+    },
     enrichTimers: new Map<string, number>(),
     enrichRecentlyWritten: new Set<string>(),
     enrichRecentlyWrittenExpiryTimers: new Map<string, number>(),
-  });
+  }, app);
   const router = plugin.router();
   return { app, file, plugin, router };
 }
