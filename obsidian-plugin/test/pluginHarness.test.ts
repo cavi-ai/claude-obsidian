@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { App } from "obsidian";
 import { describe, expect, it } from "vitest";
 import ClaudeCompanionPlugin from "../src/main";
@@ -16,8 +16,12 @@ function testFiles(dir: string): string[] {
 
 describe("plugin test harness", () => {
   it("no test builds the plugin from its prototype", () => {
-    const hack = ["Object.create(", "ClaudeCompanionPlugin", ".prototype)"].join("");
-    const offenders = testFiles(resolve(__dirname)).filter((file) => readFileSync(file, "utf8").includes(hack));
+    const hack = new RegExp(
+      ["Object\\.create\\(", "(?:\\(await import\\([^)]*\\)\\)\\.default|Plugin|ClaudeCompanionPlugin)", "\\.prototype\\)"].join(""),
+    );
+    const offenders = testFiles(resolve(__dirname))
+      .filter((file) => hack.test(readFileSync(file, "utf8")))
+      .map((file) => relative(resolve(__dirname), file));
     expect(offenders).toEqual([]);
   });
 
@@ -29,6 +33,11 @@ describe("plugin test harness", () => {
     expect(plugin.settings).toEqual(DEFAULT_SETTINGS);
     expect(plugin.manifest.id).toBe("claude-companion");
     expect(plugin.app).toBe(app);
+  });
+
+  it("lets an override replace the app", () => {
+    const fake = { workspace: {} };
+    expect(buildPlugin({ app: fake }).app).toBe(fake);
   });
 
   it("makes private field overrides visible to the plugin's methods", () => {

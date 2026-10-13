@@ -23,7 +23,6 @@ function plugin(rt: ReturnType<typeof runtime>): ClaudeCompanionPlugin {
   return buildPlugin({
     settings: { ...structuredClone(DEFAULT_SETTINGS), chatBackend: "claude-cli", apiKey: "" },
     convState: { conversations: [{ id: "c1", title: "t", createdAt: 1, updatedAt: 1, messages: [] }, { id: "c2", title: "t", createdAt: 1, updatedAt: 1, messages: [] }], activeId: "c1" },
-    mcpLifecycleGeneration: 0,
     mcpLifecycleEnded: false,
     _router: null,
     persist: async () => undefined,
