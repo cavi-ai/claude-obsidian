@@ -154,8 +154,6 @@ export class ChatView extends ItemView {
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private get _lastBuffer(): string { return this.turn.lastBuffer; }
   private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
-  private get agentWriteAlways(): boolean { return this.chat.writeGrant; }
-  private set agentWriteAlways(v: boolean) { this.chat.writeGrant = v; }
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
 
   private renderVersions = new WeakMap<HTMLElement, number>();
@@ -293,7 +291,7 @@ export class ChatView extends ItemView {
       onModelClick: () => this.openModelMenu(),
       onMcpClick: (evt) => this.openMcpMenu(evt),
       onWriteGrantRevoke: () => {
-        this.agentWriteAlways = false;
+        this.chat.writeGrant = false;
         this.header.updateWriteGrantPill();
         quickNotice("Session write grant revoked — writes will ask again.");
       },
