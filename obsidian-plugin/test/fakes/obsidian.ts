@@ -490,6 +490,8 @@ export class Modal {
   onClose(): void {}
 }
 export abstract class FuzzySuggestModal<T> extends Modal {
+  inputEl = new FakeElement("input") as unknown as HTMLInputElement;
+  setPlaceholder(text: string): this { this.inputEl.placeholder = text; return this; }
   abstract getItems(): T[];
   abstract getItemText(item: T): string;
   abstract onChooseItem(item: T): void;
@@ -515,6 +517,7 @@ export class TextAreaComponent extends TextComponent {
   override inputEl = new FakeElement("textarea");
 }
 export class DropdownComponent extends BaseComponent {
+  selectEl = this.inputEl;
   options = new Map<string, string>();
   private changeCb: ((value: string) => void) | null = null;
   addOption(value: string, display: string): this { this.options.set(value, display); return this; }
