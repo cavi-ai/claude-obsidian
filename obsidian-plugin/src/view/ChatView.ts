@@ -2,22 +2,14 @@ import { ItemView, MarkdownRenderer, MarkdownView, Notice, Platform, WorkspaceLe
 import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
 import { effectiveToggles } from "./chat/contextScope";
-import { providerTurnRunner, type AgentTurnDeps, type AgentTurnHandlers, type AgentTurnResult, type AgentTurnRunner } from "../agent/loop";
+import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
-import { toAnthropicTools, executeTool, PROPOSE_EDIT_TOOL, truncateResult } from "../agent/tools";
-import { toolAccess } from "../agent/toolAccess";
-import { parseExternalToolName } from "../mcp/external";
-import { WriteConfirmModal } from "./WriteConfirmModal";
-import { planEdits, parseProposedEdits } from "../edit/diff";
-import { reviewAndApply } from "../edit/reviewAndApply";
-import type { ApiMessage, ToolResultBlock, ToolUseBlock, Provider } from "../providers/types";
-import { TFile } from "obsidian";
-import { compactArtifactsInHistory, compactMessages, toApiMessages, transcriptText, type Conversation } from "../conversations/store";
+import type { ApiMessage } from "../providers/types";
+import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
 import { resolveModelId } from "../claude/models";
-import { type ChatControls, defaultChatControls, shapeRequest } from "../claude/chatControls";
-import { routeTurn, streamAttempt } from "../providers/chatTurn";
-import type { CompletionRequest } from "../providers/types";
+import { type ChatControls, defaultChatControls } from "../claude/chatControls";
+import { routeTurn } from "../providers/chatTurn";
 import { SlashMenu } from "./SlashMenu";
 import type { ChatModeState } from "./chat/chatMode";
 import { ChatSession, type TurnState } from "./chat/chatSession";
@@ -48,6 +40,7 @@ import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
+import { TurnRunners } from "./chat/turnRunners";
 import { SetupCard } from "./chat/SetupCard";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
@@ -71,6 +64,7 @@ export class ChatView extends ItemView {
   private get messages(): ChatMessage[] { return this.chat.messages; }
   private set messages(v: ChatMessage[]) { this.chat.messages = v; }
   private transcript: Transcript;
+  private runners: TurnRunners;
   private setupCard: SetupCard;
   private get messagesEl(): HTMLElement { return this.transcript.messagesEl; }
   private set messagesEl(v: HTMLElement) { this.transcript.messagesEl = v; }
@@ -160,8 +154,6 @@ export class ChatView extends ItemView {
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private get _lastBuffer(): string { return this.turn.lastBuffer; }
   private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
-  private get agentWriteAlways(): boolean { return this.chat.writeGrant; }
-  private set agentWriteAlways(v: boolean) { this.chat.writeGrant = v; }
   /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
 
   private renderVersions = new WeakMap<HTMLElement, number>();
@@ -197,8 +189,8 @@ export class ChatView extends ItemView {
       renderSetupCard: (parent) => this.setupCard.render(parent),
       renderStreamingArtifactInto: (...args) => this.renderStreamingArtifactInto(...args),
       resumeInterruptedTurn: (...args) => this.resumeInterruptedTurn(...args),
-      reviewLastProposedEdit: (...args) => this.reviewLastProposedEdit(...args),
-      discardLastProposedEdit: (...args) => this.discardLastProposedEdit(...args),
+      reviewLastProposedEdit: (...args) => this.runners.reviewLastProposedEdit(...args),
+      discardLastProposedEdit: (...args) => this.runners.discardLastProposedEdit(...args),
       restoreMediaAfterFailure: (...args) => this.restoreMediaAfterFailure(...args),
       setSending: (...args) => this.setSending(...args),
       setupRequired: (...args) => this.setupRequired(...args),
@@ -217,6 +209,14 @@ export class ChatView extends ItemView {
       distillChat: () => this.distillThisChat(),
       draft: () => this.composer.draft(),
       showReasoning: (active, label) => this.composer.showReasoning(active, label),
+    });
+    this.runners = new TurnRunners(this.app, plugin, this.chat, {
+      turnOverrides: () => ({ model: this.turnModelOverride, maxTokens: this.maxTokensOverride }),
+      resumeCliSessionId: () => this.resumeCliSessionId,
+      conversationId: () => this.conversationId,
+      onWriteGrant: () => this.header.updateWriteGrantPill(),
+      renderRecoverableEdit: (conversation) => this.transcript.renderRecoverableEdit(conversation),
+      removeEditRecovery: () => this.messagesEl.querySelector(".cc-edit-recovery")?.remove(),
     });
     this.composer = new Composer(this.app, plugin, this.chat, {
       applyChatFontSize: (...args) => this.applyChatFontSize(...args),
@@ -291,7 +291,7 @@ export class ChatView extends ItemView {
       onModelClick: () => this.openModelMenu(),
       onMcpClick: (evt) => this.openMcpMenu(evt),
       onWriteGrantRevoke: () => {
-        this.agentWriteAlways = false;
+        this.chat.writeGrant = false;
         this.header.updateWriteGrantPill();
         quickNotice("Session write grant revoked — writes will ask again.");
       },
@@ -915,10 +915,10 @@ export class ChatView extends ItemView {
       { backend, agent: agentRoute, providerId: provider.id },
       {
         primary: () => agentRoute
-          ? this.agentTurn(apiMessages, handlers, signal, turn.conversationId)
-          : this.streamTurn(startedOnLocal ? "local" : "claude", apiMessages, handlers, signal),
+          ? this.runners.agentTurn(apiMessages, handlers, signal, turn.conversationId)
+          : this.runners.streamTurn(startedOnLocal ? "local" : "claude", apiMessages, handlers, signal),
         localFallback: () => router.localFallback(),
-        local: (fallback) => this.streamTurn("local", apiMessages, handlers, signal, fallback),
+        local: (fallback) => this.runners.streamTurn("local", apiMessages, handlers, signal, fallback),
       },
       handlers,
     );
@@ -954,223 +954,6 @@ export class ChatView extends ItemView {
     this.transcript.renderInterruptedTurn(conversation);
     if (shouldAutoContinue(this.plugin.settings.agentAutoContinue, conversation.activeTurn)) await this.resumeInterruptedTurn(conversation);
     return true;
-  }
-
-  /**
-   * Build one streaming attempt on a backend; it emits through `handlers`, never
-   * the DOM, so the view (attached or not) renders from the ChatTurnService
-   * event stream.
-   */
-  private streamTurn(
-    target: "claude" | "local",
-    apiMessages: ApiMessage[],
-    handlers: AgentTurnHandlers,
-    signal: AbortSignal,
-    localOverride?: { provider: Provider; model: string },
-  ): Promise<AgentTurnResult> {
-    const router = this.plugin.router();
-    const onClaude = target === "claude";
-    // "local" = the configured non-Claude chat backend (Ollama, or the custom
-    // OpenAI-compatible endpoint when that's the chat backend) — or, for a
-    // fallback attempt, whichever local backend the router found reachable.
-    const local = onClaude ? undefined : localOverride ?? router.chatProvider();
-    const provider = onClaude ? router.anthropic : local!.provider;
-    const model = onClaude
-      ? (this.turnModelOverride ?? this.controls.model)
-      : local!.model;
-    const shape = shapeRequest({ ...this.controls, model: onClaude ? model : this.controls.model }, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
-
-    const request: CompletionRequest = {
-      system: this.plugin.composeSystemPrompt({ project: this.currentChatProject, compact: provider.id === "device" }),
-      messages: apiMessages,
-      model,
-      maxTokens: shape.maxTokens,
-      signal,
-    };
-    if (onClaude && shape.temperature !== undefined) request.temperature = shape.temperature;
-    if (onClaude && shape.thinking !== undefined) request.thinking = shape.thinking;
-    if (onClaude && shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
-    if (onClaude && shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
-    return streamAttempt(provider, request, handlers, signal);
-  }
-
-  /**
-   * Run one agent-mode turn: Claude may call vault tools between streaming
-   * passes (spec 2026-07-05). Always resolves; the caller (coreRun in run())
-   * decides whether an error means fallback, a completed-with-notice answer,
-   * or a hard failure.
-   */
-  private async agentTurn(
-    apiMessages: ApiMessage[],
-    handlers: AgentTurnHandlers,
-    signal: AbortSignal,
-    conversationId?: string,
-  ): Promise<AgentTurnResult> {
-    const { provider, model: providerModel } = this.plugin.router().chatProvider();
-    const shape = shapeRequest(this.controls, this.maxTokensOverride ?? this.plugin.settings.maxTokens);
-    const run = this.mode.run;
-    const externalTools = run === "chat" ? await this.plugin.externalMcpTools().catch(() => []) : [];
-    if (signal.aborted) return { text: "", trace: [], aborted: true };
-    const vaultDefs = this.plugin.agentTools().definitions();
-    const access = toolAccess(run, vaultDefs);
-
-    const request: CompletionRequest = {
-      system: this.plugin.composeSystemPrompt({ agent: true, plan: run === "plan", project: this.currentChatProject }),
-      messages: apiMessages,
-      model: this.turnModelOverride ?? providerModel,
-      maxTokens: shape.maxTokens,
-      signal,
-      tools: access.offered([...toAnthropicTools(vaultDefs), PROPOSE_EDIT_TOOL, ...externalTools]),
-    };
-    if (shape.temperature !== undefined) request.temperature = shape.temperature;
-    if (shape.thinking !== undefined) request.thinking = shape.thinking;
-    if (shape.thinkingDisplay !== undefined) request.thinkingDisplay = shape.thinkingDisplay;
-    if (shape.outputConfig !== undefined) request.outputConfig = shape.outputConfig;
-
-    const deps: AgentTurnDeps = {
-      stream: (req, h) => provider.stream(req, h),
-      execute: (block, sig) =>
-        parseExternalToolName(block.name) && access.decide(block.name) === "run"
-          ? this.executeExternalMcp(block, sig)
-          : executeTool(
-              {
-                access,
-                unavailable: (name) => this.plugin.agentTools().unavailable(name),
-                ...(sig ? { signal: sig } : {}),
-                call: (name, args) => this.plugin.agentTools().call(name, args),
-                confirmWrite: (b) => this.confirmAgentWrite(b),
-                proposeEdit: (b) => this.proposeAgentEdit(b, conversationId, signal),
-              },
-              block,
-            ),
-      maxIterations: this.plugin.settings.agentMaxIterations,
-      signal,
-    };
-
-    let runner: AgentTurnRunner;
-    try {
-      runner = await this.turnRunnerFor(deps, request, signal, conversationId);
-    } catch (error) {
-      return { text: "", trace: [], error: error instanceof Error ? error : new Error(String(error)) };
-    }
-    if (signal.aborted) return { text: "", trace: [], aborted: true };
-    return runner.run(request, handlers);
-  }
-
-  /** The CLI runs the turn when the backend is Claude Code; otherwise today's provider loop does. */
-  private async turnRunnerFor(deps: AgentTurnDeps, request: CompletionRequest, signal?: AbortSignal, turnConversationId?: string): Promise<AgentTurnRunner> {
-    const caps = this.plugin.router().chatCapabilities();
-    if (!caps.cli) return providerTurnRunner(deps);
-    const conversationId = turnConversationId ?? this.currentTurn?.conversationId ?? this.plugin.conversations().activeId();
-    signal?.addEventListener("abort", () => this.plugin.interruptCliTurn(conversationId), { once: true });
-    return this.plugin.cliTurnRunner({
-      conversationId,
-      run: this.mode.run,
-      model: request.model,
-      deps: { confirmWrite: async (b) => (await this.confirmAgentWrite(b)) && !signal?.aborted, proposeEdit: (b) => this.proposeAgentEdit(b, conversationId, signal) },
-      transcript: this.resumeCliSessionId ? "" : transcriptText(this.messages.slice(0, -1)),
-      ...(this.resumeCliSessionId ? { resumeSessionId: this.resumeCliSessionId } : {}),
-    });
-  }
-
-  /**
-   * Handle a propose_note_edit call: plan against the current note, let the
-   * user review per hunk inline or in the DiffModal, apply the accepted subset
-   * atomically, and report the true outcome back to the model. Throws are
-   * mapped to is_error tool_results by the executor (model self-corrects).
-   */
-  private async proposeAgentEdit(block: ToolUseBlock, conversationId?: string, signal?: AbortSignal): Promise<string> {
-    const input = block.input;
-    const path = typeof input.path === "string" ? input.path : "";
-    if (!path) throw new Error("propose_note_edit requires a 'path'.");
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`);
-    const edits = parseProposedEdits(input.edits);
-    const description = typeof input.description === "string" ? input.description : undefined;
-
-    const content = await this.app.vault.cachedRead(file);
-    const plan = planEdits(content, edits);
-    if (signal?.aborted) return "Turn stopped before the edit review opened.";
-    const id = conversationId ?? this.currentTurn?.conversationId ?? this.conversationId;
-    if (!id) throw new Error("Conversation not found for edit recovery.");
-    await this.plugin.conversations().saveEditProposal(id, { path, edits, ...(description ? { description } : {}) });
-    return this.applyReviewedEdit(id, file, plan, description, signal);
-  }
-
-  private async applyReviewedEdit(conversationId: string, file: TFile, plan: ReturnType<typeof planEdits>, description?: string, signal?: AbortSignal): Promise<string> {
-    const result = await reviewAndApply(this.app, file, plan, description, { inlineEnabled: this.plugin.settings.inlineDiffEnabled, ...(signal ? { signal } : {}) });
-    if (signal?.aborted) return "Turn stopped. The proposed edit is saved for later review.";
-    if (result.cancelled) {
-      const conversation = this.plugin.conversations().list().find((entry) => entry.id === conversationId);
-      if (conversation && this.conversationId === conversationId) this.transcript.renderRecoverableEdit(conversation);
-      return "User rejected the proposed edit. It is saved for later review.";
-    }
-
-    const { applied, total } = result;
-    if (applied === total) {
-      await this.plugin.conversations().clearEditProposal(conversationId).catch((error: unknown) => console.error("[Claude Companion] could not clear applied edit recovery record", error));
-      if (this.conversationId === conversationId) this.messagesEl.querySelector(".cc-edit-recovery")?.remove();
-    } else {
-      await this.plugin.conversations().saveEditProposal(conversationId, { path: file.path, edits: result.remaining, ...(description ? { description } : {}) }).catch((error: unknown) => console.error("[Claude Companion] could not retain rejected edit recovery record", error));
-    }
-    return applied === total
-      ? `Applied all ${applied} edit${applied === 1 ? "" : "s"} to ${file.path}.`
-      : `Applied ${applied} of ${total} edits to ${file.path} (the user rejected the rest).`;
-  }
-
-  private async discardLastProposedEdit(conversation: Conversation): Promise<void> {
-    await this.plugin.conversations().clearEditProposal(conversation.id).catch((error: unknown) => console.error("[Claude Companion] could not discard edit recovery record", error));
-  }
-
-  private async reviewLastProposedEdit(conversation: Conversation): Promise<void> {
-    const proposal = this.plugin.conversations().list().find((entry) => entry.id === conversation.id)?.lastEditProposal;
-    if (!proposal) return;
-    try {
-      const file = this.app.vault.getAbstractFileByPath(proposal.path);
-      if (!(file instanceof TFile)) throw new Error(`Note not found: ${proposal.path}`);
-      const plan = planEdits(await this.app.vault.cachedRead(file), proposal.edits);
-      new Notice(await this.applyReviewedEdit(conversation.id, file, plan, proposal.description));
-    } catch (error) {
-      new Notice(`Could not reopen the proposed edit: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  /**
-   * Route an external MCP tool call: every call confirms first (external
-   * servers can do anything), then dispatch; errors become is_error results
-   * so the model adapts instead of the turn dying.
-   */
-  private async executeExternalMcp(block: ToolUseBlock, signal?: AbortSignal): Promise<ToolResultBlock> {
-    const result = (content: string, isError?: boolean): ToolResultBlock => ({
-      type: "tool_result",
-      tool_use_id: block.id,
-      content,
-      ...(isError ? { is_error: true } : {}),
-    });
-    if (block.parseError) return result(block.parseError, true);
-    // Stop was pressed while a prior tool was running — don't fire another call.
-    if (signal?.aborted) return result("Turn stopped before this tool ran.", true);
-    if (!(await this.confirmAgentWrite(block))) return result("User declined.", true);
-    if (signal?.aborted) return result("Turn stopped before this tool ran.", true);
-    try {
-      return result(truncateResult(await this.plugin.callExternalMcp(block.name, block.input)));
-    } catch (err) {
-      return result(err instanceof Error ? err.message : String(err), true);
-    }
-  }
-
-  /** Ask the user before an agent write tool runs; honors "allow for this session". */
-  private confirmAgentWrite(block: ToolUseBlock): Promise<boolean> {
-    if (this.agentWriteAlways) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      new WriteConfirmModal(this.app, block, (choice) => {
-        if (choice === "always") {
-          this.agentWriteAlways = true;
-          this.header.updateWriteGrantPill();
-        }
-        resolve(choice !== "deny");
-      }).open();
-    });
   }
 
   /** Push the chatFontSize setting onto the view as --cc-chat-font (drives .cc-body). */
