@@ -2,7 +2,7 @@ import { chatBackendForRuntime } from "./providers/runtimeBackend";
 import { App, Platform, PluginSettingTab, type Plugin, type SettingDefinitionItem } from "obsidian";
 import type ClaudeCompanionPlugin from "./main";
 import type { ProviderStatus } from "./providers/types";
-import { ChoiceModal } from "./view/ChoiceModal";
+import { offerIndexRebuild } from "./view/rebuildOffer";
 import { CODECS } from "./settingsItems/codecs";
 import { PAGE_DESC } from "./settingsItems/pageDesc";
 import { applyTiers } from "./settingsItems/tiers";
@@ -156,7 +156,7 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
         type: "group",
         heading: "Vault intelligence",
         items: [
-          { type: "page", name: "Semantic search (local embeddings)", items: semanticItems({ plugin, update, offerIndexRebuild: (label) => this.offerIndexRebuild(label) }) },
+          { type: "page", name: "Semantic search (local embeddings)", items: semanticItems({ plugin, update, offerIndexRebuild: (label) => offerIndexRebuild(this.app, label, () => this.plugin.semantic().rebuildSemanticIndex()) }) },
           { type: "page", name: "Local models (Ollama & endpoints)", desc: `${PAGE_DESC.localModels} ${PAGE_DESC.openaiCompat}`, items: localModelsItems({ plugin, detected: this.detectedModels, update, renderStatus }) },
           { type: "page", name: "Source capture (typed clips)", desc: PAGE_DESC.sourceCapture, items: sourceCaptureItems({ plugin }) },
           { type: "page", name: "Vault ontology (typed notes & relations)", items: ontologyItems() },
@@ -181,21 +181,5 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
     el.toggleClass("is-ok", status.ok);
     el.toggleClass("is-err", !status.ok);
     el.setText((status.ok ? "✓ " : "✗ ") + status.detail);
-  }
-
-  /** After an embedding model/engine switch: the old index no longer applies. */
-  private offerIndexRebuild(label: string): void {
-    new ChoiceModal<"rebuild" | "later">(this.app, {
-      title: "Rebuild the semantic index?",
-      message: `Embeddings now come from ${label}, so the existing index no longer applies. Rebuild it now, or it refreshes gradually as notes change.`,
-      buttons: [
-        { label: "Rebuild now", value: "rebuild", cta: true },
-        { label: "Later", value: "later" },
-      ],
-      fallback: "later",
-      onChoice: (c) => {
-        if (c === "rebuild") void this.plugin.semantic().rebuildSemanticIndex();
-      },
-    }).open();
   }
 }

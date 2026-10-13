@@ -1,4 +1,4 @@
-import { App, Platform } from "obsidian";
+import { App, FakeElement, getLastOpenedModal, Platform } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityStore } from "../../src/activity/store";
 import { OBSIDIAN_GENERAL_SETTINGS_TAB } from "../../src/integrations/desktop";
@@ -24,12 +24,13 @@ interface Rig {
   workspace: Record<string, unknown>;
 }
 
-function rig(): Rig {
+function rig(indexedNotes = 0): Rig {
   const app = new App();
   const settings = structuredClone(DEFAULT_SETTINGS);
   const activity = new ActivityStore();
   const saveSettings = vi.fn(async () => undefined);
   const semantic = {
+    indexer: vi.fn(() => ({ stats: async () => ({ notes: indexedNotes }) })),
     indexerHealth: vi.fn(() => ({ embeddingHealth: "ok", indexHealth: "built" })),
     rebuildSemanticIndex: vi.fn(async () => undefined),
     downloadBuiltinModelAndIndex: vi.fn(async () => undefined),
@@ -169,6 +170,47 @@ describe("CompanionShell quick option saves", () => {
     const r = rig();
     await expect(r.shell.companionChrome().save({ id, value })).rejects.toThrow(message);
     expect(r.saveSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("CompanionShell embedding engine switch", () => {
+  const button = (label: string) =>
+    (getLastOpenedModal()?.contentEl as unknown as FakeElement).querySelectorAll("button").find(({ textContent }) => textContent === label);
+
+  it("offers a rebuild when the index held notes, and rebuilds on choice", async () => {
+    const r = rig(3);
+    await r.shell.companionChrome().save({ id: "embedding-engine", value: "ollama" });
+    expect(r.settings.embeddingEngine).toBe("ollama");
+    expect(r.saveSettings).toHaveBeenCalledTimes(1);
+    const modal = getLastOpenedModal();
+    expect(modal?.titleEl.textContent).toBe("Rebuild the semantic index?");
+    expect((modal?.contentEl as unknown as FakeElement).querySelectorAll("p")[0]?.textContent).toContain("ollama");
+    expect(r.semantic.rebuildSemanticIndex).not.toHaveBeenCalled();
+    button("Rebuild now")?.dispatchEvent({ type: "click" });
+    expect(r.semantic.rebuildSemanticIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rebuild when the offer is declined", async () => {
+    const r = rig(3);
+    await r.shell.companionChrome().save({ id: "embedding-engine", value: "custom" });
+    button("Later")?.dispatchEvent({ type: "click" });
+    expect(r.semantic.rebuildSemanticIndex).not.toHaveBeenCalled();
+  });
+
+  it("saves without an offer when the index is empty", async () => {
+    const r = rig(0);
+    const before = getLastOpenedModal();
+    await r.shell.companionChrome().save({ id: "embedding-engine", value: "ollama" });
+    expect(r.saveSettings).toHaveBeenCalledTimes(1);
+    expect(getLastOpenedModal()).toBe(before);
+  });
+
+  it("neither saves nor offers when the engine is unchanged", async () => {
+    const r = rig(3);
+    const before = getLastOpenedModal();
+    await r.shell.companionChrome().save({ id: "embedding-engine", value: r.settings.embeddingEngine });
+    expect(r.saveSettings).not.toHaveBeenCalled();
+    expect(getLastOpenedModal()).toBe(before);
   });
 });
 

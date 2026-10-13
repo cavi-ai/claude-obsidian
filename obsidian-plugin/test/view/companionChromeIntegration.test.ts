@@ -43,7 +43,7 @@ describe("Companion chrome view integration", () => {
       persist: async () => undefined,
       refreshViews: () => undefined,
       syncMcpServer: async () => undefined,
-      _semantic: { onSettingsChanged },
+      _semantic: { onSettingsChanged, indexer: () => null },
       _mcpServersSnapshot: "[]",
     });
 
