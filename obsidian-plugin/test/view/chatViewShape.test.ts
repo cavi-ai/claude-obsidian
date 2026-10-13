@@ -9,7 +9,7 @@ describe("ChatView carve shape", () => {
     expect(lines(rel)).toBeLessThanOrEqual(700);
   });
 
-  it("ChatView.ts stays at or under 1100 lines", () => {
-    expect(lines("ChatView.ts")).toBeLessThanOrEqual(1100);
+  it("ChatView.ts stays at or under 1000 lines", () => {
+    expect(lines("ChatView.ts")).toBeLessThanOrEqual(1000);
   });
 });

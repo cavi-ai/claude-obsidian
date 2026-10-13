@@ -22,8 +22,8 @@ import { composeSkillPrompt, parseSkillInvocation, skillDisplay } from "../skill
 import { splitStreamingArtifact } from "./streamRender";
 import { gatherContext, type AttachedPath } from "../context/vaultContext";
 import { type MediaAttachment } from "../context/attachments";
-import { type AtItem, type ClaimAtSource } from "../context/atMention";
-import { isProjectChange, projectSearchScope, type ChatProject } from "../projects/model";
+import { type AtItem } from "../context/atMention";
+import { projectSearchScope, type ChatProject } from "../projects/model";
 import { credentialSetupInputs, needsCredentialSetup } from "../providers/setupState";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
@@ -41,6 +41,7 @@ import { Composer } from "./chat/Composer";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
 import { TurnRunners } from "./chat/turnRunners";
+import { ChatProjectBinding } from "./chat/projectBinding";
 import { SetupCard } from "./chat/SetupCard";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
@@ -65,6 +66,7 @@ export class ChatView extends ItemView {
   private set messages(v: ChatMessage[]) { this.chat.messages = v; }
   private transcript: Transcript;
   private runners: TurnRunners;
+  private projects: ChatProjectBinding;
   private setupCard: SetupCard;
   private get messagesEl(): HTMLElement { return this.transcript.messagesEl; }
   private set messagesEl(v: HTMLElement) { this.transcript.messagesEl = v; }
@@ -131,17 +133,9 @@ export class ChatView extends ItemView {
   /** User-defined prompt templates (notes in the templates folder). */
   private templateCommands: SlashCommand[] = [];
   private templateReloadGeneration = 0;
-  /** Research claims offered by the "@"/"#" pickers, refreshed when a research note changes. */
-  private cachedClaims: ClaimAtSource[] = [];
-  private claimReloadGeneration = 0;
-  private claimReloadTimer: number | null = null;
-  /** Chat projects offered by the "@" picker, refreshed alongside claims. */
-  private cachedProjects: ChatProject[] = [];
   /** The chat project this.conversationId is scoped to (null = none), kept in sync with the conversation. */
   private get currentChatProject(): ChatProject | null { return this.chat.project; }
   private set currentChatProject(v: ChatProject | null) { this.chat.project = v; }
-  /** A project chosen before the first send (no conversation yet); applied once `run()` creates one. */
-  private pendingProjectId: string | null = null;
   /** Which trigger ("@" or "#") the open at-menu is currently showing matches for. */
   private get activeMenuTrigger(): "@" | "#" { return this.composer.activeMenuTrigger; }
   private set activeMenuTrigger(v: "@" | "#") { this.composer.activeMenuTrigger = v; }
@@ -210,6 +204,14 @@ export class ChatView extends ItemView {
       draft: () => this.composer.draft(),
       showReasoning: (active, label) => this.composer.showReasoning(active, label),
     });
+    this.projects = new ChatProjectBinding(this.app, plugin, this.chat, {
+      conversationId: () => this.conversationId,
+      showProject: (project) => {
+        this.composer.setProjectPill(project);
+        this.header.setProjectLabel(project?.name ?? null);
+      },
+      updateUsageBar: () => this.updateUsageBar(),
+    });
     this.runners = new TurnRunners(this.app, plugin, this.chat, {
       turnOverrides: () => ({ model: this.turnModelOverride, maxTokens: this.maxTokensOverride }),
       resumeCliSessionId: () => this.resumeCliSessionId,
@@ -225,8 +227,8 @@ export class ChatView extends ItemView {
       registerDomEvent: (el, type, callback) => this.registerDomEvent(el, type, callback),
       resolveMarkdownContextView: (...args) => this.resolveMarkdownContextView(...args),
       updateUsageBar: (...args) => this.updateUsageBar(...args),
-      cachedClaims: () => this.cachedClaims,
-      cachedProjects: () => this.cachedProjects.map((p) => ({ id: p.id, name: p.name })),
+      cachedClaims: () => this.projects.claims(),
+      cachedProjects: () => this.projects.projectOptions(),
       mountUsage: (parent) => this.header.mountUsage(parent),
       onSlashCommand: (cmd) => void this.runSlashCommand(cmd),
       pickAtItems: () => (this.activeMenuTrigger === "#" ? this.hashItems() : this.atItems()),
@@ -237,7 +239,7 @@ export class ChatView extends ItemView {
       addContext: () => this.openContextPicker(),
       onSend: () => void this.onSend(),
       syncSlashMenu: () => this.syncSlashMenu(),
-      chooseProject: (id) => this.chooseProjectById(id),
+      chooseProject: (id) => this.projects.chooseById(id),
     });
   }
 
@@ -329,15 +331,7 @@ export class ChatView extends ItemView {
       if (templateTouched(file) || templateTouched({ path: oldPath })) void this.reloadTemplates();
     }));
 
-    // Research claims for the "@"/"#" pickers: load now, refresh on the same
-    // signal the research views use to know a research note changed. Chat
-    // projects reload alongside, but only for a chat-project note or a research Project.md.
-    void this.reloadClaims();
-    void this.reloadProjects();
-    this.registerEvent(this.app.metadataCache.on("changed", (file) => { this.scheduleReloadClaims(); if (isProjectChange(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter)) void this.reloadProjects(); }));
-    this.registerEvent(this.app.vault.on("create", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); if (isProjectChange(file.path)) void this.reloadProjects(); }));
-    this.registerEvent(this.app.vault.on("delete", (file) => { if (file.path.endsWith(".md")) this.scheduleReloadClaims(); if (isProjectChange(file.path)) void this.reloadProjects(); }));
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => { if (file.path.endsWith(".md") || oldPath.endsWith(".md")) this.scheduleReloadClaims(); if (isProjectChange(file.path) || isProjectChange(oldPath)) void this.reloadProjects(); }));
+    this.projects.watch((ref) => this.registerEvent(ref));
 
     this.applyChatFontSize();
     this.refreshModelLabel();
@@ -366,8 +360,8 @@ export class ChatView extends ItemView {
   loadConversation(conversation: Conversation): void {
     this.detachTurnRendering();
     this.conversationId = conversation.id;
-    this.pendingProjectId = null;
-    void this.refreshCurrentProject();
+    this.projects.forget();
+    void this.projects.refreshCurrent();
     this.session = { ...EMPTY_SESSION };
     this.messages = compactMessages(conversation.messages);
     const lastUser = [...this.messages].reverse().find((message) => message.role === "user");
@@ -420,7 +414,7 @@ export class ChatView extends ItemView {
   resetToEmpty(): void {
     this.detachTurnRendering();
     this.conversationId = null;
-    this.pendingProjectId = null;
+    this.projects.forget();
     this.messages = [];
     this.session = { ...EMPTY_SESSION };
     this.messagesEl.empty();
@@ -447,11 +441,7 @@ export class ChatView extends ItemView {
 
   override async onClose(): Promise<void> {
     this.templateReloadGeneration++;
-    this.claimReloadGeneration++;
-    if (this.claimReloadTimer !== null) {
-      window.clearTimeout(this.claimReloadTimer);
-      this.claimReloadTimer = null;
-    }
+    this.projects.dispose();
     this.header.teardown(false);
     // A live turn keeps running (and persisting) after the pane closes — only
     // detach this view from its event stream (ChatTurnService).
@@ -483,88 +473,8 @@ export class ChatView extends ItemView {
 
   private hashItems(): AtItem[] { return this.composer.hashItems(); }
 
-  /** Coalesces rapid vault/metadata events into one reloadClaims() after the last one. */
-  private scheduleReloadClaims(): void {
-    if (this.claimReloadTimer !== null) window.clearTimeout(this.claimReloadTimer);
-    this.claimReloadTimer = window.setTimeout(() => {
-      this.claimReloadTimer = null;
-      void this.reloadClaims();
-    }, 500);
-  }
-
-  /** Re-read every active research project's claims for the "@"/"#" pickers. */
-  private async reloadClaims(): Promise<void> {
-    const generation = ++this.claimReloadGeneration;
-    const claims: ClaimAtSource[] = [];
-    try {
-      const repo = this.plugin.research().researchRepository();
-      const projects = (await repo.listProjects()).filter((p) => p.status === "active");
-      for (const project of projects) {
-        const snapshot = await repo.loadProject(project.path);
-        for (const claim of snapshot.claims) claims.push({ path: claim.path, label: claim.proposition, project: claim.project });
-      }
-    } catch {
-      // Research repository unavailable — claims stay empty.
-    }
-    if (generation !== this.claimReloadGeneration) return;
-    this.cachedClaims = claims;
-  }
-
-  /** Re-read every available chat project (notes + Research Desk) for the "@" picker. */
-  private async reloadProjects(): Promise<void> {
-    try {
-      this.cachedProjects = await this.plugin.listChatProjects();
-    } catch {
-      // Registry unavailable — projects list stays as it was.
-    }
-  }
-
-  /** Set `currentChatProject` and its pill/header label, without touching persisted storage. */
-  private setLocalProject(project: ChatProject | null): void {
-    this.currentChatProject = project;
-    this.composer.setProjectPill(project);
-    this.header.setProjectLabel(project?.name ?? null);
-  }
-
-  /** Sync `currentChatProject` (and the pill/header label) to `this.conversationId`'s persisted projectId. */
-  private async refreshCurrentProject(): Promise<void> {
-    let project: ChatProject | null = null;
-    try {
-      project = await this.plugin.chatProjectFor(this.conversationId);
-    } catch {
-      // Conversation/registry lookup unavailable — no project for this turn.
-    }
-    this.setLocalProject(project);
-  }
-
   /** Apply a project chosen from the "@" menu or the "Chat: choose project" command. */
-  async applyChosenProject(project: ChatProject): Promise<void> {
-    if (this.conversationId === null) {
-      // No conversation yet — hold the choice until run() creates one.
-      this.pendingProjectId = project.id;
-      this.setLocalProject(project);
-      return;
-    }
-    await this.plugin.conversations().setProject(this.conversationId, project.id);
-    await this.refreshCurrentProject();
-    this.updateUsageBar();
-  }
-
-  /** "@" project item / pill remove-×: `id` null clears the project. */
-  private chooseProjectById(id: string | null): void {
-    if (id === null) {
-      void (async () => {
-        if (this.conversationId) {
-          await this.plugin.conversations().setProject(this.conversationId, null);
-          await this.refreshCurrentProject();
-        } else { this.pendingProjectId = null; this.setLocalProject(null); }
-        this.updateUsageBar();
-      })();
-      return;
-    }
-    const project = this.cachedProjects.find((p) => p.id === id);
-    if (project) void this.applyChosenProject(project);
-  }
+  applyChosenProject(project: ChatProject): Promise<void> { return this.projects.applyChosen(project); }
 
   private onAtChoose(item: AtItem): void { this.composer.onAtChoose(item); }
 
@@ -624,8 +534,7 @@ export class ChatView extends ItemView {
     // The previous conversation is already auto-saved; detach so the next turn
     // begins a fresh one instead of continuing it.
     this.conversationId = null;
-    this.pendingProjectId = null;
-    this.setLocalProject(null);
+    this.projects.clear();
     this.attachedPaths = [];
     this.attachedPages = [];
     this.composer.resetContextToggles();
@@ -825,8 +734,8 @@ export class ChatView extends ItemView {
     this.messages = started.messages;
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
-    if (this.pendingProjectId !== null) { await this.plugin.conversations().setProject(turn.conversationId, this.pendingProjectId); this.pendingProjectId = null; }
-    await this.refreshCurrentProject(); // memoized for the rest of this turn
+    await this.projects.bindPending(turn.conversationId);
+    await this.projects.refreshCurrent(); // memoized for the rest of this turn
     this.currentTurn = turn;
     this.abort = new AbortController();
     const controller = this.abort;
