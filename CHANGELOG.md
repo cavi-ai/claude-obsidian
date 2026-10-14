@@ -4,6 +4,17 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.1] — 2026-10-14
+
+### Added
+- Index rebuild progress shows chunks embedded, notes processed, elapsed time, and approximate time remaining. Reopening settings reconnects to the active rebuild.
+
+### Fixed
+- Mobile built-in embeddings use WASM to reduce memory pressure during indexing.
+- Mobile index capacity includes vectors, note text, and metadata; oversized rebuilds retain the saved index.
+- Repeated rebuild requests share the active run.
+- Local-model documentation directs users to inference inside Obsidian and identifies the separate native app as legacy.
+
 ## [0.45.0] — 2026-10-13
 
 ### Added
