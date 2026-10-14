@@ -148,7 +148,11 @@ export class SemanticController {
     this._indexer = new SemanticIndexer({
       embeddingModel: model,
       signal: this.indexAbort.signal,
-      ...(this.deps.isMobile ? { maxChunks: mobileChunkLimit } : {}),
+      ...(this.deps.isMobile ? {
+        maxChunks: mobileChunkLimit,
+        maxSerializedBytes: MOBILE_INDEX_BUDGET_BYTES,
+        ...(s.embeddingEngine === "builtin" ? { embeddingDimensions: builtinModelById(s.builtinEmbeddingModel).dim } : {}),
+      } : {}),
       listMarkdown: () => this.deps.vault.getMarkdownFiles(),
       read: async (p: string) => {
         const f = this.deps.vault.getAbstractFileByPath(p);

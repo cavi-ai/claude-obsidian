@@ -166,6 +166,11 @@ removes the cached model.
 
 The built-in embedding worker uses WASM on mobile to limit peak memory use, and WebGPU or WASM on desktop. On-device chat uses WebGPU with quantized ONNX exports; neither worker uses native MLX or Android LiteRT. Arctic XS is the mobile recommendation because it has the smallest download and vector dimensions in this catalog. Download size is not peak runtime memory, and retrieval quality depends on the vault.
 
+Mobile indexes are limited to 8 MiB including vectors, note text, and metadata.
+If the next note would exceed that budget, indexing stops and retains the
+previous saved index. Keyword search remains available. A smaller embedding
+model reduces vector storage; large vaults may still exceed the limit.
+
 | Built-in model | q8 model assets (decimal MB) | Vector dimensions |
 |---|---|---|
 | [Arctic XS](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs) | ~24 | 384 |
