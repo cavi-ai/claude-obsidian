@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Mobile built-in embeddings use WASM to reduce memory pressure during indexing.
-- Mobile index capacity accounts for vectors, note text, and metadata before embedding each note; oversized rebuilds retain the saved index.
+- Mobile index capacity includes vectors, note text, and metadata; oversized rebuilds retain the saved index.
 - Repeated rebuild requests share the active run.
 - Local-model documentation directs users to inference inside Obsidian and identifies the separate native app as legacy.
 
