@@ -62,6 +62,22 @@ export interface BuildResult {
   failures: Array<{ path: string; message: string }>;
 }
 
+export interface IndexBuildProgress {
+  phase: "preparing" | "embedding" | "saving";
+  filesCompleted: number;
+  totalFiles: number;
+  chunksEmbedded: number;
+  completedFileChunks: number;
+  currentFileChunksCompleted: number;
+  currentFileChunksTotal: number;
+}
+
+interface BuildOptions {
+  force?: boolean;
+  onProgress?: (done: number, total: number) => void;
+  onDetailedProgress?: (progress: IndexBuildProgress) => void;
+}
+
 export class SemanticInputTooLargeError extends Error {
   constructor(path: string, size: number, limit: number) {
     super(`${path} exceeds the semantic indexing limit (${size} bytes; maximum ${limit}).`);
@@ -126,11 +142,11 @@ export class SemanticIndexer {
    * Build or refresh the whole index. Skips notes whose content hash is
    * unchanged unless `force`. Prunes notes that left the vault, then persists.
    */
-  async build(opts: { force?: boolean; onProgress?: (done: number, total: number) => void } = {}): Promise<BuildResult> {
+  async build(opts: BuildOptions = {}): Promise<BuildResult> {
     return this.runMutation(() => this.buildUnlocked(opts));
   }
 
-  private async buildUnlocked(opts: { force?: boolean; onProgress?: (done: number, total: number) => void }): Promise<BuildResult> {
+  private async buildUnlocked(opts: BuildOptions): Promise<BuildResult> {
     const store = await this.ensureLoaded();
     const files = [...this.deps.listMarkdown(), ...(this.deps.listPdf?.() ?? [])];
     const live = new Set(files.map((f) => f.path));
@@ -140,13 +156,28 @@ export class SemanticIndexer {
     let failureCount = 0;
     let aborted = false;
     const failures: Array<{ path: string; message: string }> = [];
+    let filesCompleted = 0;
+    let chunksEmbedded = 0;
+    let completedFileChunks = 0;
+    let currentFileChunksCompleted = 0;
+    let currentFileChunksTotal = 0;
+    const emit = (phase: IndexBuildProgress["phase"]): void => opts.onDetailedProgress?.({
+      phase, filesCompleted, totalFiles: files.length, chunksEmbedded, completedFileChunks,
+      currentFileChunksCompleted, currentFileChunksTotal,
+    });
+    emit("preparing");
 
     for (let i = 0; i < files.length; i++) {
       this.assertActive();
       const f = files[i];
       if (!f) continue;
+      currentFileChunksCompleted = 0;
+      currentFileChunksTotal = 0;
+      emit("preparing");
       if (!opts.force && store.isCurrent(f.path, f.mtime)) {
         skipped++;
+        filesCompleted = i + 1;
+        emit("preparing");
         opts.onProgress?.(i + 1, files.length);
         continue;
       }
@@ -160,7 +191,12 @@ export class SemanticIndexer {
           refreshed++;
           skipped++;
         } else {
-          await this.embedInto(store, f.path, f.mtime, prepared.chunks, prepared.hash);
+          await this.embedInto(store, f.path, f.mtime, prepared.chunks, prepared.hash, (done, total) => {
+            chunksEmbedded += done - currentFileChunksCompleted;
+            currentFileChunksCompleted = done;
+            currentFileChunksTotal = total;
+            emit("embedding");
+          });
           indexed++;
         }
       } catch (error) {
@@ -178,11 +214,15 @@ export class SemanticIndexer {
         // reload a crashed worker and exhaust the same memory again.
         if (error instanceof SemanticEmbeddingError) { aborted = true; break; }
       }
+      completedFileChunks += currentFileChunksCompleted;
+      filesCompleted = i + 1;
+      emit("preparing");
       opts.onProgress?.(i + 1, files.length);
     }
 
     this.assertActive();
     const removed = store.pruneTo(live);
+    emit("saving");
     if (indexed > 0 || removed > 0 || refreshed > 0) await this.persistStore(store);
     return { indexed, skipped, removed, failureCount, failures, ...(aborted ? { aborted: true } : {}) };
   }
@@ -325,7 +365,7 @@ export class SemanticIndexer {
     throw new SemanticInputTooLargeError(path, size, limit);
   }
 
-  private async embedInto(store: SemanticStore, path: string, mtime: number, chunks: Chunk[], hash: string): Promise<void> {
+  private async embedInto(store: SemanticStore, path: string, mtime: number, chunks: Chunk[], hash: string, onProgress?: (done: number, total: number) => void): Promise<void> {
     this.assertActive();
     const limit = this.deps.maxChunks;
     if (limit !== undefined && store.stats().chunks - store.chunkCount(path) + chunks.length > limit) {
@@ -335,6 +375,7 @@ export class SemanticIndexer {
       store.removeNote(path); // empty / frontmatter-only note carries nothing
       return;
     }
+    onProgress?.(0, chunks.length);
     const configuredBatchSize = this.deps.embedBatchSize;
     const batchSize = configuredBatchSize !== undefined && Number.isFinite(configuredBatchSize) && configuredBatchSize > 0
       ? Math.max(1, Math.floor(configuredBatchSize))
@@ -356,6 +397,7 @@ export class SemanticIndexer {
       }
       this.assertActive();
       this.deps.onPhase?.("embed-done", { path, chunks: batch.length });
+      onProgress?.(i + batch.length, chunks.length);
       for (let j = 0; j < batch.length; j++) vectors.push(embedded[j] ?? []);
     }
     store.upsertNote(
