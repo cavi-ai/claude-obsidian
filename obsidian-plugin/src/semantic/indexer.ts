@@ -34,6 +34,10 @@ export interface IndexerDeps {
   signal?: AbortSignal;
   /** Bounds total retained vectors before any inference allocation. */
   maxChunks?: number;
+  /** Full persisted JSON budget, including text and metadata. */
+  maxSerializedBytes?: number;
+  /** Known model dimensions let capacity be checked before the first inference. */
+  embeddingDimensions?: number;
   /** Optional upper bound for one inference call on memory-constrained runtimes. */
   embedBatchSize?: number;
   /** Optional phase hook for diagnostics; never affects indexing. */
@@ -89,6 +93,13 @@ export class SemanticEmbeddingError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "SemanticEmbeddingError";
+  }
+}
+
+export class SemanticIndexBudgetError extends Error {
+  constructor() {
+    super("Semantic index exceeds the mobile persistence budget. Existing saved index was retained. Use a smaller vault; keyword search remains available.");
+    this.name = "SemanticIndexBudgetError";
   }
 }
 
@@ -150,6 +161,7 @@ export class SemanticIndexer {
     const store = await this.ensureLoaded();
     const files = [...this.deps.listMarkdown(), ...(this.deps.listPdf?.() ?? [])];
     const live = new Set(files.map((f) => f.path));
+    let removed = store.pruneTo(live);
     let indexed = 0;
     let skipped = 0;
     let refreshed = 0;
@@ -201,6 +213,10 @@ export class SemanticIndexer {
         }
       } catch (error) {
         this.assertActive();
+        if (error instanceof SemanticIndexBudgetError) {
+          this.invalidate(); // Reload the saved index rather than expose an incomplete rebuild.
+          throw error;
+        }
         if (error instanceof SemanticInputTooLargeError) live.delete(f.path);
         skipped++;
         failureCount++;
@@ -221,7 +237,7 @@ export class SemanticIndexer {
     }
 
     this.assertActive();
-    const removed = store.pruneTo(live);
+    removed += store.pruneTo(live);
     emit("saving");
     if (indexed > 0 || removed > 0 || refreshed > 0) await this.persistStore(store);
     return { indexed, skipped, removed, failureCount, failures, ...(aborted ? { aborted: true } : {}) };
@@ -273,6 +289,10 @@ export class SemanticIndexer {
           }
         } catch (error) {
           this.assertActive();
+          if (error instanceof SemanticIndexBudgetError) {
+            this.invalidate();
+            throw error;
+          }
           if (error instanceof SemanticInputTooLargeError && store.hasNote(path)) {
             store.removeNote(path);
             changed = true;
@@ -367,13 +387,21 @@ export class SemanticIndexer {
 
   private async embedInto(store: SemanticStore, path: string, mtime: number, chunks: Chunk[], hash: string, onProgress?: (done: number, total: number) => void): Promise<void> {
     this.assertActive();
-    const limit = this.deps.maxChunks;
-    if (limit !== undefined && store.stats().chunks - store.chunkCount(path) + chunks.length > limit) {
-      throw new SemanticEmbeddingError(new Error(`Mobile semantic index limit reached (${limit} chunks). Use a smaller vault or disable semantic search; keyword search remains available.`));
-    }
     if (chunks.length === 0) {
       store.removeNote(path); // empty / frontmatter-only note carries nothing
       return;
+    }
+    const assertBudget = (dim: number | undefined): void => {
+      const budget = this.deps.maxSerializedBytes;
+      if (budget !== undefined && dim && store.projectedSerializedBytes(path, hash, mtime, chunks, dim) > budget) {
+        throw new SemanticIndexBudgetError();
+      }
+    };
+    let budgetDimensions = store.dim || this.deps.embeddingDimensions;
+    assertBudget(budgetDimensions);
+    const limit = this.deps.maxChunks;
+    if (limit !== undefined && store.stats().chunks - store.chunkCount(path) + chunks.length > limit) {
+      throw new SemanticEmbeddingError(new Error(`Mobile semantic index limit reached (${limit} chunks). Use a smaller vault or disable semantic search; keyword search remains available.`));
     }
     onProgress?.(0, chunks.length);
     const configuredBatchSize = this.deps.embedBatchSize;
@@ -388,12 +416,16 @@ export class SemanticIndexer {
       let embedded: number[][];
       try {
         embedded = await this.deps.embed(batch.map((c) => c.text));
-        const dim = store.dim || embedded[0]?.length;
+        const dim = store.dim || vectors[0]?.length || embedded[0]?.length;
         if (!dim || embedded.length !== batch.length || embedded.some((v) => !Array.isArray(v) || v.length !== dim || !v.every(Number.isFinite))) {
           throw new Error("Embedding engine returned invalid vectors");
         }
       } catch (cause) {
         throw new SemanticEmbeddingError(cause);
+      }
+      if (!budgetDimensions) {
+        budgetDimensions = embedded[0]?.length;
+        assertBudget(budgetDimensions);
       }
       this.assertActive();
       this.deps.onPhase?.("embed-done", { path, chunks: batch.length });
