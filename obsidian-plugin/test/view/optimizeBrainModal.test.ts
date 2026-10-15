@@ -15,7 +15,8 @@ const candidates: MergeCandidate[] = [
 const result: ApplyResult = { merges: 1, notes: 2, inlineSkipped: 0, failed: [], unchanged: 0, dropped: [], orders: [], runNote: null };
 
 const allText = (el: FakeElement): string => [el.textContent, ...el.children.map(allText)].join("\n");
-const button = (root: FakeElement, text: string): FakeElement => root.querySelectorAll("button").find((b) => b.textContent === text)!;
+const button = (root: FakeElement, name: string): FakeElement =>
+  root.querySelectorAll("button").find((b) => b.textContent === name || b.getAttribute("aria-label") === name)!;
 const setup = (list = candidates) => {
   const actions = {
     apply: vi.fn(async () => result),
@@ -31,6 +32,15 @@ const setup = (list = candidates) => {
 };
 
 describe("OptimizeBrainModal", () => {
+  it("the check notice names the pairs the model did not answer", async () => {
+    const { root, actions } = setup();
+    await settle();
+    actions.classify.mockResolvedValueOnce({ judged: 0, merge: 0, keep: 0, failedBatches: 0, dropped: 0, unanswered: 11 });
+    button(root(), "Check with model").dispatchEvent({ type: "click" });
+    await settle();
+    expect(getNoticeMessages()).toContain("Model checked 0 pairs: 0 merge, 0 keep, 11 pairs not answered");
+  });
+
   it("lists rows with counts and evidence, plural checked and typo unchecked", () => {
     const { modal, root } = setup();
     expect(modal.titleEl.textContent).toBe("Review 2 tag merges");
