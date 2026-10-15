@@ -92,17 +92,13 @@ export class OptimizeBrainModal extends Modal {
       const setting = new Setting(contentEl)
         .setName(`${row.from} (${row.fromCount}) → ${row.to} (${row.toCount})`)
         .setDesc(`${row.evidence.join(", ")}${row.verdict ? ` · model: ${row.verdict.verdict}` : ""}`);
-      const check = setting.controlEl.createEl("input", { attr: { type: "checkbox" } });
-      check.checked = row.checked;
-      check.addEventListener("change", () => {
-        this.state = toggleRow(this.state, row.id, check.checked);
-      });
+      // A toggle row stays on one line at phone width; a bare input is stretched to the row's width.
       setting
-        .addButton((b) => b.setButtonText("Swap").onClick(() => {
+        .addExtraButton((b) => b.setIcon("arrow-left-right").setTooltip("Swap").onClick(() => {
           this.state = swapRow(this.state, row.id);
           this.render();
         }))
-        .addButton((b) => b.setButtonText("Dismiss").onClick(() => {
+        .addExtraButton((b) => b.setIcon("x").setTooltip("Dismiss").onClick(() => {
           void this.actions.dismiss(row.id).then(
             () => {
               this.state = removeRow(this.state, row.id);
@@ -110,6 +106,9 @@ export class OptimizeBrainModal extends Modal {
             },
             (error: unknown) => new Notice(`Tag dismiss failed: ${errorMessage(error)}`),
           );
+        }))
+        .addToggle((t) => t.setValue(row.checked).onChange((on) => {
+          this.state = toggleRow(this.state, row.id, on);
         }));
     }
     if (this.classifierLine) contentEl.createDiv({ text: this.classifierLine.text });
