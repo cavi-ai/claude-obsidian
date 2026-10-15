@@ -1,6 +1,7 @@
 import { type App, MarkdownView, Notice, setIcon } from "obsidian";
 import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
+import { errorMessage } from "../../records";
 import type { AgentTurnResult } from "../../agent/loop";
 import type { ChatTurnService, TurnEvent } from "../../chat/turnService";
 import type { ToolResultBlock, ToolUseBlock } from "../../providers/types";
@@ -77,6 +78,7 @@ export class Transcript {
       const chipBubble = this.messagesEl.createDiv({ cls: "cc-msg cc-user cc-command" });
       this.renderCommandChip(chipBubble, m.display);
       this.addUserActions(chipBubble, m.content);
+      this.renderContextNote(chipBubble, m.contextSources);
       return;
     }
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
@@ -91,7 +93,10 @@ export class Transcript {
       body.setText(rendered);
     });
     if (m.role === "assistant" && m.content.trim().length > 0) this.addAssistantActions(bubble, m.content);
-    if (m.role === "user") this.addUserActions(bubble, m.content);
+    if (m.role === "user") {
+      this.addUserActions(bubble, m.content);
+      this.renderContextNote(bubble, m.contextSources);
+    }
   }
 
   renderEmptyState(): void {
@@ -442,10 +447,15 @@ export class Transcript {
   }
 
   annotateContext(sources: string[]): void {
-    if (sources.length === 0) return;
     const last = this.messagesEl.lastElementChild;
     if (!last) return;
-    last.createDiv({ cls: "cc-context-note", text: `+ context: ${sources.join(", ")}` });
+    this.renderContextNote(last as HTMLElement, sources);
+  }
+
+  private renderContextNote(bubble: HTMLElement, sources?: string[]): void {
+    const valid = Array.isArray(sources) && sources.every((source) => typeof source === "string");
+    if (valid && sources.length === 0) return;
+    bubble.createDiv({ cls: "cc-context-note", text: valid ? `+ context: ${sources.join(", ")}` : "Context details unavailable" });
   }
 
   private addAssistantActions(bubble: HTMLElement, full: string): void {
@@ -467,7 +477,13 @@ export class Transcript {
       bar,
       isArtifact ? "Save artifact" : "Save as note",
       isArtifact ? "layout-dashboard" : "save",
-      () => void this.saveReplyAsNote(full),
+      () => {
+        if (saveBtn.disabled) return;
+        saveBtn.disabled = true;
+        void this.saveReplyAsNote(full)
+          .catch((error: unknown) => new Notice(`Couldn't save or open the reply: ${errorMessage(error)}`))
+          .finally(() => { saveBtn.disabled = false; });
+      },
     );
     if (isArtifact) saveBtn.addClass("cc-accent");
     // A plan reply (has a `## Build tasks` checklist) gets execution buttons:
@@ -642,11 +658,12 @@ export class Transcript {
     }
     const { tags, summary, title } = await this.maybeIndex(full);
     const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
-    await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
+    const file = await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
       baseTags: this.plugin.settings.chatBaseTags,
       extraTags: tags,
       ...(summary !== undefined ? { summary } : {}),
     });
+    await this.app.workspace.getLeaf(true).openFile(file);
   }
 
   private insertIntoNote(text: string): void {

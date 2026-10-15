@@ -41,6 +41,39 @@ describe("ConversationsController.setProject", () => {
   });
 });
 
+describe("ConversationsController.setTurnContext", () => {
+  it("persists a snapshot on the matching user message without replacing the running receipt", async () => {
+    const { controller, persisted, state } = harness();
+    const turn = await controller.beginTurn(null, [{ role: "user", content: "Summarize" }], { backend: "anthropic", model: "m", mode: "ask" });
+    const sources = ["active note: Original.md"];
+    expect(await controller.setTurnContext(turn.conversationId, turn.turnId, sources)).toBe(true);
+    sources[0] = "Different.md";
+    const saved = JSON.parse(JSON.stringify(persisted.at(-1))) as ConversationState;
+    expect(saved.conversations[0]?.messages[0]?.contextSources).toEqual(["active note: Original.md"]);
+    expect(state().conversations[0]?.activeTurn?.state).toBe("running");
+    const before = state();
+    expect(await controller.setTurnContext(turn.conversationId, "stale-turn", ["Wrong.md"])).toBe(false);
+    expect(state()).toBe(before);
+  });
+
+  it("rolls back a failed context save without changing the original request", async () => {
+    let state = emptyState();
+    let fail = false;
+    const controller = new ConversationsController({
+      state: { get: () => state, set: (next) => { state = next; } },
+      persist: async () => { if (fail) throw new Error("Disk is full"); },
+      activity: () => ({ start: () => undefined, update: () => undefined }) as unknown as ActivityStore,
+      settings: () => ({ maxConversations: 0 }) as PluginSettings,
+    });
+    const turn = await controller.beginTurn(null, [{ role: "user", content: "Summarize" }], { backend: "anthropic", model: "m", mode: "ask" });
+    const before = state;
+    fail = true;
+    await expect(controller.setTurnContext(turn.conversationId, turn.turnId, ["Original.md"])).rejects.toThrow("Disk is full");
+    expect(state).toBe(before);
+    expect(state.conversations[0]?.messages[0]?.contextSources).toBeUndefined();
+  });
+});
+
 describe("ConversationsController.capTurn", () => {
   const messages = [{ role: "user" as const, content: "Research everything" }];
 

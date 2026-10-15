@@ -408,10 +408,11 @@ export class Composer {
 
   renderContextManager(): void {
     if (!this.contextManager) return;
-    const active = this.deps.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
+    const view = this.deps.resolveMarkdownContextView();
     const model = buildContextManagerModel({
       toggles: this.contextToggles,
-      activeNotePath: active?.path ?? null,
+      activeNotePath: (view?.file ?? this.app.workspace.getActiveFile())?.path ?? null,
+      selectionAvailable: !!view?.editor.getSelection().trim(),
       paths: this.attachedPaths,
       media: this.attachedMedia,
       pages: this.attachedPages,
@@ -428,10 +429,9 @@ export class Composer {
   }
 
   removeContextSource(id: string): void {
-    const active = this.deps.resolveMarkdownContextView()?.file ?? this.app.workspace.getActiveFile();
     const model = buildContextManagerModel({
       toggles: this.contextToggles,
-      activeNotePath: active?.path ?? null,
+      activeNotePath: null,
       paths: this.attachedPaths,
       media: this.attachedMedia,
       pages: this.attachedPages,

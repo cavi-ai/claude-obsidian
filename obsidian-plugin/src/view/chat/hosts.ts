@@ -12,7 +12,7 @@ export type HeaderConversations = Pick<ConversationsController, "delete" | "getA
 export type ChatConversations = HeaderConversations & Pick<
   ConversationsController,
   | "activeId" | "beginTurn" | "capTurn" | "clearEditProposal" | "completeTurn" | "interruptTurn"
-  | "registerTurn" | "saveEditProposal" | "setProject" | "stopTurn"
+  | "registerTurn" | "saveEditProposal" | "setProject" | "setTurnContext" | "stopTurn"
 >;
 
 export type ChatSessions = Pick<SessionActions, "archive" | "distill" | "fork" | "forkFromSummary">;
