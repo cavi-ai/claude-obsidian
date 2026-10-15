@@ -111,6 +111,10 @@ export class OptimizeBrainModal extends Modal {
           this.state = toggleRow(this.state, row.id, on);
         }));
     }
+    const waiting = this.state.awaitingModel;
+    if (waiting > 0) {
+      contentEl.createDiv({ text: `${waiting} more ${waiting === 1 ? "pair is" : "pairs are"} offered only if Check with model says they are the same tag.` });
+    }
     if (this.classifierLine) contentEl.createDiv({ text: this.classifierLine.text });
     new Setting(contentEl)
       .addButton((b) => b.setButtonText("Check with model").setDisabled(this.checking || this.applying || !this.classifierLine?.ready).onClick(() => this.runClassify()))
