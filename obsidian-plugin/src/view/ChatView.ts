@@ -1,6 +1,7 @@
 import { ItemView, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
 import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
+import { errorMessage } from "../records";
 import { effectiveToggles } from "./chat/contextScope";
 import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
@@ -697,8 +698,7 @@ export class ChatView extends ItemView {
     // mode the pre-emptive vault-search stuffing is skipped — the vault_search
     // tool replaces it with better, model-chosen queries.
     const toggles = effectiveToggles(this.contextToggles, this.turnContextOverride, agentActive);
-    // A chat project's pinned notes join the attach list for this turn only —
-    // the composer's own attachedPaths (session-scoped) stay untouched.
+    // Project-pinned notes join this turn's context without changing the composer.
     const pinnedPaths: AttachedPath[] = (this.currentChatProject?.pinned ?? [])
       .filter((path) => !this.attachedPaths.some((a) => a.path === path))
       .map((path) => ({ path, kind: "note" as const }));
@@ -715,15 +715,28 @@ export class ChatView extends ItemView {
       toggles.linkedNotes || toggles.searchVault ? await this.plugin.loadedOntology() : null,
     );
     if (controller.signal.aborted) return true;
-    // A resumed Claude Code session already owns its history. Sending the whole
-    // conversation again can repeat the interrupted request and duplicate writes.
+    try {
+      if (!await this.plugin.conversations().setTurnContext(turn.conversationId, turn.turnId, ctx.sources)) return true;
+    } catch (error) {
+      const message = `Couldn't save this request's context, so it was not sent: ${errorMessage(error)}`;
+      await this.plugin.conversations().interruptTurn(turn.conversationId, turn.turnId, turnMessages, message);
+      this.unregisterCurrentTurn?.();
+      this.unregisterCurrentTurn = null;
+      this.currentTurn = null;
+      this.setSending(false);
+      new Notice(message);
+      return true;
+    }
+    if (controller.signal.aborted) return true;
+    turnMessages[turnMessages.length - 1]!.contextSources = [...ctx.sources];
+    // Resumed CLI sessions own their history; replaying it can duplicate writes.
     const wireMessages = this.resumeCliSessionId ? this.messages.slice(-1) : compactArtifactsInHistory(this.messages);
     const apiMessages: ApiMessage[] = toApiMessages(wireMessages);
     if (ctx.text) {
       const last = apiMessages[apiMessages.length - 1];
       if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
-      this.transcript.annotateContext(ctx.sources);
     }
+    if (this.conversationId === turn.conversationId) this.transcript.annotateContext(ctx.sources);
 
     // Attached PDFs/images become content blocks ahead of the text (media is
     // per-turn: consumed by this send, pills cleared). Local backends can't
@@ -748,8 +761,7 @@ export class ChatView extends ItemView {
     const wantThinking = agentActive || caps.cli
       ? !!(this.controls.thinking && this.controls.showThinking)
       : !startedOnLocal && !!(this.controls.thinking && this.controls.showThinking);
-    // Routing runs inside ChatTurnService.start() so it keeps going — and still
-    // persists — even if this view closes mid-turn.
+    // ChatTurnService owns routing and persistence after the view closes.
     const agentRoute = agentActive || caps.cli;
     const coreRun = (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => routeTurn(
       { backend, agent: agentRoute, providerId: provider.id },

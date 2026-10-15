@@ -116,6 +116,27 @@ export class ConversationsController {
     return this.lifecycle().register(conversationId, turnId, stop);
   }
 
+  /** Record gathered context before backend work, without changing the active conversation. */
+  async setTurnContext(conversationId: string, turnId: string, sources: string[]): Promise<boolean> {
+    const { state, persist } = this.deps;
+    const conversation = state.get().conversations.find(({ id }) => id === conversationId);
+    const receipt = conversation?.activeTurn;
+    if (!conversation || receipt?.id !== turnId || receipt.state !== "running") return false;
+    const index = receipt.userMessageIndex;
+    if (conversation.messages[index]?.role !== "user") return false;
+    const before = state.get();
+    const messages = conversation.messages.map((message, i) => i === index ? { ...message, contextSources: [...sources] } : message);
+    const next = saveConversation(before, { ...conversation, messages }, 0);
+    state.set(next);
+    try {
+      await persist();
+    } catch (error) {
+      if (state.get() === next) state.set(before);
+      throw error;
+    }
+    return true;
+  }
+
   async stopTurn(conversationId: string, turnId: string): Promise<void> {
     const { state, persist } = this.deps;
     const turn = state.get().conversations.find(({ id }) => id === conversationId)?.activeTurn;

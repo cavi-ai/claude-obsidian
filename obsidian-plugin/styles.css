@@ -395,12 +395,12 @@ body:not(.is-mobile) .cc-user {
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: var(--text-faint);
-  opacity: 0.55;
+  color: var(--text-normal);
+  opacity: 1;
   cursor: pointer;
   box-shadow: none;
 }
-/* Ghost actions surface on message hover or focus. */
+/* Keep enabled reply actions readable before hover or focus. */
 .cc-msg:hover .cc-action,
 .cc-msg:focus-within .cc-action {
   opacity: 1;
