@@ -30,7 +30,7 @@ describe("review rows", () => {
   it("tag merge rows are toggle rows", () => {
     const candidates: MergeCandidate[] = [
       { id: "llm|llms", from: "llms", to: "llm", evidence: ["plural"], score: 1, fromCount: 2, toCount: 9 },
-      { id: "kube|kubes", from: "kubes", to: "kube", evidence: ["typo"], score: 0.6, fromCount: 1, toCount: 4 },
+      { id: "kube|kubes", from: "kubes", to: "kube", evidence: ["plural-loose"], score: 0.7, fromCount: 1, toCount: 4 },
     ];
     const modal = new OptimizeBrainModal(new App(), candidates, {
       apply: vi.fn(), dismiss: vi.fn(), classify: vi.fn(), rescan: vi.fn(), classifierInfo,
