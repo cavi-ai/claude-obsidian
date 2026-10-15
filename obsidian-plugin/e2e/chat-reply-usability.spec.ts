@@ -2,6 +2,58 @@ import { expect, test } from "./fixtures";
 
 test.use({ actionTimeout: 10_000 });
 
+for (const scenario of [
+  {
+    name: "factual bullet summary",
+    prompt: "Summarize my active note as three factual bullet points. Keep the limitations clear.",
+    reply: "- The pilot involved four participants and had no control group.\n- Participants preferred a consolidated checklist.\n- Productivity and error reductions remain unproven.",
+    folder: "Claude/Chats/",
+    type: "chat",
+    plan: false,
+  },
+  {
+    name: "explicit build plan",
+    prompt: "Make an implementation plan to organize the pilot notes.",
+    reply: "## Build tasks\n- [ ] Create a pilot index note\n- [ ] Link the four participant notes",
+    folder: "Claude/Plans/",
+    type: "plan",
+    plan: true,
+  },
+]) {
+  test(`classifies and saves ${scenario.name}`, async ({ rig }, testInfo) => {
+    const { page } = await rig.reset({
+      extraFiles: { "Pilot reading.md": "# Checklist pilot\n\nFour participants tried a consolidated checklist. There was no control group. Participants preferred the checklist, but productivity and error reductions have not been established." },
+      settingsOverride: { autoTagOnSave: false, agentModeEnabled: false },
+      providerReply: [{ match: ".", replies: [scenario.reply] }],
+    });
+    await page.getByText("Pilot reading", { exact: true }).click();
+    await page.locator('[aria-label="Open Companion for Claude"]').click();
+    const chat = page.locator(".cc-chat-root");
+    await chat.locator("textarea").fill(scenario.prompt);
+    await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
+    await expect(chat.locator(".cc-assistant .cc-body")).toContainText(scenario.plan ? "Create a pilot index note" : "The pilot involved four participants");
+    // Wait for streaming to finish before checking the final action set.
+    const save = chat.getByRole("button", { name: "Save as note", exact: true });
+    await expect(save).toBeVisible();
+    await expect(chat.getByRole("button", { name: "Implement", exact: true })).toHaveCount(scenario.plan ? 1 : 0);
+    await expect(chat.getByRole("button", { name: "Build", exact: true })).toHaveCount(scenario.plan ? 1 : 0);
+    await save.click();
+    const savedNote = () => page.evaluate(async () => {
+      const app = (window as unknown as { app: {
+        workspace: { getActiveFile(): { path: string } | null };
+        vault: { read(file: { path: string }): Promise<string> };
+      } }).app;
+      const file = app.workspace.getActiveFile();
+      return { path: file?.path ?? "", content: file ? await app.vault.read(file) : "" };
+    });
+    await expect.poll(async () => (await savedNote()).path.startsWith(scenario.folder)).toBe(true);
+    const saved = await savedNote();
+    expect(saved.content).toContain(`type: "${scenario.type}"`);
+    expect(saved.content).toContain(scenario.reply);
+    await page.screenshot({ path: testInfo.outputPath("saved-reply.png") });
+  });
+}
+
 for (const theme of ["light", "dark"] as const) {
   test(`reply actions, saved notes, and resumed context in ${theme} theme`, async ({ rig }) => {
     const { page } = await rig.reset({
