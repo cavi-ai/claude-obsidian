@@ -18,6 +18,31 @@ function harness() {
 }
 
 describe("chat reply actions and provenance", () => {
+  it.each([
+    { name: "factual bullets", reply: "- The pilot involved four participants and had no control group.\n- Participants preferred a consolidated checklist.\n- Productivity and error reductions remain unproven.", plan: false },
+    { name: "numbered findings", reply: "1. Four participants took part.\n2. There was no control group.", plan: false },
+    { name: "ordinary checklist", reply: "## Reading checklist\n- [ ] Read the pilot report", plan: false },
+    { name: "quoted plan example", reply: "```markdown\n## Build tasks\n- [ ] Create the parser\n```", plan: false },
+    { name: "explicit plan", reply: "## Build tasks\n- [ ] Create the parser\n- [x] Write tests", plan: true },
+    { name: "artifact plan", reply: "```claude-html\n<!DOCTYPE html><html><head><title>Parser plan</title></head><body>Plan</body></html>\n```\n\n## Build tasks\n- [ ] Create the parser", plan: true },
+  ])("classifies $name for actions and saved-note metadata", async ({ reply, plan }) => {
+    const { app, transcript, list } = harness();
+    const opened: TFile[] = [];
+    app.workspace.getLeaf = () => ({ openFile: async (file: TFile) => { opened.push(file); } }) as never;
+    transcript.renderStoredMessage({ role: "assistant", content: reply });
+    const buttons = list.querySelectorAll("button");
+    const labels = buttons.map((button) => button.getAttribute("aria-label"));
+    expect(labels.includes("Implement")).toBe(plan);
+    expect(labels.includes("Build")).toBe(plan);
+    buttons.find((button) => ["Save as note", "Save artifact"].includes(button.getAttribute("aria-label") ?? ""))!.dispatchEvent({ type: "click" });
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    const saved = await app.vault.read(opened[0]!);
+    expect(opened[0]!.path.startsWith(plan ? "Claude/Plans/" : "Claude/Chats/")).toBe(true);
+    expect(saved).toContain(plan ? 'type: "plan"' : 'type: "chat"');
+    expect(saved).toContain(reply);
+    if (!plan) expect(saved).not.toContain('type: "plan"');
+  });
+
   it.each([undefined, "/summarize"])("replays recorded context for a user message with display %s", (display) => {
     const { transcript, list } = harness();
     transcript.renderStoredMessage({ role: "user", content: "Summarize", ...(display ? { display } : {}), contextSources: ["active note: Notes/Original.md"] });

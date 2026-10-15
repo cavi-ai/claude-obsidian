@@ -1,4 +1,4 @@
-import { type App, MarkdownView, Notice, setIcon } from "obsidian";
+import { type App, MarkdownView, Notice, setIcon, type TFile } from "obsidian";
 import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
 import { errorMessage } from "../../records";
@@ -11,7 +11,7 @@ import { hasIncompleteHtmlArtifactFence } from "../streamRender";
 import { TurnRenderer, type TurnRendererHost } from "../turnRenderer";
 import { ARTIFACT_HEIGHT } from "../../artifacts/renderInline";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../../artifacts/artifactStore";
-import { extractTasks } from "../../build/spec";
+import { extractTasks, isPlanReply } from "../../build/spec";
 import { errorHint, type ErrorHintProvider } from "../../providers/errorHints";
 import { chipLabel } from "../toolChipLabel";
 import { addUsage } from "../../usage/tokens";
@@ -489,7 +489,7 @@ export class Transcript {
     // A plan reply (has a `## Build tasks` checklist) gets execution buttons:
     // "Implement" runs the tasks in-app via agent mode (vault work); "Build"
     // hands the plan off to Claude Code (code work outside the vault).
-    if (extractTasks(full).length > 0) {
+    if (isPlanReply(full)) {
       const impl = this.actionBtn(bar, "Implement", "play", () => void this.implementFromReply(full));
       impl.addClass("cc-accent");
       this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full));
@@ -575,14 +575,18 @@ export class Transcript {
 
   /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
   private async buildFromReply(full: string): Promise<void> {
+    const file = await this.savePlanReply(full);
+    await this.plugin.research().handoffToBuild(file);
+  }
+
+  private async savePlanReply(full: string) {
     const artifact = extractArtifact(full);
     const { tags, summary, title } = await this.maybeIndex(full);
     const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
-    const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
+    return savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
       extraTags: tags,
       ...(summary !== undefined ? { summary } : {}),
     });
-    await this.plugin.research().handoffToBuild(file);
   }
 
   /**
@@ -631,38 +635,29 @@ export class Transcript {
   private async saveReplyAsNote(full: string): Promise<void> {
     const artifact = extractArtifact(full);
     new Notice("Indexing & saving…");
+    let file: TFile;
 
     // A plan reply carries a `## Build tasks` checklist. Save it as a canonical
     // `type: plan` note (artifact renders inline + checklist drives Build).
-    if (extractTasks(full).length > 0) {
-      const { tags, summary, title } = await this.maybeIndex(full);
-      const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
-      const file = await savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
-        extraTags: tags,
-        ...(summary !== undefined ? { summary } : {}),
-      });
-      await this.app.workspace.getLeaf(true).openFile(file);
-      return;
-    }
-
-    if (artifact) {
+    if (isPlanReply(full)) {
+      file = await this.savePlanReply(full);
+    } else if (artifact) {
       const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
-      const file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
+      file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
         height: ARTIFACT_HEIGHT,
         baseTags: this.plugin.settings.artifactBaseTags,
         extraTags: tags,
         ...(summary !== undefined ? { summary } : {}),
       });
-      await this.app.workspace.getLeaf(true).openFile(file);
-      return;
+    } else {
+      const { tags, summary, title } = await this.maybeIndex(full);
+      const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
+      file = await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
+        baseTags: this.plugin.settings.chatBaseTags,
+        extraTags: tags,
+        ...(summary !== undefined ? { summary } : {}),
+      });
     }
-    const { tags, summary, title } = await this.maybeIndex(full);
-    const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
-    const file = await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
-      baseTags: this.plugin.settings.chatBaseTags,
-      extraTags: tags,
-      ...(summary !== undefined ? { summary } : {}),
-    });
     await this.app.workspace.getLeaf(true).openFile(file);
   }
 
