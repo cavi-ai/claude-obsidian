@@ -35,6 +35,7 @@ import { ComposerContextManager } from "./ComposerContextManager";
 import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
+import { ConversationDrafts } from "./chat/conversationDrafts";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
 import { TurnRunners } from "./chat/turnRunners";
@@ -146,10 +147,9 @@ export class ChatView extends ItemView {
   /** Latest streamed text of the in-flight turn (for clean abort handling). */
   private get _lastBuffer(): string { return this.turn.lastBuffer; }
   private set _lastBuffer(v: string) { this.turn.lastBuffer = v; }
-  /** Guards the setup card's background sign-in probe against stacking on re-render, per CLI backend id. */
-
   /** The conversation this leaf shows; null for an unstarted "New chat tab". Persisted via getState/setState. */
   private conversationId: string | null = null;
+  private readonly drafts = new ConversationDrafts(() => this.composer);
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -286,12 +286,10 @@ export class ChatView extends ItemView {
     if (raw === null) {
       // Explicit "start empty" signal (the New chat tab command) — overrides
       // whatever onOpen loaded by default for a freshly created leaf.
-      this.conversationId = null;
       this.resetToEmpty();
     } else if (typeof raw === "string") {
       const conversation = this.plugin.conversations().list().find((c) => c.id === raw);
       if (conversation) {
-        this.conversationId = raw;
         this.loadConversation(conversation);
       }
       // An unknown id (e.g. a deleted conversation) keeps the current state.
@@ -371,6 +369,7 @@ export class ChatView extends ItemView {
   /** Replace the panel contents with a stored conversation and render it. */
   loadConversation(conversation: Conversation): void {
     this.detachTurnRendering();
+    this.drafts.switchTo(this.conversationId, conversation.id);
     this.conversationId = conversation.id;
     this.projects.forget();
     void this.projects.refreshCurrent();
@@ -425,6 +424,7 @@ export class ChatView extends ItemView {
   /** Clear the panel to its empty state without altering stored history. */
   resetToEmpty(): void {
     this.detachTurnRendering();
+    this.drafts.switchTo(this.conversationId, null);
     this.conversationId = null;
     this.projects.forget();
     this.messages = [];
@@ -542,10 +542,9 @@ export class ChatView extends ItemView {
 
   clearChat(): void {
     this.detachTurnRendering();
-    this.chat.clear();
-    // The previous conversation is already auto-saved; detach so the next turn
-    // begins a fresh one instead of continuing it.
+    this.drafts.switchTo(this.conversationId, null);
     this.conversationId = null;
+    this.chat.clear();
     this.projects.clear();
     this.attachedPaths = [];
     this.attachedPages = [];
@@ -671,6 +670,7 @@ export class ChatView extends ItemView {
       for (const message of started.regenerating ? this.messages : started.messages.slice(0, -1)) this.renderStoredMessage(message);
     }
     this.messages = started.messages;
+    this.drafts.consume(this.conversationId);
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
     await this.projects.bindPending(turn.conversationId);
