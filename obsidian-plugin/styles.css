@@ -182,7 +182,7 @@ body:not(.is-mobile) .cc-model.cc-model-tappable:hover {
   flex-direction: column;
   gap: 4px;
 }
-.cc-assistant + .cc-assistant {
+.cc-assistant + .cc-assistant:not(.cc-regeneration) {
   display: none;
 }
 /* Screen-reader only: bubble shape and the spark mark show the speaker. */

@@ -207,13 +207,17 @@ export class Transcript {
    * Returns the unsubscribe — self-invoked once the turn settles.
    */
   startTurnRendering(conversationId: string, bubble: HTMLElement, body: HTMLElement, wantThinking: boolean, turnService: ChatTurnService): () => void {
+    const conversation = this.plugin.conversations().list().find((entry) => entry.id === conversationId);
+    const previous = conversation?.activeTurn?.regenerating ? conversation : undefined;
+    if (previous) bubble.addClass("cc-regeneration");
+    const previousBubble = previous ? bubble.previousElementSibling : null;
     const renderer = new TurnRenderer(this.turnHost(), bubble, body, wantThinking);
     const chips = this.createToolChips(bubble, body);
     const status = bubble.querySelector<HTMLElement>(".cc-turn-status");
     let unsubscribe: () => void = () => undefined;
     const settle = (result: AgentTurnResult): void => {
       status?.remove();
-      void this.settleTurnRendering(conversationId, bubble, body, renderer, result).finally(() => {
+      void this.settleTurnRendering(conversationId, bubble, body, renderer, result, previous, previousBubble).finally(() => {
         unsubscribe();
         if (this.turn.turnRenderUnsubscribe === unsubscribe) this.turn.turnRenderUnsubscribe = null;
       });
@@ -245,11 +249,14 @@ export class Transcript {
     body: HTMLElement,
     renderer: TurnRenderer,
     result: AgentTurnResult,
+    previous?: Conversation,
+    previousBubble?: Element | null,
   ): Promise<void> {
     // Idempotent per bubble: "done"/"error" and a stale replay can both reach
     // here for the same turn — only the first call commits the message + actions.
     if (bubble.dataset.ccFinished === "1") return;
     bubble.dataset.ccFinished = "1";
+    const messages = this.messages;
     this.clearThinkingStatus();
 
     // Never persist a half-generated HTML artifact fence left by an abort.
@@ -263,7 +270,20 @@ export class Transcript {
         body.setText(result.text);
       }
     }
-    const full = !incompleteArtifact && result.text.trim().length > 0 ? result.text : null;
+    if (this.messages !== messages) return; // A late render must not change another conversation.
+    const keepPrevious = !!previous && (!!result.error || !!result.aborted || !result.text.trim());
+    if (previous) {
+      if (keepPrevious) {
+        this.chat.messages = [...previous.messages];
+        this.annotateContext(previous.messages.at(-2)?.contextSources ?? []);
+        this.annotateAgentNotice(bubble, "Previous answer kept.");
+      } else {
+        previousBubble?.remove();
+        if (this.messages.at(-1)?.role === "assistant") this.messages.pop();
+        this.annotateContext(previous.activeTurn?.contextSources ?? []);
+      }
+    }
+    const full = !keepPrevious && !incompleteArtifact && result.text.trim().length > 0 ? result.text : null;
     if (full) {
       this.messages.push({ role: "assistant", content: full, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) });
       this.addAssistantActions(bubble, full);
@@ -447,9 +467,11 @@ export class Transcript {
   }
 
   annotateContext(sources: string[]): void {
-    const last = this.messagesEl.lastElementChild;
+    const users = this.messagesEl.querySelectorAll<HTMLElement>(".cc-user");
+    const last = users[users.length - 1];
     if (!last) return;
-    this.renderContextNote(last as HTMLElement, sources);
+    last.querySelectorAll(".cc-context-note").forEach((label) => label.remove());
+    this.renderContextNote(last, sources);
   }
 
   private renderContextNote(bubble: HTMLElement, sources?: string[]): void {

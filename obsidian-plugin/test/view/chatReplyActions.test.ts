@@ -18,6 +18,16 @@ function harness() {
 }
 
 describe("chat reply actions and provenance", () => {
+  it("updates the user source label while a previous assistant answer remains visible", () => {
+    const { transcript, list } = harness();
+    transcript.renderStoredMessage({ role: "user", content: "Summarize", contextSources: ["active note: Original.md"] });
+    transcript.renderStoredMessage({ role: "assistant", content: "The original answer" });
+    transcript.annotateContext(["active note: Replacement.md"]);
+    expect(list.querySelector(".cc-user")!.querySelectorAll(".cc-context-note").map((element) => element.textContent)).toEqual(["+ context: active note: Replacement.md"]);
+    expect(list.querySelector(".cc-assistant")!.querySelectorAll(".cc-context-note")).toHaveLength(0);
+    transcript.annotateContext([]);
+    expect(list.querySelectorAll(".cc-context-note")).toHaveLength(0);
+  });
   it.each([
     { name: "factual bullets", reply: "- The pilot involved four participants and had no control group.\n- Participants preferred a consolidated checklist.\n- Productivity and error reductions remain unproven.", plan: false },
     { name: "numbered findings", reply: "1. Four participants took part.\n2. There was no control group.", plan: false },

@@ -19,12 +19,14 @@ export type ChatSessions = Pick<SessionActions, "archive" | "distill" | "fork" |
 
 export type ComposerHost = Pick<ClaudeCompanionPlugin, "captureWebPage" | "router" | "saveSettings" | "settings">;
 
-export type TranscriptHost = Pick<ClaudeCompanionPlugin, "research" | "router" | "settings" | "views">;
+export type TranscriptHost = Pick<ClaudeCompanionPlugin, "research" | "router" | "settings" | "views"> & {
+  conversations: () => Pick<ChatConversations, "list">;
+};
 
 export type SetupCardHost = Pick<ClaudeCompanionPlugin, "onboarding" | "router" | "saveSettings" | "secrets" | "settings">;
 
 /** The chat view's own needs plus everything it hands to the composer, header, transcript, and setup card. */
-export type ChatViewHost = ComposerHost & TranscriptHost & SetupCardHost & Omit<HeaderHost, "conversations"> & {
+export type ChatViewHost = ComposerHost & Omit<TranscriptHost, "conversations"> & SetupCardHost & Omit<HeaderHost, "conversations"> & {
   conversations: () => ChatConversations;
   semantic: () => Pick<SemanticController, "semanticSearch">;
   commandActions: () => Pick<CommandActions, PluginSlashAction>;
