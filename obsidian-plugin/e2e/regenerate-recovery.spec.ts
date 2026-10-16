@@ -60,9 +60,11 @@ for (const outcome of ["failure", "stop", "reload"] as const) {
     await expect(chat).toContainText("Previous answer kept.");
     expect((await saved()).messages).toEqual(exchange);
     await expect(chat.getByRole("button", { name: "Save as note", exact: true })).toBeVisible();
-    await rig.control.setStubs({ providerReply: [{ match: "/./", replies: [replacement] }] });
+    await rig.control.setStubs({ providerReply: [{ match: "/./", replies: [replacement] }], providerDelayMs: 500 });
     await chat.locator(".cc-interrupted-turn").getByRole("button", { name: "Retry", exact: true }).click();
-    await expect(chat.locator(".cc-assistant .cc-body")).toHaveText(replacement);
+    await expect(chat.locator(".cc-regeneration")).toBeVisible();
+    await expect(chat.locator(".cc-assistant:not(.cc-regeneration) .cc-body")).toHaveText(original);
+    await expect(chat.locator(".cc-assistant .cc-body")).toHaveText([replacement]);
     await expect(chat.locator(".cc-user")).toHaveCount(1);
     await expect.poll(async () => (await saved()).messages.map((message) => message.content)).toEqual([prompt, replacement]);
     expect((await saved()).activeTurn).toBeUndefined();
