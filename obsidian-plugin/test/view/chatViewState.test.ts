@@ -277,14 +277,18 @@ describe("ChatView per-leaf conversation state", () => {
 describe("ChatView reused drafts", () => {
   const prompt = "Summarize the pilot.";
   const draft = "  Compare the pilot.\nKeep the limitations clear.  ";
-  function fixture(text = draft) {
-    const view = buildView(statePlugin()) as Seam & { renderStoredMessage(message: { role: "user"; content: string }): void };
+  function fixture(text = draft, message: { content: string; display?: string } = { content: prompt }, stored = true) {
+    const view = buildView(statePlugin()) as Seam & {
+      renderStoredMessage(message: { role: "user"; content: string; display?: string }): void;
+      transcript: { renderMessage(role: "user", text: string, opts: { command: boolean; prompt: string }): void };
+    };
     const input = new FakeElement() as unknown as HTMLTextAreaElement;
     input.value = text;
     view.inputEl = input;
     view.composer.autosizeInput = vi.fn();
     const focus = vi.spyOn(input, "focus");
-    view.renderStoredMessage({ role: "user", content: prompt });
+    if (stored) view.renderStoredMessage({ role: "user", ...message });
+    else view.transcript.renderMessage("user", message.display ?? message.content, { command: message.display !== undefined, prompt: message.content });
     const previous = getLastOpenedModal();
     (view.messagesEl as unknown as FakeElement).querySelectorAll("button").find((button) => button.getAttribute("aria-label") === "Use again")!.dispatchEvent({ type: "click" });
     const modal = getLastOpenedModal();
@@ -308,6 +312,18 @@ describe("ChatView reused drafts", () => {
     const { input, modal } = fixture(text);
     expect(input.value).toBe(prompt);
     expect(modal).toBeUndefined();
+  });
+
+  it.each([false, true])("reuses the editable invocation for a recognized skill (stored: %s)", (stored) => {
+    const display = "/wikilink-weaver Notes/Pilot.md";
+    const { input, modal } = fixture("", { content: "Expanded model instructions", display }, stored);
+    expect(input.value).toBe(display);
+    expect(modal).toBeUndefined();
+  });
+
+  it.each([undefined, "Weekly review", "/not-installed Notes/Pilot.md"])("retains model text for an ordinary or unrecognized display: %s", (display) => {
+    const { input } = fixture("", { content: prompt, display });
+    expect(input.value).toBe(prompt);
   });
 
   it("does not replace a newer edit while the dialog is open", async () => {
