@@ -1727,6 +1727,7 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 .cc-inbox-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 4px 4px 4px 12px;
@@ -1798,13 +1799,16 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
   cursor: default;
 }
 .cc-inbox-enrichment-status {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   padding-inline-end: 8px;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cc-inbox-enrichment-error {
+  flex: 0 0 100%;
   color: var(--text-error);
 }
 .cc-inbox-typed {
