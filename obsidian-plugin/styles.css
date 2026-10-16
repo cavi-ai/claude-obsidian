@@ -3488,6 +3488,22 @@ body.is-mobile.keyboard-animating .workspace-leaf-content .view-content.cc-chat-
   margin-top: 8px;
 }
 
+.cc-turn-complete-action {
+  max-width: min(28rem, 40vw);
+  height: auto;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  box-shadow: none;
+  font-size: inherit;
+}
+.cc-turn-complete-action:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+
 .cc-provenance { border-top: 1px solid var(--background-modifier-border); margin-top: 16px; padding-top: 8px; font-size: var(--font-ui-small); }
 .cc-provenance-title { margin: 0 0 6px; }
 .cc-provenance-list { margin: 0; padding-left: 20px; }
