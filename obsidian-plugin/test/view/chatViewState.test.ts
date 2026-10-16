@@ -99,6 +99,55 @@ function buildView(plugin: ClaudeCompanionPlugin): Seam {
 }
 
 describe("ChatView per-leaf conversation state", () => {
+  const draftConversation = (id: string): Conversation => ({ id, title: id, createdAt: 1, updatedAt: 2, messages: [{ role: "user", content: id }] });
+
+  function draftView(): Seam {
+    const seam = buildView(statePlugin({}, conversationFakes({ conversations: [draftConversation("a"), draftConversation("b")] })));
+    seam.inputEl = { value: "", focus: () => undefined };
+    seam.composer.autosizeInput = () => undefined;
+    return seam;
+  }
+
+  it("restores separate drafts when history switches between conversations", () => {
+    const seam = draftView();
+    seam.loadConversation(draftConversation("a"));
+    seam.inputEl.value = "Release follow-up\nKeep the original wording.  ";
+    seam.loadConversation(draftConversation("b"));
+    expect(seam.inputEl.value).toBe("");
+    seam.inputEl.value = "Pilot follow-up";
+    seam.loadConversation(draftConversation("a"));
+    expect(seam.inputEl.value).toBe("Release follow-up\nKeep the original wording.  ");
+    seam.loadConversation(draftConversation("b"));
+    expect(seam.inputEl.value).toBe("Pilot follow-up");
+  });
+
+  it("preserves an independent new-chat draft across conversation navigation", () => {
+    const seam = draftView();
+    seam.inputEl.value = "Unsent new chat";
+    seam.loadConversation(draftConversation("a"));
+    expect(seam.inputEl.value).toBe("");
+    seam.inputEl.value = "Existing chat follow-up";
+    seam.clearChat();
+    expect(seam.inputEl.value).toBe("Unsent new chat");
+    seam.loadConversation(draftConversation("a"));
+    expect(seam.inputEl.value).toBe("Existing chat follow-up");
+  });
+
+  it("switches drafts through Obsidian view state without overwriting their owner", async () => {
+    const seam = draftView();
+    await seam.setState({ conversationId: "a" }, {});
+    seam.inputEl.value = "A draft";
+    await seam.setState({ conversationId: "b" }, {});
+    expect(seam.inputEl.value).toBe("");
+    seam.inputEl.value = "B draft";
+    await seam.setState({ conversationId: "a" }, {});
+    expect(seam.inputEl.value).toBe("A draft");
+    await seam.setState({ conversationId: null }, {});
+    expect(seam.inputEl.value).toBe("");
+    await seam.setState({ conversationId: "b" }, {});
+    expect(seam.inputEl.value).toBe("B draft");
+  });
+
   it("getState/setState round trip: a known id loads that conversation and is reflected back", async () => {
     const conversation: Conversation = { id: "b", title: "Release notes", createdAt: 1, updatedAt: 2, messages: [{ role: "user", content: "hi" }] };
     const seam = buildView(statePlugin({}, conversationFakes({ conversations: [conversation] })));
