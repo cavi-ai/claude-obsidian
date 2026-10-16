@@ -15,7 +15,7 @@ export function reuseDraft(app: App, composer: Composer, drafts: ConversationDra
   const cancel = () => modal.close();
   const modal = new ChoiceModal(app, {
     title: "Replace current draft?",
-    message: "This replaces your draft.",
+    message: "Overwrite?",
     buttons: [{ label: "Keep draft", value: "keep" }, { label: "Replace draft", value: "replace" }],
     fallback: "keep",
     onChoice: (choice) => {
