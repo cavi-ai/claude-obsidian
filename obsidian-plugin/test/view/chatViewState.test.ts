@@ -1,4 +1,4 @@
-import { App, FakeElement, WorkspaceLeaf } from "obsidian";
+import { App, FakeElement, getLastOpenedModal, WorkspaceLeaf } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatTurnService } from "../../src/chat/turnService";
 import { defaultChatControls } from "../../src/claude/chatControls";
@@ -271,6 +271,74 @@ describe("ChatView per-leaf conversation state", () => {
     expect(setProject).toHaveBeenCalledOnce();
     expect(setProject).toHaveBeenCalledWith("conversation-1", project.id);
     expect(seam.projects.pendingProjectId).toBeNull();
+  });
+});
+
+describe("ChatView reused drafts", () => {
+  const prompt = "Summarize the pilot.";
+  const draft = "  Compare the pilot.\nKeep the limitations clear.  ";
+  function fixture(text = draft) {
+    const view = buildView(statePlugin()) as Seam & { renderStoredMessage(message: { role: "user"; content: string }): void };
+    const input = new FakeElement() as unknown as HTMLTextAreaElement;
+    input.value = text;
+    view.inputEl = input;
+    view.composer.autosizeInput = vi.fn();
+    const focus = vi.spyOn(input, "focus");
+    view.renderStoredMessage({ role: "user", content: prompt });
+    const previous = getLastOpenedModal();
+    (view.messagesEl as unknown as FakeElement).querySelectorAll("button").find((button) => button.getAttribute("aria-label") === "Use again")!.dispatchEvent({ type: "click" });
+    const modal = getLastOpenedModal();
+    return { view, input, focus, modal: modal === previous ? undefined : modal };
+  }
+
+  it.each(["keep", "close", "replace"])("requires an explicit replacement decision: %s", async (choice) => {
+    const { input, focus, modal } = fixture();
+    expect(input.value).toBe(draft);
+    expect(modal).toBeDefined();
+    const buttons = (modal!.contentEl as unknown as FakeElement).querySelectorAll("button");
+    expect(buttons.map((button) => button.textContent)).toEqual(["Keep draft", "Replace draft"]);
+    if (choice === "close") modal!.close();
+    else buttons[choice === "keep" ? 0 : 1]!.dispatchEvent({ type: "click" });
+    await Promise.resolve();
+    expect(input.value).toBe(choice === "replace" ? prompt : draft);
+    expect(focus).toHaveBeenCalled();
+  });
+
+  it.each(["", "  ", prompt])("reuses immediately without a dialog for %j", (text) => {
+    const { input, modal } = fixture(text);
+    expect(input.value).toBe(prompt);
+    expect(modal).toBeUndefined();
+  });
+
+  it("does not replace a newer edit while the dialog is open", async () => {
+    const { input, modal } = fixture();
+    expect(modal).toBeDefined();
+    input.value = "A newer draft";
+    (modal!.contentEl as unknown as FakeElement).querySelectorAll("button")[1]!.dispatchEvent({ type: "click" });
+    await Promise.resolve();
+    expect(input.value).toBe("A newer draft");
+  });
+
+  it("cancels when typing changes, even if the original text is restored", () => {
+    const { input, modal } = fixture();
+    expect(modal).toBeDefined();
+    input.value = "A newer draft";
+    input.dispatchEvent(new Event("input"));
+    input.value = draft;
+    expect(modal!.closed).toBe(true);
+    expect(input.value).toBe(draft);
+  });
+
+  it("does not replace a draft after chat navigation", async () => {
+    const { view, input, modal, focus } = fixture();
+    expect(modal).toBeDefined();
+    view.clearChat();
+    input.value = draft;
+    focus.mockClear();
+    (modal!.contentEl as unknown as FakeElement).querySelectorAll("button")[1]!.dispatchEvent({ type: "click" });
+    await Promise.resolve();
+    expect(input.value).toBe(draft);
+    expect(focus).not.toHaveBeenCalled();
   });
 });
 

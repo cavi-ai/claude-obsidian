@@ -32,6 +32,7 @@ function previewText(text: string): string {
 export interface TranscriptDeps {
   /** Put text in the composer, focused and sized, without sending it. */
   setDraft(text: string): void;
+  reuseDraft(text: string): void;
   onSend(): Promise<void>;
   prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void;
   regenerate(opts?: { maxTokens?: number }): Promise<void>;
@@ -72,31 +73,11 @@ export class Transcript {
 
   /** Render one persisted message, including assistant action buttons. */
   renderStoredMessage(m: ChatMessage): void {
-    // A user turn with a `display` is a slash/workflow invocation — show it as a
-    // command chip on replay too, matching the live render.
-    if (m.role === "user" && m.display !== undefined) {
-      const chipBubble = this.messagesEl.createDiv({ cls: "cc-msg cc-user cc-command" });
-      this.renderCommandChip(chipBubble, m.display);
-      this.addUserActions(chipBubble, m.content);
-      this.renderContextNote(chipBubble, m.contextSources);
-      return;
-    }
-    const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${m.role}` });
-    bubble.createDiv({ cls: "cc-role", text: m.role === "user" ? "You" : "Claude" });
-    if (m.role === "assistant") this.addSparkMark(bubble);
-    const body = bubble.createDiv({ cls: "cc-body" });
-    if (m.role === "assistant" && m.toolTrace && m.toolTrace.length > 0) this.renderTraceChips(bubble, body, m.toolTrace);
-    const rendered = m.display ?? m.content;
-    void this.deps.renderMarkdownInto(body, rendered).catch(() => {
-      // A broken Markdown extension must not make persisted conversation text
-      // disappear or reject the fire-and-forget conversation replay.
-      body.setText(rendered);
+    this.renderMessage(m.role, m.display ?? m.content, {
+      command: m.role === "user" && m.display !== undefined,
+      prompt: m.content,
+      stored: m,
     });
-    if (m.role === "assistant" && m.content.trim().length > 0) this.addAssistantActions(bubble, m.content);
-    if (m.role === "user") {
-      this.addUserActions(bubble, m.content);
-      this.renderContextNote(bubble, m.contextSources);
-    }
   }
 
   renderEmptyState(): void {
@@ -404,24 +385,31 @@ export class Transcript {
     return pre;
   }
 
-  renderMessage(role: "user" | "assistant", text: string, opts?: { command?: boolean; prompt?: string }): void {
-    if (this.messages.length === 1) this.messagesEl.empty();
+  renderMessage(role: "user" | "assistant", text: string, opts?: { command?: boolean; prompt?: string; stored?: ChatMessage }): void {
+    const stored = opts?.stored;
+    if (!stored && this.messages.length === 1) this.messagesEl.empty();
     const bubble = this.messagesEl.createDiv({ cls: `cc-msg cc-${role}${opts?.command ? " cc-command" : ""}` });
     if (opts?.command) {
       this.renderCommandChip(bubble, text);
-      if (role === "user") this.addUserActions(bubble, opts.prompt ?? text);
+    } else {
+      bubble.createDiv({ cls: "cc-role", text: role === "user" ? "You" : "Claude" });
+      if (role === "assistant") this.addSparkMark(bubble);
+      const body = bubble.createDiv({ cls: "cc-body" });
+      if (role === "assistant" && stored?.toolTrace?.length) this.renderTraceChips(bubble, body, stored.toolTrace);
+      const rendering = this.deps.renderMarkdownInto(body, text);
+      if (stored) void rendering.catch(() => body.setText(text));
+    }
+    if (role === "user") {
+      this.addUserActions(bubble, opts?.prompt ?? text);
+      if (stored) this.renderContextNote(bubble, stored.contextSources);
+    } else if (stored?.content.trim()) {
+      this.addAssistantActions(bubble, stored.content);
+    }
+    // A send shows the latest message; saved history does not change scroll ownership.
+    if (!stored) {
       if (role === "user") this.jumpToBottom();
       else this.scrollToBottom();
-      return;
     }
-    bubble.createDiv({ cls: "cc-role", text: role === "user" ? "You" : "Claude" });
-    if (role === "assistant") this.addSparkMark(bubble);
-    const body = bubble.createDiv({ cls: "cc-body" });
-    void this.deps.renderMarkdownInto(body, text);
-    if (role === "user") this.addUserActions(bubble, opts?.prompt ?? text);
-    // Sending a message always shows it; a reply follows only a reader who is at the bottom.
-    if (role === "user") this.jumpToBottom();
-    else this.scrollToBottom();
   }
 
   /** A slash command / workflow invocation renders as a compact accent chip
@@ -527,7 +515,7 @@ export class Transcript {
   private addUserActions(bubble: HTMLElement, prompt: string): void {
     const bar = bubble.createDiv({ cls: "cc-actions" });
     this.actionBtn(bar, "Copy prompt", "copy", () => void navigator.clipboard.writeText(prompt));
-    this.actionBtn(bar, "Use again", "text-cursor-input", () => this.deps.setDraft(prompt));
+    this.actionBtn(bar, "Use again", "text-cursor-input", () => this.deps.reuseDraft(prompt));
   }
 
   /** Add a hover "copy" button to each <pre><code> block in a rendered reply. */
