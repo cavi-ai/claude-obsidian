@@ -4,6 +4,7 @@ import { ChatTurnService } from "../../src/chat/turnService";
 import { defaultChatControls } from "../../src/claude/chatControls";
 import type { Conversation } from "../../src/conversations/store";
 import type { ChatProject } from "../../src/projects/model";
+import type { MediaAttachment } from "../../src/context/attachments";
 import type ClaudeCompanionPlugin from "../../src/main";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { ChatView } from "../../src/view/ChatView";
@@ -99,6 +100,39 @@ function buildView(plugin: ClaudeCompanionPlugin): Seam {
 }
 
 describe("ChatView per-leaf conversation state", () => {
+  function mediaView() {
+    return buildView(statePlugin()) as Seam & {
+      attachedMedia: MediaAttachment[];
+      composer: { attachPastedImage(file: File): Promise<void> };
+    };
+  }
+
+  it("New chat clears both pasted images and pending vault PDFs", () => {
+    const seam = mediaView();
+    seam.attachedMedia = [
+      { kind: "image", label: "chart.png", mime: "image/png", data: "image-data" },
+      { kind: "pdf", label: "Study.pdf", mime: "application/pdf", path: "Study.pdf" },
+    ];
+    seam.clearChat();
+    expect(seam.attachedMedia).toEqual([]);
+  });
+
+  it("ignores a paste read that finishes after New chat, while allowing a fresh paste", async () => {
+    const seam = mediaView();
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    let finish!: (buffer: ArrayBuffer) => void;
+    const read = new Promise<ArrayBuffer>((resolve) => { finish = resolve; });
+    const oldFile = { name: "old-chart.png", size: 4, type: "image/png", arrayBuffer: () => read } as File;
+    const pending = seam.composer.attachPastedImage(oldFile);
+    seam.clearChat();
+    finish(bytes);
+    await pending;
+    expect(seam.attachedMedia).toEqual([]);
+
+    await seam.composer.attachPastedImage({ ...oldFile, name: "new-chart.png", arrayBuffer: async () => bytes } as File);
+    expect(seam.attachedMedia).toEqual([expect.objectContaining({ label: "new-chart.png", kind: "image", mime: "image/png" })]);
+  });
+
   const draftConversation = (id: string): Conversation => ({ id, title: id, createdAt: 1, updatedAt: 2, messages: [{ role: "user", content: id }] });
 
   function draftView(): Seam {
