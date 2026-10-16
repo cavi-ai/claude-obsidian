@@ -202,7 +202,7 @@ export class ChatView extends ItemView {
     });
     this.transcript = new Transcript(this.app, plugin, this.chat, {
       setDraft: (text) => this.composer.setDraft(text),
-      reuseDraft: (text) => reuseDraft(this.app, this.composer, this.drafts, text),
+      reuseDraft: (text, display) => reuseDraft(this.app, this.composer, this.drafts, display && parseSkillInvocation(display, SKILLS) ? display : text),
       onSend: (...args) => this.onSend(...args),
       prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
       regenerate: (...args) => this.regenerate(...args),

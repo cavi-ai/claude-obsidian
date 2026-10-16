@@ -6,7 +6,6 @@ import type { AgentTurnResult } from "../../agent/loop";
 import type { ChatTurnService, TurnEvent } from "../../chat/turnService";
 import type { ToolResultBlock, ToolUseBlock } from "../../providers/types";
 import type { Conversation } from "../../conversations/store";
-import type { ChatControls } from "../../claude/chatControls";
 import { hasIncompleteHtmlArtifactFence } from "../streamRender";
 import { TurnRenderer, type TurnRendererHost } from "../turnRenderer";
 import { ARTIFACT_HEIGHT } from "../../artifacts/renderInline";
@@ -32,7 +31,7 @@ function previewText(text: string): string {
 export interface TranscriptDeps {
   /** Put text in the composer, focused and sized, without sending it. */
   setDraft(text: string): void;
-  reuseDraft(text: string): void;
+  reuseDraft(text: string, display?: string): void;
   onSend(): Promise<void>;
   prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void;
   regenerate(opts?: { maxTokens?: number }): Promise<void>;
@@ -66,10 +65,8 @@ export class Transcript {
   constructor(private app: App, private plugin: TranscriptHost, private chat: ChatSession, private deps: TranscriptDeps) {}
 
   private get turn(): TurnState { return this.chat.turn; }
-  private get controls(): ChatControls { return this.chat.controls; }
   private get lastUserText(): string { return this.chat.lastUserText; }
   private get messages(): ChatMessage[] { return this.chat.messages; }
-  private get streaming(): boolean { return this.chat.streaming; }
 
   /** Render one persisted message, including assistant action buttons. */
   renderStoredMessage(m: ChatMessage): void {
@@ -400,7 +397,7 @@ export class Transcript {
       if (stored) void rendering.catch(() => body.setText(text));
     }
     if (role === "user") {
-      this.addUserActions(bubble, opts?.prompt ?? text);
+      this.addUserActions(bubble, opts?.prompt ?? text, opts?.command ? text : undefined);
       if (stored) this.renderContextNote(bubble, stored.contextSources);
     } else if (stored?.content.trim()) {
       this.addAssistantActions(bubble, stored.content);
@@ -439,7 +436,7 @@ export class Transcript {
   /** Flag a reply that the model truncated at the output-token limit. */
   private annotateTruncated(bubble: HTMLElement): void {
     if (bubble.querySelector(".cc-truncated-note")) return;
-    const cap = this.controls?.maxTokens ?? this.plugin.settings.maxTokens;
+    const cap = this.chat.controls?.maxTokens ?? this.plugin.settings.maxTokens;
     const note = bubble.createDiv({ cls: "cc-truncated-note" });
     note.createSpan({ cls: "cc-truncated-title", text: "Response hit the output-token limit" });
     note.createSpan({ text: ` — it was cut off at ${cap} tokens.` });
@@ -512,10 +509,10 @@ export class Transcript {
     }
   }
 
-  private addUserActions(bubble: HTMLElement, prompt: string): void {
+  private addUserActions(bubble: HTMLElement, prompt: string, display?: string): void {
     const bar = bubble.createDiv({ cls: "cc-actions" });
     this.actionBtn(bar, "Copy prompt", "copy", () => void navigator.clipboard.writeText(prompt));
-    this.actionBtn(bar, "Use again", "text-cursor-input", () => this.deps.reuseDraft(prompt));
+    this.actionBtn(bar, "Use again", "text-cursor-input", () => this.deps.reuseDraft(prompt, display));
   }
 
   /** Add a hover "copy" button to each <pre><code> block in a rendered reply. */
@@ -564,7 +561,7 @@ export class Transcript {
    * user at the Build (Claude Code) handoff instead.
    */
   private async implementFromReply(full: string): Promise<void> {
-    if (this.streaming) return;
+    if (this.chat.streaming) return;
     if (!this.plugin.settings.agentModeEnabled || !this.plugin.router().chatCapabilities().agentActions) {
       new Notice("Turn on agent mode (and use Claude or Claude Code) to implement in-app, or use Build to hand off to Claude Code.");
       return;
