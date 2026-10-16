@@ -2,11 +2,13 @@ import type { Composer } from "./Composer";
 
 /** Unsent text in one pane; null owns its unstarted New chat draft. */
 export class ConversationDrafts {
+  generation = 0;
   private readonly drafts = new Map<string | null, string>();
 
   constructor(private readonly composer: () => Composer) {}
 
   switchTo(from: string | null, to: string | null): void {
+    this.generation++;
     if (from === to) return;
     const composer = this.composer();
     const text = composer.draft();

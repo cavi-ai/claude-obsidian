@@ -274,6 +274,60 @@ describe("ChatView per-leaf conversation state", () => {
   });
 });
 
+describe("ChatView refused submissions", () => {
+  function fixture(credentials = false) {
+    const fakes = conversationFakes();
+    const provider = { id: "anthropic", hasCredentials: () => credentials };
+    const plugin = statePlugin({ router: () => ({
+      chatBackend: "custom", anthropic: provider,
+      chatProvider: () => ({ provider, model: "m" }),
+      chatCapabilities: () => ({ cli: false, local: false }),
+    }) }, fakes);
+    const view = buildView(plugin) as Seam & {
+      onSend(): Promise<void>;
+      submitPrompt(text: string): Promise<boolean>;
+    };
+    const input = new FakeElement() as unknown as HTMLTextAreaElement;
+    view.inputEl = input;
+    view.composer.autosizeInput = () => undefined;
+    return { view, input, fakes };
+  }
+
+  it.each(["  Compare the pilot.\nKeep the assumptions separate.  ", "  /wikilink-weaver Notes/Alpha.md  "])("retains the exact typed draft when preflight refuses it: %s", async (draft) => {
+    const { view, input, fakes } = fixture();
+    input.value = draft;
+    await view.onSend();
+    expect(input.value).toBe(draft);
+    expect(fakes.conversations.list()).toEqual([]);
+  });
+
+  it("retains the existing composer when a command prompt cannot start", async () => {
+    const { view, input } = fixture();
+    input.value = "My unfinished question";
+    expect(await view.submitPrompt("A generated workflow prompt")).toBe(false);
+    expect(input.value).toBe("My unfinished question");
+  });
+
+  it("does not replace newer typing when saving a request fails", async () => {
+    const { view, input, fakes } = fixture(true);
+    let started!: () => void;
+    const saving = new Promise<void>((resolve) => { started = resolve; });
+    let reject!: (reason: Error) => void;
+    vi.spyOn(fakes.conversations, "beginTurn").mockImplementation(() => {
+      started();
+      return new Promise((_resolve, fail) => { reject = fail; });
+    });
+    input.value = "Original question";
+    const pending = view.onSend();
+    await saving;
+    input.value = "Newer question";
+    input.dispatchEvent(new Event("input"));
+    reject(new Error("disk full"));
+    await pending;
+    expect(input.value).toBe("Newer question");
+  });
+});
+
 describe("ChatView chat-scoped context toggles", () => {
   const OFF = { activeNote: false, selection: false, linkedNotes: false, searchVault: false };
 

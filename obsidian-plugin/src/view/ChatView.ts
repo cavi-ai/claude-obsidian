@@ -36,6 +36,7 @@ import { type AutomaticContextKey } from "./contextManagerModel";
 import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
 import { ConversationDrafts } from "./chat/conversationDrafts";
+import { DraftSubmission, type DraftStart } from "./chat/draftSubmission";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
 import { TurnRunners } from "./chat/turnRunners";
@@ -150,6 +151,7 @@ export class ChatView extends ItemView {
   /** The conversation this leaf shows; null for an unstarted "New chat tab". Persisted via getState/setState. */
   private conversationId: string | null = null;
   private readonly drafts = new ConversationDrafts(() => this.composer);
+  private readonly submission = new DraftSubmission();
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -474,9 +476,13 @@ export class ChatView extends ItemView {
   // ---------- public entry point (used by commands) ----------
 
   async submitPrompt(text: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
-    if (!text.trim() || this.streaming) return false;
-    this.inputEl.value = "";
-    return this.run(text.trim(), display, maxTokens, opts);
+    if (!text.trim() || this.streaming || this.submission.pending) return false;
+    return this.submitDraft((submission) => this.run(text.trim(), display, maxTokens, { ...opts, submission }));
+  }
+
+  private submitDraft(send: (submission: DraftStart) => Promise<boolean>): Promise<boolean> {
+    const generation = this.drafts.generation;
+    return this.submission.run(this.inputEl, () => this.drafts.generation === generation, () => this.composer.autosizeInput(), send);
   }
 
   // ---------- "@" context picker ----------
@@ -576,6 +582,7 @@ export class ChatView extends ItemView {
       await this.stopCurrentTurn();
       return;
     }
+    if (this.submission.pending) return;
     const text = this.inputEl.value.trim();
     if (!text) return;
     // Check credentials BEFORE clearing the composer — a new user's first
@@ -591,16 +598,12 @@ export class ChatView extends ItemView {
       const display = skillDisplay(skill.entry, skill.args);
       this.lastUserText = prompt;
       this.lastDisplay = display;
-      this.inputEl.value = "";
-      this.composer.autosizeInput();
-      await this.run(prompt, display, undefined, { context: { searchVault: true } });
+      await this.submitDraft((submission) => this.run(prompt, display, undefined, { context: { searchVault: true }, submission }));
       return;
     }
     this.lastUserText = text;
     this.lastDisplay = undefined;
-    this.inputEl.value = "";
-    this.composer.autosizeInput();
-    await this.run(text);
+    await this.submitDraft((submission) => this.run(text, undefined, undefined, { submission }));
   }
 
   private setSending(sending: boolean): void {
@@ -615,7 +618,7 @@ export class ChatView extends ItemView {
     }
   }
 
-  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean }): Promise<boolean> {
+  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -638,6 +641,7 @@ export class ChatView extends ItemView {
       new Notice(preflight.notice);
       return false;
     }
+    if (opts?.submission && !opts.submission.current()) return false;
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
 
@@ -656,10 +660,6 @@ export class ChatView extends ItemView {
       regenerate: !!opts?.regenerate,
     });
     if (!started.ok) {
-      if (this.inputEl) {
-        this.inputEl.value = userText;
-        this.composer.autosizeInput();
-      }
       new Notice(started.notice);
       return false;
     }
@@ -686,6 +686,7 @@ export class ChatView extends ItemView {
       }
     });
     this.setSending(true);
+    opts?.submission?.accepted();
     this._turnUsage = null;
     if (!started.regenerating) this.transcript.renderMessage("user", display ?? userText, { command: display !== undefined, prompt: userText });
 
@@ -894,5 +895,4 @@ export class ChatView extends ItemView {
     if (this.attachedMedia.length === 0) this.attachedMedia = [...this.lastUserMedia];
     await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true });
   }
-
 }

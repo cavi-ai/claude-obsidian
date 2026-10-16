@@ -74,6 +74,9 @@ test("switching conversations preserves their separate drafts and sending clears
   const chat = page.locator(".cc-chat-root");
   const input = chat.locator("textarea");
   const select = async (title: string) => {
+    // Completion notices overlap the history button and pause dismissal on hover.
+    await page.mouse.move(500, 150);
+    await expect(page.locator(".notice")).toHaveCount(0);
     const dropdown = await openDropdown(page);
     await dropdown.locator(".cc-session-row").filter({ hasText: title }).click();
   };
@@ -87,6 +90,7 @@ test("switching conversations preserves their separate drafts and sending clears
   expect(await rig.providerRequests()).toBe(0);
   await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
   await expect(chat.locator(".cc-assistant .cc-body").last()).toHaveText(answer);
+  await expect(chat.locator(".cc-assistant").last().getByRole("button", { name: "Save as note", exact: true })).toBeVisible();
   await expect(input).toHaveValue("");
   await select(a);
   await expect(input).toHaveValue(draftA);
@@ -102,6 +106,7 @@ test("switching conversations preserves their separate drafts and sending clears
   await expect(input).toHaveValue(newDraft);
   await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
   await expect(chat.locator(".cc-assistant .cc-body")).toHaveText([answer]);
+  await expect(chat.getByRole("button", { name: "Save as note", exact: true })).toBeVisible();
   await chat.getByRole("button", { name: "New chat", exact: true }).click();
   await expect(input).toHaveValue("");
   await select(a);
