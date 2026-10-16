@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ConversationsController } from "../src/conversations/controller";
-import { emptyState, saveConversation, newConversation, type ConversationState } from "../src/conversations/store";
+import { emptyState, saveConversation, newConversation, fromPersisted, type ConversationState } from "../src/conversations/store";
+import type { ChatMessage } from "../src/types";
 import type { ActivityStore } from "../src/activity/store";
 import type { PluginSettings } from "../src/types";
 
@@ -16,6 +17,59 @@ function harness(seed: ConversationState = emptyState()) {
   });
   return { controller, persisted, state: () => state, activity };
 }
+
+describe("answer regeneration persistence", () => {
+  const original: ChatMessage[] = [
+    { role: "user", content: "Summarize", contextSources: ["active note: Original.md"] },
+    { role: "assistant", content: "The original answer" },
+  ];
+  const seed = () => saveConversation(emptyState(), { ...newConversation("c1", 1), messages: original }, 0);
+  const input = { backend: "claude", model: "m", mode: "ask" as const, regenerating: true };
+
+  it.each(["error", "stop", "reload"])("keeps the original exchange after %s", async (outcome) => {
+    const { controller, state, persisted } = harness(seed());
+    const turn = await controller.beginTurn("c1", [original[0]!], input);
+    expect(persisted.at(-1)?.conversations[0]?.messages).toEqual(original);
+    await controller.setTurnContext("c1", turn.turnId, ["active note: Different.md"]);
+    expect(state().conversations[0]?.messages).toEqual(original);
+    if (outcome === "error") await controller.interruptTurn("c1", turn.turnId, [{ role: "user", content: "Summarize" }, { role: "assistant", content: "Partial failed replacement" }], "Service unavailable");
+    if (outcome === "stop") await controller.stopTurn("c1", turn.turnId);
+    const reloaded = fromPersisted(JSON.parse(JSON.stringify(state())));
+    expect(reloaded.conversations[0]?.messages).toEqual(original);
+    expect(reloaded.conversations[0]?.activeTurn?.regenerating).toBe(true);
+    expect(reloaded.conversations[0]?.activeTurn?.contextSources).toEqual(["active note: Different.md"]);
+  });
+
+  it("replaces the answer only on success and ignores an obsolete completion", async () => {
+    const { controller, state } = harness(seed());
+    const turn = await controller.beginTurn("c1", [original[0]!], input);
+    const replacement: ChatMessage[] = [original[0]!, { role: "assistant", content: "A better answer" }];
+    await controller.completeTurn("c1", "stale-turn", replacement);
+    expect(state().conversations[0]?.messages).toEqual(original);
+    await controller.completeTurn("c1", turn.turnId, replacement);
+    expect(state().conversations[0]?.messages).toEqual(replacement);
+    expect(state().conversations[0]?.activeTurn).toBeUndefined();
+  });
+
+  it.each([false, true])("keeps capped work continuable when replacement text exists: %s", async (hasText) => {
+    const { controller, state } = harness(seed());
+    const turn = await controller.beginTurn("c1", [original[0]!], input);
+    const partial: ChatMessage[] = [original[0]!, { role: "assistant", content: "Partial work" }];
+    await controller.capTurn("c1", turn.turnId, hasText ? partial : [original[0]!], "Continue with remaining steps");
+    expect(state().conversations[0]?.messages).toEqual(hasText ? partial : original);
+    expect(state().conversations[0]?.activeTurn?.state).toBe("capped");
+    expect(state().conversations[0]?.activeTurn?.regenerating).toBeFalsy();
+    expect(state().conversations[0]?.activeTurn?.handoff).toBe("Continue with remaining steps");
+  });
+
+  it("keeps the original when the provider completes without an answer", async () => {
+    const { controller, state } = harness(seed());
+    const turn = await controller.beginTurn("c1", [original[0]!], input);
+    await controller.completeTurn("c1", turn.turnId, [original[0]!]);
+    expect(state().conversations[0]?.messages).toEqual(original);
+    expect(state().conversations[0]?.activeTurn?.state).toBe("interrupted");
+  });
+});
 
 describe("ConversationsController.setProject", () => {
   it("sets projectId on the named conversation and persists", async () => {

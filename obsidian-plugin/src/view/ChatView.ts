@@ -617,7 +617,7 @@ export class ChatView extends ItemView {
     }
   }
 
-  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
+  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean }): Promise<boolean> {
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -643,7 +643,9 @@ export class ChatView extends ItemView {
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
 
-    const previousTurn = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId)?.activeTurn : undefined;
+    const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
+    const previousTurn = previousConversation?.activeTurn;
+    if (previousTurn?.regenerating && previousTurn.state !== "running") this.messages = [...previousConversation!.messages];
     const started = await startTurn((conversationId, messages, input) => this.plugin.conversations().beginTurn(conversationId, messages, input), {
       conversationId: this.conversationId,
       messages: this.messages,
@@ -653,6 +655,7 @@ export class ChatView extends ItemView {
       model: this.turnModelOverride ?? model,
       mode: this.mode.mode,
       continuationDepth: this.continuationDepth,
+      regenerate: !!opts?.regenerate,
     });
     if (!started.ok) {
       if (this.inputEl) {
@@ -663,6 +666,10 @@ export class ChatView extends ItemView {
       return false;
     }
     const { turn, turnMessages } = started;
+    if (opts?.regenerate) {
+      this.messagesEl.empty();
+      for (const message of started.regenerating ? this.messages : started.messages.slice(0, -1)) this.renderStoredMessage(message);
+    }
     this.messages = started.messages;
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
@@ -681,7 +688,7 @@ export class ChatView extends ItemView {
     });
     this.setSending(true);
     this._turnUsage = null;
-    this.transcript.renderMessage("user", display ?? userText, { command: display !== undefined, prompt: userText });
+    if (!started.regenerating) this.transcript.renderMessage("user", display ?? userText, { command: display !== undefined, prompt: userText });
 
     // Agent mode: the model pulls vault context itself via tools. Gated on the
     // provider actually round-tripping tool_use (Claude, and local models whose
@@ -824,6 +831,11 @@ export class ChatView extends ItemView {
 
   async resumeInterruptedTurn(conversation: Conversation): Promise<void> {
     const receipt = conversation.activeTurn;
+    if (receipt?.regenerating) {
+      this.loadConversation(conversation);
+      await this.regenerate();
+      return;
+    }
     const continuation = receipt ? continuationFor(receipt) : null;
     if (!receipt || !continuation) return;
     this.resumeCliSessionId = receipt.cliSessionId ?? conversation.cliSessionId ?? null;
@@ -873,27 +885,15 @@ export class ChatView extends ItemView {
   }
 
   private openMcpMenu(anchor: MouseEvent | HTMLElement): void { return this.header.openMcpMenu(anchor); }
-
   private openOverflowMenu(): void { return this.header.openOverflowMenu(); }
-
   private openModelMenu(): void { return this.header.openModelMenu(); }
 
-  /** Drop the last assistant reply and re-run the previous user turn. */
+  /** Re-run the previous user turn; the saved answer survives until replacement succeeds. */
   private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
     if (this.streaming || !this.lastUserText) return;
-    // Remove the trailing assistant message from state + DOM, plus the user msg
-    // (run() re-pushes it). Then re-run with the same text.
-    if (this.messages[this.messages.length - 1]?.role === "assistant") this.messages.pop();
-    if (this.messages[this.messages.length - 1]?.role === "user") this.messages.pop();
-    // Rebuild the transcript cleanly so we don't leave a stale bubble.
-    this.messagesEl.empty();
-    if (this.messages.length === 0) this.renderEmptyState();
-    else for (const m of this.messages) this.renderStoredMessage(m);
     // Re-attach the original turn's media so the regenerated turn sees it too.
-    if (this.attachedMedia.length === 0 && this.lastUserMedia.length > 0) {
-      this.attachedMedia = [...this.lastUserMedia];
-    }
-    await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens);
+    if (this.attachedMedia.length === 0) this.attachedMedia = [...this.lastUserMedia];
+    await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true });
   }
 
 }
