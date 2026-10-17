@@ -79,6 +79,52 @@ describe("evidence review", () => {
 });
 
 describe("claim review", () => {
+  it("shows stale support and opens the named passage for checking", () => {
+    const { actions } = setup();
+    actions.reviewClaim(snap([ev("A", { sourceFingerprint: "old" }), claim("C", { supports: ["R/P/Evidence/A.md"] })]), "R/P/Claims/C.md");
+    const texts = all("p").map((el) => el.textContent);
+    expect(texts).toContain("S · page 4");
+    expect(texts).toContain("The source changed. Re-check this passage before relying on it.");
+    expect(texts).toContain("Marking this claim reviewed does not check its passages.");
+    const check = all("button").find((el) => el.getAttribute("aria-label") === "Check passage: A");
+    expect(check).toBeDefined();
+    click(check);
+    expect(all("h2")[0].textContent).toBe("Check A");
+    expect(all("p").map((el) => el.textContent)).toContain("The source changed since this was checked. Confirm the passage still says this.");
+  });
+
+  it("keeps unsaved review edits when passage navigation is cancelled", () => {
+    const { actions } = setup();
+    actions.reviewClaim(snap([ev("A"), ev("B"), claim("C", { supports: ["R/P/Evidence/A.md"], challenges: ["R/P/Evidence/B.md"] })]), "R/P/Claims/C.md");
+    const original = modal();
+    const limitation = byLabel("What this claim doesn't cover");
+    type(limitation, "Adults only");
+    const check = all("button").find((el) => el.getAttribute("aria-label") === "Check passage: A");
+    click(check);
+    expect(all("button").map((el) => el.textContent)).toContain("Cancel");
+    click(button("Cancel"));
+    expect(original.closed).toBe(false);
+    expect(limitation.value).toBe("Adults only");
+    click(check);
+    click(button("Discard and check"));
+    expect(original.closed).toBe(true);
+    expect(all("h2")[0].textContent).toBe("Check A");
+  });
+
+  it("distinguishes checked, unchecked, unlocated, and missing passages", () => {
+    const { actions } = setup();
+    actions.reviewClaim(snap([
+      ev("Current"), ev("Suggested", { reviewState: "proposed" }), ev("Unlocated", { locatorValue: undefined }),
+      claim("C", { supports: ["R/P/Evidence/Current.md", "R/P/Evidence/Suggested.md", "R/P/Evidence/Unlocated.md", "R/P/Evidence/Missing.md"] }),
+    ]), "R/P/Claims/C.md");
+    const texts = all("p").map((el) => el.textContent);
+    expect(texts).toContain("Checked passage.");
+    expect(texts).toContain("This passage is not marked reviewed.");
+    expect(texts).toContain("Add a page or section so the passage can be found.");
+    expect(texts).toContain("This passage is missing. Repair its link in the claim note.");
+    expect(all("button").some((el) => el.getAttribute("aria-label") === "Check passage: Missing")).toBe(false);
+  });
+
   it("links checked passages then reviews with the limitation", async () => {
     const { actions, calls } = setup();
     actions.reviewClaim(snap([ev("A"), ev("B"), claim("C", { challenges: ["R/P/Evidence/B.md"] })]), "R/P/Claims/C.md");

@@ -3,6 +3,8 @@ import type { ClaimSuggestion } from "../../research/claimSuggestion";
 import type { ProjectClaim } from "../../research/graph";
 import type { EvidenceRecord, EvidenceRelation } from "../../research/types";
 import { sanitizeLoadError, type RewriteTextFn } from "./shared";
+import type { PassageRow } from "../../research/argument";
+import { ConfirmModal } from "../ConfirmModal";
 
 export interface ClaimModalInput {
   title: string;
@@ -16,6 +18,12 @@ export interface ClaimModalInput {
 const SHARPEN_INSTRUCTION = "Rewrite as one precise, defensible claim proposition: a single sentence, hedged to what the grounding evidence supports, no rhetorical framing.";
 const LIMITATION_INSTRUCTION = "Write one sentence naming the scope this claim does not cover, based on what the challenging passages show. Use only what the passages say.";
 const RELATIONS: EvidenceRelation[] = ["supports", "challenges", "contextualizes"];
+const PASSAGE_WARNING: Record<NonNullable<PassageRow["flag"]>, string> = {
+  missing: "This passage is missing. Repair its link in the claim note.",
+  stale: "The source changed. Re-check this passage before relying on it.",
+  "no locator": "Add a page or section so the passage can be found.",
+  unchecked: "This passage is not marked reviewed.",
+};
 
 export interface ClaimCreateDeps {
   evidence: EvidenceRecord[];
@@ -146,6 +154,8 @@ export interface ClaimReviewResult {
 
 export interface ClaimReviewDeps {
   claim: ProjectClaim;
+  passages: PassageRow[];
+  checkPassage(path: string): void;
   evidence: EvidenceRecord[];
   /** Reviewed passages not yet linked to this claim. */
   linkable: EvidenceRecord[];
@@ -163,7 +173,10 @@ export class ClaimReviewModal extends Modal {
     this.contentEl.createEl("h2", { text: `Check claim ${claim.title}` });
     this.contentEl.createEl("p", { cls: "cc-research-claim-proposition", text: claim.proposition });
     this.contentEl.createEl("p", { cls: "cc-research-modal-meta", text: `Confidence: ${claim.confidence}` });
+    this.contentEl.createEl("p", { text: "Marking this claim reviewed does not check its passages." });
     const byPath = new Map(evidence.map((item) => [item.path, item]));
+    const passageByPath = new Map(this.deps.passages.map((item) => [item.path, item]));
+    let edited = false;
     const groups: Array<[string, string[]]> = [["Supports", claim.supporting], ["Challenges", claim.challenging], ["Context", claim.contextual]];
     for (const [heading, paths] of groups) {
       if (!paths.length) continue;
@@ -174,6 +187,25 @@ export class ClaimReviewModal extends Modal {
         const row = group.createDiv({ cls: "cc-research-claim-evidence" });
         row.createEl("strong", { text: item?.title ?? path });
         if (item) row.createEl("p", { text: item.excerpt });
+        const passage = passageByPath.get(path);
+        if (passage) {
+          const location = [passage.sourceTitle, passage.locator].filter(Boolean).join(" · ");
+          if (location) row.createEl("p", { cls: "cc-research-modal-meta", text: location });
+          row.createEl("p", { text: passage.flag ? PASSAGE_WARNING[passage.flag] : passage.trusted ? "Checked passage." : "This passage needs checking." });
+        }
+        if (item) {
+          const check = row.createEl("button", { text: "Check passage", attr: { "aria-label": `Check passage: ${item.title}` } });
+          check.addEventListener("click", () => {
+            const open = () => { this.close(); this.deps.checkPassage(path); };
+            if (!edited) { open(); return; }
+            new ConfirmModal(this.app, {
+              title: "Discard claim review changes?",
+              body: "Checking the passage will close this claim review. Discard your unsaved limitation and passage selections?",
+              cta: "Discard and check",
+              onResolve: (ok) => { if (ok) open(); },
+            }).open();
+          });
+        }
       }
     }
 
@@ -187,7 +219,7 @@ export class ClaimReviewModal extends Modal {
       limitation = field.createEl("textarea", { attr: { "aria-label": "What this claim doesn't cover", rows: "2" } });
       const box = limitation;
       let touched = false;
-      box.addEventListener("input", () => { touched = true; });
+      box.addEventListener("input", () => { touched = true; edited = true; });
       if (rewriteText && !claim.limitations.length) {
         const context = claim.challenging.flatMap((path) => { const item = byPath.get(path); return item ? [`Challenging passage — ${item.title}: ${item.excerpt}`] : []; }).join("\n");
         status.setText(`Drafting${this.deps.label ? ` with ${this.deps.label}` : ""}…`);
@@ -203,7 +235,9 @@ export class ClaimReviewModal extends Modal {
       group.createEl("h4", { text: "Link a passage that supports it" });
       for (const item of linkable) {
         const row = group.createEl("label", { cls: "cc-research-claim-evidence" });
-        picks.set(item.path, row.createEl("input", { attr: { type: "checkbox", "aria-label": `Link ${item.title}` } }));
+        const pick = row.createEl("input", { attr: { type: "checkbox", "aria-label": `Link ${item.title}` } });
+        pick.addEventListener("change", () => { edited = true; });
+        picks.set(item.path, pick);
         row.createEl("strong", { text: item.title });
         row.createEl("p", { text: item.excerpt });
       }

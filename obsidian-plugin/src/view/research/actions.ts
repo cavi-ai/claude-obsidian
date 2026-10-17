@@ -14,6 +14,7 @@ import { EvidenceExtractModal, type PassageLoad } from "./evidenceExtractModal";
 import { EvidenceReviewModal } from "./evidenceReviewModal";
 import { OutlineCreateModal } from "./outlineModal";
 import { ProjectCreateModal } from "./projectCreateModal";
+import { claimPassageRows } from "../../research/argument";
 import type { ProjectCreateInput, RewriteTextFn } from "./shared";
 import { NotePickModal, SourceCaptureModal } from "./sourceCaptureModal";
 
@@ -181,6 +182,8 @@ export class ResearchActions {
     const label = this.deps.researchLabel?.();
     new ClaimReviewModal(this.deps.app, {
       claim,
+      passages: claimPassageRows(snapshot, claim),
+      checkPassage: (evidencePath) => this.reviewEvidence(snapshot, evidencePath),
       evidence: snapshot.evidence,
       linkable: snapshot.evidence.filter((item) => item.reviewState === "reviewed" && !linked.has(item.path)),
       submit: async ({ state, limitation, link }) => {

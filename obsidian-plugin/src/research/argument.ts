@@ -72,7 +72,7 @@ function claimStatus(claim: ProjectClaim, contradicted: boolean, inOutline: bool
   return inOutline ? "not-drafted" : "not-in-outline";
 }
 
-function passageRows(snapshot: ProjectSnapshot, claim: ProjectClaim): PassageRow[] {
+export function claimPassageRows(snapshot: ProjectSnapshot, claim: ProjectClaim): PassageRow[] {
   const relations: Array<[EvidenceRelation, readonly string[]]> = [["supports", claim.supporting], ["challenges", claim.challenging], ["contextualizes", claim.contextual]];
   return relations.flatMap(([relation, paths]) => paths.map((path): PassageRow => {
     const evidence = snapshot.evidence.find((item) => item.path === path);
@@ -109,7 +109,7 @@ export function buildArgument(snapshot: ProjectSnapshot, audit: AuditFinding[], 
       trustedSupports: claim.trustedSupportCount,
       status,
       notes: claimNotes(claim, status, audit, intelligence),
-      passages: passageRows(snapshot, claim),
+      passages: claimPassageRows(snapshot, claim),
     };
   });
   const linked = new Set(snapshot.claims.flatMap(({ supporting, challenging, contextual }) => [...supporting, ...challenging, ...contextual]));
