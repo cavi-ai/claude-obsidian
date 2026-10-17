@@ -7,6 +7,7 @@ import { parseDraftSections, renderManagedDocument } from "../../src/research/dr
 import type { ResearchDocumentRecord, ResearchRecord } from "../../src/research/types";
 import type { DraftCoordinator } from "../../src/research/draftCoordinator";
 import type { RevisionCoordinator } from "../../src/research/revisionCoordinator";
+import type { RevisionRequest } from "../../src/research/revisionPolicy";
 import type { ResearchRepository } from "../../src/research/repository";
 
 const project = "R/Project.md";
@@ -81,4 +82,62 @@ it("makes a blocked revision visible and expands its reasons without offering ac
   expect(root.querySelector('[role="alert"]')?.textContent).toBe("This revision cannot be accepted. Review the issues below, then discard it and try again.");
   expect(root.querySelector(".cc-revision-report")?.getAttribute("open")).toBe("");
   expect(button("Accept revision")).toBeUndefined();
+});
+
+it.each([false, true])("preserves instructions when discarding a revision with canAccept=%s", async (canAccept) => {
+  const parsed = parseDraftSections(renderManagedDocument("", [{ heading: "C", markdown: "Results vary.", envelope: { id: "c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [], provider: "anthropic", model: "model", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) } }]));
+  const section = parsed.sections[0]!;
+  const preview = vi.fn(async (_snapshot: unknown, _section: unknown, request: RevisionRequest) => ({ section, packet, request, envelope: section.envelope, response: { markdown: "Results vary!", support: [], claimPreservation: [], changes: [], gaps: [], warnings: [], violations: canAccept ? [] : ["Protected wording changed"], canAccept } }));
+  const root = new FakeElement() as unknown as HTMLElement;
+  const render = () => { root.empty(); panel.render(root, snapshot, document, parsed); };
+  const panel = new ResearchDraftPanel({ coordinator: {} as DraftCoordinator, revisionCoordinator: { preview } as unknown as RevisionCoordinator, repository: { loadProject: async () => snapshot } as unknown as ResearchRepository, rerender: render });
+  const button = (text: string) => [...root.querySelectorAll("button")].find((el) => el.textContent === text)!;
+  const click = (text: string) => button(text).dispatchEvent({ type: "click" } as never);
+  const type = (text: string) => { const input = root.querySelector("textarea") as HTMLTextAreaElement; input.value = text; input.dispatchEvent({ type: "input" } as never); };
+  render();
+  click("Revise section");
+  const intent = root.querySelector("select") as HTMLSelectElement;
+  intent.value = "custom";
+  intent.dispatchEvent({ type: "change" } as never);
+  type("  Keep the limitations explicit.  ");
+  click("Preview revision");
+  await flush();
+  click("Discard revision");
+  expect(root.querySelectorAll(".cc-draft-preview")).toHaveLength(0);
+  expect((root.querySelector("textarea") as HTMLTextAreaElement)?.value).toBe("  Keep the limitations explicit.  ");
+  expect((root.querySelector("select") as HTMLSelectElement)?.value).toBe("custom");
+  expect(preview).toHaveBeenCalledTimes(1);
+  type("Improve punctuation without adding facts.");
+  click("Preview revision");
+  await flush();
+  expect(preview).toHaveBeenCalledTimes(2);
+  expect(preview.mock.calls[1]?.[2]).toEqual({ intent: "custom", customInstruction: "Improve punctuation without adding facts." });
+  click("Discard revision");
+  click("Cancel revision");
+  click("Revise section");
+  expect((root.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
+  expect((root.querySelector("select") as HTMLSelectElement).value).toBe("clarity");
+});
+
+it.each(["draft", "revision"] as const)("keeps an unchanged %s preview actionable", async (kind) => {
+  const parsed = parseDraftSections(renderManagedDocument("", [{ heading: "C", markdown: "Results vary.", envelope: { id: "c", claimPaths: [packet.claim.path], evidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), citations: [], provider: kind === "draft" ? "companion" : "anthropic", model: kind === "draft" ? "evidence-outline-v1" : "model", generatedAt: "then", claimFingerprint: groundingClaimFingerprint(packet) } }]));
+  const section = parsed.sections[0]!;
+  const preview = async () => ({ section, packet, request: { intent: "clarity" }, envelope: section.envelope, response: { markdown: section.markdown, support: [], claimPreservation: [], changes: [], gaps: [], warnings: [], violations: [], canAccept: true } });
+  const root = new FakeElement() as unknown as HTMLElement;
+  const render = () => { root.empty(); panel.render(root, snapshot, document, parsed); };
+  const panel = new ResearchDraftPanel({ coordinator: { preview } as unknown as DraftCoordinator, revisionCoordinator: { preview } as unknown as RevisionCoordinator, repository: { loadProject: async () => snapshot } as unknown as ResearchRepository, rerender: render });
+  const button = (text: string) => [...root.querySelectorAll("button")].find((el) => el.textContent === text)!;
+  render();
+  if (kind === "draft") await expect(panel.preview(snapshot, section)).resolves.toBeUndefined();
+  else {
+    button("Revise section").dispatchEvent({ type: "click" } as never);
+    button("Preview revision").dispatchEvent({ type: "click" } as never);
+    await flush();
+  }
+  expect(root.querySelector(".cc-draft-unchanged")?.textContent).toBe("No text changes suggested.");
+  expect(button(kind === "draft" ? "Accept section" : "Accept revision")).toBeDefined();
+  const discard = button(kind === "draft" ? "Discard preview" : "Discard revision");
+  expect(discard).toBeDefined();
+  discard.dispatchEvent({ type: "click" } as never);
+  expect(root.querySelectorAll(".cc-draft-preview")).toHaveLength(0);
 });

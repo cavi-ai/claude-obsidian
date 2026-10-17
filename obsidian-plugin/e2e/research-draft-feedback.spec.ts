@@ -42,6 +42,8 @@ test("section drafting shows progress, cancels without writes, and can be retrie
 
 test("fallback generation stays truthful after reload and supports recovery to a model revision", async ({ rig }, testInfo) => {
   const { page } = await rig.reset({ providerDelayMs: 150, providerReply: [{ match: ".", replies: ["not a valid draft or revision"] }] });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const original = await readFile(join(rig.paths.vault, documentPath), "utf8");
   await openGamma(page);
   const desk = page.locator(".cc-research-desk");
@@ -68,6 +70,7 @@ test("fallback generation stays truthful after reload and supports recovery to a
   }, documentPath);
   await expect(page.locator(".markdown-reading-view .cc-provenance")).toContainText("Companion fallback");
   await section.getByRole("button", { name: "Revise section", exact: true }).click();
+  await section.locator(".cc-revision-intent").selectOption("custom");
   await section.locator(".cc-revision-instruction").fill("Make the scope clear.");
   await section.getByRole("button", { name: "Preview revision", exact: true }).click();
   await expect(section.locator(".cc-draft-status")).toHaveText("Preparing revision…");
@@ -84,7 +87,8 @@ test("fallback generation stays truthful after reload and supports recovery to a
   expect(await readFile(join(rig.paths.vault, documentPath), "utf8")).toBe(accepted);
   await section.screenshot({ path: testInfo.outputPath("blocked-revision-with-visible-reasons.png") });
   await section.getByRole("button", { name: "Discard revision", exact: true }).click();
-  await section.getByRole("button", { name: "Revise section", exact: true }).click();
+  await expect(section.locator(".cc-revision-intent")).toHaveValue("custom");
+  await expect(section.locator(".cc-revision-instruction")).toHaveValue("Make the scope clear.");
   await section.locator(".cc-revision-instruction").fill("Improve punctuation without adding facts.");
   const valid = JSON.stringify({ markdown: sentence, support: [{ passage: sentence, claimPath, evidencePaths: [evidencePath], citationKeys: ["source-gamma-study"] }], claimPreservation: [{ claimPath, passage: sentence, status: "preserved" }], changes: [{ kind: "clarity", severity: "warning", description: "Adjusts punctuation." }], gaps: [] });
   await rig.control.setStubs({ providerReply: [{ match: ".", replies: [valid] }] });
@@ -95,6 +99,19 @@ test("fallback generation stays truthful after reload and supports recovery to a
   const saved = await readFile(join(rig.paths.vault, documentPath), "utf8");
   expect(saved).toContain(sentence);
   expect(provenance(saved)).toMatchObject({ provider: "anthropic", model: "e2e-model" });
+  await section.getByRole("button", { name: "Revise section", exact: true }).click();
+  await section.locator(".cc-revision-instruction").fill("Improve clarity while preserving the facts.");
+  await rig.control.setStubs({ providerReply: [{ match: ".", replies: [valid] }] });
+  await section.getByRole("button", { name: "Preview revision", exact: true }).click();
+  await expect(section.locator(".cc-draft-unchanged")).toHaveText("No text changes suggested.");
+  await expect(section.getByRole("button", { name: "Accept revision", exact: true })).toBeVisible();
+  expect(await readFile(join(rig.paths.vault, documentPath), "utf8")).toBe(saved);
+  await section.screenshot({ path: testInfo.outputPath("unchanged-revision-with-recovery-actions.png") });
+  await section.getByRole("button", { name: "Discard revision", exact: true }).click();
+  await expect(section.locator(".cc-revision-instruction")).toHaveValue("Improve clarity while preserving the facts.");
+  await section.getByRole("button", { name: "Cancel revision", exact: true }).click();
+  await expect(section.getByRole("button", { name: "Revise section", exact: true })).toBeVisible();
+  expect(pageErrors).toEqual([]);
 });
 
 test("section previews and custom revision instructions survive visiting another project's sections", async ({ rig }, testInfo) => {

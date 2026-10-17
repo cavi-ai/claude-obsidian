@@ -100,12 +100,7 @@ export class ResearchDraftPanel {
     if (isReviewedClaimFallback(preview.envelope)) card.createEl("p", { cls: "cc-draft-fallback", attr: { role: "status" }, text: "The model did not return a usable draft. Companion generated this minimal version from the reviewed claim." });
     card.createEl("p", { cls: "cc-draft-provider", text: isReviewedClaimFallback(preview.envelope) ? "Companion · reviewed-claim fallback" : `${preview.envelope.provider} · ${preview.envelope.model}` });
     card.createEl("pre", { cls: "cc-draft-preview", text: preview.response.markdown });
-    const diff = card.createDiv({ cls: "cc-draft-diff", attr: { "aria-label": "Section before and after diff" } });
-    const hunk = planEdits(section.markdown, [{ old_str: section.markdown, new_str: preview.response.markdown }]).hunks[0];
-    if (hunk) {
-      const lines = diff.createEl("pre", { cls: "cc-diff-lines" });
-      for (const line of hunk.lines) lines.createDiv({ cls: `cc-diff-line is-${line.kind}`, text: `${line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "} ${line.text}` });
-    }
+    this.renderDiff(card, section.markdown, preview.response.markdown, "Section before and after diff");
     card.createEl("p", { text: `${preview.response.support.length} supported passage${preview.response.support.length === 1 ? "" : "s"} · ${preview.response.gaps.length} unresolved gap${preview.response.gaps.length === 1 ? "" : "s"}` });
     const support = card.createEl("details", { cls: "cc-draft-support" });
     support.createEl("summary", { text: "Inspect support manifest" });
@@ -152,9 +147,7 @@ export class ResearchDraftPanel {
     const state = this.stateFor();
     card.createEl("p", { cls: "cc-draft-provider", text: `${preview.request.intent}${preview.request.customInstruction ? ` · ${preview.request.customInstruction}` : ""} · ${preview.envelope.provider} · ${preview.envelope.model}` });
     card.createEl("pre", { cls: "cc-draft-preview", text: preview.response.markdown });
-    const diff = card.createDiv({ cls: "cc-draft-diff", attr: { "aria-label": "Section revision before and after diff" } });
-    const hunk = planEdits(section.markdown, [{ old_str: section.markdown, new_str: preview.response.markdown }]).hunks[0];
-    if (hunk) { const lines = diff.createEl("pre", { cls: "cc-diff-lines" }); for (const line of hunk.lines) lines.createDiv({ cls: `cc-diff-line is-${line.kind}`, text: `${line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "} ${line.text}` }); }
+    this.renderDiff(card, section.markdown, preview.response.markdown, "Section revision before and after diff");
     if (!preview.response.canAccept) {
       card.createEl("p", { cls: "cc-research-error", attr: { role: "alert" }, text: "This revision cannot be accepted. Review the issues below, then discard it and try again." });
     }
@@ -169,7 +162,20 @@ export class ResearchDraftPanel {
       accept.addEventListener("click", () => void this.acceptRevision(snapshot.project.path, document.path, preview));
     }
     const discard = card.createEl("button", { text: "Discard revision" });
-    discard.addEventListener("click", () => { state.revisionPreviews.delete(section.envelope.id); state.revisionForms.delete(section.envelope.id); state.errors.delete(section.envelope.id); void this.deps.rerender(); });
+    discard.addEventListener("click", () => { state.revisionPreviews.delete(section.envelope.id); state.errors.delete(section.envelope.id); void this.deps.rerender(); });
+  }
+
+  private renderDiff(card: HTMLElement, before: string, after: string, label: string): void {
+    if (before === after) {
+      card.createEl("p", { cls: "cc-draft-unchanged", attr: { role: "status" }, text: "No text changes suggested." });
+      return;
+    }
+    const diff = card.createDiv({ cls: "cc-draft-diff", attr: { "aria-label": label } });
+    const hunk = planEdits(before, [{ old_str: before, new_str: after }]).hunks[0];
+    if (hunk) {
+      const lines = diff.createEl("pre", { cls: "cc-diff-lines" });
+      for (const line of hunk.lines) lines.createDiv({ cls: `cc-diff-line is-${line.kind}`, text: `${line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "} ${line.text}` });
+    }
   }
 
   async preview(snapshot: ProjectSnapshot, section: ParsedDraftSection): Promise<void> {
