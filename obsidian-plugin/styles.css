@@ -947,6 +947,7 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   margin-top: 3px;
 }
 .cc-organize-review .cc-organize-from {
+  display: block;
   font-size: var(--cc-text-sm);
   color: var(--text-muted);
   overflow: hidden;
@@ -954,6 +955,7 @@ body:not(.is-mobile) .cc-composer-bar { container-type: inline-size; }
   white-space: nowrap;
 }
 .cc-organize-review .cc-organize-to {
+  display: block;
   font-size: var(--cc-text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
