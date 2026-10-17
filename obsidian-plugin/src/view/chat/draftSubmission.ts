@@ -8,7 +8,7 @@ export class DraftSubmission {
   private starting = false;
   get pending(): boolean { return this.starting; }
 
-  async run(input: HTMLTextAreaElement, current: () => boolean, resize: () => void, submit: (start: DraftStart) => Promise<boolean>): Promise<boolean> {
+  async run(input: HTMLTextAreaElement, current: () => boolean, resize: () => void, submit: (start: DraftStart) => Promise<boolean>, consumeDraft = true): Promise<boolean> {
     if (this.starting) return false;
     this.starting = true;
     const original = input.value;
@@ -21,7 +21,7 @@ export class DraftSubmission {
       released = true;
       input.removeEventListener("input", onInput);
       this.starting = false;
-      if (accepted && current() && !edited && input.value === original) {
+      if (consumeDraft && accepted && current() && !edited && input.value === original) {
         input.value = "";
         resize();
       }
