@@ -37,6 +37,7 @@ import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
 import { ConversationDrafts } from "./chat/conversationDrafts";
 import { DraftSubmission, type DraftStart } from "./chat/draftSubmission";
+import { reuseDraft } from "./chat/reuseDraft";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
 import { TurnRunners } from "./chat/turnRunners";
@@ -201,6 +202,7 @@ export class ChatView extends ItemView {
     });
     this.transcript = new Transcript(this.app, plugin, this.chat, {
       setDraft: (text) => this.composer.setDraft(text),
+      reuseDraft: (text, display) => reuseDraft(this.app, this.composer, this.drafts, display && parseSkillInvocation(display, SKILLS) ? display : text),
       onSend: (...args) => this.onSend(...args),
       prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
       regenerate: (...args) => this.regenerate(...args),
@@ -479,7 +481,6 @@ export class ChatView extends ItemView {
     if (!text.trim() || this.streaming || this.submission.pending) return false;
     return this.submitDraft((submission) => this.run(text.trim(), display, maxTokens, { ...opts, submission }));
   }
-
   private submitDraft(send: (submission: DraftStart) => Promise<boolean>): Promise<boolean> {
     const generation = this.drafts.generation;
     return this.submission.run(this.inputEl, () => this.drafts.generation === generation, () => this.composer.autosizeInput(), send);
