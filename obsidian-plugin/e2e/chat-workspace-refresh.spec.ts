@@ -27,6 +27,7 @@ test("empty chat follows note navigation without replacing an unfinished draft",
   await expect(input).toHaveValue(draft);
   await page.screenshot({ path: testInfo.outputPath("current-workspace-after-navigation.png") });
   await card.getByRole("button", { name: "Ask about this note", exact: true }).click();
+  await page.locator(".modal").filter({ hasText: "Replace current draft?" }).getByRole("button", { name: "Replace draft", exact: true }).click();
   await expect(input).toHaveValue("Help me continue working with Follow-up. ");
   await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
   await expect(chat.getByRole("button", { name: "Save as note", exact: true })).toBeVisible();

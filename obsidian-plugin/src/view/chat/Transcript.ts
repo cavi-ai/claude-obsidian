@@ -30,10 +30,9 @@ function previewText(text: string): string {
 }
 
 export interface TranscriptDeps {
-  /** Put text in the composer, focused and sized, without sending it. */
-  setDraft(text: string): void;
+  /** Prepare text after any replacement confirmation, optionally sending it. */
+  setDraft(text: string, send?: boolean): void;
   reuseDraft(text: string, display?: string): void;
-  onSend(): Promise<void>;
   prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void;
   regenerate(opts?: { maxTokens?: number }): Promise<void>;
   renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
@@ -113,10 +112,8 @@ export class Transcript {
           new Notice("Open a note first, then try this one.");
           return;
         }
-        this.deps.setDraft(ex.prompt);
-        this.deps.updateUsageBar();
         // A trailing-space prompt (the vault-search one) waits for the user to type.
-        if (!ex.prompt.endsWith(" ")) void this.deps.onSend();
+        this.deps.setDraft(ex.prompt, !ex.prompt.endsWith(" "));
       });
     }
   }
@@ -149,9 +146,7 @@ export class Transcript {
       // The project's actual next steps as one-click chat turns.
       if (workspace.quickActions?.length) {
         renderResearchQuickActions(mount, workspace.quickActions, (prompt) => {
-          this.deps.setDraft(prompt);
-          this.deps.updateUsageBar();
-          void this.deps.onSend();
+          this.deps.setDraft(prompt, true);
         });
       }
     } else {
