@@ -164,7 +164,7 @@ export class EvidenceExtractModal extends Modal {
       setManual(true);
       status.setText(result.kind === "no-text" ? "This source has no text to read. Open it, copy the passage, and paste it below."
         : result.kind === "failed" ? "Couldn't read this source automatically. Add a passage yourself below."
-        : "Claude didn't find exact passages for your question in this source. Add one yourself below.");
+        : "No new exact passages were found for this source. Add one yourself below.");
       if (result.kind === "failed") { error.setText(result.reason); retry.show(); retry.disabled = this.saving; }
     };
     retry.addEventListener("click", () => void reading());

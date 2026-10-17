@@ -36,6 +36,9 @@ test("manual passage drafts remain with their sources through navigation and sep
   const { page, modal, source } = await openExtraction(rig, JSON.stringify({ passages: [] }));
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await expect(modal.locator(".cc-research-modal-status")).toHaveText("No new exact passages were found for this source. Add one yourself below.");
+  await expect(modal.getByRole("alert")).toBeEmpty();
+  await expect(modal.getByRole("button", { name: "Try reading again", exact: true })).toBeHidden();
   await modal.getByLabel("Your passage", { exact: true }).fill("Create the parser.");
   await modal.getByLabel("Passage title", { exact: true }).fill("Parser implementation");
   await modal.getByLabel("Where it is: type", { exact: true }).selectOption("paragraph");
@@ -116,5 +119,24 @@ test("a failed source read can be retried while preserving manual passage work",
   await expect(modal.getByRole("alert")).toBeEmpty();
   expect(await evidence(rig)).toEqual([]);
   await modal.screenshot({ path: testInfo.outputPath("failed-read-retried-with-draft-preserved.png") });
+  expect(errors).toEqual([]);
+});
+
+test("unusable extraction data is retryable and does not report an empty successful result", async ({ rig }, testInfo) => {
+  const { page, modal } = await openExtraction(rig, "not a passage list");
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await expect(modal.getByRole("alert")).toHaveText("The model did not return a valid passage list.");
+  await expect(modal.locator(".cc-research-modal-status")).toContainText("Couldn't read this source automatically.");
+  const manual = modal.locator(".cc-research-passage-manual");
+  await manual.getByLabel("Your passage", { exact: true }).fill("Create the parser.");
+  await modal.screenshot({ path: testInfo.outputPath("unusable-response-with-retry.png") });
+  const reply = JSON.stringify({ passages: [{ title: "Parser candidate", excerpt: "Create the parser." }] });
+  await rig.control.setStubs({ providerReply: [{ match: "/./", replies: [reply] }] });
+  await modal.getByRole("button", { name: "Try reading again", exact: true }).click();
+  await expect(modal.locator(".cc-research-passage-card blockquote")).toHaveText("Create the parser.");
+  await expect(manual.getByLabel("Your passage", { exact: true })).toHaveValue("Create the parser.");
+  await expect(modal.getByRole("alert")).toBeEmpty();
+  expect(await evidence(rig)).toEqual([]);
   expect(errors).toEqual([]);
 });

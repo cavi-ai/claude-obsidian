@@ -109,7 +109,9 @@ function trimTitle(raw: string, excerpt: string): string {
 
 export function parseExtraction(raw: string, source: SourceText, existingExcerpts: readonly string[]): ProposedPassage[] {
   const parsed = replyJson(raw, (value) => isRecord(value) && Array.isArray(value.passages)) as { passages: unknown[] } | undefined;
-  if (!parsed) return [];
+  if (!parsed || (parsed.passages.length > 0 && !parsed.passages.some((item) => isRecord(item) && typeof item.excerpt === "string" && item.excerpt.trim()))) {
+    throw new Error("The model did not return a valid passage list.");
+  }
   const haystack = normalize(source.text);
   const seen = new Set(existingExcerpts.map(normalize));
   const out: ProposedPassage[] = [];
