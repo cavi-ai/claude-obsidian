@@ -34,6 +34,45 @@ const type = (el: any, value: string) => { el.value = value; el.dispatchEvent({ 
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 describe("evidence review", () => {
+  it.each([undefined, "", "   "])("keeps the form open without writes when the location is %j", async (location) => {
+    const { actions, calls } = setup();
+    actions.reviewEvidence(snap([ev("E", { reviewState: "proposed", locatorValue: location })]));
+    type(byLabel("Evidence interpretation"), "My reading stays here");
+    click(button("Keep"));
+    await settle();
+    expect(modal().closed).toBe(false);
+    expect(calls).toEqual([]);
+    expect(byLabel("Evidence interpretation").value).toBe("My reading stays here");
+    expect(byLabel("Locator value").getAttribute("aria-invalid")).toBe("true");
+    expect(all("p").map((el) => el.textContent)).toContain("Add a page, section, or other location before keeping this passage.");
+    type(byLabel("Locator value"), "Methods");
+    expect(byLabel("Locator value").getAttribute("aria-invalid")).toBeNull();
+    byLabel("Locator type").value = "section";
+    click(button("Keep"));
+    await settle();
+    expect(modal().closed).toBe(true);
+    expect(calls).toEqual(["locator:section:Methods", "interpretation", "review:reviewed"]);
+  });
+
+  it("does not silently keep the old location after it is cleared", async () => {
+    const { actions, calls } = setup();
+    actions.reviewEvidence(snap([ev("E")]), "R/P/Evidence/E.md");
+    type(byLabel("Locator value"), "   ");
+    click(button("Keep"));
+    await settle();
+    expect(modal().closed).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it("allows rejecting a passage without a location", async () => {
+    const { actions, calls } = setup();
+    actions.reviewEvidence(snap([ev("E", { locatorKind: undefined, locatorValue: undefined })]));
+    click(button("Reject"));
+    await settle();
+    expect(modal().closed).toBe(true);
+    expect(calls).toEqual(["review:rejected"]);
+  });
+
   it("opens the passage the Desk named, not the first proposed one", () => {
     const { actions } = setup();
     actions.reviewEvidence(snap([ev("First", { reviewState: "proposed" }), ev("Named", { reviewState: "reviewed", sourceFingerprint: "old" })]), "R/P/Evidence/Named.md");
