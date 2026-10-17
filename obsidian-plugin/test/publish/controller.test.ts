@@ -12,7 +12,7 @@ interface Harness {
   copied: string[];
   confirms: Array<[string, string]>;
   items: () => PublishedItem[];
-  respond: (fn: (req: GistRequest) => { status: number; json: unknown }) => void;
+  respond: (fn: (req: GistRequest) => { status: number; json: unknown } | Promise<{ status: number; json: unknown }>) => void;
   setNote: (text: string) => void;
 }
 
@@ -167,6 +167,44 @@ describe("publishNote", () => {
 });
 
 describe("publishArtifact", () => {
+  it.each([
+    ["content", "<p>First</p>", "Chart", "<p>Second</p>", "Chart"],
+    ["title", "<p>Same result</p>", "First", "<p>Same result</p>", "Second"],
+  ] as const)("publishes independently when artifact %s differs", async (_difference, firstHtml, firstTitle, secondHtml, secondTitle) => {
+    const h = harness();
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    h.respond(() => {
+      if (h.requests.length === 1) return new Promise((resolve) => { release = () => resolve({ status: 201, json: created("first") }); started(); });
+      return { status: 201, json: created("second") };
+    });
+    const first = h.controller.publishArtifact(firstHtml, firstTitle);
+    await pending;
+    try {
+      await h.controller.publishArtifact(secondHtml, secondTitle);
+      expect(h.confirms).toHaveLength(2);
+      expect(h.requests).toHaveLength(2);
+    } finally { release(); await first; }
+    expect(h.items().map(({ gistId }) => gistId).sort()).toEqual(["first", "second"]);
+  });
+
+  it("ignores repeated clicks on the same artifact while it is publishing", async () => {
+    const h = harness();
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    h.respond(() => new Promise((resolve) => { release = () => resolve({ status: 201, json: created("first") }); started(); }));
+    const first = h.controller.publishArtifact("<p>Chart</p>", "Chart");
+    await pending;
+    try {
+      await h.controller.publishArtifact("<p>Chart</p>", "Chart");
+      expect(h.confirms).toHaveLength(1);
+      expect(h.requests).toHaveLength(1);
+    } finally { release(); await first; }
+    expect(h.items()).toHaveLength(1);
+  });
+
   it("confirms every time and creates a new secret gist with the rendered link", async () => {
     const h = harness();
     await h.controller.publishArtifact("<div>art</div>", "Chart");
