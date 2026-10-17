@@ -12,7 +12,7 @@ interface Harness {
   copied: string[];
   confirms: Array<[string, string]>;
   items: () => PublishedItem[];
-  respond: (fn: (req: GistRequest) => { status: number; json: unknown }) => void;
+  respond: (fn: (req: GistRequest) => { status: number; json: unknown } | Promise<{ status: number; json: unknown }>) => void;
   setNote: (text: string) => void;
 }
 
@@ -64,6 +64,51 @@ function harness(opts: { token?: string; confirm?: boolean; items?: PublishedIte
 }
 
 describe("publishNote", () => {
+  it.each([false, true])("follows repeated renames during an upload (republish: %s)", async (republish) => {
+    const h = harness();
+    if (republish) await h.controller.publishNote("n/A.md");
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    h.respond(() => new Promise((resolve) => {
+      release = () => resolve({ status: 201, json: created("g1") });
+      started();
+    }));
+    const upload = h.controller.publishNote("n/A.md");
+    await pending;
+    try {
+      await h.controller.renameNote("n/A.md", "n/B.md");
+      await h.controller.renameNote("n/B.md", "m/C.md");
+    } finally { release(); await upload; }
+    expect(h.items()).toHaveLength(1);
+    expect(h.items()[0]).toMatchObject({ key: "m/C.md", title: "C", gistId: "g1" });
+    h.respond(() => ({ status: 200, json: created("g1") }));
+    await h.controller.publishNote("m/C.md");
+    expect(h.confirms).toEqual([["note", "A"]]);
+    expect(h.requests.at(-1)).toMatchObject({ method: "PATCH", url: "http://stub/gists/g1" });
+    expect(h.items()).toHaveLength(1);
+  });
+
+  it("suppresses duplicate actions at the renamed path until the upload settles", async () => {
+    const h = harness();
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    h.respond(() => new Promise((resolve) => {
+      release = () => resolve({ status: 201, json: created("g1") });
+      started();
+    }));
+    const upload = h.controller.publishNote("n/A.md");
+    await pending;
+    try {
+      await h.controller.renameNote("n/A.md", "n/B.md");
+      h.respond(() => ({ status: 201, json: created("g2") }));
+      await h.controller.publishNote("n/B.md");
+      expect(h.requests).toHaveLength(1);
+      expect(h.confirms).toHaveLength(1);
+    } finally { release(); await upload; }
+  });
+
   it("points at the Publishing settings and sends nothing without a token", async () => {
     const h = harness({ token: "" });
     await h.controller.publishNote("n/A.md");
@@ -196,6 +241,26 @@ describe("publishArtifact", () => {
 
 describe("unpublish", () => {
   const seeded: PublishedItem = { key: "n/A.md", kind: "note", title: "A", gistId: "g1", url: "https://gist.github.com/me/g1", owner: "me", publishedAt: 1, updatedAt: 1 };
+
+  it("removes the renamed entry when deletion finishes", async () => {
+    const h = harness({ items: [seeded] });
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    h.respond(() => new Promise((resolve) => {
+      release = () => resolve({ status: 204, json: null });
+      started();
+    }));
+    const deletion = h.controller.unpublish("n/A.md");
+    await pending;
+    try {
+      await h.controller.renameNote("n/A.md", "n/B.md");
+      h.respond(() => ({ status: 204, json: null }));
+      await h.controller.unpublish("n/B.md");
+      expect(h.requests).toHaveLength(1);
+    } finally { release(); await deletion; }
+    expect(h.items()).toEqual([]);
+  });
 
   it("deletes the gist and removes the entry", async () => {
     const h = harness({ items: [seeded] });
