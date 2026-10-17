@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The tag merge review lists only spellings of one tag and pairs the model judged the same; related tags are never offered as merges.
 - Check with model gets a verdict for every tag pair and note from Claude, and names any pairs the model leaves unanswered.
 - Chat drafts stay with their conversation when switching chats, when a send is refused, and when reusing a past question.
+- Use again restores a skill's slash command with its arguments after a conversation is reopened.
 - New chat clears pending images and PDFs.
 - A failed or stopped regeneration keeps the previous answer and its sources.
 - Desktop background replies open from a reply button instead of a notice over the chat history.
