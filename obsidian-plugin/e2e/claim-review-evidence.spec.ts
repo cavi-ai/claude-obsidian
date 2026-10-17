@@ -17,10 +17,10 @@ test("claim review explains stale evidence and opens the passage for re-checking
   await expect(modal.getByText("This passage is not marked reviewed.", { exact: true })).toBeVisible();
   await expect(modal.getByText("Marking this claim reviewed does not check its passages.", { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("claim-review-with-evidence-warnings.png") });
-  await modal.getByLabel("What this claim doesn't cover", { exact: true }).fill("Keep this limitation until I decide.");
+  await modal.getByLabel("Add another limitation", { exact: true }).fill("Keep this limitation until I decide.");
   await modal.getByRole("button", { name: "Check passage: Stale result", exact: true }).click();
   await page.locator(".modal-container").last().getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(modal.getByLabel("What this claim doesn't cover", { exact: true })).toHaveValue("Keep this limitation until I decide.");
+  await expect(modal.getByLabel("Add another limitation", { exact: true })).toHaveValue("Keep this limitation until I decide.");
   await modal.getByRole("button", { name: "Check passage: Stale result", exact: true }).click();
   await page.locator(".modal-container").last().getByRole("button", { name: "Discard and check", exact: true }).click();
   const evidence = page.locator(".modal-container").last();
@@ -31,4 +31,26 @@ test("claim review explains stale evidence and opens the passage for re-checking
   expect(claim).toContain('review_state: reviewed');
   const passage = await readFile(join(rig.paths.vault, "Research/Alpha/Evidence/Stale result.md"), "utf8");
   expect(passage).toContain('source_fingerprint: "sha256:old"');
+});
+
+test("claim review shows saved limitations and adds to them without replacing them", async ({ rig }, testInfo) => {
+  const { page } = await rig.reset();
+  await page.evaluate(async () => {
+    await (window as unknown as { app: { commands: { executeCommandById(id: string): Promise<void> } } }).app.commands.executeCommandById("claude-companion:open-research-desk");
+  });
+  const card = page.locator(".cc-research-desk .cc-desk-card").filter({ hasText: "Continuity claim" });
+  await card.locator(".cc-desk-card-head").click();
+  await card.getByRole("button", { name: "Check claim", exact: true }).click();
+  const modal = page.locator(".modal-container").last();
+  const limitations = modal.getByRole("region", { name: "Saved limitations", exact: true });
+  await expect(limitations.getByRole("listitem")).toHaveText(["One workflow was studied"]);
+  const addition = modal.getByLabel("Add another limitation", { exact: true });
+  await expect(addition).toHaveValue("");
+  await addition.fill("Only desktop workflows were studied.");
+  await modal.getByRole("button", { name: "Mark reviewed", exact: true }).click();
+  await expect(modal).toBeHidden();
+  await card.getByRole("button", { name: "Check claim", exact: true }).click();
+  await expect(limitations.getByRole("listitem")).toHaveText(["One workflow was studied", "Only desktop workflows were studied."]);
+  await expect(addition).toHaveValue("");
+  await page.screenshot({ path: testInfo.outputPath("saved-claim-limitations.png") });
 });

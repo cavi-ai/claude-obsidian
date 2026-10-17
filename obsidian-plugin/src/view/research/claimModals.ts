@@ -212,11 +212,18 @@ export class ClaimReviewModal extends Modal {
     const status = this.contentEl.createEl("p", { cls: "cc-research-modal-status", attr: { role: "status" } });
     const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
 
+    if (claim.limitations.length) {
+      const saved = this.contentEl.createEl("section", { attr: { "aria-label": "Saved limitations" } });
+      saved.createEl("h4", { text: "Saved limitations" });
+      const list = saved.createEl("ul");
+      for (const text of claim.limitations) list.createEl("li", { text });
+    }
     let limitation: HTMLTextAreaElement | undefined;
     if (claim.challenging.length) {
       const field = this.contentEl.createDiv({ cls: "cc-research-modal-field" });
-      field.createEl("label", { text: "What this claim doesn't cover" });
-      limitation = field.createEl("textarea", { attr: { "aria-label": "What this claim doesn't cover", rows: "2" } });
+      const label = claim.limitations.length ? "Add another limitation" : "What this claim doesn't cover";
+      field.createEl("label", { text: label });
+      limitation = field.createEl("textarea", { attr: { "aria-label": label, rows: "2" } });
       const box = limitation;
       let touched = false;
       box.addEventListener("input", () => { touched = true; edited = true; });

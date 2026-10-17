@@ -79,6 +79,23 @@ describe("evidence review", () => {
 });
 
 describe("claim review", () => {
+  it("shows saved limitations even without challenging passages", () => {
+    const { actions } = setup();
+    actions.reviewClaim(snap([ev("A"), claim("C", { supports: ["R/P/Evidence/A.md"], limitations: ["Adults only", "One workflow was studied"] })]), "R/P/Claims/C.md");
+    expect(all("li").map((el) => el.textContent)).toEqual(["Adults only", "One workflow was studied"]);
+  });
+
+  it("adds a new limitation while displaying the existing ones", async () => {
+    const { actions, calls } = setup();
+    actions.reviewClaim(snap([ev("A"), claim("C", { challenges: ["R/P/Evidence/A.md"], limitations: ["Adults only"] })]), "R/P/Claims/C.md");
+    expect(all("li").map((el) => el.textContent)).toEqual(["Adults only"]);
+    expect(byLabel("Add another limitation").value).toBe("");
+    type(byLabel("Add another limitation"), "One workflow was studied");
+    click(button("Mark reviewed"));
+    await settle();
+    expect(calls).toEqual(["claim:reviewed:One workflow was studied"]);
+  });
+
   it("shows stale support and opens the named passage for checking", () => {
     const { actions } = setup();
     actions.reviewClaim(snap([ev("A", { sourceFingerprint: "old" }), claim("C", { supports: ["R/P/Evidence/A.md"] })]), "R/P/Claims/C.md");
