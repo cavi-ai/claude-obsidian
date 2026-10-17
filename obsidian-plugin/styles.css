@@ -2521,6 +2521,19 @@ body.is-mobile.keyboard-animating .workspace-leaf-content .view-content.cc-chat-
   font-style: italic;
 }
 
+.cc-diff-modal .cc-organize-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+}
+.cc-diff-modal .cc-organize-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .cc-diff-hunk {
   background: var(--cc-surface-raised);
   border: 1px solid var(--cc-border);
