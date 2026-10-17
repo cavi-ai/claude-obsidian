@@ -153,5 +153,5 @@ test("section previews and custom revision instructions survive visiting another
   await expect(section.locator(".cc-revision-instruction")).toHaveValue(instruction);
   expect(await rig.providerRequests()).toBe(1);
   expect(await readFile(join(rig.paths.vault, documentPath), "utf8")).toBe(accepted);
-  await section.screenshot({ path: testInfo.outputPath("revision-instruction-preserved-across-projects.png") });
+  await page.screenshot({ path: testInfo.outputPath("revision-instruction-preserved-across-projects.png") });
 });
