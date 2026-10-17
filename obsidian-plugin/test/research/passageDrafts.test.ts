@@ -114,4 +114,25 @@ describe("source-owned passage work", () => {
     expect(modal.contentEl.querySelector("blockquote")?.textContent).toBe("Recovered quote");
     expect(modal.contentEl.querySelector('[role="alert"]')?.textContent).toBe("");
   });
+
+  it.each(["manual", "suggestion"] as const)("allows choosing the %s copy when a manual passage matches a selected suggestion", async (keep) => {
+    const { modal, field, type, click, create } = setup(async () => ({ kind: "passages", passages: [{ title: "Suggestion", excerpt: "The study said “it works”.", locatorKind: "page", locatorValue: "1" }] }));
+    await settle();
+    type("Your passage", 'The study  said "it works".');
+    const add = [...modal.contentEl.querySelectorAll("button")].find((el) => el.textContent === "Add 2 passages")!;
+    expect(add.disabled).toBe(true);
+    expect(modal.contentEl.querySelector(".cc-research-duplicate-passage")?.textContent).toContain("matches a selected suggestion");
+    click("Add 2 passages");
+    await settle();
+    expect(create).not.toHaveBeenCalled();
+    expect(field("Your passage").value).toBe('The study  said "it works".');
+    if (keep === "manual") {
+      const check = field("Add Suggestion") as HTMLInputElement;
+      check.checked = false;
+      check.dispatchEvent({ type: "change" } as never);
+    } else type("Your passage", "");
+    click("Add 1 passage");
+    await settle();
+    expect(create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ source: "A.md", excerpt: keep === "manual" ? 'The study  said "it works".' : "The study said “it works”.", reviewState: keep === "manual" ? "proposed" : "reviewed" }));
+  });
 });

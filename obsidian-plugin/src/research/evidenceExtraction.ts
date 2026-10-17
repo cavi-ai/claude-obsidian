@@ -30,6 +30,11 @@ const STOPWORDS = new Set(["what", "which", "that", "this", "with", "from", "hav
 const collapse = (value: string): string => value.replace(/\s+/g, " ").trim();
 const normalize = (value: string): string => collapse(quotes(value));
 
+export function samePassageExcerpt(left: string, right: string): boolean {
+  const key = normalize(left);
+  return key.length > 0 && key === normalize(right);
+}
+
 function questionWords(question: string): Set<string> {
   return new Set((question.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((word) => !STOPWORDS.has(word)));
 }

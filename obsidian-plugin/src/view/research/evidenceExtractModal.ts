@@ -1,5 +1,5 @@
 import { Modal, Notice, type App } from "obsidian";
-import type { ProposedPassage } from "../../research/evidenceExtraction";
+import { samePassageExcerpt, type ProposedPassage } from "../../research/evidenceExtraction";
 import type { ResearchSourceRecord, SourceLocatorKind } from "../../research/types";
 import { sanitizeLoadError } from "./shared";
 
@@ -103,16 +103,20 @@ export class EvidenceExtractModal extends Modal {
     toggle.addEventListener("click", () => setManual(!manualOpen));
 
     const error = root.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
+    const duplicateNotice = root.createEl("p", { cls: "cc-research-duplicate-passage", attr: { role: "status" } });
     const actions = root.createDiv({ cls: "cc-research-modal-actions" });
     const add = actions.createEl("button", { cls: "mod-cta", text: "Add 0 passages" });
 
     let cards: Card[] = [];
     const manualFilled = (): boolean => manualText.value.trim().length > 0;
+    const manualMatchesSelected = (): boolean => manualFilled() && cards.some(({ check, excerpt }) => check.checked && samePassageExcerpt(manualText.value, excerpt));
     const count = (): number => cards.filter(({ check }) => check.checked).length + (manualFilled() ? 1 : 0);
     const refresh = (): void => {
       const total = count();
+      const duplicate = manualMatchesSelected();
+      duplicateNotice.setText(duplicate ? "Your manual passage matches a selected suggestion. Uncheck that suggestion or change your manual passage before adding." : "");
       add.setText(`Add ${plural(total)}`);
-      add.disabled = this.saving || total === 0;
+      add.disabled = this.saving || total === 0 || duplicate;
     };
     manualText.addEventListener("input", () => {
       if (!titleEdited) manualTitle.value = manualText.value.trim().split(/\s+/).slice(0, 8).join(" ");
@@ -170,7 +174,7 @@ export class EvidenceExtractModal extends Modal {
     retry.addEventListener("click", () => void reading());
 
     add.addEventListener("click", () => {
-      if (this.saving || count() === 0) return;
+      if (this.saving || count() === 0 || manualMatchesSelected()) return;
       void (async () => {
         this.setSaving(picker, true);
         error.setText("");

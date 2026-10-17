@@ -130,6 +130,7 @@ test("unusable extraction data is retryable and does not report an empty success
   await expect(modal.locator(".cc-research-modal-status")).toContainText("Couldn't read this source automatically.");
   const manual = modal.locator(".cc-research-passage-manual");
   await manual.getByLabel("Your passage", { exact: true }).fill("Create the parser.");
+  await manual.getByLabel("Passage title", { exact: true }).fill("Manual parser draft");
   await modal.screenshot({ path: testInfo.outputPath("unusable-response-with-retry.png") });
   const reply = JSON.stringify({ passages: [{ title: "Parser candidate", excerpt: "Create the parser." }] });
   await rig.control.setStubs({ providerReply: [{ match: "/./", replies: [reply] }] });
@@ -138,5 +139,12 @@ test("unusable extraction data is retryable and does not report an empty success
   await expect(manual.getByLabel("Your passage", { exact: true })).toHaveValue("Create the parser.");
   await expect(modal.getByRole("alert")).toBeEmpty();
   expect(await evidence(rig)).toEqual([]);
+  await expect(modal.locator(".cc-research-duplicate-passage")).toContainText("matches a selected suggestion");
+  await expect(modal.getByRole("button", { name: "Add 2 passages", exact: true })).toBeDisabled();
+  await modal.screenshot({ path: testInfo.outputPath("matching-manual-and-suggested-passage.png") });
+  await modal.locator(".cc-research-passage-card").getByRole("checkbox").uncheck();
+  await modal.getByRole("button", { name: "Add 1 passage", exact: true }).click();
+  await expect(modal).toHaveCount(0);
+  expect(await evidence(rig)).toEqual([expect.objectContaining({ source: parserSource, title: "Manual parser draft", excerpt: "Create the parser.", reviewState: "proposed" })]);
   expect(errors).toEqual([]);
 });
