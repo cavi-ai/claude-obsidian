@@ -2,6 +2,7 @@ import type { DraftCoordinator, DraftPreview } from "../research/draftCoordinato
 import type { RevisionCoordinator, RevisionPreview } from "../research/revisionCoordinator";
 import type { RevisionIntent } from "../research/revisionPolicy";
 import type { DraftSectionParseResult, ParsedDraftSection } from "../research/draftSections";
+import { isOutlineEnvelope, isReviewedClaimFallback } from "../research/draftSections";
 import type { ProjectSnapshot } from "../research/graph";
 import { evidenceChanged } from "../research/sectionStatus";
 import { buildDraftGrounding, groundingClaimFingerprint } from "../research/draftGrounding";
@@ -26,17 +27,17 @@ export class ResearchDraftPanel {
   private readonly errors = new Map<string, string>();
   private readonly revisionPreviews = new Map<string, RevisionPreview>();
   private readonly revisionForms = new Map<string, { open: boolean; intent: RevisionIntent; customInstruction: string }>();
-  private active: AbortController | undefined;
+  private active: { controller: AbortController; sectionId: string; kind: "draft" | "revision" } | undefined;
   private scope = "";
 
   constructor(private readonly deps: ResearchDraftPanelDeps) {}
 
-  dispose(): void { this.active?.abort(); this.active = undefined; }
+  dispose(): void { this.active?.controller.abort(); this.active = undefined; }
 
   render(root: HTMLElement, snapshot: ProjectSnapshot, document: ResearchDocumentRecord | undefined, parsed: DraftSectionParseResult | undefined): void {
     const scope = `${snapshot.project.path}\0${document?.path ?? ""}`;
     if (scope !== this.scope) {
-      this.active?.abort(); this.previews.clear(); this.errors.clear(); this.revisionPreviews.clear(); this.revisionForms.clear(); this.scope = scope;
+      this.dispose(); this.previews.clear(); this.errors.clear(); this.revisionPreviews.clear(); this.revisionForms.clear(); this.scope = scope;
     }
     root.createEl("h3", { text: "Section drafting" });
     root.createEl("p", { text: "Draft one claim-grounded section at a time. Previewing never writes to the vault." });
@@ -51,26 +52,39 @@ export class ResearchDraftPanel {
     const card = root.createEl("article", { cls: "cc-draft-section" });
     const heading = section.heading;
     card.createEl("h4", { text: heading });
-    const evidenceDrift = section.envelope.provider !== "companion" && evidenceChanged(snapshot, section);
+    const outline = isOutlineEnvelope(section.envelope);
+    const evidenceDrift = !outline && evidenceChanged(snapshot, section);
     const stale = section.modifiedSinceReview || evidenceDrift;
-    const status = section.modifiedSinceReview ? "Modified since review" : evidenceDrift ? "Evidence changed since review" : section.envelope.provider === "companion" ? "Ready to draft" : "Accepted draft";
-    card.createEl("p", { cls: `cc-draft-status${stale ? " is-stale" : ""}`, text: status });
+    const pending = this.active?.sectionId === section.envelope.id ? this.active : undefined;
+    const preview = this.previews.get(section.envelope.id);
+    let status = outline ? "Ready to draft" : isReviewedClaimFallback(section.envelope) ? "Accepted fallback" : "Accepted draft";
+    if (preview) status = "Draft preview ready";
+    if (evidenceDrift) status = "Evidence changed since review";
+    if (section.modifiedSinceReview) status = "Modified since review";
+    if (pending) status = pending.kind === "draft" ? "Drafting section…" : "Preparing revision…";
+    card.createEl("p", { cls: `cc-draft-status${stale ? " is-stale" : ""}`, attr: { role: "status" }, text: status });
     card.createEl("p", { text: `${section.envelope.claimPaths.length} claim · ${section.envelope.evidence.length} evidence record${section.envelope.evidence.length === 1 ? "" : "s"}` });
+    if (pending) {
+      const cancel = card.createEl("button", { text: pending.kind === "draft" ? "Cancel draft" : "Cancel revision" });
+      cancel.addEventListener("click", () => { this.dispose(); void this.deps.rerender(); });
+      return;
+    }
     const error = this.errors.get(section.envelope.id);
     if (error) card.createEl("p", { cls: "cc-research-error", attr: { role: "alert" }, text: error });
-    const preview = this.previews.get(section.envelope.id);
     if (!preview) {
       const revisionPreview = this.revisionPreviews.get(section.envelope.id);
       if (revisionPreview) { this.renderRevisionPreview(card, snapshot, document, section, revisionPreview); return; }
-      if (section.envelope.provider !== "companion") {
+      if (!outline) {
         if (!stale) this.renderRevisionControls(card, snapshot, section);
         return;
       }
       const button = card.createEl("button", { text: "Preview draft" });
+      button.disabled = Boolean(this.active);
       button.addEventListener("click", () => void this.preview(snapshot, section));
       return;
     }
-    card.createEl("p", { cls: "cc-draft-provider", text: `${preview.envelope.provider} · ${preview.envelope.model}` });
+    if (isReviewedClaimFallback(preview.envelope)) card.createEl("p", { cls: "cc-draft-fallback", attr: { role: "status" }, text: "The model did not return a usable draft. Companion generated this minimal version from the reviewed claim." });
+    card.createEl("p", { cls: "cc-draft-provider", text: isReviewedClaimFallback(preview.envelope) ? "Companion · reviewed-claim fallback" : `${preview.envelope.provider} · ${preview.envelope.model}` });
     card.createEl("pre", { cls: "cc-draft-preview", text: preview.response.markdown });
     const diff = card.createDiv({ cls: "cc-draft-diff", attr: { "aria-label": "Section before and after diff" } });
     const hunk = planEdits(section.markdown, [{ old_str: section.markdown, new_str: preview.response.markdown }]).hunks[0];
@@ -113,6 +127,7 @@ export class ResearchDraftPanel {
     instruction.value = form.customInstruction;
     instruction.addEventListener("input", () => { form.customInstruction = instruction.value; this.revisionForms.set(section.envelope.id, form); });
     const preview = card.createEl("button", { text: "Preview revision" });
+    preview.disabled = Boolean(this.active);
     preview.addEventListener("click", () => void this.previewRevision(snapshot, section, form));
     const cancel = card.createEl("button", { text: "Cancel revision" });
     cancel.addEventListener("click", () => { this.revisionForms.delete(section.envelope.id); void this.deps.rerender(); });
@@ -124,7 +139,11 @@ export class ResearchDraftPanel {
     const diff = card.createDiv({ cls: "cc-draft-diff", attr: { "aria-label": "Section revision before and after diff" } });
     const hunk = planEdits(section.markdown, [{ old_str: section.markdown, new_str: preview.response.markdown }]).hunks[0];
     if (hunk) { const lines = diff.createEl("pre", { cls: "cc-diff-lines" }); for (const line of hunk.lines) lines.createDiv({ cls: `cc-diff-line is-${line.kind}`, text: `${line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "} ${line.text}` }); }
+    if (!preview.response.canAccept) {
+      card.createEl("p", { cls: "cc-research-error", attr: { role: "alert" }, text: "This revision cannot be accepted. Review the issues below, then discard it and try again." });
+    }
     const report = card.createEl("details", { cls: "cc-revision-report" });
+    if (!preview.response.canAccept) report.setAttribute("open", "");
     report.createEl("summary", { text: "Inspect preservation report" });
     report.createEl("p", { text: `${preview.response.claimPreservation.length} preserved claim · ${preview.response.support.length} supported passage${preview.response.support.length === 1 ? "" : "s"}` });
     for (const warning of preview.response.warnings) report.createEl("p", { cls: "cc-revision-warning", text: warning });
@@ -138,19 +157,24 @@ export class ResearchDraftPanel {
   }
 
   async preview(snapshot: ProjectSnapshot, section: ParsedDraftSection): Promise<void> {
-    this.active?.abort();
+    if (this.active) return;
     const controller = new AbortController();
-    this.active = controller;
+    this.active = { controller, sectionId: section.envelope.id, kind: "draft" };
     this.errors.delete(section.envelope.id);
     try {
+      await this.deps.rerender();
+      if (controller.signal.aborted) return;
       const current = await this.deps.repository.loadProject(snapshot.project.path, { refreshBinaryFingerprints: true });
+      if (controller.signal.aborted) return;
       const preview = await this.deps.coordinator.preview(current, section, controller.signal);
       if (!controller.signal.aborted) this.previews.set(section.envelope.id, preview);
     } catch (error) {
       if (!controller.signal.aborted) this.errors.set(section.envelope.id, safeDraftError(error));
     } finally {
-      if (this.active === controller) this.active = undefined;
-      if (!controller.signal.aborted) await this.deps.rerender();
+      if (this.active?.controller === controller) {
+        this.active = undefined;
+        if (!controller.signal.aborted) await this.deps.rerender();
+      }
     }
   }
 
@@ -168,15 +192,18 @@ export class ResearchDraftPanel {
   }
 
   private async previewRevision(snapshot: ProjectSnapshot, section: ParsedDraftSection, form: { intent: RevisionIntent; customInstruction: string }): Promise<void> {
-    if (!this.deps.revisionCoordinator) return;
-    this.active?.abort(); const controller = new AbortController(); this.active = controller; this.errors.delete(section.envelope.id);
+    if (!this.deps.revisionCoordinator || this.active) return;
+    const controller = new AbortController(); this.active = { controller, sectionId: section.envelope.id, kind: "revision" }; this.errors.delete(section.envelope.id);
     try {
+      await this.deps.rerender();
+      if (controller.signal.aborted) return;
       const request = { intent: form.intent, ...(form.customInstruction.trim() ? { customInstruction: form.customInstruction.trim() } : {}) };
       const current = await this.deps.repository.loadProject(snapshot.project.path, { refreshBinaryFingerprints: true });
+      if (controller.signal.aborted) return;
       const preview = await this.deps.revisionCoordinator.preview(current, section, request, controller.signal);
       if (!controller.signal.aborted) this.revisionPreviews.set(section.envelope.id, preview);
     } catch (error) { if (!controller.signal.aborted) this.errors.set(section.envelope.id, safeDraftError(error)); }
-    finally { if (this.active === controller) this.active = undefined; if (!controller.signal.aborted) await this.deps.rerender(); }
+    finally { if (this.active?.controller === controller) { this.active = undefined; if (!controller.signal.aborted) await this.deps.rerender(); } }
   }
 
   private async acceptRevision(projectPath: string, documentPath: string, preview: RevisionPreview): Promise<void> {
