@@ -478,11 +478,11 @@ export class ChatView extends ItemView {
 
   async submitPrompt(text: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
     if (!text.trim() || this.streaming || this.submission.pending) return false;
-    return this.submitDraft((submission) => this.run(text.trim(), display, maxTokens, { ...opts, submission }));
+    return this.submitDraft((submission) => this.run(text.trim(), display, maxTokens, { ...opts, submission }), false);
   }
-  private submitDraft(send: (submission: DraftStart) => Promise<boolean>): Promise<boolean> {
+  private submitDraft(send: (submission: DraftStart) => Promise<boolean>, consumeDraft = true): Promise<boolean> {
     const generation = this.drafts.generation;
-    return this.submission.run(this.inputEl, () => this.drafts.generation === generation, () => this.composer.autosizeInput(), send);
+    return this.submission.run(this.inputEl, () => this.drafts.generation === generation, () => this.composer.autosizeInput(), send, consumeDraft);
   }
 
   // ---------- "@" context picker ----------

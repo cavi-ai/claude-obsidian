@@ -11,6 +11,18 @@ function fixture() {
 }
 
 describe("draft submission", () => {
+  it("accepts an external prompt without consuming an unrelated composer draft", async () => {
+    const { input, submission, resize } = fixture();
+    const original = input.value;
+    await expect(submission.run(input, () => true, resize, async (start) => {
+      start.accepted();
+      return true;
+    }, false)).resolves.toBe(true);
+    expect(input.value).toBe(original);
+    expect(submission.pending).toBe(false);
+    expect(resize).not.toHaveBeenCalled();
+  });
+
   it("clears at acceptance while the turn continues and ignores duplicate starts", async () => {
     const { input, submission, resize } = fixture();
     let accept!: DraftStart;
