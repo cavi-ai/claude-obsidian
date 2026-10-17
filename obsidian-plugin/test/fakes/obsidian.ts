@@ -60,6 +60,10 @@ class FakeEventSource {
   trigger(name: string, ...args: unknown[]): void {
     for (const callback of this.listeners.get(name) ?? []) callback(...args);
   }
+
+  offref(callback: EventCallback): void {
+    for (const [name, callbacks] of this.listeners) this.listeners.set(name, callbacks.filter((listener) => listener !== callback));
+  }
 }
 
 interface FileCache {

@@ -474,6 +474,7 @@ export class InboxView extends ItemView {
       if (outcome.status === "enriched") {
         this.enrichedOptimistically.add(item.path);
         this.enrichmentFeedback.delete(item.path);
+        if (!fromBatch) this.plugin.activity.resolveFailure("source-enrichment:inbox-batch", item.path, "Enriched");
         if (!fromBatch) this.setOperationFeedback("success", `Typed source note: ${item.basename}.`);
         return outcome;
       }
@@ -520,7 +521,7 @@ export class InboxView extends ItemView {
             completed,
             succeeded: enriched,
             failed,
-            details: [{ label: item.path, message: "Enriched", state: "success" }],
+            details: [{ key: item.path, label: item.path, message: "Enriched", state: "success" }],
           });
         } else {
           failed++;
@@ -529,7 +530,7 @@ export class InboxView extends ItemView {
             completed,
             succeeded: enriched,
             failed,
-            details: [{ label: item.path, message: detail, state: "error" }],
+            details: [{ key: item.path, label: item.path, message: detail, state: "error" }],
           });
         }
         if (Platform.isMobile && outcome.status === "failed" && outcome.error instanceof ExtractError) {
