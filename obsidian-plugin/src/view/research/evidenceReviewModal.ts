@@ -51,6 +51,7 @@ export class EvidenceReviewModal extends Modal {
     interpretation.value = evidence.interpretation ?? "";
     const status = this.contentEl.createEl("p", { cls: "cc-research-modal-status", attr: { role: "status" } });
     const error = this.contentEl.createEl("p", { cls: "cc-research-error", attr: { role: "alert" } });
+    value.addEventListener("input", () => { value.removeAttribute("aria-invalid"); error.setText(""); });
     const again = this.contentEl.createEl("button", { cls: "is-hidden", text: "Draft again" });
 
     let touched = false;
@@ -73,6 +74,12 @@ export class EvidenceReviewModal extends Modal {
     const complete = (state: "reviewed" | "rejected"): void => {
       const text = interpretation.value.trim();
       const locator = value.value.trim();
+      if (state === "reviewed" && !locator) {
+        error.setText("Add a page, section, or other location before keeping this passage.");
+        value.setAttribute("aria-invalid", "true");
+        value.focus();
+        return;
+      }
       const changed = locator && (locator !== (evidence.locatorValue ?? "") || kind.value !== evidence.locatorKind);
       void this.deps.submit({
         state,
