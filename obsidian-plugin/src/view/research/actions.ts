@@ -14,7 +14,7 @@ import { EvidenceExtractModal, type PassageLoad } from "./evidenceExtractModal";
 import { EvidenceReviewModal } from "./evidenceReviewModal";
 import { OutlineCreateModal } from "./outlineModal";
 import { ProjectCreateModal } from "./projectCreateModal";
-import { claimPassageRows } from "../../research/argument";
+import { claimPassageRows, evidencePassageRow } from "../../research/argument";
 import type { ProjectCreateInput, RewriteTextFn } from "./shared";
 import { NotePickModal, SourceCaptureModal } from "./sourceCaptureModal";
 
@@ -179,13 +179,14 @@ export class ResearchActions {
     const claim = pickClaimForReview(snapshot, path);
     if (!claim) { new Notice("No claims need checking."); return; }
     const linked = new Set([...claim.supporting, ...claim.challenging, ...claim.contextual]);
+    const linkable = snapshot.evidence.filter((item) => item.reviewState === "reviewed" && !linked.has(item.path));
     const label = this.deps.researchLabel?.();
     new ClaimReviewModal(this.deps.app, {
       claim,
-      passages: claimPassageRows(snapshot, claim),
+      passages: [...claimPassageRows(snapshot, claim), ...linkable.map((item) => evidencePassageRow(snapshot, item.path, "supports"))],
       checkPassage: (evidencePath) => this.reviewEvidence(snapshot, evidencePath),
       evidence: snapshot.evidence,
-      linkable: snapshot.evidence.filter((item) => item.reviewState === "reviewed" && !linked.has(item.path)),
+      linkable,
       submit: async ({ state, limitation, link }) => {
         for (const evidencePath of link) await this.deps.repository.linkClaimEvidence(snapshot.project.path, claim.path, evidencePath, "supports");
         await this.deps.repository.reviewClaim(claim.path, state, limitation);

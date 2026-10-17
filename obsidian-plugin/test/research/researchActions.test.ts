@@ -79,6 +79,21 @@ describe("evidence review", () => {
 });
 
 describe("claim review", () => {
+  it.each([
+    { sourceFingerprint: "old" },
+    { locatorValue: undefined },
+  ])("requires checking an untrusted candidate before linking it: %j", (extra) => {
+    const { actions } = setup();
+    actions.reviewClaim(snap([ev("Needs check", extra), ev("Current"), claim("C")]), "R/P/Claims/C.md");
+    expect(byLabel("Link Needs check").disabled).toBe(true);
+    expect(byLabel("Link Current").disabled).toBe(false);
+    expect(all("p").map((el) => el.textContent)).toContain("Check this passage before linking it as current support.");
+    const check = all("button").find((el) => el.getAttribute("aria-label") === "Check passage: Needs check");
+    expect(check).toBeDefined();
+    click(check);
+    expect(all("h2")[0].textContent).toBe("Check Needs check");
+  });
+
   it("shows saved limitations even without challenging passages", () => {
     const { actions } = setup();
     actions.reviewClaim(snap([ev("A"), claim("C", { supports: ["R/P/Evidence/A.md"], limitations: ["Adults only", "One workflow was studied"] })]), "R/P/Claims/C.md");

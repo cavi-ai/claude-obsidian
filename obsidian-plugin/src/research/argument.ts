@@ -74,14 +74,16 @@ function claimStatus(claim: ProjectClaim, contradicted: boolean, inOutline: bool
 
 export function claimPassageRows(snapshot: ProjectSnapshot, claim: ProjectClaim): PassageRow[] {
   const relations: Array<[EvidenceRelation, readonly string[]]> = [["supports", claim.supporting], ["challenges", claim.challenging], ["contextualizes", claim.contextual]];
-  return relations.flatMap(([relation, paths]) => paths.map((path): PassageRow => {
-    const evidence = snapshot.evidence.find((item) => item.path === path);
-    if (!evidence) return { path, title: recordBasename(path), relation, sourceTitle: "", trusted: false, flag: "missing" };
-    const source = snapshot.sources.find((item) => item.path === evidence.source);
-    const locator = evidence.locatorKind && evidence.locatorValue?.trim() ? `${evidence.locatorKind} ${evidence.locatorValue.trim()}` : undefined;
-    const flag = isStaleEvidence(evidence, source) ? "stale" : !locator ? "no locator" : evidence.reviewState !== "reviewed" ? "unchecked" : undefined;
-    return { path, title: evidence.title, relation, sourceTitle: source?.title ?? recordBasename(evidence.source), ...(locator ? { locator } : {}), trusted: isTrustedEvidence(evidence, source), ...(flag ? { flag } : {}) };
-  }));
+  return relations.flatMap(([relation, paths]) => paths.map((path) => evidencePassageRow(snapshot, path, relation)));
+}
+
+export function evidencePassageRow(snapshot: ProjectSnapshot, path: string, relation: EvidenceRelation): PassageRow {
+  const evidence = snapshot.evidence.find((item) => item.path === path);
+  if (!evidence) return { path, title: recordBasename(path), relation, sourceTitle: "", trusted: false, flag: "missing" };
+  const source = snapshot.sources.find((item) => item.path === evidence.source);
+  const locator = evidence.locatorKind && evidence.locatorValue?.trim() ? `${evidence.locatorKind} ${evidence.locatorValue.trim()}` : undefined;
+  const flag = isStaleEvidence(evidence, source) ? "stale" : !locator ? "no locator" : evidence.reviewState !== "reviewed" ? "unchecked" : undefined;
+  return { path, title: evidence.title, relation, sourceTitle: source?.title ?? recordBasename(evidence.source), ...(locator ? { locator } : {}), trusted: isTrustedEvidence(evidence, source), ...(flag ? { flag } : {}) };
 }
 
 function claimNotes(claim: ProjectClaim, status: ClaimStatus, audit: AuditFinding[], intelligence: IntelligenceFinding[]): string[] {

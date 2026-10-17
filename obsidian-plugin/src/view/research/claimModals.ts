@@ -177,6 +177,28 @@ export class ClaimReviewModal extends Modal {
     const byPath = new Map(evidence.map((item) => [item.path, item]));
     const passageByPath = new Map(this.deps.passages.map((item) => [item.path, item]));
     let edited = false;
+    const details = (parent: HTMLElement, path: string): PassageRow | undefined => {
+      const passage = passageByPath.get(path);
+      if (passage) {
+        const location = [passage.sourceTitle, passage.locator].filter(Boolean).join(" · ");
+        if (location) parent.createEl("p", { cls: "cc-research-modal-meta", text: location });
+        parent.createEl("p", { text: passage.flag ? PASSAGE_WARNING[passage.flag] : passage.trusted ? "Checked passage." : "This passage needs checking." });
+      }
+      return passage;
+    };
+    const checkPassage = (parent: HTMLElement, item: EvidenceRecord): void => {
+      const check = parent.createEl("button", { text: "Check passage", attr: { "aria-label": `Check passage: ${item.title}` } });
+      check.addEventListener("click", () => {
+        const open = () => { this.close(); this.deps.checkPassage(item.path); };
+        if (!edited) { open(); return; }
+        new ConfirmModal(this.app, {
+          title: "Discard claim review changes?",
+          body: "Checking the passage will close this claim review. Discard your unsaved limitation and passage selections?",
+          cta: "Discard and check",
+          onResolve: (ok) => { if (ok) open(); },
+        }).open();
+      });
+    };
     const groups: Array<[string, string[]]> = [["Supports", claim.supporting], ["Challenges", claim.challenging], ["Context", claim.contextual]];
     for (const [heading, paths] of groups) {
       if (!paths.length) continue;
@@ -187,25 +209,8 @@ export class ClaimReviewModal extends Modal {
         const row = group.createDiv({ cls: "cc-research-claim-evidence" });
         row.createEl("strong", { text: item?.title ?? path });
         if (item) row.createEl("p", { text: item.excerpt });
-        const passage = passageByPath.get(path);
-        if (passage) {
-          const location = [passage.sourceTitle, passage.locator].filter(Boolean).join(" · ");
-          if (location) row.createEl("p", { cls: "cc-research-modal-meta", text: location });
-          row.createEl("p", { text: passage.flag ? PASSAGE_WARNING[passage.flag] : passage.trusted ? "Checked passage." : "This passage needs checking." });
-        }
-        if (item) {
-          const check = row.createEl("button", { text: "Check passage", attr: { "aria-label": `Check passage: ${item.title}` } });
-          check.addEventListener("click", () => {
-            const open = () => { this.close(); this.deps.checkPassage(path); };
-            if (!edited) { open(); return; }
-            new ConfirmModal(this.app, {
-              title: "Discard claim review changes?",
-              body: "Checking the passage will close this claim review. Discard your unsaved limitation and passage selections?",
-              cta: "Discard and check",
-              onResolve: (ok) => { if (ok) open(); },
-            }).open();
-          });
-        }
+        details(row, path);
+        if (item) checkPassage(row, item);
       }
     }
 
@@ -241,19 +246,24 @@ export class ClaimReviewModal extends Modal {
       const group = this.contentEl.createDiv({ cls: "cc-research-claim-group" });
       group.createEl("h4", { text: "Link a passage that supports it" });
       for (const item of linkable) {
-        const row = group.createEl("label", { cls: "cc-research-claim-evidence" });
-        const pick = row.createEl("input", { attr: { type: "checkbox", "aria-label": `Link ${item.title}` } });
+        const row = group.createDiv({ cls: "cc-research-claim-evidence" });
+        const label = row.createEl("label");
+        const pick = label.createEl("input", { attr: { type: "checkbox", "aria-label": `Link ${item.title}` } });
+        label.createEl("strong", { text: item.title });
         pick.addEventListener("change", () => { edited = true; });
         picks.set(item.path, pick);
-        row.createEl("strong", { text: item.title });
         row.createEl("p", { text: item.excerpt });
+        const passage = details(row, item.path);
+        pick.disabled = !passage?.trusted;
+        if (pick.disabled) row.createEl("p", { text: "Check this passage before linking it as current support." });
+        checkPassage(row, item);
       }
     }
 
     const actions = this.contentEl.createDiv({ cls: "cc-research-modal-actions" });
     const complete = (state: "reviewed" | "rejected"): void => {
       const note = limitation?.value.trim();
-      void this.deps.submit({ state, ...(note ? { limitation: note } : {}), link: [...picks].filter(([, input]) => input.checked).map(([path]) => path) })
+      void this.deps.submit({ state, ...(note ? { limitation: note } : {}), link: [...picks].filter(([, input]) => input.checked && !input.disabled).map(([path]) => path) })
         .then(() => this.close()).catch((cause) => error.setText(sanitizeLoadError(cause)));
     };
     actions.createEl("button", { cls: "mod-cta", text: "Mark reviewed" }).addEventListener("click", () => complete("reviewed"));
