@@ -201,9 +201,8 @@ export class ChatView extends ItemView {
       },
     });
     this.transcript = new Transcript(this.app, plugin, this.chat, {
-      setDraft: (text) => this.composer.setDraft(text),
+      setDraft: (text, send) => reuseDraft(this.app, this.composer, this.drafts, text, () => { this.updateUsageBar(); if (send) void this.onSend(); }),
       reuseDraft: (text, display) => reuseDraft(this.app, this.composer, this.drafts, display && parseSkillInvocation(display, SKILLS) ? display : text),
-      onSend: (...args) => this.onSend(...args),
       prepareWorkspaceQuestion: (...args) => this.prepareWorkspaceQuestion(...args),
       regenerate: (...args) => this.regenerate(...args),
       renderMarkdownInto: (...args) => this.renderer.renderInto(...args),
@@ -346,7 +345,7 @@ export class ChatView extends ItemView {
     this.slash.watch((ref) => this.registerEvent(ref));
 
     this.projects.watch((ref) => this.registerEvent(ref));
-
+    this.transcript.watchWorkspace((ref) => this.registerEvent(ref));
     this.applyChatFontSize();
     this.refreshModelLabel();
     void this.refreshBackendPill();
@@ -538,11 +537,10 @@ export class ChatView extends ItemView {
   }
 
   prepareWorkspaceQuestion(workspace: Pick<CompanionWorkspaceCard, "kind" | "title" | "contextPath">): void {
-    this.attachNote(workspace.contextPath);
-    this.composer.setDraft(workspace.kind === "research"
+    const text = workspace.kind === "research"
       ? `Help me continue ${workspace.title.replace(/^Continue /, "")}. `
-      : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `);
-    this.updateUsageBar();
+      : `Help me continue working with ${workspace.title.replace(/^Continue with /, "")}. `;
+    reuseDraft(this.app, this.composer, this.drafts, text, () => { this.attachNote(workspace.contextPath); this.updateUsageBar(); });
   }
 
   enableVaultSearchForChat(): void { this.toggleAutomaticContext("searchVault", true); }

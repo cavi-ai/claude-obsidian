@@ -268,10 +268,10 @@ export class App {
   vault = new FakeVault();
   metadataCache = new FakeMetadataCache(this.vault);
   fileManager = new FakeFileManager(this.vault);
-  workspace = {
+  workspace = Object.assign(new FakeEventSource(), {
     getLeaf: () => ({ openFile: async () => undefined }),
     getLeavesOfType: (_type: string): unknown[] => [],
-  };
+  });
   secretStorage = new FakeSecretStorage();
   scope = new Scope();
   keymap = {
