@@ -1,4 +1,4 @@
-import { type App, MarkdownView, Notice, setIcon, type TFile } from "obsidian";
+import { type App, type EventRef, MarkdownView, Notice, setIcon, type TFile } from "obsidian";
 import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
 import { errorMessage } from "../../records";
@@ -10,6 +10,7 @@ import { hasIncompleteHtmlArtifactFence } from "../streamRender";
 import { TurnRenderer, type TurnRendererHost } from "../turnRenderer";
 import { ARTIFACT_HEIGHT } from "../../artifacts/renderInline";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../../artifacts/artifactStore";
+import { contextSnapshot } from "../../artifacts/replyContext";
 import { extractTasks, isPlanReply } from "../../build/spec";
 import { errorHint, type ErrorHintProvider } from "../../providers/errorHints";
 import { chipLabel } from "../toolChipLabel";
@@ -52,6 +53,7 @@ export interface TranscriptDeps {
 export class Transcript {
   private list!: HTMLElement;
   private stick: StickToBottom | null = null;
+  private workspaceGeneration = 0;
 
   /** The transcript's scroller; it follows the latest message while the reader is at the bottom. */
   get messagesEl(): HTMLElement { return this.list; }
@@ -119,10 +121,20 @@ export class Transcript {
     }
   }
 
+  watchWorkspace(register: (ref: EventRef) => void): void {
+    const refresh = () => {
+      const mount = this.messagesEl.querySelector<HTMLElement>(".cc-context-workspace-mount");
+      if (mount && this.messages.length === 0) void this.renderContextualWorkspace(mount);
+    };
+    register(this.app.workspace.on("file-open", refresh));
+    register(this.app.workspace.on("active-leaf-change", refresh));
+  }
+
   private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
-    const workspace = await this.plugin.views().companionWorkspaceContext();
-    if (!mount.isConnected || this.messages.length > 0 || !workspace) return;
+    const generation = ++this.workspaceGeneration;
     mount.empty();
+    const workspace = await this.plugin.views().companionWorkspaceContext();
+    if (generation !== this.workspaceGeneration || !mount.isConnected || this.messages.length > 0 || !workspace) return;
     const card = mount.createEl("section", { cls: `cc-context-workspace is-${workspace.kind}`, attr: { "aria-label": "Current Companion workspace" } });
     card.createDiv({ cls: "cc-context-workspace-eyebrow", text: workspace.eyebrow });
     card.createEl("h3", { text: workspace.title });
@@ -235,6 +247,7 @@ export class Transcript {
     if (bubble.dataset.ccFinished === "1") return;
     bubble.dataset.ccFinished = "1";
     const messages = this.messages;
+    const contextSources = this.plugin.conversations().list().find((c) => c.id === conversationId)?.activeTurn?.contextSources ?? messages.at(-1)?.contextSources;
     this.clearThinkingStatus();
 
     // Never persist a half-generated HTML artifact fence left by an abort.
@@ -264,7 +277,7 @@ export class Transcript {
     const full = !keepPrevious && !incompleteArtifact && result.text.trim().length > 0 ? result.text : null;
     if (full) {
       this.messages.push({ role: "assistant", content: full, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) });
-      this.addAssistantActions(bubble, full);
+      this.addAssistantActions(bubble, full, contextSources);
     }
     if (result.error && !full) {
       const providerId = (result.error as Error & { ccProvider?: ErrorHintProvider }).ccProvider ?? "anthropic";
@@ -400,7 +413,8 @@ export class Transcript {
       this.addUserActions(bubble, opts?.prompt ?? text, opts?.command ? text : undefined);
       if (stored) this.renderContextNote(bubble, stored.contextSources);
     } else if (stored?.content.trim()) {
-      this.addAssistantActions(bubble, stored.content);
+      const user = this.messages[this.messages.indexOf(stored) - 1];
+      this.addAssistantActions(bubble, stored.content, user?.role === "user" ? user.contextSources : undefined);
     }
     // A send shows the latest message; saved history does not change scroll ownership.
     if (!stored) {
@@ -465,7 +479,8 @@ export class Transcript {
     bubble.createDiv({ cls: "cc-context-note", text: valid ? `+ context: ${sources.join(", ")}` : "Context details unavailable" });
   }
 
-  private addAssistantActions(bubble: HTMLElement, full: string): void {
+  private addAssistantActions(bubble: HTMLElement, full: string, contextSources?: string[]): void {
+    const sources = contextSnapshot(contextSources);
     bubble.querySelectorAll(":scope > .cc-actions").forEach((el) => el.remove());
     // Per-code-block copy buttons inside the rendered markdown.
     this.decorateCodeBlocks(bubble);
@@ -487,7 +502,7 @@ export class Transcript {
       () => {
         if (saveBtn.disabled) return;
         saveBtn.disabled = true;
-        void this.saveReplyAsNote(full)
+        void this.saveReplyAsNote(full, sources)
           .catch((error: unknown) => new Notice(`Couldn't save or open the reply: ${errorMessage(error)}`))
           .finally(() => { saveBtn.disabled = false; });
       },
@@ -499,7 +514,7 @@ export class Transcript {
     if (isPlanReply(full)) {
       const impl = this.actionBtn(bar, "Implement", "play", () => void this.implementFromReply(full));
       impl.addClass("cc-accent");
-      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full));
+      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full, sources));
     }
     // Regenerate the last reply (only on the most recent assistant message).
     const tail = this.messages[this.messages.length - 1];
@@ -550,6 +565,7 @@ export class Transcript {
   }
 
   stopFollowing(): void {
+    this.workspaceGeneration++;
     this.stick?.destroy();
     this.stick = null;
   }
@@ -581,17 +597,18 @@ export class Transcript {
   }
 
   /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
-  private async buildFromReply(full: string): Promise<void> {
-    const file = await this.savePlanReply(full);
+  private async buildFromReply(full: string, contextSources?: string[]): Promise<void> {
+    const file = await this.savePlanReply(full, contextSources);
     await this.plugin.research().handoffToBuild(file);
   }
 
-  private async savePlanReply(full: string) {
+  private async savePlanReply(full: string, contextSources?: string[]) {
     const artifact = extractArtifact(full);
     const { tags, summary, title } = await this.maybeIndex(full);
     const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
     return savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
       extraTags: tags,
+      ...(contextSources ? { contextSources } : {}),
       ...(summary !== undefined ? { summary } : {}),
     });
   }
@@ -639,7 +656,7 @@ export class Transcript {
    * not a raw fenced dump. Either way it gets auto-tags + a summary in
    * frontmatter so semantic/query search and Dataview index it correctly.
    */
-  private async saveReplyAsNote(full: string): Promise<void> {
+  private async saveReplyAsNote(full: string, contextSources?: string[]): Promise<void> {
     const artifact = extractArtifact(full);
     new Notice("Indexing & saving…");
     let file: TFile;
@@ -647,11 +664,12 @@ export class Transcript {
     // A plan reply carries a `## Build tasks` checklist. Save it as a canonical
     // `type: plan` note (artifact renders inline + checklist drives Build).
     if (isPlanReply(full)) {
-      file = await this.savePlanReply(full);
+      file = await this.savePlanReply(full, contextSources);
     } else if (artifact) {
       const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
       file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
         height: ARTIFACT_HEIGHT,
+        ...(contextSources ? { contextSources } : {}),
         baseTags: this.plugin.settings.artifactBaseTags,
         extraTags: tags,
         ...(summary !== undefined ? { summary } : {}),
@@ -661,6 +679,7 @@ export class Transcript {
       const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
       file = await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
         baseTags: this.plugin.settings.chatBaseTags,
+        ...(contextSources ? { contextSources } : {}),
         extraTags: tags,
         ...(summary !== undefined ? { summary } : {}),
       });

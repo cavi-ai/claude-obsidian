@@ -346,7 +346,7 @@ export class ChatView extends ItemView {
     this.slash.watch((ref) => this.registerEvent(ref));
 
     this.projects.watch((ref) => this.registerEvent(ref));
-
+    this.transcript.watchWorkspace((ref) => this.registerEvent(ref));
     this.applyChatFontSize();
     this.refreshModelLabel();
     void this.refreshBackendPill();
