@@ -4,6 +4,21 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.2] — 2026-10-17
+
+### Fixed
+- Tag merge, link weave, and type weave review rows fit phone width, with the toggle and actions on one line.
+- The tag merge review lists only spellings of one tag and pairs the model judged the same; related tags are never offered as merges.
+- Check with model gets a verdict for every tag pair and note from Claude, and names any pairs the model leaves unanswered.
+- Chat drafts stay with their conversation when switching chats, when a send is refused, and when reusing a past question.
+- Use again restores a skill's slash command with its arguments after a conversation is reopened.
+- New chat clears pending images and PDFs.
+- A failed or stopped regeneration keeps the previous answer and its sources.
+- Desktop background replies open from a reply button instead of a notice over the chat history.
+- Implement and Build appear only on replies with a Build tasks checklist.
+- Source enrichment explains invalid note properties and leaves the note unchanged.
+- Reply actions stay readable, open saved reply notes, and keep message context after reload.
+
 ## [0.45.1] — 2026-10-14
 
 ### Added
