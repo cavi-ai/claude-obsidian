@@ -96,3 +96,45 @@ test("fallback generation stays truthful after reload and supports recovery to a
   expect(saved).toContain(sentence);
   expect(provenance(saved)).toMatchObject({ provider: "anthropic", model: "e2e-model" });
 });
+
+test("section previews and custom revision instructions survive visiting another project's sections", async ({ rig }, testInfo) => {
+  const { page } = await rig.reset({ providerReply: [{ match: ".", replies: [draft] }] });
+  await page.evaluate(async () => {
+    const app = (window as unknown as { app: {
+      plugins: { plugins: Record<string, { research(): { researchRepository(): { createOutline(project: string, claims: string[]): Promise<unknown> } } }> };
+      vault: { getAbstractFileByPath(path: string): unknown; delete(file: unknown): Promise<void> };
+    } }).app;
+    await app.plugins.plugins["claude-companion"]!.research().researchRepository().createOutline("Research/Alpha/Project.md", ["Research/Alpha/Claims/Continuity claim.md"]);
+    await app.vault.delete(app.vault.getAbstractFileByPath("Research/Alpha/Documents/Draft.md"));
+  });
+  await openGamma(page);
+  const desk = page.locator(".cc-research-desk");
+  const project = desk.getByLabel("Active research project");
+  const section = desk.locator(".cc-draft-section");
+  await desk.getByRole("button", { name: 'Draft "Gamma claim"', exact: true }).click();
+  await expect(section.getByRole("button", { name: "Accept section", exact: true })).toBeVisible();
+  await project.selectOption("Research/Alpha/Project.md");
+  await desk.getByRole("button", { name: "Sections", exact: true }).click();
+  await expect(section.getByRole("heading", { name: "Continuity claim", exact: true })).toBeVisible();
+  await project.selectOption("Research/Gamma/Project.md");
+  await desk.getByRole("button", { name: 'Draft "Gamma claim"', exact: true }).click();
+  await expect(section.getByRole("button", { name: "Accept section", exact: true })).toBeVisible();
+  expect(await rig.providerRequests()).toBe(1);
+  await section.getByRole("button", { name: "Accept section", exact: true }).click();
+  await expect(section.getByRole("button", { name: "Revise section", exact: true })).toBeVisible();
+  const accepted = await readFile(join(rig.paths.vault, documentPath), "utf8");
+  await section.getByRole("button", { name: "Revise section", exact: true }).click();
+  await section.locator(".cc-revision-intent").selectOption("custom");
+  const instruction = "Keep the limitations explicit and compare the wording with the original conclusion.";
+  await section.locator(".cc-revision-instruction").fill(instruction);
+  await project.selectOption("Research/Alpha/Project.md");
+  await desk.getByRole("button", { name: "Sections", exact: true }).click();
+  await expect(section.getByRole("heading", { name: "Continuity claim", exact: true })).toBeVisible();
+  await project.selectOption("Research/Gamma/Project.md");
+  await desk.getByRole("button", { name: "Sections", exact: true }).click();
+  await expect(section.locator(".cc-revision-intent")).toHaveValue("custom");
+  await expect(section.locator(".cc-revision-instruction")).toHaveValue(instruction);
+  expect(await rig.providerRequests()).toBe(1);
+  expect(await readFile(join(rig.paths.vault, documentPath), "utf8")).toBe(accepted);
+  await section.screenshot({ path: testInfo.outputPath("revision-instruction-preserved-across-projects.png") });
+});

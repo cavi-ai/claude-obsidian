@@ -22,11 +22,15 @@ export function safeDraftError(error: unknown): string {
   return raw.replace(/\b(?:sk-ant-[A-Za-z0-9_-]+|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+)/gi, "[redacted]").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "Section draft failed.";
 }
 
+interface SectionWork {
+  previews: Map<string, DraftPreview>;
+  errors: Map<string, string>;
+  revisionPreviews: Map<string, RevisionPreview>;
+  revisionForms: Map<string, { open: boolean; intent: RevisionIntent; customInstruction: string }>;
+}
+
 export class ResearchDraftPanel {
-  private readonly previews = new Map<string, DraftPreview>();
-  private readonly errors = new Map<string, string>();
-  private readonly revisionPreviews = new Map<string, RevisionPreview>();
-  private readonly revisionForms = new Map<string, { open: boolean; intent: RevisionIntent; customInstruction: string }>();
+  private readonly scopes = new Map<string, SectionWork>();
   private active: { controller: AbortController; sectionId: string; kind: "draft" | "revision" } | undefined;
   private scope = "";
 
@@ -34,10 +38,19 @@ export class ResearchDraftPanel {
 
   dispose(): void { this.active?.controller.abort(); this.active = undefined; }
 
+  private stateFor(scope = this.scope): SectionWork {
+    let state = this.scopes.get(scope);
+    if (!state) {
+      state = { previews: new Map(), errors: new Map(), revisionPreviews: new Map(), revisionForms: new Map() };
+      this.scopes.set(scope, state);
+    }
+    return state;
+  }
+
   render(root: HTMLElement, snapshot: ProjectSnapshot, document: ResearchDocumentRecord | undefined, parsed: DraftSectionParseResult | undefined): void {
     const scope = `${snapshot.project.path}\0${document?.path ?? ""}`;
     if (scope !== this.scope) {
-      this.dispose(); this.previews.clear(); this.errors.clear(); this.revisionPreviews.clear(); this.revisionForms.clear(); this.scope = scope;
+      this.dispose(); this.scope = scope;
     }
     root.createEl("h3", { text: "Section drafting" });
     root.createEl("p", { text: "Draft one claim-grounded section at a time. Previewing never writes to the vault." });
@@ -49,6 +62,7 @@ export class ResearchDraftPanel {
   }
 
   private renderSection(root: HTMLElement, snapshot: ProjectSnapshot, document: ResearchDocumentRecord, section: ParsedDraftSection): void {
+    const state = this.stateFor();
     const card = root.createEl("article", { cls: "cc-draft-section" });
     const heading = section.heading;
     card.createEl("h4", { text: heading });
@@ -56,7 +70,7 @@ export class ResearchDraftPanel {
     const evidenceDrift = !outline && evidenceChanged(snapshot, section);
     const stale = section.modifiedSinceReview || evidenceDrift;
     const pending = this.active?.sectionId === section.envelope.id ? this.active : undefined;
-    const preview = this.previews.get(section.envelope.id);
+    const preview = state.previews.get(section.envelope.id);
     let status = outline ? "Ready to draft" : isReviewedClaimFallback(section.envelope) ? "Accepted fallback" : "Accepted draft";
     if (preview) status = "Draft preview ready";
     if (evidenceDrift) status = "Evidence changed since review";
@@ -69,10 +83,10 @@ export class ResearchDraftPanel {
       cancel.addEventListener("click", () => { this.dispose(); void this.deps.rerender(); });
       return;
     }
-    const error = this.errors.get(section.envelope.id);
+    const error = state.errors.get(section.envelope.id);
     if (error) card.createEl("p", { cls: "cc-research-error", attr: { role: "alert" }, text: error });
     if (!preview) {
-      const revisionPreview = this.revisionPreviews.get(section.envelope.id);
+      const revisionPreview = state.revisionPreviews.get(section.envelope.id);
       if (revisionPreview) { this.renderRevisionPreview(card, snapshot, document, section, revisionPreview); return; }
       if (!outline) {
         if (!stale) this.renderRevisionControls(card, snapshot, section);
@@ -106,15 +120,16 @@ export class ResearchDraftPanel {
     const accept = card.createEl("button", { text: "Accept section" });
     accept.addEventListener("click", () => void this.accept(snapshot.project.path, document.path, preview));
     const discard = card.createEl("button", { text: "Discard preview" });
-    discard.addEventListener("click", () => { this.previews.delete(section.envelope.id); this.errors.delete(section.envelope.id); void this.deps.rerender(); });
+    discard.addEventListener("click", () => { state.previews.delete(section.envelope.id); state.errors.delete(section.envelope.id); void this.deps.rerender(); });
   }
 
   private renderRevisionControls(card: HTMLElement, snapshot: ProjectSnapshot, section: ParsedDraftSection): void {
+    const state = this.stateFor();
     if (!this.deps.revisionCoordinator) return;
-    const form = this.revisionForms.get(section.envelope.id) ?? { open: false, intent: "clarity" as RevisionIntent, customInstruction: "" };
+    const form = state.revisionForms.get(section.envelope.id) ?? { open: false, intent: "clarity" as RevisionIntent, customInstruction: "" };
     if (!form.open) {
       const open = card.createEl("button", { text: "Revise section" });
-      open.addEventListener("click", () => { this.revisionForms.set(section.envelope.id, { ...form, open: true }); void this.deps.rerender(); });
+      open.addEventListener("click", () => { state.revisionForms.set(section.envelope.id, { ...form, open: true }); void this.deps.rerender(); });
       return;
     }
     const label = card.createEl("label", { text: "Revision intent" });
@@ -122,18 +137,19 @@ export class ResearchDraftPanel {
     const intents: Array<[RevisionIntent, string]> = [["clarity", "Clarity"], ["concision", "Concision"], ["audience", "Audience fit"], ["structure", "Structure"], ["skeptical", "Skeptical strengthening"], ["custom", "Custom"]];
     for (const [value, text] of intents) select.createEl("option", { text, attr: { value } });
     select.value = form.intent;
-    select.addEventListener("change", () => { form.intent = select.value as RevisionIntent; this.revisionForms.set(section.envelope.id, form); });
+    select.addEventListener("change", () => { form.intent = select.value as RevisionIntent; state.revisionForms.set(section.envelope.id, form); });
     const instruction = card.createEl("textarea", { cls: "cc-revision-instruction", attr: { placeholder: "Optional custom instruction" } });
     instruction.value = form.customInstruction;
-    instruction.addEventListener("input", () => { form.customInstruction = instruction.value; this.revisionForms.set(section.envelope.id, form); });
+    instruction.addEventListener("input", () => { form.customInstruction = instruction.value; state.revisionForms.set(section.envelope.id, form); });
     const preview = card.createEl("button", { text: "Preview revision" });
     preview.disabled = Boolean(this.active);
     preview.addEventListener("click", () => void this.previewRevision(snapshot, section, form));
     const cancel = card.createEl("button", { text: "Cancel revision" });
-    cancel.addEventListener("click", () => { this.revisionForms.delete(section.envelope.id); void this.deps.rerender(); });
+    cancel.addEventListener("click", () => { state.revisionForms.delete(section.envelope.id); void this.deps.rerender(); });
   }
 
   private renderRevisionPreview(card: HTMLElement, snapshot: ProjectSnapshot, document: ResearchDocumentRecord, section: ParsedDraftSection, preview: RevisionPreview): void {
+    const state = this.stateFor();
     card.createEl("p", { cls: "cc-draft-provider", text: `${preview.request.intent}${preview.request.customInstruction ? ` · ${preview.request.customInstruction}` : ""} · ${preview.envelope.provider} · ${preview.envelope.model}` });
     card.createEl("pre", { cls: "cc-draft-preview", text: preview.response.markdown });
     const diff = card.createDiv({ cls: "cc-draft-diff", attr: { "aria-label": "Section revision before and after diff" } });
@@ -153,23 +169,24 @@ export class ResearchDraftPanel {
       accept.addEventListener("click", () => void this.acceptRevision(snapshot.project.path, document.path, preview));
     }
     const discard = card.createEl("button", { text: "Discard revision" });
-    discard.addEventListener("click", () => { this.revisionPreviews.delete(section.envelope.id); this.revisionForms.delete(section.envelope.id); this.errors.delete(section.envelope.id); void this.deps.rerender(); });
+    discard.addEventListener("click", () => { state.revisionPreviews.delete(section.envelope.id); state.revisionForms.delete(section.envelope.id); state.errors.delete(section.envelope.id); void this.deps.rerender(); });
   }
 
   async preview(snapshot: ProjectSnapshot, section: ParsedDraftSection): Promise<void> {
-    if (this.active) return;
+    const state = this.stateFor();
+    if (this.active || state.previews.has(section.envelope.id)) return;
     const controller = new AbortController();
     this.active = { controller, sectionId: section.envelope.id, kind: "draft" };
-    this.errors.delete(section.envelope.id);
+    state.errors.delete(section.envelope.id);
     try {
       await this.deps.rerender();
       if (controller.signal.aborted) return;
       const current = await this.deps.repository.loadProject(snapshot.project.path, { refreshBinaryFingerprints: true });
       if (controller.signal.aborted) return;
       const preview = await this.deps.coordinator.preview(current, section, controller.signal);
-      if (!controller.signal.aborted) this.previews.set(section.envelope.id, preview);
+      if (!controller.signal.aborted) state.previews.set(section.envelope.id, preview);
     } catch (error) {
-      if (!controller.signal.aborted) this.errors.set(section.envelope.id, safeDraftError(error));
+      if (!controller.signal.aborted) state.errors.set(section.envelope.id, safeDraftError(error));
     } finally {
       if (this.active?.controller === controller) {
         this.active = undefined;
@@ -179,21 +196,23 @@ export class ResearchDraftPanel {
   }
 
   private async accept(projectPath: string, documentPath: string, preview: DraftPreview): Promise<void> {
-    this.errors.delete(preview.section.envelope.id);
+    const state = this.stateFor(`${projectPath}\0${documentPath}`);
+    state.errors.delete(preview.section.envelope.id);
     try {
       const current = await this.deps.repository.loadProject(projectPath, { refreshBinaryFingerprints: true });
       const packet = buildDraftGrounding(current, preview.packet.claim.path);
       await this.deps.repository.acceptDraftSection({ documentPath, preview: preview.section, envelope: preview.envelope, markdown: preview.response.markdown, currentEvidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), currentClaimFingerprint: groundingClaimFingerprint(packet) });
-      this.previews.delete(preview.section.envelope.id);
+      state.previews.delete(preview.section.envelope.id);
     } catch (error) {
-      this.errors.set(preview.section.envelope.id, safeDraftError(error));
+      state.errors.set(preview.section.envelope.id, safeDraftError(error));
     }
     await this.deps.rerender();
   }
 
   private async previewRevision(snapshot: ProjectSnapshot, section: ParsedDraftSection, form: { intent: RevisionIntent; customInstruction: string }): Promise<void> {
-    if (!this.deps.revisionCoordinator || this.active) return;
-    const controller = new AbortController(); this.active = { controller, sectionId: section.envelope.id, kind: "revision" }; this.errors.delete(section.envelope.id);
+    const state = this.stateFor();
+    if (!this.deps.revisionCoordinator || this.active || state.revisionPreviews.has(section.envelope.id)) return;
+    const controller = new AbortController(); this.active = { controller, sectionId: section.envelope.id, kind: "revision" }; state.errors.delete(section.envelope.id);
     try {
       await this.deps.rerender();
       if (controller.signal.aborted) return;
@@ -201,18 +220,19 @@ export class ResearchDraftPanel {
       const current = await this.deps.repository.loadProject(snapshot.project.path, { refreshBinaryFingerprints: true });
       if (controller.signal.aborted) return;
       const preview = await this.deps.revisionCoordinator.preview(current, section, request, controller.signal);
-      if (!controller.signal.aborted) this.revisionPreviews.set(section.envelope.id, preview);
-    } catch (error) { if (!controller.signal.aborted) this.errors.set(section.envelope.id, safeDraftError(error)); }
+      if (!controller.signal.aborted) state.revisionPreviews.set(section.envelope.id, preview);
+    } catch (error) { if (!controller.signal.aborted) state.errors.set(section.envelope.id, safeDraftError(error)); }
     finally { if (this.active?.controller === controller) { this.active = undefined; if (!controller.signal.aborted) await this.deps.rerender(); } }
   }
 
   private async acceptRevision(projectPath: string, documentPath: string, preview: RevisionPreview): Promise<void> {
-    this.errors.delete(preview.section.envelope.id);
+    const state = this.stateFor(`${projectPath}\0${documentPath}`);
+    state.errors.delete(preview.section.envelope.id);
     try {
       const current = await this.deps.repository.loadProject(projectPath, { refreshBinaryFingerprints: true }); const packet = buildDraftGrounding(current, preview.packet.claim.path);
       await this.deps.repository.acceptRevisionSection({ documentPath, preview: preview.section, envelope: preview.envelope, markdown: preview.response.markdown, currentEvidence: packet.evidence.map(({ path, fingerprint }) => ({ path, fingerprint })), currentClaimFingerprint: groundingClaimFingerprint(packet), packet, request: preview.request, response: preview.response });
-      this.revisionPreviews.delete(preview.section.envelope.id); this.revisionForms.delete(preview.section.envelope.id);
-    } catch (error) { this.errors.set(preview.section.envelope.id, safeDraftError(error)); }
+      state.revisionPreviews.delete(preview.section.envelope.id); state.revisionForms.delete(preview.section.envelope.id);
+    } catch (error) { state.errors.set(preview.section.envelope.id, safeDraftError(error)); }
     await this.deps.rerender();
   }
 }
