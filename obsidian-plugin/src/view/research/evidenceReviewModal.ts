@@ -1,6 +1,7 @@
 import { Modal, type App } from "obsidian";
 import type { EvidenceRecord, SourceLocatorKind } from "../../research/types";
 import { sanitizeLoadError, type RewriteTextFn } from "./shared";
+import { reviewNoteOpener } from "./reviewNavigation";
 
 const INTERPRET_INSTRUCTION = "Write a one-to-three sentence interpretation of this evidence excerpt: what it shows and why it matters for the research project, stated cautiously without going beyond the excerpt.";
 const LOCATOR_KINDS: SourceLocatorKind[] = ["page", "section", "paragraph", "timestamp", "quote"];
@@ -82,6 +83,10 @@ export class EvidenceReviewModal extends Modal {
     };
     actions.createEl("button", { cls: "mod-cta", text: "Keep" }).addEventListener("click", () => complete("reviewed"));
     actions.createEl("button", { text: "Reject" }).addEventListener("click", () => complete("rejected"));
-    actions.createEl("button", { text: "Open note" }).addEventListener("click", () => void this.deps.openNote().catch((cause) => error.setText(sanitizeLoadError(cause))));
+    actions.createEl("button", { text: "Open note" }).addEventListener("click", reviewNoteOpener(this, {
+      hasEdits: () => touched || interpretation.value !== (evidence.interpretation ?? "") || value.value !== (evidence.locatorValue ?? "") || kind.value !== (evidence.locatorKind ?? "page"),
+      openNote: () => this.deps.openNote(),
+      showError: (message) => error.setText(message),
+    }));
   }
 }

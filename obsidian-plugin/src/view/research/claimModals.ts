@@ -5,6 +5,7 @@ import type { EvidenceRecord, EvidenceRelation } from "../../research/types";
 import { sanitizeLoadError, type RewriteTextFn } from "./shared";
 import type { PassageRow } from "../../research/argument";
 import { ConfirmModal } from "../ConfirmModal";
+import { reviewNoteOpener } from "./reviewNavigation";
 
 export interface ClaimModalInput {
   title: string;
@@ -268,6 +269,10 @@ export class ClaimReviewModal extends Modal {
     };
     actions.createEl("button", { cls: "mod-cta", text: "Mark reviewed" }).addEventListener("click", () => complete("reviewed"));
     actions.createEl("button", { text: "Reject" }).addEventListener("click", () => complete("rejected"));
-    actions.createEl("button", { text: "Open note" }).addEventListener("click", () => void this.deps.openNote().catch((cause) => error.setText(sanitizeLoadError(cause))));
+    actions.createEl("button", { text: "Open note" }).addEventListener("click", reviewNoteOpener(this, {
+      hasEdits: () => edited || Boolean(limitation?.value.trim()),
+      openNote: () => this.deps.openNote(),
+      showError: (message) => error.setText(message),
+    }));
   }
 }

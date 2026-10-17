@@ -22,8 +22,9 @@ function setup(overrides: Record<string, unknown> = {}) {
     createClaim: vi.fn(async () => ({ path: "R/P/Claims/New.md" })),
   };
   const changed = vi.fn(async () => undefined);
-  const actions = new ResearchActions({ app: new WorkspaceLeaf().app, repository: repository as never, openPath: async () => undefined, changed, selectProject: async () => undefined, ...overrides } as never);
-  return { actions, repository, calls, changed };
+  const app = new WorkspaceLeaf().app;
+  const actions = new ResearchActions({ app, repository: repository as never, openPath: async () => undefined, changed, selectProject: async () => undefined, ...overrides } as never);
+  return { actions, repository, calls, changed, app };
 }
 const modal = () => getLastOpenedModal()!;
 const all = (selector: string): any[] => [...modal().contentEl.querySelectorAll(selector)];
@@ -32,6 +33,94 @@ const button = (text: string) => all("button").find((el) => el.textContent === t
 const click = (el: any) => el.dispatchEvent({ type: "click" });
 const type = (el: any, value: string) => { el.value = value; el.dispatchEvent({ type: "input" }); };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+
+describe.each(["claim", "evidence"] as const)("%s review note navigation", (kind) => {
+  const open = (actions: ResearchActions) => {
+    const snapshot = snap([ev("A"), claim("C", { challenges: ["R/P/Evidence/A.md"] })]);
+    if (kind === "claim") actions.reviewClaim(snapshot, "R/P/Claims/C.md");
+    else actions.reviewEvidence(snapshot, "R/P/Evidence/A.md");
+  };
+  const field = () => byLabel(kind === "claim" ? "What this claim doesn't cover" : "Evidence interpretation");
+  const path = kind === "claim" ? "R/P/Claims/C.md" : "R/P/Evidence/A.md";
+
+  it("closes only after successful navigation and ignores repeated clicks while opening", async () => {
+    let finish!: () => void;
+    const openPath = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const { actions, app } = setup({ openPath });
+    app.vault.seed(path, "# Note");
+    open(actions);
+    const original = modal();
+    click(button("Open note"));
+    click(button("Open note"));
+    expect(original.closed).toBe(false);
+    expect(openPath).toHaveBeenCalledTimes(1);
+    expect(openPath).toHaveBeenCalledWith(path);
+    finish();
+    await settle();
+    expect(original.closed).toBe(true);
+  });
+
+  it("preserves unsaved text on cancellation and opens after explicit discard", async () => {
+    const openPath = vi.fn(async () => undefined);
+    const { actions, app } = setup({ openPath });
+    app.vault.seed(path, "# Note");
+    open(actions);
+    const original = modal();
+    const input = field();
+    type(input, "Keep this unfinished review.");
+    const openButton = button("Open note");
+    click(openButton);
+    expect(button("Cancel")).toBeDefined();
+    click(button("Cancel"));
+    expect(openPath).not.toHaveBeenCalled();
+    expect(original.closed).toBe(false);
+    expect(input.value).toBe("Keep this unfinished review.");
+    click(openButton);
+    click(button("Discard and open"));
+    await settle();
+    expect(openPath).toHaveBeenCalledWith(path);
+    expect(original.closed).toBe(true);
+  });
+
+  it("retains edits entered while the note is opening", async () => {
+    let finish!: () => void;
+    const { actions, app } = setup({ openPath: () => new Promise<void>((resolve) => { finish = resolve; }) });
+    app.vault.seed(path, "# Note");
+    open(actions);
+    const original = modal();
+    click(button("Open note"));
+    const input = field();
+    type(input, "A newer review edit.");
+    finish();
+    await settle();
+    expect(original.closed).toBe(false);
+    expect(input.value).toBe("A newer review edit.");
+    expect(all("p").map((el) => el.textContent)).toContain("The note is open. Your newer review edits are still here.");
+  });
+
+  it("keeps the review open and reports failed navigation", async () => {
+    const { actions, app } = setup({ openPath: async () => { throw new Error("The note could not be opened"); } });
+    app.vault.seed(path, "# Note");
+    open(actions);
+    const original = modal();
+    click(button("Open note"));
+    await settle();
+    expect(original.closed).toBe(false);
+    expect(all("p").map((el) => el.textContent)).toContain("The note could not be opened");
+  });
+
+  it("keeps the review open when its note has disappeared", async () => {
+    const openPath = vi.fn(async () => undefined);
+    const { actions } = setup({ openPath });
+    open(actions);
+    const original = modal();
+    click(button("Open note"));
+    await settle();
+    expect(original.closed).toBe(false);
+    expect(openPath).not.toHaveBeenCalled();
+    expect(all("p").map((el) => el.textContent)).toContain(`Research note not found: ${path}`);
+  });
+});
 
 describe("evidence review", () => {
   it("opens the passage the Desk named, not the first proposed one", () => {

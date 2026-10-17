@@ -169,7 +169,7 @@ export class ResearchActions {
         await this.deps.repository.reviewEvidence(evidence.path, state);
         await this.deps.changed();
       },
-      openNote: () => this.deps.openPath(evidence.path),
+      openNote: () => this.openReviewNote(evidence.path),
       ...(this.deps.rewriteText ? { rewriteText: this.deps.rewriteText } : {}),
       ...(label ? { label } : {}),
     }).open();
@@ -192,10 +192,15 @@ export class ResearchActions {
         await this.deps.repository.reviewClaim(claim.path, state, limitation);
         await this.deps.changed();
       },
-      openNote: () => this.deps.openPath(claim.path),
+      openNote: () => this.openReviewNote(claim.path),
       ...(this.deps.rewriteText ? { rewriteText: this.deps.rewriteText } : {}),
       ...(label ? { label } : {}),
     }).open();
+  }
+
+  private async openReviewNote(path: string): Promise<void> {
+    if (!(this.deps.app.vault.getAbstractFileByPath(path) instanceof TFile)) throw new Error(`Research note not found: ${path}`);
+    await this.deps.openPath(path);
   }
 
   createClaim(snapshot: ProjectSnapshot): void {
