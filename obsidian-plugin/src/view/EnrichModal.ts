@@ -13,6 +13,7 @@ export interface EnrichOptions {
 /** Everything an enrich pass can propose for one note. */
 export interface EnrichProposal {
   path: string;
+  failures?: Array<{ step: string; message: string }>;
   rename?: { from: string; to: string } | undefined;
   frontmatter?: { tags: string[]; summary: string; addedTags: string[]; newTags: string[] } | undefined;
   plan?: EditPlan | undefined;
@@ -116,6 +117,12 @@ export class EnrichReviewModal extends Modal {
     this.titleEl.setText(`Tidy — ${this.proposal.path}`);
     const { contentEl } = this;
     contentEl.addClass("cc-diff-modal");
+
+    if (this.proposal.failures?.length) {
+      const warning = contentEl.createDiv({ attr: { role: "alert" } });
+      warning.createEl("p", { text: "Some Tidy steps failed. Review the available changes below, then run Tidy again to retry." });
+      for (const { step, message } of this.proposal.failures) warning.createDiv({ text: `${step}: ${message}` });
+    }
 
     const { rename, frontmatter, plan } = this.proposal;
 
