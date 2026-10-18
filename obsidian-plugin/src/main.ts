@@ -484,6 +484,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.research().scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.research().scheduleResearchRefresh(f.path, oldPath); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && f.extension === "md") void this.publish().renameNote(oldPath, f.path); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { void this.build().renameDocuments(oldPath, f.path); }));
 
       // Inbox ribbon badge: pending count, refreshed on vault + frontmatter
       // changes (debounced — enrichment stamps source_enriched via frontmatter).

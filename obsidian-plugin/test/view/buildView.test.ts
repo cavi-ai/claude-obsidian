@@ -14,7 +14,7 @@ const makeRun = (status: BuildRun["status"] = "ready", transport: BuildRun["tran
 function harness(initial = makeRun()) {
   let run = initial;
   let listener: ((snapshot: BuildRun) => void) | undefined;
-  const actions = { start: vi.fn(), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), openSpec: vi.fn(), openTracker: vi.fn(), openSession: vi.fn() };
+  const actions = { start: vi.fn(), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), openSpec: vi.fn(), openTracker: vi.fn(), openSession: vi.fn(), retryTracker: vi.fn() };
   const deps: BuildViewDependencies = {
     getRun: () => run,
     subscribe: (next) => { listener = next; return () => { listener = undefined; }; },
@@ -28,6 +28,20 @@ function harness(initial = makeRun()) {
 const rootOf = (view: BuildView): FakeElement => view.contentEl as unknown as FakeElement;
 
 describe("BuildView", () => {
+  it("shows tracker synchronization failure separately from completed task results", async () => {
+    const h = harness({ ...makeRun("completed"), trackerError: "Couldn't update build tracker: access denied" });
+    await h.view.onOpen();
+    const root = rootOf(h.view);
+    expect(root.querySelector('[role="status"]')?.textContent).toBe("Build complete");
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain("access denied");
+    const retry = root.querySelector(".cc-build-retry-tracker")!;
+    expect(retry.getAttribute("hidden")).toBeNull();
+    retry.dispatchEvent({ type: "click" });
+    expect(h.actions.retryTracker).toHaveBeenCalledOnce();
+    h.update(makeRun("completed"));
+    expect(retry.getAttribute("hidden")).toBe("");
+  });
+
   it("renders accessible Ready state and starts without exposing a command", async () => {
     const h = harness();
     await h.view.onOpen();

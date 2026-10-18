@@ -192,8 +192,8 @@ describe("buildBuildController", () => {
     const fn = vi.fn();
     await vault.processFile!("Plans/a.md", fn);
     expect(m.process).toHaveBeenCalledWith(note, fn);
-    await vault.processFile!("folder", fn);
-    await vault.processFile!("missing", fn);
+    await expect(vault.processFile!("folder", fn)).rejects.toThrow("File not found");
+    await expect(vault.processFile!("missing", fn)).rejects.toThrow("File not found");
     expect(m.process).toHaveBeenCalledTimes(1);
   });
 
@@ -205,13 +205,13 @@ describe("buildBuildController", () => {
     expect(ensureVaultFolder).toHaveBeenCalledWith(host.app, "a");
   });
 
-  it("openFile opens a file in the current leaf and ignores non-files", async () => {
+  it("openFile opens a file in the current leaf and rejects non-files", async () => {
     const { m, note } = rig();
     await call<Promise<void>>(captured.build, "openFile", "Plans/a.md");
     expect(m.getLeaf).toHaveBeenCalledWith(false);
     expect(m.openFile).toHaveBeenCalledWith(note);
     m.openFile.mockClear();
-    await call<Promise<void>>(captured.build, "openFile", "folder");
+    await expect(call<Promise<void>>(captured.build, "openFile", "folder")).rejects.toThrow("File not found");
     expect(m.openFile).not.toHaveBeenCalled();
   });
 

@@ -31,14 +31,16 @@ export function buildBuildController(host: BuildHost, wiring: BuildWiring): Buil
       },
       processFile: async (path, fn) => {
         const file = host.app.vault.getAbstractFileByPath(path);
-        if (file instanceof TFile) await host.app.vault.process(file, fn);
+        if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+        await host.app.vault.process(file, fn);
       },
     },
     writeFile: async (path, content) => { await writeOrReplaceFile(host.app, path, content); },
     ensureFolder: (folder) => ensureVaultFolder(host.app, folder),
     openFile: async (path) => {
       const file = host.app.vault.getAbstractFileByPath(path);
-      if (file instanceof TFile) await host.app.workspace.getLeaf(false).openFile(file);
+      if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+      await host.app.workspace.getLeaf(false).openFile(file);
     },
     normalizePath,
     notice: (msg, timeout) => new Notice(msg, timeout),
