@@ -7,7 +7,7 @@ import { DesktopBuildExecutor, type ManagedProcessPort } from "./desktopExecutor
 import { CloudBuildExecutor, type CloudBuildHttpRequest } from "./cloudExecutor";
 import { configError, type CloudDispatchConfig } from "../cloud/routines";
 import { configError as repliesConfigError, type RepliesConfig } from "../cloud/replies";
-import { buildFrontmatter, normalizeTags } from "../indexing/frontmatter";
+import { buildFrontmatter, localCalendarDate, normalizeTags } from "../indexing/frontmatter";
 
 type DesktopExecutorPlatform = "darwin" | "win32" | "linux" | "unsupported";
 
@@ -123,7 +123,8 @@ export class BuildController {
     const trackerPath = this.deps.normalizePath(`${folder}/${title} — tracker.md`);
 
     const input: SpecInput = { title, plan, specPath, trackerPath, tasks };
-    const now = new Date().toISOString().slice(0, 10);
+    const createdAt = Date.now();
+    const now = localCalendarDate(new Date(createdAt));
 
     const specFm = buildFrontmatter({
       title: `${title} — spec`,
@@ -141,7 +142,7 @@ export class BuildController {
       trackerPath,
       transport: this.deps.isMobile ? "cloud" : "desktop",
       tasks,
-      now: Date.now(),
+      now: createdAt,
     });
 
     const trackerFm = buildFrontmatter({
@@ -260,7 +261,7 @@ export class BuildController {
     const write = previous.catch(() => {}).then(async () => {
       const trackerFm = buildFrontmatter({
         title: `${run.title} — tracker`,
-        created: new Date(run.createdAt).toISOString().slice(0, 10),
+        created: localCalendarDate(new Date(run.createdAt)),
         source: "claude-companion",
         type: "build-tracker",
         tags: normalizeTags(["claude", "build", "tracker"]),
