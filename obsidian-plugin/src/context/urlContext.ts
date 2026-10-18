@@ -3,6 +3,9 @@
 // and the attached-page shape are pure; the fetch itself goes through
 // context/webCapture (Defuddle) on explicit user action only.
 
+/** A captured page contributes at most this many characters to one request. */
+export const MAX_PAGE_CONTEXT_CHARS = 6000;
+
 export interface AttachedPage {
   url: string;
   /** Page title when capture succeeded. */

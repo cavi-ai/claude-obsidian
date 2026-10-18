@@ -7,7 +7,7 @@ import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { watchAttachmentRenames } from "./chat/attachmentRenames";
 import { cliEntries } from "./chat/cliEntries";
-import { readTurnMedia, rememberTurnMedia } from "../chat/turnMedia";
+import { readTurnMedia, rememberTurnMedia, readTurnContext, rememberTurnContext, type TurnContextAttachments } from "../chat/turnSources";
 import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
 import type { ApiMessage } from "../providers/types";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
@@ -606,11 +606,11 @@ export class ChatView extends ItemView {
     }
   }
 
-  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; media?: MediaAttachment[]; submission?: DraftStart }): Promise<boolean> {
+  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; media?: MediaAttachment[]; sources?: TurnContextAttachments; submission?: DraftStart }): Promise<boolean> {
     const generation = this.drafts.generation;
     const media = opts?.media ?? [...this.attachedMedia];
-    const paths = [...this.attachedPaths];
-    const selectedPages = [...this.attachedPages];
+    const paths = opts?.sources?.paths ?? [...this.attachedPaths];
+    const selectedPages = opts?.sources?.pages ?? [...this.attachedPages];
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -651,7 +651,7 @@ export class ChatView extends ItemView {
       conversationId: this.conversationId,
       messages: this.messages,
       previousTurn,
-      user: { content: userText, media: rememberTurnMedia(media), ...(display !== undefined ? { display } : {}) },
+      user: { content: userText, media: rememberTurnMedia(media), contextAttachments: rememberTurnContext(paths, pages), ...(display !== undefined ? { display } : {}) },
       backend,
       model: this.turnModelOverride ?? model,
       mode: this.mode.mode,
@@ -887,7 +887,7 @@ export class ChatView extends ItemView {
     if (this.streaming || !this.lastUserText) return;
     try {
       const media = readTurnMedia(this.messages);
-      await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true, media });
+      await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true, media, sources: readTurnContext(this.messages) });
     } catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); }
   }
 }

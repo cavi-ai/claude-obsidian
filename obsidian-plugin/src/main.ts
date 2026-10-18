@@ -480,7 +480,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
       }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().indexer()?.removeNote(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f instanceof TFile && (f.extension === "md" || f.extension === "pdf")) void this.semantic().renameNote(oldPath, f.path); }));
-      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { void this.conversations().renameMedia(oldPath, f.path).catch((error: unknown) => new Notice(`Couldn't save renamed chat attachments: ${error instanceof Error ? error.message : String(error)}`)); }));
+      this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { void this.conversations().renameAttachments(oldPath, f.path).catch((error: unknown) => new Notice(`Couldn't save renamed chat attachments: ${error instanceof Error ? error.message : String(error)}`)); }));
       this.registerEvent(this.app.vault.on("create", (f) => { if (f.path.endsWith(".md")) this.research().scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("delete", (f) => { if (f.path.endsWith(".md")) this.research().scheduleResearchRefresh(f.path); }));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => { if (f.path.endsWith(".md") || oldPath.endsWith(".md")) this.research().scheduleResearchRefresh(f.path, oldPath); }));

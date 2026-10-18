@@ -66,7 +66,7 @@ export interface TurnStartInput {
   conversationId: string | null;
   messages: ChatMessage[];
   previousTurn: ChatTurnReceipt | undefined;
-  user: Pick<ChatMessage, "content" | "display" | "media">;
+  user: Pick<ChatMessage, "content" | "display" | "media" | "contextAttachments">;
   backend: string;
   model: string;
   mode: ChatTurnMode;
@@ -95,7 +95,7 @@ export async function startTurn(begin: BeginTurn, input: TurnStartInput): Promis
     previousTurn && !previousTurn.regenerating && previousTurn.state !== "running" && previousTurn.state !== "capped"
       ? history.map((message, index) => (index >= previousTurn.userMessageIndex ? { ...message, contextExcluded: true } : message))
       : history;
-  const messages: ChatMessage[] = [...base, { role: "user", content: user.content, ...(user.display !== undefined ? { display: user.display } : {}), ...(user.media?.length ? { media: user.media } : {}) }];
+  const messages: ChatMessage[] = [...base, { role: "user", content: user.content, ...(user.display !== undefined ? { display: user.display } : {}), ...(user.media?.length ? { media: user.media } : {}), ...(user.contextAttachments ? { contextAttachments: user.contextAttachments } : {}) }];
   // Snapshot now: the view may switch conversations while the turn is in flight.
   const turnMessages = [...messages];
   try {

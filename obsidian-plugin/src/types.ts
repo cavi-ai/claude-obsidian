@@ -2,7 +2,7 @@
 
 import type { ResearchModel } from "./research/researchModel";
 import { DEFAULT_DEVICE_MODEL } from "./device/models";
-import type { TurnMediaReference } from "./chat/turnMedia";
+import type { TurnMediaReference, TurnContextAttachments } from "./chat/turnSources";
 
 export type ChatRole = "user" | "assistant";
 
@@ -23,6 +23,8 @@ export interface ChatMessage {
   contextSources?: string[];
   /** Original turn attachment references, never inline image/PDF bytes. */
   media?: TurnMediaReference[];
+  /** Explicit notes/folders and captured pages selected for this accepted question. */
+  contextAttachments?: TurnContextAttachments;
   /**
    * Display-only record of the tool calls behind an assistant turn (agent mode).
    * Used to re-render tool chips on conversation replay; never sent to the model.
