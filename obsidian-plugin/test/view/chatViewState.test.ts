@@ -670,3 +670,39 @@ describe("Resume transport ownership", () => {
     expect(view.resumeCliSessionId).toBeNull();
   });
 });
+
+
+describe("live recovery row ownership", () => {
+  it.each(["current", "detached", "superseded"] as const)("shows recovery only for the current subscription (%s)", async state => {
+    const fakes = conversationFakes();
+    const messages = [{ role: "user" as const, content: "Summarize the archive" }];
+    const turn = await fakes.conversations.beginTurn("conversation", messages, { backend: "claude", model: "model", mode: "ask" });
+    const view = buildView(statePlugin({}, fakes)) as Seam & {
+      messages: typeof messages;
+      turnRenderUnsubscribe: (() => void) | null;
+      transcript: import("../../src/view/chat/Transcript").Transcript;
+    };
+    view.messages = messages;
+    let rendering!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { rendering = resolve; });
+    const rendered = new Promise<void>(resolve => { release = resolve; });
+    view.renderer.renderInto = async () => { rendering(); await rendered; };
+    const service = new ChatTurnService();
+    const handle = service.start(turn.conversationId, {
+      turnId: turn.turnId, title: "Archive summary", run: async () => ({ text: "", trace: [], aborted: true }),
+      completeTurn: async () => undefined,
+      interruptTurn: async () => fakes.conversations.interruptTurn(turn.conversationId, turn.turnId, messages),
+      registerTurn: () => () => undefined,
+    });
+    const { bubble, body } = view.transcript.createAssistantBubble();
+    view.turnRenderUnsubscribe = view.transcript.startTurnRendering(turn.conversationId, bubble, body, false, service);
+    try {
+      await started;
+      if (state === "detached") { view.turnRenderUnsubscribe(); view.turnRenderUnsubscribe = null; }
+      if (state === "superseded") await fakes.conversations.beginTurn(turn.conversationId, [...messages, { role: "user", content: "New question" }], { backend: "claude", model: "model", mode: "ask" });
+    } finally { release(); await handle.result; }
+    // Drain the renderer and its subscription cleanup, which deliberately outlive persistence.
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(view.messagesEl.querySelectorAll(".cc-interrupted-turn")).toHaveLength(state === "current" ? 1 : 0);
+  });
+});
