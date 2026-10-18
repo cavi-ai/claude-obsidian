@@ -596,6 +596,7 @@ export class ChatView extends ItemView {
 
   private setSending(sending: boolean): void {
     this.streaming = sending;
+    this.composer.syncPageOffer();
     this.sendBtn.toggleClass("is-stop", sending);
     this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
     if (Platform.isMobile) {
