@@ -204,9 +204,7 @@ export class ResearchFeature {
     const view = await this.deps.activateView();
     if (!view) return false;
     view.attachNote(projectPath);
-    const started = await view.submitPrompt(prompt, display);
-    if (!started) new Notice("Claude is still busy — try again when the current reply finishes.");
-    return started;
+    return view.submitPrompt(prompt, display);
   }
 
   private openDiscovery(snapshot: ProjectSnapshot): void {
