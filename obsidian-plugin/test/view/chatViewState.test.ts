@@ -103,9 +103,36 @@ describe("ChatView per-leaf conversation state", () => {
   function mediaView() {
     return buildView(statePlugin()) as Seam & {
       attachedMedia: MediaAttachment[];
-      composer: { attachPastedImage(file: File): Promise<void> };
+      composer: { attachPastedImage(file: File): Promise<void>; pastedImages: { ready(): boolean; readonly pending: boolean } };
     };
   }
+
+  it("keeps multiple paste reads pending until all current images are ready", async () => {
+    const seam = mediaView();
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    let finishA!: (bytes: ArrayBuffer) => void, finishB!: (bytes: ArrayBuffer) => void;
+    const a = new Promise<ArrayBuffer>(resolve => { finishA = resolve; });
+    const b = new Promise<ArrayBuffer>(resolve => { finishB = resolve; });
+    const paste = (name: string, read: Promise<ArrayBuffer>) => seam.composer.attachPastedImage({ name, size: 4, type: "image/png", arrayBuffer: () => read } as File);
+    const pa = paste("a.png", a), pb = paste("b.png", b);
+    try {
+      expect(seam.composer.pastedImages.pending).toBe(true);
+      expect(seam.composer.pastedImages.ready()).toBe(false);
+      finishA(bytes); await pa;
+      expect(seam.composer.pastedImages.pending).toBe(true);
+      finishB(bytes); await pb;
+      expect(seam.composer.pastedImages.pending).toBe(false);
+      expect(seam.composer.pastedImages.ready()).toBe(true);
+    } finally { finishA(bytes); finishB(bytes); await Promise.all([pa, pb]); }
+  });
+
+  it("reports failed paste reads and releases the pending state", async () => {
+    clearNotices();
+    const seam = mediaView();
+    await expect(seam.composer.attachPastedImage({ name: "broken.png", size: 4, type: "image/png", arrayBuffer: async () => { throw new Error("read failed"); } } as unknown as File)).resolves.toBeUndefined();
+    expect(seam.composer.pastedImages.pending).toBe(false);
+    expect(getNoticeMessages().join(" ")).toContain("read failed");
+  });
 
   it("New chat clears both pasted images and pending vault PDFs", () => {
     const seam = mediaView();
@@ -125,6 +152,7 @@ describe("ChatView per-leaf conversation state", () => {
     const oldFile = { name: "old-chart.png", size: 4, type: "image/png", arrayBuffer: () => read } as File;
     const pending = seam.composer.attachPastedImage(oldFile);
     seam.clearChat();
+    expect(seam.composer.pastedImages.pending).toBe(false);
     finish(bytes);
     await pending;
     expect(seam.attachedMedia).toEqual([]);
@@ -392,6 +420,23 @@ describe("ChatView refused submissions", () => {
     expect(await view.submitPrompt("A generated workflow prompt")).toBe(false);
     expect(input.value).toBe("My unfinished question");
     expect(getNoticeMessages()).toEqual(["Add your Anthropic credential in Claude Companion settings first."]);
+  });
+
+  it("retains the question before a pending paste can create a turn", async () => {
+    const { view, input, fakes } = fixture(true);
+    const composer = view.composer as { attachPastedImage(file: File): Promise<void> };
+    let finish!: (bytes: ArrayBuffer) => void;
+    const read = new Promise<ArrayBuffer>(resolve => { finish = resolve; });
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    const paste = composer.attachPastedImage({ name: "chart.png", size: 4, type: "image/png", arrayBuffer: () => read } as File);
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "  Explain my pasted chart.  ";
+    try {
+      expect(await view.submitPrompt("Explain my pasted chart.")).toBe(false);
+      expect(begin).not.toHaveBeenCalled();
+      expect(input.value).toBe("  Explain my pasted chart.  ");
+      expect(getNoticeMessages().join(" ")).toContain("still attaching");
+    } finally { finish(bytes); await paste; }
   });
 
   it("retains the question and selected media before a missing file can create a turn", async () => {

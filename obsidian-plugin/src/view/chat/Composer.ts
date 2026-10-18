@@ -23,7 +23,7 @@ import { applyMention, initialToggles } from "./contextScope";
 import { appendCliModelOptions, syncModelSelection } from "./cliModelOptions";
 import { loadMediaBlocks } from "./mediaBlocks";
 import { loadAttachedNotes, type PreparedAttachedNote } from "../../context/attachedNotes";
-import { attachPastedImage } from "./pastedImage";
+import { PastedImagePreparation } from "./pastedImage";
 
 export interface ComposerDeps {
   applyChatFontSize(): void;
@@ -67,6 +67,7 @@ export class Composer {
   attachedPaths: AttachedPath[] = [];
   /** PDFs/images attached via "@" or paste — cleared after the next send. */
   attachedMedia: MediaAttachment[] = [];
+  readonly pastedImages = new PastedImagePreparation(() => this.attachedMedia);
   /** Web pages attached via "Attach page content" (captured markdown). */
   attachedPages: AttachedPage[] = [];
   /** This tab's automatic context; settings.context only seeds it. */
@@ -287,7 +288,7 @@ export class Composer {
 
   /** Attach an image pasted into the composer (screenshots, copied images). */
   async attachPastedImage(file: File): Promise<void> {
-    await attachPastedImage(file, { media: () => this.attachedMedia, changed: () => this.renderContextManager() });
+    await this.pastedImages.attach(file, { media: () => this.attachedMedia, changed: () => this.renderContextManager() });
   }
 
   clearAttachments(): void {

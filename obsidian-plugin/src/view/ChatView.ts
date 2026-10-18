@@ -607,6 +607,7 @@ export class ChatView extends ItemView {
   }
 
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; media?: MediaAttachment[]; sources?: TurnContextAttachments; submission?: DraftStart }): Promise<boolean> {
+    if (opts?.media === undefined && !this.composer.pastedImages.ready()) return false;
     const generation = this.drafts.generation;
     const media = opts?.media ?? [...this.attachedMedia];
     const paths = opts?.sources?.paths ?? [...this.attachedPaths];
@@ -756,7 +757,7 @@ export class ChatView extends ItemView {
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
       }
-      this.attachedMedia = this.attachedMedia.filter((item) => !media.includes(item));
+      for (let i = this.attachedMedia.length - 1; i >= 0; i--) if (media.includes(this.attachedMedia[i]!)) this.attachedMedia.splice(i, 1);
       this.renderContextManager();
     }
 
@@ -851,7 +852,7 @@ export class ChatView extends ItemView {
 
   /** Re-attach the failed turn's media so a retry (or edit) still has it. */
   private restoreMediaAfterFailure(): void {
-    if (this.attachedMedia.length) return;
+    if (this.attachedMedia.length || this.composer.pastedImages.pending) return;
     try { this.attachedMedia = readTurnMedia(this.messages); this.renderContextManager(); }
     catch { /* Retry reports unavailable original attachments without changing the draft. */ }
   }

@@ -22,3 +22,32 @@ export async function attachPastedImage(file: File, host: PastedImageHost): Prom
   host.changed();
   quickNotice("Image attached to your next message.");
 }
+
+
+/** Tracks only the image reads owned by one draft's media collection. */
+export class PastedImagePreparation {
+  private readonly counts = new WeakMap<MediaAttachment[], number>();
+
+  constructor(private readonly current: () => MediaAttachment[]) {}
+
+  get pending(): boolean { return (this.counts.get(this.current()) ?? 0) > 0; }
+
+  ready(): boolean {
+    if (!this.pending) return true;
+    new Notice("Request not sent. An image is still attaching. Wait for it to finish, then send again.");
+    return false;
+  }
+
+  async attach(file: File, host: PastedImageHost): Promise<void> {
+    const media = host.media();
+    this.counts.set(media, (this.counts.get(media) ?? 0) + 1);
+    try { await attachPastedImage(file, host); }
+    catch (error) {
+      if (media === host.media()) new Notice(`Couldn't attach the pasted image: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      const remaining = (this.counts.get(media) ?? 1) - 1;
+      if (remaining) this.counts.set(media, remaining);
+      else this.counts.delete(media);
+    }
+  }
+}
