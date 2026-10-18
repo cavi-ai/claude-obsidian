@@ -41,3 +41,20 @@ it("refuses an oversized selected image instead of silently omitting it", async 
   expect(await composer.mediaBlocks()).toBeNull();
   expect(getNoticeMessages().join(" ")).toContain("too large");
 });
+
+for (const kind of ["image", "note"] as const) {
+  it(`refuses a failed ${kind} read without posting its notice in a newer draft`, async () => {
+    const { app, composer } = fixture();
+    app.vault.seed(kind === "image" ? "Chart.png" : "Note.md", "source");
+    let reject!: (error: Error) => void;
+    let current = true;
+    if (kind === "image") vi.spyOn(app.vault, "readBinary").mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+    else vi.spyOn(app.vault, "cachedRead").mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const preparing = kind === "image" ? composer.mediaBlocks(undefined, () => current) : composer.noteContext([{ path: "Note.md", kind: "note" }], () => current);
+    current = false;
+    reject(new Error("Source read failed"));
+    expect(await preparing).toBeNull();
+    expect(getNoticeMessages()).toEqual([]);
+    expect(composer.attachedMedia).toEqual([{ kind: "image", label: "Chart.png", mime: "image/png", path: "Chart.png" }]);
+  });
+}

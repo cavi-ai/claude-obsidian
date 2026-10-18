@@ -269,19 +269,19 @@ export class Composer {
   }
 
   /** Capture explicit note/folder content while the question is still editable. */
-  async noteContext(paths: readonly AttachedPath[]): Promise<PreparedAttachedNote[] | null> {
+  async noteContext(paths: readonly AttachedPath[], isCurrent: () => boolean = () => true): Promise<PreparedAttachedNote[] | null> {
     try { return await loadAttachedNotes(this.app, paths, this.plugin.settings.maxContextNotes); }
     catch (error) {
-      new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
+      if (isCurrent()) new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
 
   /** Refuse the turn when any selected image/PDF cannot be loaded. */
-  async mediaBlocks(media: readonly MediaAttachment[] = this.attachedMedia): Promise<ContentBlock[] | null> {
+  async mediaBlocks(media: readonly MediaAttachment[] = this.attachedMedia, isCurrent: () => boolean = () => true): Promise<ContentBlock[] | null> {
     try { return await loadMediaBlocks(this.app, media); }
     catch (error) {
-      new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
+      if (isCurrent()) new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }

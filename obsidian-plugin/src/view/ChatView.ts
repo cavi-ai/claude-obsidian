@@ -644,13 +644,13 @@ export class ChatView extends ItemView {
 
     const pages = this.composer.pageContext(selectedPages);
     if (!pages) return false;
-    const blocks = media.length ? await this.composer.mediaBlocks(media) : [];
+    const blocks = media.length ? await this.composer.mediaBlocks(media, () => this.drafts.generation === generation) : [];
     if (!blocks || this.drafts.generation !== generation) return false;
     let historyMedia: HistoryMedia;
     try { historyMedia = await loadHistoryMedia(history, items => loadMediaBlocks(this.app, items)); }
     catch (error) { if (this.drafts.generation === generation) new Notice(`Request not sent. ${errorMessage(error)}`); return false; }
     if (this.drafts.generation !== generation) return false;
-    const notes = paths.length ? await this.composer.noteContext(paths) : [];
+    const notes = paths.length ? await this.composer.noteContext(paths, () => this.drafts.generation === generation) : [];
     if (!notes || this.drafts.generation !== generation) return false;
 
     const started = await startTurn((conversationId, messages, input) => this.plugin.conversations().beginTurn(conversationId, messages, input), {
