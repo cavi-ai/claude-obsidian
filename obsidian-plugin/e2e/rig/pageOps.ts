@@ -307,8 +307,8 @@ export async function resetVaultState(
   // The store, not the file, is where a credential survives across resets —
   // make it exactly match this scenario before the plugin's hydrate() runs.
   await syncSecretStore(page, data.settings ?? {});
-  if (data.settings) delete data.settings.apiKey;
-  await writeFile(dataPath, JSON.stringify(data));
+  // Keep the dummy credential until the plugin verifies the storage write;
+  // its normal migration preserves the seed when the device backend refuses it.
   await writeFile(argvLog, "");
 
   // Restore the hermetic env (a liveClaude test may have widened PATH) before the next scenario.
