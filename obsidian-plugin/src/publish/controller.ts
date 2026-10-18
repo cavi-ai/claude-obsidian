@@ -117,7 +117,7 @@ export class PublishController {
 
   async copyLink(key: string): Promise<void> {
     const item = this.deps.getItems().find((i) => i.key === key);
-    if (item) await this.share(item.url, "Link copied");
+    if (item) await this.share(item.url);
   }
 
   async renameNote(oldPath: string, newPath: string): Promise<void> {
@@ -139,9 +139,14 @@ export class PublishController {
     }
   }
 
-  private async share(url: string, lead: string): Promise<void> {
-    await this.deps.copy(url).catch(() => {});
-    this.deps.notice(`${lead} — link copied:\n${url}`);
+  private async share(url: string, lead?: string): Promise<void> {
+    try {
+      await this.deps.copy(url);
+    } catch {
+      this.deps.notice(`${lead ? `${lead} — ` : ""}Couldn't copy the link. It's available under Publishing in Companion settings:\n${url}`);
+      return;
+    }
+    this.deps.notice(`${lead ? `${lead} — link copied` : "Link copied"}:\n${url}`);
   }
 
   private async guarded(key: string, run: () => Promise<void>): Promise<void> {

@@ -14,6 +14,7 @@ interface Harness {
   items: () => PublishedItem[];
   respond: (fn: (req: GistRequest) => { status: number; json: unknown }) => void;
   setNote: (text: string) => void;
+  setCopyFailure: (failed: boolean) => void;
 }
 
 const created = (id: string) => ({ id, html_url: `https://gist.github.com/me/${id}`, owner: { login: "me" } });
@@ -27,6 +28,7 @@ function harness(opts: { token?: string; confirm?: boolean; items?: PublishedIte
   let note = NOTE;
   let clock = 100;
   let serial = 0;
+  let copyFailed = false;
   let respond: Harness["respond"] extends (fn: infer F) => void ? F : never = (req) => {
     if (req.method === "DELETE") return { status: 204, json: null };
     if (req.method === "PATCH") return { status: 200, json: created(req.url.split("/").pop()!) };
@@ -45,7 +47,7 @@ function harness(opts: { token?: string; confirm?: boolean; items?: PublishedIte
       confirms.push([kind, title]);
       return opts.confirm ?? true;
     },
-    copy: async (text) => { copied.push(text); },
+    copy: async (text) => { if (copyFailed) throw new Error("Clipboard unavailable"); copied.push(text); },
     notice: (text) => { notices.push(text); },
     getItems: () => items,
     setItems: async (next) => { items = next; },
@@ -60,6 +62,7 @@ function harness(opts: { token?: string; confirm?: boolean; items?: PublishedIte
     items: () => items,
     respond: (fn) => { respond = fn; },
     setNote: (text) => { note = text; },
+    setCopyFailure: (failed) => { copyFailed = failed; },
   };
 }
 
@@ -230,6 +233,38 @@ describe("unpublish", () => {
 });
 
 describe("testToken, copyLink, rename", () => {
+  it.each(["note", "artifact"] as const)("keeps a published %s link and reports clipboard failure truthfully", async (kind) => {
+    const h = harness();
+    h.setCopyFailure(true);
+    if (kind === "note") await h.controller.publishNote("n/A.md");
+    else await h.controller.publishArtifact("<p>Chart</p>", "Chart");
+    expect(h.items()).toHaveLength(1);
+    expect(h.requests).toHaveLength(1);
+    expect(h.copied).toEqual([]);
+    const item = h.items()[0]!;
+    expect(h.notices.at(-1)).toContain(`Published ${item.title}`);
+    expect(h.notices.at(-1)).toContain("Couldn't copy the link");
+    expect(h.notices.at(-1)).toContain(item.url);
+    expect(h.notices.at(-1)).not.toMatch(/link copied/i);
+    h.setCopyFailure(false);
+    await h.controller.copyLink(item.key);
+    expect(h.copied).toEqual([item.url]);
+    expect(h.requests).toHaveLength(1);
+    expect(h.notices.at(-1)).toBe(`Link copied:\n${item.url}`);
+  });
+
+  it("does not claim an existing link was copied when the clipboard rejects it", async () => {
+    const h = harness();
+    await h.controller.publishNote("n/A.md");
+    h.setCopyFailure(true);
+    await h.controller.copyLink("n/A.md");
+    expect(h.copied).toHaveLength(1);
+    expect(h.items()).toHaveLength(1);
+    expect(h.requests).toHaveLength(1);
+    expect(h.notices.at(-1)).toContain("Couldn't copy the link");
+    expect(h.notices.at(-1)).not.toMatch(/link copied/i);
+  });
+
   it("reports the token result", async () => {
     const h = harness();
     expect(await h.controller.testToken()).toEqual({ ok: true, message: "GitHub accepted the token." });
