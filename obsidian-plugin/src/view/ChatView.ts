@@ -1,3 +1,4 @@
+import { draftContextState, restoreDraftContext } from "./chat/draftContextState";
 import { ItemView, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
 import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
@@ -280,13 +281,11 @@ export class ChatView extends ItemView {
     return "sparkles";
   }
 
-  override getState(): Record<string, unknown> { return this.drafts.getState(this.conversationId); }
-
+  override getState(): Record<string, unknown> { return { ...this.drafts.getState(this.conversationId), ...draftContextState(this.composer, this.plugin.settings.context) }; }
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
     const raw = (state as { conversationId?: unknown } | null)?.conversationId;
     if (raw === null) {
-      // Explicit "start empty" signal (the New chat tab command) — overrides
-      // whatever onOpen loaded by default for a freshly created leaf.
+      // Explicit New chat state overrides onOpen's default conversation.
       this.resetToEmpty();
     } else if (typeof raw === "string") {
       const conversation = this.plugin.conversations().list().find((c) => c.id === raw);
@@ -295,7 +294,11 @@ export class ChatView extends ItemView {
       }
       // An unknown id (e.g. a deleted conversation) keeps the current state.
     }
-    if (raw === this.conversationId) this.drafts.restore(state, this.conversationId);
+    if (raw === this.conversationId) {
+      this.drafts.restore(state, this.conversationId);
+      restoreDraftContext(this.composer, state);
+      this.updateUsageBar();
+    }
     await super.setState(state, result);
   }
 
