@@ -7,6 +7,8 @@ export async function loadMediaBlocks(app: Pick<App, "vault">, media: readonly M
   const blocks: ContentBlock[] = [];
   for (const item of media) {
     try {
+      if (item.pending) throw new Error("image is still attaching; wait for it to finish");
+      if (item.error) throw new Error(item.error);
       let data = item.data;
       let mime = item.mime;
       if (!data && item.path) {

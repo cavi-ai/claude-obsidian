@@ -105,3 +105,33 @@ for (const fail of [false, true]) {
     } finally { await page.evaluate(() => (window as unknown as TestWindow).finishPaste?.()); page.off("pageerror", onError); }
   });
 }
+
+test("a failed pasted image remains visible and refuses Send until removed", async ({ rig }, testInfo) => {
+  const { page } = await rig.reset({ settingsOverride: settings });
+  await page.evaluate(() => { (window as unknown as TestWindow).app.commands.executeCommandById("claude-companion:new-chat-tab"); });
+  const chat = page.locator(".cc-chat-root"), input = chat.locator(".cc-input");
+  const errors: string[] = [];
+  const onError = (error: Error) => errors.push(error.message);
+  page.on("pageerror", onError);
+  try {
+    await input.fill("Explain my chart.");
+    await input.evaluate(element => {
+      const file = new File([new Uint8Array([1])], "unreadable.png", { type: "image/png" });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => { throw new Error("Image read failed"); } });
+      const data = new DataTransfer(); data.items.add(file);
+      element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await chat.locator(".cc-context-trigger").click();
+    const context = chat.getByRole("dialog", { name: "Message context" });
+    await expect(context).toContainText("unreadable.png");
+    await expect(context).toContainText("Image read failed");
+    await expect(context.getByRole("button", { name: "Retry unreadable.png", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("failed-paste-visible-in-message-context.png") });
+    await context.getByRole("button", { name: "Close message context" }).click();
+    await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
+    await expect(page.locator(".notice").filter({ hasText: "Request not sent" }).last()).toContainText("Image read failed");
+    await expect(input).toHaveValue("Explain my chart.");
+    expect(await rig.providerRequests()).toBe(0);
+    expect(errors).toEqual([]);
+  } finally { page.off("pageerror", onError); }
+});

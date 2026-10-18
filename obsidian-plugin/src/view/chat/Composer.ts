@@ -23,7 +23,7 @@ import { applyMention, initialToggles } from "./contextScope";
 import { appendCliModelOptions, syncModelSelection } from "./cliModelOptions";
 import { loadMediaBlocks } from "./mediaBlocks";
 import { loadAttachedNotes, type PreparedAttachedNote } from "../../context/attachedNotes";
-import { PastedImagePreparation } from "./pastedImage";
+import { cancelPastedImages, PastedImagePreparation } from "./pastedImage";
 
 export interface ComposerDeps {
   applyChatFontSize(): void;
@@ -293,7 +293,7 @@ export class Composer {
 
   clearAttachments(): void {
     this.attachedPaths = [];
-    this.attachedMedia = [];
+    cancelPastedImages(this.attachedMedia.splice(0));
     this.attachedPages = [];
   }
 
@@ -439,7 +439,7 @@ export class Composer {
     const index = model.sources.findIndex((source) => source.id === id);
     if (index < 0) return;
     if (index < this.attachedPaths.length) this.attachedPaths.splice(index, 1);
-    else if (index < this.attachedPaths.length + this.attachedMedia.length) this.attachedMedia.splice(index - this.attachedPaths.length, 1);
+    else if (index < this.attachedPaths.length + this.attachedMedia.length) cancelPastedImages(this.attachedMedia.splice(index - this.attachedPaths.length, 1));
     else this.attachedPages.splice(index - this.attachedPaths.length - this.attachedMedia.length, 1);
     this.renderContextManager();
     this.deps.updateUsageBar();
