@@ -407,9 +407,9 @@ describe("ChatView reused drafts", () => {
 
 describe("ChatView refused submissions", () => {
   beforeEach(() => { clearNotices(); });
-  function fixture(credentials = false) {
+  function fixture(credentials = false, id = "anthropic") {
     const fakes = conversationFakes();
-    const provider = { id: "anthropic", hasCredentials: () => credentials };
+    const provider = { id, hasCredentials: () => credentials };
     const plugin = statePlugin({ router: () => ({
       chatBackend: "custom", anthropic: provider,
       chatProvider: () => ({ provider, model: "m" }),
@@ -431,6 +431,19 @@ describe("ChatView refused submissions", () => {
     await view.onSend();
     expect(input.value).toBe(draft);
     expect(fakes.conversations.list()).toEqual([]);
+  });
+
+  it("keeps the exact draft and selected image when the endpoint cannot send it", async () => {
+    const { view, input, fakes } = fixture(true, "openai-compat");
+    const media = [{ label: "Chart.png", kind: "image", mime: "image/png", data: "iVBORw==" }];
+    Object.assign(view, { attachedMedia: media });
+    input.value = "  Explain this chart.  ";
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("Request should not be accepted"));
+    expect(await view.submitPrompt("Explain this chart.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("  Explain this chart.  ");
+    expect((view as unknown as { attachedMedia: unknown }).attachedMedia).toBe(media);
+    expect(getNoticeMessages().join(" ")).toContain("sends text only");
   });
 
   it("retains the existing composer when a command prompt cannot start", async () => {

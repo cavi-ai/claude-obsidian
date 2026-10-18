@@ -620,7 +620,7 @@ export class ChatView extends ItemView {
     const router = this.plugin.router();
     const backend = router.chatBackend;
     const preflight = await preflightTurn({
-      backend,
+      backend, hasMedia: media.length > 0,
       chatProvider: () => router.chatProvider(),
       chatCapabilities: () => router.chatCapabilities(),
       anthropicHasCredentials: () => router.anthropic.hasCredentials(),
@@ -751,7 +751,7 @@ export class ChatView extends ItemView {
     }
     if (this.conversationId === turn.conversationId) this.transcript.annotateContext(ctx.sources);
 
-    // PDFs/images precede text; local backends drop these per-turn blocks.
+    // PDFs/images precede text after transport compatibility has been checked.
     if (media.length > 0) {
       const last = apiMessages[apiMessages.length - 1];
       if (blocks.length > 0 && last && typeof last.content === "string") {
@@ -769,7 +769,7 @@ export class ChatView extends ItemView {
     // ChatTurnService owns routing and persistence after the view closes.
     const agentRoute = agentActive || caps.cli;
     const coreRun = (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => routeTurn(
-      { backend, agent: agentRoute, providerId: provider.id },
+      { backend, agent: agentRoute, providerId: provider.id, hasMedia: media.length > 0 },
       {
         primary: () => agentRoute
           ? this.runners.agentTurn(apiMessages, handlers, signal, turn.conversationId)

@@ -17,6 +17,8 @@ interface ProviderLike {
 
 export interface PreflightDeps<P extends ProviderLike> {
   backend: string;
+  /** Selected images/PDFs must survive the chosen transport. */
+  hasMedia?: boolean;
   chatProvider(): { provider: P; model: string };
   chatCapabilities(): { cli: boolean; local: boolean };
   anthropicHasCredentials(): boolean;
@@ -50,7 +52,7 @@ export async function preflightTurn<P extends ProviderLike>(deps: PreflightDeps<
       return { ok: false, notice: signIn?.available() ? `${label} is not signed in — ${signIn.signInHint}, or add an API key in Companion settings.` : `${label} runs on desktop only. Add an API key to chat here.` };
     }
   }
-  if (!provider.hasCredentials() && backend !== "auto") {
+  if (!provider.hasCredentials() && (backend !== "auto" || deps.hasMedia)) {
     const notice =
       provider.id === "ollama"
         ? "Start Ollama (`ollama serve`) or set the host in settings."
@@ -59,6 +61,8 @@ export async function preflightTurn<P extends ProviderLike>(deps: PreflightDeps<
           : "Add your Anthropic credential in Claude Companion settings first.";
     return { ok: false, notice };
   }
+  // These two transports preserve media blocks; the others cannot transmit them.
+  if (deps.hasMedia && provider.id !== "anthropic" && provider.id !== "claude-cli") return { ok: false, notice: "Request not sent. The selected connection currently sends text only. Choose Claude (Anthropic API) or Claude Code to include attachments, or remove them from Message context." };
   return { ok: true, provider, model, caps, reprobed };
 }
 

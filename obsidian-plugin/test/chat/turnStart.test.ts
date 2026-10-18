@@ -290,3 +290,20 @@ describe("turnPersistence", () => {
     expect(appendAssistantMessage(base, agentResult({ trace }))[1]).toEqual({ role: "assistant", content: "answer", toolTrace: trace });
   });
 });
+
+describe("media preflight", () => {
+  const deps = (id: string) => ({ backend: id, chatProvider: () => ({ provider: provider(id, true), model: "m" }), chatCapabilities: () => ({ cli: id.endsWith("-cli"), local: id === "ollama" || id === "openai-compat" || id === "device" }), anthropicHasCredentials: () => true, cliSignIn: () => null });
+  it.each(["openai-compat", "ollama", "device", "codex-cli", "opencode-cli"])("refuses image/PDF attachments on the text-only %s transport", async id => {
+    const result = await preflightTurn({ ...deps(id), hasMedia: true });
+    expect(result).toMatchObject({ ok: false, notice: expect.stringContaining("sends text only") });
+    expect(await preflightTurn(deps(id))).toMatchObject({ ok: true });
+  });
+  it.each(["anthropic", "claude-cli"])("allows attachments through %s without changing providers", async id => {
+    const result = await preflightTurn({ ...deps(id), hasMedia: true });
+    expect(result.ok && result.provider.id).toBe(id);
+  });
+  it("requires Claude credentials for an attachment that cannot fall back locally", async () => {
+    const result = await preflightTurn({ ...deps("anthropic"), backend: "auto", chatProvider: () => ({ provider: provider("anthropic", false), model: "m" }), hasMedia: true });
+    expect(result).toMatchObject({ ok: false, notice: expect.stringContaining("credential") });
+  });
+});
