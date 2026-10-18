@@ -82,22 +82,23 @@ test("switching to a text-only endpoint cannot silently drop an earlier image", 
   } finally { page.off("request", onRequest); }
 });
 
-test("navigating away during historical media preparation does not accept either draft", async ({ rig }) => {
+for (const fail of [false, true]) test(`navigating away while historical media preparation ${fail ? "rejects" : "completes"} preserves the new draft`, async ({ rig }) => {
   const { page, chat, input } = await imageConversation(rig);
-  await page.evaluate(() => {
+  await page.evaluate(failed => {
     const win = window as unknown as W, vault = win.app.vault, original = vault.readBinary;
     win.historyReadStarted = false;
     const gate = new Promise<void>(resolve => { win.finishHistoryRead = resolve; });
     win.restoreHistoryRead = () => { vault.readBinary = original; };
-    vault.readBinary = async file => { if (file.path === "ArchiveChart.png") { win.historyReadStarted = true; await gate; } return original.call(vault, file); };
-  });
+    vault.readBinary = async file => { if (file.path === "ArchiveChart.png") { win.historyReadStarted = true; await gate; if (failed) throw new Error("Old image read failed"); } return original.call(vault, file); };
+  }, fail);
   try {
     await input.fill("Keep this follow-up with the chart.");
     await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as W).historyReadStarted)).toBe(true);
     await chat.getByRole("button", { name: "New chat", exact: true }).click();
     await input.fill("A different unsent question.");
-    await page.evaluate(async () => { (window as unknown as W).finishHistoryRead?.(); await Promise.resolve(); await Promise.resolve(); });
+    await page.evaluate(async () => { (window as unknown as W).finishHistoryRead?.(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    expect(await page.locator(".notice").filter({ hasText: "Earlier attachment" }).count()).toBe(0);
     await expect(input).toHaveValue("A different unsent question.");
     expect(await rig.providerRequests()).toBe(1);
     await chat.getByRole("button", { name: "Resume a past conversation", exact: true }).click();

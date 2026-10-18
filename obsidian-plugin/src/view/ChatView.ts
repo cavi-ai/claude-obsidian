@@ -648,7 +648,7 @@ export class ChatView extends ItemView {
     if (!blocks || this.drafts.generation !== generation) return false;
     let historyMedia: HistoryMedia;
     try { historyMedia = await loadHistoryMedia(history, items => loadMediaBlocks(this.app, items)); }
-    catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); return false; }
+    catch (error) { if (this.drafts.generation === generation) new Notice(`Request not sent. ${errorMessage(error)}`); return false; }
     if (this.drafts.generation !== generation) return false;
     const notes = paths.length ? await this.composer.noteContext(paths) : [];
     if (!notes || this.drafts.generation !== generation) return false;
