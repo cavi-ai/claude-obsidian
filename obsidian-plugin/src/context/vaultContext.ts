@@ -5,7 +5,7 @@ import type { OntologyRegistry } from "../ontology/registry";
 import { clip, section } from "./search";
 import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from "./hybridSearch";
 import { MAX_RELATION_EXPANSION, noteType, planRelationExpansion, typeLabel } from "./typedContext";
-import type { AttachedPage } from "./urlContext";
+import { MAX_PAGE_CONTEXT_CHARS, type AttachedPage } from "./urlContext";
 
 export interface GatheredContext {
   text: string;
@@ -100,7 +100,7 @@ export async function gatherContext(
       if (budget <= 0) break;
       if (!p.markdown) continue; // pending or failed — the pill shows the state
       const block = section(`Web page: ${p.title ?? p.url} (${p.url})`, p.markdown);
-      const clipped = clip(block, Math.min(budget, 6000));
+      const clipped = clip(block, Math.min(budget, MAX_PAGE_CONTEXT_CHARS));
       blocks.push(clipped);
       budget -= clipped.length;
       added++;

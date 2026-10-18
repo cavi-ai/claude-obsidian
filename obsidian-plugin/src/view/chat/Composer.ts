@@ -285,7 +285,7 @@ export class Composer {
 
   /** Attach an image pasted into the composer (screenshots, copied images). */
   async attachPastedImage(file: File): Promise<void> {
-    await attachPastedImage(file, { media: () => this.attachedMedia, changed: () => this.renderContextManager() });
+    await attachPastedImage(file, { app: this.app, sourcePath: this.deps.resolveMarkdownContextView()?.file?.path, media: () => this.attachedMedia, changed: () => this.renderContextManager() });
   }
 
   clearAttachments(): void {

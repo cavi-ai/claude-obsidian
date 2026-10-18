@@ -309,6 +309,20 @@ describe("claim review", () => {
 describe("claim creation", () => {
   const suggestion = JSON.stringify({ title: "Drafted title", proposition: "Drafted proposition.", confidence: "high", relations: [{ evidence: "R/P/Evidence/A.md", relation: "supports" }] });
 
+  it.each([
+    ["current", {}, "S · page 4", "Checked passage."],
+    ["stale", { sourceFingerprint: "old" }, "S · page 4", "The source changed. Re-check this passage before relying on it."],
+    ["unlocated", { locatorKind: undefined, locatorValue: undefined }, "S", "Add a page or section so the passage can be found."],
+  ] as const)("shows source context for %s evidence before creating a claim", (_state, properties, location, warning) => {
+    const { actions } = setup();
+    actions.createClaim(snap([ev("A", properties)]));
+    const row = modal().contentEl.querySelector(".cc-research-claim-evidence")!;
+    const text = [...row.querySelectorAll("p")].map((el) => el.textContent);
+    expect(text).toContain(location);
+    expect(text).toContain(warning);
+    expect(byLabel("A supports")).toBeDefined();
+  });
+
   it("fills only the fields the user has not touched", async () => {
     let resolve!: (value: string) => void;
     const completeResearch = vi.fn(() => new Promise<string>((done) => { resolve = done; }));
@@ -444,6 +458,15 @@ describe("extract evidence modal", () => {
     const texts = all("p").map((el) => el.textContent);
     expect(texts).toContain("Couldn't read this source automatically. Add a passage yourself below.");
     expect(texts).toContain("offline");
+  });
+
+  it("reports an unusable model reply as a retryable failure", async () => {
+    const { actions } = setup({ sourceText, completeResearch: async () => "not a passage list" });
+    actions.extractEvidence(snap([]));
+    await settle();
+    expect(all("p").map((el) => el.textContent)).toContain("The model did not return a valid passage list.");
+    expect(button("Try reading again")).toBeDefined();
+    expect(all("p").map((el) => el.textContent)).not.toContain("No new exact passages were found for this source. Add one yourself below.");
   });
 
   it("keeps failed passages checked and the modal open", async () => {

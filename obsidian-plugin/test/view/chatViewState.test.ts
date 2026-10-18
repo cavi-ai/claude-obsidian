@@ -155,6 +155,24 @@ describe("ChatView per-leaf conversation state", () => {
     expect(seam.inputEl.value).toBe("Pilot follow-up");
   });
 
+  it("restores separate drafts from serialized view state", async () => {
+    const original = draftView();
+    original.loadConversation(draftConversation("a"));
+    original.inputEl.value = "A draft with details.  ";
+    original.loadConversation(draftConversation("b"));
+    original.inputEl.value = "B draft";
+    original.clearChat();
+    original.inputEl.value = "New chat\nUnfinished question";
+    const state: unknown = JSON.parse(JSON.stringify(original.getState()));
+    const restored = draftView();
+    await restored.setState(state, {});
+    expect(restored.inputEl.value).toBe("New chat\nUnfinished question");
+    restored.loadConversation(draftConversation("a"));
+    expect(restored.inputEl.value).toBe("A draft with details.  ");
+    restored.loadConversation(draftConversation("b"));
+    expect(restored.inputEl.value).toBe("B draft");
+  });
+
   it("preserves an independent new-chat draft across conversation navigation", () => {
     const seam = draftView();
     seam.inputEl.value = "Unsent new chat";
@@ -190,6 +208,15 @@ describe("ChatView per-leaf conversation state", () => {
 
     expect(seam.conversationId).toBe("b");
     expect(seam.getState()).toEqual({ conversationId: "b" });
+  });
+
+  it("ignores a missing conversation snapshot without replacing the current draft", async () => {
+    const seam = draftView();
+    seam.loadConversation(draftConversation("a"));
+    seam.inputEl.value = "My newer draft";
+    await seam.setState({ conversationId: "deleted", drafts: [{ conversationId: "a", text: "Older snapshot" }] }, {});
+    expect(seam.conversationId).toBe("a");
+    expect(seam.inputEl.value).toBe("My newer draft");
   });
 
   it("setState with an unknown id keeps the current state", async () => {
@@ -384,6 +411,17 @@ describe("ChatView refused submissions", () => {
     await view.onSend();
     expect(input.value).toBe(draft);
     expect(fakes.conversations.list()).toEqual([]);
+  });
+
+  it("refuses an interrupted selected image before accepting a command request", async () => {
+    const { view, input, fakes } = fixture(true);
+    input.value = "Explain my image.";
+    Object.assign(view, { attachedMedia: [{ label: "Interrupted.png", kind: "image", mime: "image/png", error: "Image attachment was interrupted" }] });
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("Unexpected request acceptance"));
+    expect(await view.submitPrompt("Explain my image.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("Explain my image.");
+    expect(getNoticeMessages().join(" ")).toContain("interrupted");
   });
 
   it("retains the existing composer when a command prompt cannot start", async () => {
