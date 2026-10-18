@@ -6,10 +6,13 @@ import { errorMessage } from "../records";
 import { effectiveToggles } from "./chat/contextScope";
 import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
+import { watchAttachmentRenames } from "./chat/attachmentRenames";
 import { cliEntries } from "./chat/cliEntries";
-import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
-import type { ApiMessage } from "../providers/types";
-import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
+import { readTurnMedia, rememberTurnMedia, readTurnContext, rememberTurnContext, type TurnContextAttachments } from "../chat/turnSources";
+import { preflightTurn, startTurn, turnPersistence, turnHistory } from "../chat/turnStart";
+import { historyHasMedia, loadHistoryMedia, projectRequestMessages, type HistoryMedia } from "../chat/mediaHistory";
+import { loadMediaBlocks } from "./chat/mediaBlocks";
+import { compactMessages, type Conversation } from "../conversations/store";
 import { resolveModelId } from "../claude/models";
 import { type ChatControls, defaultChatControls } from "../claude/chatControls";
 import { routeTurn } from "../providers/chatTurn";
@@ -34,7 +37,6 @@ import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
 import { ConversationDrafts } from "./chat/conversationDrafts";
 import { DraftSubmission, type DraftStart } from "./chat/draftSubmission";
-import { draftMediaIssue } from "./chat/draftMediaState";
 import { reuseDraft } from "./chat/reuseDraft";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
@@ -113,8 +115,6 @@ export class ChatView extends ItemView {
   private set attachedMedia(v: MediaAttachment[]) { this.composer.attachedMedia = v; }
   private get contextToggles(): ContextToggles { return this.composer.contextToggles; }
   private set contextToggles(v: ContextToggles) { this.composer.contextToggles = v; }
-  /** Media consumed by the last send — restored on failure, re-sent on Regenerate. */
-  private lastUserMedia: MediaAttachment[] = [];
   /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
@@ -340,6 +340,7 @@ export class ChatView extends ItemView {
 
     // User templates: load now, refresh when a note in the folder changes.
     this.slash.watch((ref) => this.registerEvent(ref));
+    watchAttachmentRenames(this.app.vault, this.composer, (ref) => this.registerEvent(ref));
 
     this.projects.watch((ref) => this.registerEvent(ref));
     this.transcript.watchWorkspace((ref) => this.registerEvent(ref));
@@ -594,6 +595,7 @@ export class ChatView extends ItemView {
 
   private setSending(sending: boolean): void {
     this.streaming = sending;
+    this.composer.syncPageOffer();
     this.sendBtn.toggleClass("is-stop", sending);
     this.sendBtn.setAttr("aria-label", sending ? "Stop generating" : "Send message");
     if (Platform.isMobile) {
@@ -604,20 +606,25 @@ export class ChatView extends ItemView {
     }
   }
 
-  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
-    const mediaIssue = draftMediaIssue(this.composer.attachedMedia);
-    if (mediaIssue) { new Notice(`Request not sent. ${mediaIssue}`); return false; }
+  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; media?: MediaAttachment[]; sources?: TurnContextAttachments; submission?: DraftStart }): Promise<boolean> {
+    if (opts?.media === undefined && !this.composer.pastedImages.ready()) return false;
     const generation = this.drafts.generation;
+    const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
+    const previousTurn = previousConversation?.activeTurn;
+    const before = previousTurn?.regenerating && previousTurn.state !== "running" ? previousConversation!.messages : this.messages;
+    const history = this.resumeCliSessionId ? [] : turnHistory({ messages: before, previousTurn, regenerate: !!opts?.regenerate }).messages;
+    const media = opts?.media ?? [...this.attachedMedia];
+    const paths = opts?.sources?.paths ?? [...this.attachedPaths];
+    const selectedPages = opts?.sources?.pages ?? [...this.attachedPages];
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
     this._lastBuffer = ""; // never let a previous turn's partial leak into this one
-    this.transcript.clearInterruptedTurnRow();
     void this.refreshBackendPill();
     const router = this.plugin.router();
     const backend = router.chatBackend;
     const preflight = await preflightTurn({
-      backend,
+      backend, hasMedia: media.length > 0 || historyHasMedia(history),
       chatProvider: () => router.chatProvider(),
       chatCapabilities: () => router.chatCapabilities(),
       anthropicHasCredentials: () => router.anthropic.hasCredentials(),
@@ -634,14 +641,22 @@ export class ChatView extends ItemView {
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
 
-    const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
-    const previousTurn = previousConversation?.activeTurn;
-    if (previousTurn?.regenerating && previousTurn.state !== "running") this.messages = [...previousConversation!.messages];
+    const pages = this.composer.pageContext(selectedPages);
+    if (!pages) return false;
+    const blocks = media.length ? await this.composer.mediaBlocks(media, () => this.drafts.generation === generation) : [];
+    if (!blocks || this.drafts.generation !== generation) return false;
+    let historyMedia: HistoryMedia;
+    try { historyMedia = await loadHistoryMedia(history, items => loadMediaBlocks(this.app, items)); }
+    catch (error) { if (this.drafts.generation === generation) new Notice(`Request not sent. ${errorMessage(error)}`); return false; }
+    if (this.drafts.generation !== generation) return false;
+    const notes = paths.length ? await this.composer.noteContext(paths, () => this.drafts.generation === generation) : [];
+    if (!notes || this.drafts.generation !== generation) return false;
+
     const started = await startTurn((conversationId, messages, input) => this.plugin.conversations().beginTurn(conversationId, messages, input), {
       conversationId: this.conversationId,
-      messages: this.messages,
+      messages: before,
       previousTurn,
-      user: { content: userText, ...(display !== undefined ? { display } : {}) },
+      user: { content: userText, media: rememberTurnMedia(media), contextAttachments: rememberTurnContext(paths, pages), ...(display !== undefined ? { display } : {}) },
       backend,
       model: this.turnModelOverride ?? model,
       mode: this.mode.mode,
@@ -653,10 +668,12 @@ export class ChatView extends ItemView {
       new Notice(started.notice);
       return false;
     }
+    this.transcript.clearInterruptedTurnRow();
     const { turn, turnMessages } = started;
+    if (!caps.cli) this.plugin.invalidateCliSession(turn.conversationId);
     if (opts?.regenerate) {
       this.messagesEl.empty();
-      for (const message of started.regenerating ? this.messages : started.messages.slice(0, -1)) this.renderStoredMessage(message);
+      for (const message of started.regenerating ? before : started.messages.slice(0, -1)) this.renderStoredMessage(message);
     }
     this.messages = started.messages;
     this.drafts.consume(this.conversationId);
@@ -697,7 +714,7 @@ export class ChatView extends ItemView {
     const toggles = effectiveToggles(this.contextToggles, this.turnContextOverride, agentActive);
     // Project-pinned notes join this turn's context without changing the composer.
     const pinnedPaths: AttachedPath[] = (this.currentChatProject?.pinned ?? [])
-      .filter((path) => !this.attachedPaths.some((a) => a.path === path))
+      .filter((path) => !paths.some((a) => a.path === path))
       .map((path) => ({ path, kind: "note" as const }));
     const searchScope = this.currentChatProject ? projectSearchScope(this.currentChatProject) : undefined;
     const ontology = toggles.linkedNotes || toggles.searchVault ? await this.plugin.loadedOntology() : null;
@@ -708,10 +725,11 @@ export class ChatView extends ItemView {
       toggles,
       userText,
       (q, k) => this.plugin.semantic().semanticSearch(q, k, searchScope),
-      [...this.attachedPaths, ...pinnedPaths],
-      this.attachedPages,
+      pinnedPaths,
+      pages,
       searchScope,
       ontology,
+      notes,
     );
     if (controller.signal.aborted || !await keepCurrent()) return true;
     try {
@@ -731,28 +749,13 @@ export class ChatView extends ItemView {
     if (controller.signal.aborted || !await keepCurrent()) return true;
     turnMessages[turnMessages.length - 1]!.contextSources = [...ctx.sources];
     // Resumed CLI sessions own their history; replaying it can duplicate writes.
-    const wireMessages = this.resumeCliSessionId ? this.messages.slice(-1) : compactArtifactsInHistory(this.messages);
-    const apiMessages: ApiMessage[] = toApiMessages(wireMessages);
-    if (ctx.text) {
-      const last = apiMessages[apiMessages.length - 1];
-      if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
-    }
+    const apiMessages = projectRequestMessages(this.resumeCliSessionId ? this.messages.slice(-1) : this.messages, historyMedia, blocks, ctx.text);
     if (this.conversationId === turn.conversationId) this.transcript.annotateContext(ctx.sources);
 
-    // PDFs/images precede text; local backends drop these per-turn blocks.
-    if (this.attachedMedia.length > 0) {
-      const blocks = await this.composer.mediaBlocks();
-      if (controller.signal.aborted || !await keepCurrent()) return true;
-      const last = apiMessages[apiMessages.length - 1];
-      if (blocks.length > 0 && last && typeof last.content === "string") {
-        last.content = [...blocks, { type: "text", text: last.content }];
-      }
-      // Media is per-turn, but keep a handle for failure-restore and Regenerate.
-      this.lastUserMedia = this.attachedMedia;
-      this.attachedMedia = [];
+    // PDFs/images precede text after transport compatibility has been checked.
+    if (media.length > 0) {
+      for (let i = this.attachedMedia.length - 1; i >= 0; i--) if (media.includes(this.attachedMedia[i]!)) this.attachedMedia.splice(i, 1);
       this.renderContextManager();
-    } else {
-      this.lastUserMedia = [];
     }
 
     const { bubble, body } = this.transcript.createAssistantBubble();
@@ -763,7 +766,7 @@ export class ChatView extends ItemView {
     // ChatTurnService owns routing and persistence after the view closes.
     const agentRoute = agentActive || caps.cli;
     const coreRun = (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => routeTurn(
-      { backend, agent: agentRoute, providerId: provider.id },
+      { backend, agent: agentRoute, providerId: provider.id, hasMedia: media.length > 0 || historyHasMedia(history) },
       {
         primary: () => agentRoute
           ? this.runners.agentTurn(apiMessages, handlers, signal, turn.conversationId)
@@ -826,13 +829,18 @@ export class ChatView extends ItemView {
       await this.regenerate();
       return;
     }
-    const continuation = receipt ? continuationFor(receipt) : null;
+    const original = receipt ? conversation.messages[receipt.userMessageIndex] : undefined;
+    const continuation = receipt ? continuationFor(receipt, original?.content) : null;
     if (!receipt || !continuation) return;
-    this.resumeCliSessionId = receipt.cliSessionId ?? conversation.cliSessionId ?? null;
+    if (original?.role !== "user") { new Notice("Original request unavailable. Start a new question instead."); return; }
+    if (this.conversationId !== conversation.id) this.loadConversation(conversation);
+    const cliBackend = this.plugin.router().chatCapabilities().cliBackend;
+    this.resumeCliSessionId = cliBackend === receipt.backend ? receipt.cliSessionId ?? conversation.cliSessionId ?? null : null;
     this.continuationDepth = continuation.depth;
     try {
-      await this.run(continuation.prompt, continuation.display);
-    } finally {
+      await this.run(continuation.prompt, continuation.display, undefined, { media: readTurnMedia([original]), sources: readTurnContext([original]) });
+    } catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); }
+    finally {
       this.resumeCliSessionId = null;
       this.continuationDepth = 0;
     }
@@ -842,10 +850,9 @@ export class ChatView extends ItemView {
 
   /** Re-attach the failed turn's media so a retry (or edit) still has it. */
   private restoreMediaAfterFailure(): void {
-    if (this.lastUserMedia.length > 0 && this.attachedMedia.length === 0) {
-      this.attachedMedia = this.lastUserMedia;
-      this.renderContextManager();
-    }
+    if (this.attachedMedia.length || this.composer.pastedImages.pending) return;
+    try { this.attachedMedia = readTurnMedia(this.messages); this.renderContextManager(); }
+    catch { /* Retry reports unavailable original attachments without changing the draft. */ }
   }
 
   refreshBackendPill(): Promise<void> { return this.header.refreshBackendPill(); }
@@ -880,9 +887,11 @@ export class ChatView extends ItemView {
 
   /** Re-run the previous user turn; the saved answer survives until replacement succeeds. */
   private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
-    if (this.streaming || !this.lastUserText) return;
-    // Re-attach the original turn's media so the regenerated turn sees it too.
-    if (this.attachedMedia.length === 0) this.attachedMedia = [...this.lastUserMedia];
-    await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true });
+    const user = [...this.messages].reverse().find((message) => message.role === "user");
+    if (this.streaming || !user) return;
+    try {
+      const media = readTurnMedia(this.messages);
+      await this.run(user.content, user.display, opts?.maxTokens, { regenerate: true, media, sources: readTurnContext(this.messages) });
+    } catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); }
   }
 }

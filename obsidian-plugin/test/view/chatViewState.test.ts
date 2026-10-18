@@ -52,6 +52,7 @@ function statePlugin(overrides: Partial<Record<string, unknown>> = {}, fakes = c
     }),
     composeSystemPrompt: () => "system",
     ...fakes.host,
+    invalidateCliSession: () => undefined,
     turnService: () => ({ live: () => null }),
     ...overrides,
   } as unknown as ClaudeCompanionPlugin;
@@ -103,8 +104,54 @@ describe("ChatView per-leaf conversation state", () => {
   function mediaView() {
     return buildView(statePlugin()) as Seam & {
       attachedMedia: MediaAttachment[];
-      composer: { attachPastedImage(file: File): Promise<void> };
+      composer: { attachPastedImage(file: File): Promise<void>; pastedImages: { ready(): boolean; readonly pending: boolean } };
     };
+  }
+
+  it("keeps multiple paste reads pending until all current images are ready", async () => {
+    const seam = mediaView();
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    let finishA!: (bytes: ArrayBuffer) => void, finishB!: (bytes: ArrayBuffer) => void;
+    const a = new Promise<ArrayBuffer>(resolve => { finishA = resolve; });
+    const b = new Promise<ArrayBuffer>(resolve => { finishB = resolve; });
+    const paste = (name: string, read: Promise<ArrayBuffer>) => seam.composer.attachPastedImage({ name, size: 4, type: "image/png", arrayBuffer: () => read } as File);
+    const pa = paste("a.png", a), pb = paste("b.png", b);
+    try {
+      expect(seam.composer.pastedImages.pending).toBe(true);
+      expect(seam.composer.pastedImages.ready()).toBe(false);
+      finishA(bytes); await pa;
+      expect(seam.composer.pastedImages.pending).toBe(true);
+      finishB(bytes); await pb;
+      expect(seam.composer.pastedImages.pending).toBe(false);
+      expect(seam.composer.pastedImages.ready()).toBe(true);
+    } finally { finishA(bytes); finishB(bytes); await Promise.all([pa, pb]); }
+  });
+
+  it("reports failed paste reads and releases the pending state", async () => {
+    clearNotices();
+    const seam = mediaView();
+    await expect(seam.composer.attachPastedImage({ name: "broken.png", size: 4, type: "image/png", arrayBuffer: async () => { throw new Error("read failed"); } } as unknown as File)).resolves.toBeUndefined();
+    expect(seam.composer.pastedImages.pending).toBe(false);
+    expect(getNoticeMessages().join(" ")).toContain("read failed");
+  });
+
+  for (const failed of [false, true]) {
+    it(`closing the composer cancels an inactive paste before its ${failed ? "failure" : "completion"}`, async () => {
+      clearNotices();
+      const seam = mediaView();
+      let complete!: (value: ArrayBuffer) => void, reject!: (error: Error) => void;
+      const read = new Promise<ArrayBuffer>((yes, no) => { complete = yes; reject = no; });
+      const task = seam.composer.attachPastedImage({ name: "closing.png", size: 4, type: "image/png", arrayBuffer: () => read } as File);
+      const original = [...seam.attachedMedia];
+      seam.attachedMedia = [];
+      (seam.composer as unknown as { destroy(): void }).destroy();
+      if (failed) reject(new Error("late image read failed"));
+      else complete(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer);
+      await task;
+      expect(original[0]?.data).toBeUndefined();
+      expect(original[0]?.error).toBeUndefined();
+      expect(getNoticeMessages()).toEqual([]);
+    });
   }
 
   it("New chat clears both pasted images and pending vault PDFs", () => {
@@ -125,6 +172,7 @@ describe("ChatView per-leaf conversation state", () => {
     const oldFile = { name: "old-chart.png", size: 4, type: "image/png", arrayBuffer: () => read } as File;
     const pending = seam.composer.attachPastedImage(oldFile);
     seam.clearChat();
+    expect(seam.composer.pastedImages.pending).toBe(false);
     finish(bytes);
     await pending;
     expect(seam.attachedMedia).toEqual([]);
@@ -387,9 +435,9 @@ describe("ChatView reused drafts", () => {
 
 describe("ChatView refused submissions", () => {
   beforeEach(() => { clearNotices(); });
-  function fixture(credentials = false) {
+  function fixture(credentials = false, id = "anthropic") {
     const fakes = conversationFakes();
-    const provider = { id: "anthropic", hasCredentials: () => credentials };
+    const provider = { id, hasCredentials: () => credentials };
     const plugin = statePlugin({ router: () => ({
       chatBackend: "custom", anthropic: provider,
       chatProvider: () => ({ provider, model: "m" }),
@@ -424,12 +472,95 @@ describe("ChatView refused submissions", () => {
     expect(getNoticeMessages().join(" ")).toContain("interrupted");
   });
 
+  it("keeps the exact draft and selected image when the endpoint cannot send it", async () => {
+    const { view, input, fakes } = fixture(true, "openai-compat");
+    const media = [{ label: "Chart.png", kind: "image", mime: "image/png", data: "iVBORw==" }];
+    Object.assign(view, { attachedMedia: media });
+    input.value = "  Explain this chart.  ";
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("Request should not be accepted"));
+    expect(await view.submitPrompt("Explain this chart.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("  Explain this chart.  ");
+    expect((view as unknown as { attachedMedia: unknown }).attachedMedia).toBe(media);
+    expect(getNoticeMessages().join(" ")).toContain("sends text only");
+  });
+
+  it("refuses a follow-up before acceptance when an earlier image is unavailable", async () => {
+    const { view, input, fakes } = fixture(true);
+    Object.assign(view, { messages: [{ role: "user", content: "Explain my chart", media: [{ label: "Earlier.png", path: "Earlier.png", kind: "image", mime: "image/png" }] }, { role: "assistant", content: "Original answer" }] });
+    input.value = "  What is in the corner?  ";
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("Request should not be accepted"));
+    expect(await view.submitPrompt("What is in the corner?")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("  What is in the corner?  ");
+    expect(getNoticeMessages().join(" ")).toContain("Earlier.png");
+    expect(getNoticeMessages().join(" ")).toContain("new chat");
+  });
+
   it("retains the existing composer when a command prompt cannot start", async () => {
     const { view, input } = fixture();
     input.value = "My unfinished question";
     expect(await view.submitPrompt("A generated workflow prompt")).toBe(false);
     expect(input.value).toBe("My unfinished question");
     expect(getNoticeMessages()).toEqual(["Add your Anthropic credential in Claude Companion settings first."]);
+  });
+
+  it("retains the question before a pending paste can create a turn", async () => {
+    const { view, input, fakes } = fixture(true);
+    const composer = view.composer as { attachPastedImage(file: File): Promise<void> };
+    let finish!: (bytes: ArrayBuffer) => void;
+    const read = new Promise<ArrayBuffer>(resolve => { finish = resolve; });
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    const paste = composer.attachPastedImage({ name: "chart.png", size: 4, type: "image/png", arrayBuffer: () => read } as File);
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "  Explain my pasted chart.  ";
+    try {
+      expect(await view.submitPrompt("Explain my pasted chart.")).toBe(false);
+      expect(begin).not.toHaveBeenCalled();
+      expect(input.value).toBe("  Explain my pasted chart.  ");
+      expect(getNoticeMessages().join(" ")).toContain("still attaching");
+    } finally { finish(bytes); await paste; }
+  });
+
+  it("retains the question and selected media before a missing file can create a turn", async () => {
+    const { view, input, fakes } = fixture(true);
+    const media = [{ kind: "image" as const, label: "Missing.png", mime: "image/png", path: "Missing.png" }];
+    Object.assign(view, { attachedMedia: media });
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "  Explain my image.  ";
+    expect(await view.submitPrompt("Explain my image.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("  Explain my image.  ");
+    expect((view as unknown as { attachedMedia: MediaAttachment[] }).attachedMedia).toEqual(media);
+    expect(getNoticeMessages().join(" ")).toContain("Missing.png");
+    expect(getNoticeMessages().join(" ")).toContain("not sent");
+  });
+
+  it.each(["note", "folder"] as const)("retains the draft before a missing selected %s can create a turn", async (kind) => {
+    const { view, input, fakes } = fixture(true);
+    view.attachedPaths = [{ path: "Missing source", kind }];
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "Explain the source.";
+    expect(await view.submitPrompt("Explain the source.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("Explain the source.");
+    expect(view.attachedPaths).toEqual([{ path: "Missing source", kind }]);
+    expect(getNoticeMessages().join(" ")).toContain("Missing source");
+  });
+
+  it.each([
+    { markdown: "", pending: true },
+    { markdown: "stale content", error: "capture failed" },
+    { markdown: "  " },
+  ])("retains the question before an unavailable selected page can create a turn: %j", async (state) => {
+    const { view, input, fakes } = fixture(true);
+    Object.assign(view, { attachedPages: [{ url: "https://example.test/article", ...state }] });
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "Summarize the selected article.";
+    expect(await view.submitPrompt("Summarize the selected article.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("Summarize the selected article.");
+    expect(getNoticeMessages().join(" ")).toContain("example.test/article");
   });
 
   it("reports a genuinely running reply without creating another conversation", async () => {
@@ -545,5 +676,71 @@ describe("ChatView chat-scoped context toggles", () => {
     seam.prepareWorkspaceQuestion({ kind: "note", title: "Continue with Alpha", contextPath: "Notes/Alpha.md" });
 
     expect(seam.attachedPaths).toEqual([{ path: "Notes/Alpha.md", kind: "note" }]);
+  });
+});
+
+
+describe("Resume transport ownership", () => {
+  it.each([
+    { backend: "claude", cliBackend: undefined, session: undefined, want: null },
+    { backend: "claude-cli", cliBackend: undefined, session: "receipt-session", want: null },
+    { backend: "claude-cli", cliBackend: "codex-cli", session: "receipt-session", want: null },
+    { backend: "claude", cliBackend: "claude-cli", session: undefined, want: null },
+    { backend: "claude-cli", cliBackend: "claude-cli", session: "receipt-session", want: "receipt-session" },
+    { backend: "claude-cli", cliBackend: "claude-cli", session: undefined, want: "conversation-session" },
+    { backend: "codex-cli", cliBackend: "codex-cli", session: "receipt-session", want: "receipt-session" },
+    { backend: "opencode-cli", cliBackend: "opencode-cli", session: "receipt-session", want: "receipt-session" },
+  ])("resumes $backend through $cliBackend with session $want", async ({ backend, cliBackend, session, want }) => {
+    const view = buildView(statePlugin({ router: () => ({ chatCapabilities: () => ({ cli: !!cliBackend, cliBackend }) }) })) as Seam & {
+      resumeInterruptedTurn(conversation: Conversation): Promise<void>;
+      resumeCliSessionId: string | null;
+      run: () => Promise<boolean>;
+    };
+    view.conversationId = "conversation";
+    let sessionDuringRequest: string | null | undefined;
+    view.run = async () => { sessionDuringRequest = view.resumeCliSessionId; return true; };
+    await view.resumeInterruptedTurn({
+      id: "conversation", title: "Chart discussion", createdAt: 1, updatedAt: 1,
+      cliSessionId: "conversation-session", messages: [{ role: "user", content: "Compare the chart" }],
+      activeTurn: { id: "turn", state: "interrupted", backend, model: "model", mode: "ask", userMessageIndex: 0, createdAt: 1, updatedAt: 1, ...(session ? { cliSessionId: session } : {}) },
+    });
+    expect(sessionDuringRequest).toBe(want);
+    expect(view.resumeCliSessionId).toBeNull();
+  });
+});
+
+
+describe("live recovery row ownership", () => {
+  it.each(["current", "detached", "superseded"] as const)("shows recovery only for the current subscription (%s)", async state => {
+    const fakes = conversationFakes();
+    const messages = [{ role: "user" as const, content: "Summarize the archive" }];
+    const turn = await fakes.conversations.beginTurn("conversation", messages, { backend: "claude", model: "model", mode: "ask" });
+    const view = buildView(statePlugin({}, fakes)) as Seam & {
+      messages: typeof messages;
+      turnRenderUnsubscribe: (() => void) | null;
+      transcript: import("../../src/view/chat/Transcript").Transcript;
+    };
+    view.messages = messages;
+    let rendering!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { rendering = resolve; });
+    const rendered = new Promise<void>(resolve => { release = resolve; });
+    view.renderer.renderInto = async () => { rendering(); await rendered; };
+    const service = new ChatTurnService();
+    const handle = service.start(turn.conversationId, {
+      turnId: turn.turnId, title: "Archive summary", run: async () => ({ text: "", trace: [], aborted: true }),
+      completeTurn: async () => undefined,
+      interruptTurn: async () => fakes.conversations.interruptTurn(turn.conversationId, turn.turnId, messages),
+      registerTurn: () => () => undefined,
+    });
+    const { bubble, body } = view.transcript.createAssistantBubble();
+    view.turnRenderUnsubscribe = view.transcript.startTurnRendering(turn.conversationId, bubble, body, false, service);
+    try {
+      await started;
+      if (state === "detached") { view.turnRenderUnsubscribe(); view.turnRenderUnsubscribe = null; }
+      if (state === "superseded") await fakes.conversations.beginTurn(turn.conversationId, [...messages, { role: "user", content: "New question" }], { backend: "claude", model: "model", mode: "ask" });
+    } finally { release(); await handle.result; }
+    // Drain the renderer and its subscription cleanup, which deliberately outlive persistence.
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(view.messagesEl.querySelectorAll(".cc-interrupted-turn")).toHaveLength(state === "current" ? 1 : 0);
   });
 });

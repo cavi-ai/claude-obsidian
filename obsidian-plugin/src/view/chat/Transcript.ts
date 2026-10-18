@@ -192,6 +192,7 @@ export class Transcript {
    * Returns the unsubscribe — self-invoked once the turn settles.
    */
   startTurnRendering(conversationId: string, bubble: HTMLElement, body: HTMLElement, wantThinking: boolean, turnService: ChatTurnService): () => void {
+    const turnId = turnService.live(conversationId)?.turnId;
     const conversation = this.plugin.conversations().list().find((entry) => entry.id === conversationId);
     const previous = conversation?.activeTurn?.regenerating ? conversation : undefined;
     if (previous) bubble.addClass("cc-regeneration");
@@ -204,7 +205,11 @@ export class Transcript {
       status?.remove();
       void this.settleTurnRendering(conversationId, bubble, body, renderer, result, previous, previousBubble).finally(() => {
         unsubscribe();
-        if (this.turn.turnRenderUnsubscribe === unsubscribe) this.turn.turnRenderUnsubscribe = null;
+        if (this.turn.turnRenderUnsubscribe === unsubscribe) {
+          this.turn.turnRenderUnsubscribe = null;
+          const saved = this.plugin.conversations().list().find(entry => entry.id === conversationId);
+          if (turnId && saved?.activeTurn?.id === turnId && saved.activeTurn.state !== "running") this.renderInterruptedTurn(saved);
+        }
       });
     };
     const apply = (event: TurnEvent): void => {

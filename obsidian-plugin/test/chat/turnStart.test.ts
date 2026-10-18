@@ -117,6 +117,22 @@ function input(overrides: Partial<TurnStartInput> = {}): TurnStartInput {
 const begun = { conversationId: "c1", turnId: "t1" };
 
 describe("startTurn", () => {
+  it("persists explicit note and captured-page references on the accepted question", async () => {
+    const contextAttachments = { paths: [{ path: "A.md", kind: "note" as const }], pages: [{ url: "https://example.test/a", markdown: "Page A" }] };
+    const fakes = conversationFakes();
+    const result = await startTurn((...args) => fakes.conversations.beginTurn(...args), input({ user: { content: "Question A", contextAttachments } }));
+    expect(result.ok && result.turnMessages.at(-1)).toMatchObject({ contextAttachments });
+    expect(fakes.conversations.list()[0]?.messages.at(-1)).toMatchObject({ contextAttachments });
+  });
+
+  it("persists attachment references with the accepted user message", async () => {
+    const media = [{ label: "Chart.png", path: "Chart.png", kind: "image" as const, mime: "image/png" }];
+    const fakes = conversationFakes();
+    const result = await startTurn((...args) => fakes.conversations.beginTurn(...args), input({ user: { content: "Review chart", media } }));
+    expect(result.ok && result.turnMessages.at(-1)).toMatchObject({ media });
+    expect(fakes.conversations.list()[0]?.messages.at(-1)).toMatchObject({ media });
+  });
+
   it("interrupts a saved request when ownership changes during later preparation", async () => {
     const fakes = conversationFakes();
     let current = true;
@@ -272,5 +288,22 @@ describe("turnPersistence", () => {
   it("carries the tool trace onto the assistant message", () => {
     const trace = [{ name: "vault_search" }] as unknown as AgentTurnResult["trace"];
     expect(appendAssistantMessage(base, agentResult({ trace }))[1]).toEqual({ role: "assistant", content: "answer", toolTrace: trace });
+  });
+});
+
+describe("media preflight", () => {
+  const deps = (id: string) => ({ backend: id, chatProvider: () => ({ provider: provider(id, true), model: "m" }), chatCapabilities: () => ({ cli: id.endsWith("-cli"), local: id === "ollama" || id === "openai-compat" || id === "device" }), anthropicHasCredentials: () => true, cliSignIn: () => null });
+  it.each(["openai-compat", "ollama", "device", "codex-cli", "opencode-cli"])("refuses image/PDF attachments on the text-only %s transport", async id => {
+    const result = await preflightTurn({ ...deps(id), hasMedia: true });
+    expect(result).toMatchObject({ ok: false, notice: expect.stringContaining("sends text only") });
+    expect(await preflightTurn(deps(id))).toMatchObject({ ok: true });
+  });
+  it.each(["anthropic", "claude-cli"])("allows attachments through %s without changing providers", async id => {
+    const result = await preflightTurn({ ...deps(id), hasMedia: true });
+    expect(result.ok && result.provider.id).toBe(id);
+  });
+  it("requires Claude credentials for an attachment that cannot fall back locally", async () => {
+    const result = await preflightTurn({ ...deps("anthropic"), backend: "auto", chatProvider: () => ({ provider: provider("anthropic", false), model: "m" }), hasMedia: true });
+    expect(result).toMatchObject({ ok: false, notice: expect.stringContaining("credential") });
   });
 });

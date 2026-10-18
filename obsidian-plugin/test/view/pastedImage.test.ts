@@ -1,5 +1,6 @@
 import { App, TFile, clearNotices, getNoticeMessages } from "obsidian";
 import { beforeEach, expect, it, vi } from "vitest";
+import { loadMediaBlocks } from "../../src/view/chat/mediaBlocks";
 import { attachPastedImage } from "../../src/view/chat/pastedImage";
 import type { MediaAttachment } from "../../src/context/attachments";
 
@@ -34,7 +35,10 @@ it("reports a failed attachment save without claiming an image was attached", as
   const { app, media, file, host } = fixture();
   vi.spyOn(app.vault, "createBinary").mockRejectedValue(new Error("disk full"));
   await attachPastedImage(file, host);
-  expect(media).toEqual([]);
+  expect(media).toEqual([expect.objectContaining({ label: "Chart.jpg", error: "disk full" })]);
+  expect(media[0]?.pending).toBeUndefined();
+  expect(app.vault.getFiles()).toEqual([]);
+  await expect(loadMediaBlocks(app, media)).rejects.toThrow("disk full");
   expect(getNoticeMessages().join(" ")).toContain("disk full");
-  expect(getNoticeMessages().join(" ")).not.toContain("Image attached");
+  expect(getNoticeMessages().join(" ")).not.toContain("Image saved");
 });
