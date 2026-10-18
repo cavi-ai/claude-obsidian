@@ -47,7 +47,6 @@ import { SlashRunner } from "./chat/slashRunner";
 import { VersionedMarkdownRenderer } from "./chat/markdownRender";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
 interface ObsidianAppWithSettings {
   setting?: {
     open?: () => void;
