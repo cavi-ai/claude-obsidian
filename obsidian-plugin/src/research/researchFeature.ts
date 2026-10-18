@@ -33,6 +33,7 @@ import { ResearchView, RESEARCH_DESK_VIEW_TYPE } from "../view/ResearchView";
 import { DiscoveryModal } from "../view/research/discoveryModal";
 import { ResearchActions } from "../view/research/actions";
 import { ProjectCreateModal } from "../view/research/projectCreateModal";
+import { ProjectSourceRecoveryModal } from "../view/research/projectSourceRecoveryModal";
 import { QUESTION_INSTRUCTION } from "../view/research/shared";
 import { DraftCoordinator } from "./draftCoordinator";
 import { resolveSourceText } from "./evidenceExtraction";
@@ -266,12 +267,25 @@ export class ResearchFeature {
       const record = await this.researchRepository().createProject(input);
       const url = parseClipUrl(content);
       const body = stripFrontmatter(content).trim();
-      await this.researchRepository().importSource(record.path, {
+      const sourceInput = {
         title: file.basename,
-        sourceKind: "vault",
+        sourceKind: "vault" as const,
         ...(url ? { url } : {}),
         capturedContent: body.slice(0, 50000),
-      });
+      };
+      const addSource = async () => { await this.researchRepository().importSource(record.path, sourceInput); };
+      try {
+        await addSource();
+      } catch (cause) {
+        new ProjectSourceRecoveryModal(this.app, {
+          projectPath: record.path,
+          sourceTitle: file.basename,
+          cause,
+          retry: addSource,
+          openProject: () => this.activateResearchDesk(record.path),
+        }).open();
+        return;
+      }
       new Notice(`Project started with “${file.basename}” as the first source.`);
       await this.activateResearchDesk(record.path);
     }, this.researchRewriteText(), { title: file.basename, folder: `Research/${file.basename}`, ...(question ? { question } : {}) }).open();
