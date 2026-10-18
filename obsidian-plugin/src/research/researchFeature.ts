@@ -401,7 +401,7 @@ export class ResearchFeature {
   }
 
   async activateBuildView(runId?: string): Promise<BuildView | null> {
-    if (runId) this.deps.build().selectActiveRun(runId);
+    if (runId) await this.deps.build().selectActiveRun(runId);
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(BUILD_VIEW_TYPE)[0] ?? null;
     if (!leaf) {

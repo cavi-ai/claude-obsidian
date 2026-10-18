@@ -1577,6 +1577,8 @@ pre.cc-has-copy:hover .cc-code-copy { opacity: 1; }
 }
 .cc-build-view > * { min-width: 0; }
 .cc-build-view.cc-build-view [hidden] { display: none; }
+.cc-build-picker { display: flex; flex-direction: column; gap: 6px; }
+.cc-build-picker select { width: 100%; min-width: 0; min-height: 44px; }
 .cc-build-title {
   margin: 0;
   font-size: var(--font-ui-large);
