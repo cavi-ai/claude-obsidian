@@ -1,13 +1,67 @@
 import { describe, expect, it } from "vitest";
 import { draftContextState, restoreDraftContext } from "../../src/view/chat/draftContextState";
 import type { Composer } from "../../src/view/chat/Composer";
+import { App } from "obsidian";
+import { gatherContext } from "../../src/context/vaultContext";
+import { MAX_PAGE_CONTEXT_CHARS } from "../../src/context/urlContext";
+import { DEFAULT_SETTINGS } from "../../src/types";
 
 const OFF = { activeNote: false, selection: false, linkedNotes: false, searchVault: false };
 function composer() {
-  return { contextToggles: { ...OFF }, attachedPaths: [], attachedMedia: [], renderContextManager: () => undefined } as unknown as Composer;
+  return { contextToggles: { ...OFF }, attachedPaths: [], attachedMedia: [], attachedPages: [], renderContextManager: () => undefined } as unknown as Composer;
 }
 
 describe("draft context state", () => {
+  it("restores a ready captured page with its title and excerpt", () => {
+    const original = composer();
+    original.attachedPages = [{ url: "https://example.test/article", title: "Selected article", markdown: "Captured excerpt" }];
+    const restored = composer();
+    restoreDraftContext(restored, JSON.parse(JSON.stringify(draftContextState(original, OFF))));
+    expect(restored.attachedPages).toEqual(original.attachedPages);
+    expect(restored.attachedPages[0]).not.toBe(original.attachedPages[0]);
+  });
+
+  it("bounds persisted page text while preserving the request's clipped content", async () => {
+    const original = composer();
+    original.attachedPages = [{ url: "https://example.test/article", title: "Article", markdown: "Long content. ".repeat(2000) + "UNUSED-TAIL" }];
+    const app = new App();
+    app.workspace.getActiveViewOfType = () => null;
+    app.workspace.getActiveFile = () => null;
+    const before = await gatherContext(app, DEFAULT_SETTINGS, OFF, "question", undefined, [], original.attachedPages);
+    const serialized = JSON.stringify(draftContextState(original, OFF));
+    const restored = composer();
+    restoreDraftContext(restored, JSON.parse(serialized));
+    expect(restored.attachedPages[0]?.markdown).toHaveLength(MAX_PAGE_CONTEXT_CHARS);
+    expect(serialized).not.toContain("UNUSED-TAIL");
+    expect(await gatherContext(app, DEFAULT_SETTINGS, OFF, "question", undefined, [], restored.attachedPages)).toEqual(before);
+  });
+
+  it("retains a failed capture's retry state without storing stale page content", () => {
+    const original = composer();
+    original.attachedPages = [{ url: "https://example.test/article", markdown: "stale text", error: "Fetch failed" }];
+    const serialized = JSON.stringify(draftContextState(original, OFF));
+    const restored = composer();
+    restoreDraftContext(restored, JSON.parse(serialized));
+    expect(restored.attachedPages).toEqual([{ url: "https://example.test/article", markdown: "", error: "Fetch failed" }]);
+    expect(serialized).not.toContain("stale text");
+  });
+
+  it("ignores malformed page records and invalid metadata from saved state", () => {
+    const restored = composer();
+    restoreDraftContext(restored, { context: { pages: [null, { url: "javascript:alert(1)", markdown: "bad" }, { url: "https://example.test", markdown: 4 }, { url: "https://example.test/article", markdown: "body", title: {}, error: 7, pending: "true" }] } });
+    expect(restored.attachedPages).toEqual([{ url: "https://example.test/article", markdown: "body" }]);
+  });
+
+  it("restores an interrupted capture as a retryable error without changing the live capture", () => {
+    const original = composer();
+    original.attachedPages = [{ url: "https://example.test/article", markdown: "", pending: true }];
+    const restored = composer();
+    restoreDraftContext(restored, JSON.parse(JSON.stringify(draftContextState(original, OFF))));
+    expect(restored.attachedPages[0]?.error).toContain("interrupted");
+    expect(restored.attachedPages[0]?.pending).toBeFalsy();
+    expect(original.attachedPages[0]?.pending).toBe(true);
+  });
+
   it("restores vault image and PDF references without serializing their bytes", () => {
     const original = composer();
     original.attachedMedia = [
