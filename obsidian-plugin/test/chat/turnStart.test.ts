@@ -117,6 +117,14 @@ function input(overrides: Partial<TurnStartInput> = {}): TurnStartInput {
 const begun = { conversationId: "c1", turnId: "t1" };
 
 describe("startTurn", () => {
+  it("persists attachment references with the accepted user message", async () => {
+    const media = [{ label: "Chart.png", path: "Chart.png", kind: "image" as const, mime: "image/png" }];
+    const fakes = conversationFakes();
+    const result = await startTurn((...args) => fakes.conversations.beginTurn(...args), input({ user: { content: "Review chart", media } }));
+    expect(result.ok && result.turnMessages.at(-1)).toMatchObject({ media });
+    expect(fakes.conversations.list()[0]?.messages.at(-1)).toMatchObject({ media });
+  });
+
   it("interrupts a saved request when ownership changes during later preparation", async () => {
     const fakes = conversationFakes();
     let current = true;

@@ -7,6 +7,7 @@ import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { watchAttachmentRenames } from "./chat/attachmentRenames";
 import { cliEntries } from "./chat/cliEntries";
+import { readTurnMedia, rememberTurnMedia } from "../chat/turnMedia";
 import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
 import type { ApiMessage } from "../providers/types";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
@@ -113,8 +114,6 @@ export class ChatView extends ItemView {
   private set attachedMedia(v: MediaAttachment[]) { this.composer.attachedMedia = v; }
   private get contextToggles(): ContextToggles { return this.composer.contextToggles; }
   private set contextToggles(v: ContextToggles) { this.composer.contextToggles = v; }
-  /** Media consumed by the last send — restored on failure, re-sent on Regenerate. */
-  private lastUserMedia: MediaAttachment[] = [];
   /** Per-turn max-output override (artifact/plan/workflow flows need headroom). */
   private maxTokensOverride: number | null = null;
   private contextStatusInterval: number | null = null;
@@ -607,9 +606,9 @@ export class ChatView extends ItemView {
     }
   }
 
-  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
+  private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; media?: MediaAttachment[]; submission?: DraftStart }): Promise<boolean> {
     const generation = this.drafts.generation;
-    const media = [...this.attachedMedia];
+    const media = opts?.media ?? [...this.attachedMedia];
     const paths = [...this.attachedPaths];
     const selectedPages = [...this.attachedPages];
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
@@ -652,7 +651,7 @@ export class ChatView extends ItemView {
       conversationId: this.conversationId,
       messages: this.messages,
       previousTurn,
-      user: { content: userText, ...(display !== undefined ? { display } : {}) },
+      user: { content: userText, media: rememberTurnMedia(media), ...(display !== undefined ? { display } : {}) },
       backend,
       model: this.turnModelOverride ?? model,
       mode: this.mode.mode,
@@ -757,12 +756,8 @@ export class ChatView extends ItemView {
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
       }
-      // Media is per-turn, but keep a handle for failure-restore and Regenerate.
-      this.lastUserMedia = media;
       this.attachedMedia = this.attachedMedia.filter((item) => !media.includes(item));
       this.renderContextManager();
-    } else {
-      this.lastUserMedia = [];
     }
 
     const { bubble, body } = this.transcript.createAssistantBubble();
@@ -852,10 +847,9 @@ export class ChatView extends ItemView {
 
   /** Re-attach the failed turn's media so a retry (or edit) still has it. */
   private restoreMediaAfterFailure(): void {
-    if (this.lastUserMedia.length > 0 && this.attachedMedia.length === 0) {
-      this.attachedMedia = this.lastUserMedia;
-      this.renderContextManager();
-    }
+    if (this.attachedMedia.length) return;
+    try { this.attachedMedia = readTurnMedia(this.messages); this.renderContextManager(); }
+    catch { /* Retry reports unavailable original attachments without changing the draft. */ }
   }
 
   refreshBackendPill(): Promise<void> { return this.header.refreshBackendPill(); }
@@ -891,8 +885,9 @@ export class ChatView extends ItemView {
   /** Re-run the previous user turn; the saved answer survives until replacement succeeds. */
   private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
     if (this.streaming || !this.lastUserText) return;
-    // Re-attach the original turn's media so the regenerated turn sees it too.
-    if (this.attachedMedia.length === 0) this.attachedMedia = [...this.lastUserMedia];
-    await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true });
+    try {
+      const media = readTurnMedia(this.messages);
+      await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true, media });
+    } catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); }
   }
 }
