@@ -11,6 +11,13 @@ for (const missing of [false, true]) {
       extraFiles: { "Notes/Original.md": "ORIGINAL-NOTE-652", "Notes/Queued.md": "QUEUED-NOTE-653" },
       providerDelayMs: 5000, providerReply: [{ match: "/./", replies: ["Original delayed answer."] }],
     });
+    type Block = { type: string; text?: string; source?: { data?: string } };
+    type Payload = { messages: Array<{ role: string; content: string | Block[] }> };
+    const requests: Payload[] = [];
+    const onRequest = (request: import("@playwright/test").Request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/messages")) requests.push(request.postDataJSON() as Payload);
+    };
+    page.on("request", onRequest);
     const errors: string[] = [];
     const onError = (error: Error) => errors.push(error.message);
     page.on("pageerror", onError);
@@ -49,7 +56,7 @@ for (const missing of [false, true]) {
       const queuedImage = QUEUED_PNG.replaceAll("+", "[+]");
       await rig.control.setStubs({ providerReply: [
         { match: String.raw`/^(?=[\s\S]*ORIGINAL-TASK-651)(?=[\s\S]*ORIGINAL-NOTE-652)(?=[\s\S]*${originalImage})(?![\s\S]*(?:QUEUED-NOTE-653|${queuedImage}))/`, replies: ["Original task and sources received."] },
-        { match: String.raw`/^(?=[\s\S]*QUEUED-NOTE-653)(?=[\s\S]*${queuedImage})(?![\s\S]*(?:ORIGINAL-NOTE-652|${originalImage}))/`, replies: ["Queued sources received."] },
+        { match: String.raw`/^(?=[\s\S]*QUEUED-NOTE-653)(?=[\s\S]*${queuedImage})(?=[\s\S]*${originalImage})(?![\s\S]*ORIGINAL-NOTE-652)/`, replies: ["Queued sources received."] },
         { match: "/./", replies: ["Wrong recovery context."] },
       ] });
       const resume = chat.locator(".cc-interrupted-turn").getByRole("button", { name: "Resume", exact: true });
@@ -79,8 +86,17 @@ for (const missing of [false, true]) {
       await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
       await expect(chat.locator(".cc-assistant .cc-body").last()).toHaveText("Queued sources received.");
       expect(await rig.providerRequests()).toBe(2);
+      const users = requests.at(-1)!.messages.filter(({ role }) => role === "user");
+      const blocks = (content: string | Block[]) => typeof content === "string" ? [] : content;
+      const images = (content: string | Block[]) => blocks(content).filter(({ type }) => type === "image").map(({ source }) => source?.data);
+      expect(images(users[0]!.content)).toContain(PNG);
+      expect(images(users[0]!.content)).not.toContain(QUEUED_PNG);
+      expect(images(users.at(-1)!.content)).toEqual([QUEUED_PNG]);
+      const queuedText = blocks(users.at(-1)!.content).map(({ text }) => text ?? "").join("\n");
+      expect(queuedText).toContain("QUEUED-NOTE-653");
+      expect(queuedText).not.toContain("ORIGINAL-NOTE-652");
       expect(errors).toEqual([]);
-    } finally { page.off("pageerror", onError); }
+    } finally { page.off("pageerror", onError); page.off("request", onRequest); }
   });
 }
 
