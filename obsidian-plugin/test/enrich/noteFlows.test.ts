@@ -182,6 +182,18 @@ describe("NoteFlows reviewLinkSuggestions", () => {
 });
 
 describe("NoteFlows enrichNoteFlow", () => {
+  it.each([{ tags: ["keep", "user-added"] }, { tags: "user-added" }, { tags: [] }])("merges reviewed tag additions into current tags %j without replacing a newer summary", async ({ tags: currentTags }) => {
+    const { app, flows } = rig();
+    const note = app.vault.seed("Doc.md", "body", { frontmatter: { tags: ["keep", "removed"] } });
+    tagger.summarizeAndTag.mockResolvedValue({ title: "Doc", tags: ["keep", "fresh"], newTags: ["fresh"], summary: "Generated summary." });
+    ui.decision = { accepted: [], frontmatter: true, rename: false };
+    const current = { tags: currentTags, summary: "My newer summary.", keep: true };
+    vi.spyOn(app.fileManager, "processFrontMatter").mockImplementation(async (_file, update) => { update(current); });
+    await flows.enrichNoteFlow(note, { ...OPTIONS, frontmatter: true });
+    const tags = typeof currentTags === "string" ? [currentTags] : currentTags;
+    expect(current).toEqual({ tags: [...tags, "fresh"], summary: "My newer summary.", keep: true });
+  });
+
   it("stops quietly when the step picker is dismissed", async () => {
     const { app, flows } = rig();
     const note = app.vault.seed("Notes/Doc.md", "text");
@@ -310,6 +322,19 @@ describe("NoteFlows enrichFolderFlow", () => {
 });
 
 describe("NoteFlows suggestFrontmatterForActiveNote", () => {
+  it("preserves tag additions, removals and scalar fields changed while the preview is open", async () => {
+    const { app, flows, complete } = rig();
+    const note = app.vault.seed("Doc.md", "body", { frontmatter: { tags: ["keep", "removed"] } });
+    setActive(app, note);
+    complete.mockResolvedValue({ text: "TYPE: project\nTAGS: fresh\nSUMMARY: Generated summary.", provider: { label: "Utility" } });
+    ui.apply = true;
+    const current = { type: "person", tags: ["keep", "user-added"], summary: "My newer summary.", keep: true };
+    vi.spyOn(app.fileManager, "processFrontMatter").mockImplementation(async (_file, update) => { update(current); });
+    await flows.suggestFrontmatterForActiveNote();
+    await vi.waitFor(() => expect(getNoticeMessages()).toContain("Frontmatter updated: Doc"));
+    expect(current).toEqual({ type: "person", tags: ["keep", "user-added", "fresh"], summary: "My newer summary.", keep: true });
+  });
+
   it("asks for a markdown note and refuses an empty one", async () => {
     const { app, flows, complete } = rig();
     await flows.suggestFrontmatterForActiveNote();

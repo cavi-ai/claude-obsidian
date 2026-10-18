@@ -34,6 +34,10 @@ export interface NoteFlowsDeps {
   ontology: () => OntologyRegistry | null;
 }
 
+function frontmatterTags(value: unknown): string[] {
+  return normalizeTags(Array.isArray(value) ? value.map(String) : typeof value === "string" ? [value] : []);
+}
+
 export class NoteFlows {
   constructor(private deps: NoteFlowsDeps) {}
 
@@ -230,7 +234,7 @@ export class NoteFlows {
 
     if (options.frontmatter && tagResult) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-      const existing: string[] = Array.isArray(fm?.tags) ? fm.tags.map(String) : typeof fm?.tags === "string" ? [fm.tags] : [];
+      const existing = frontmatterTags(fm?.tags);
       const merged = normalizeTags([...existing, ...tagResult.tags]);
       const addedTags = merged.filter((t) => !existing.includes(t));
       const newTags = addedTags.filter((t) => tagResult.newTags.includes(t));
@@ -252,10 +256,11 @@ export class NoteFlows {
       await this.app.vault.process(file, (current) => applyPlan(current, plan, decision.accepted));
     }
     if (proposal.frontmatter && decision.frontmatter) {
-      const { tags, summary } = proposal.frontmatter;
+      const { addedTags, summary } = proposal.frontmatter;
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        (fm as Record<string, unknown>).tags = tags;
-        if (summary) (fm as Record<string, unknown>).summary = summary;
+        const current = fm as Record<string, unknown>;
+        current.tags = normalizeTags([...frontmatterTags(current.tags), ...addedTags]);
+        if (summary && !current.summary) current.summary = summary;
       });
     }
     if (proposal.rename && decision.rename) {
@@ -297,9 +302,10 @@ export class NoteFlows {
 
       // Merge additively against what's already in the note's frontmatter.
       const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
-      const currentTags = Array.isArray(fm.tags) ? fm.tags.map(String) : typeof fm.tags === "string" ? [fm.tags] : [];
+      const currentTags = frontmatterTags(fm.tags);
       const resolved = resolveTags(suggestion.tags, vocab);
       const tags = normalizeTags([...currentTags, ...resolved.map((r) => r.tag)]);
+      const addedTags = tags.filter((tag) => !currentTags.includes(tag));
       const proposal = {
         ...(suggestion.type && !fm.type ? { type: suggestion.type } : {}),
         tags,
@@ -313,7 +319,7 @@ export class NoteFlows {
         await this.app.fileManager.processFrontMatter(file, (f) => {
           const rec = f as Record<string, unknown>;
           if (proposal.type && !rec.type) rec.type = proposal.type;
-          rec.tags = proposal.tags;
+          rec.tags = normalizeTags([...frontmatterTags(rec.tags), ...addedTags]);
           if (proposal.summary && !rec.summary) rec.summary = proposal.summary;
         });
         new Notice(`Frontmatter updated: ${file.basename}`);
