@@ -82,7 +82,7 @@ export type BeginTurn = (
 ) => Promise<{ conversationId: string; turnId: string }>;
 
 export type TurnStart =
-  | { ok: true; turn: { conversationId: string; turnId: string }; messages: ChatMessage[]; turnMessages: ChatMessage[]; regenerating: boolean }
+  | { ok: true; turn: { conversationId: string; turnId: string }; messages: ChatMessage[]; turnMessages: ChatMessage[]; regenerating: boolean; keepCurrent(notify?: (notice: string) => void): Promise<boolean> }
   | { ok: false; notice: string };
 
 /** Prepares the turn's messages and begins it durably; a failed begin leaves the input untouched. */
@@ -106,12 +106,18 @@ export async function startTurn(begin: BeginTurn, input: TurnStartInput): Promis
       ...(input.continuationDepth > 0 ? { continuationDepth: input.continuationDepth } : {}),
       ...(regenerating ? { regenerating: true } : {}),
     });
-    if (input.ownership && !input.ownership.current()) {
-      const notice = "Request saved but not sent because you switched chats. Resume it from history.";
+    const notice = "Request saved but not sent because you switched chats. Resume it from history.";
+    let interrupted = false;
+    const keepCurrent = async (notify?: (notice: string) => void): Promise<boolean> => {
+      if (interrupted) return false;
+      if (!input.ownership || input.ownership.current()) return true;
+      interrupted = true;
       await input.ownership.interruptTurn(turn.conversationId, turn.turnId, turnMessages, notice);
-      return { ok: false, notice };
-    }
-    return { ok: true, turn, messages, turnMessages, regenerating };
+      notify?.(notice);
+      return false;
+    };
+    if (!await keepCurrent()) return { ok: false, notice };
+    return { ok: true, turn, messages, turnMessages, regenerating, keepCurrent };
   } catch (error) {
     return { ok: false, notice: `Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}` };
   }

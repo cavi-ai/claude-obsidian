@@ -117,6 +117,19 @@ function input(overrides: Partial<TurnStartInput> = {}): TurnStartInput {
 const begun = { conversationId: "c1", turnId: "t1" };
 
 describe("startTurn", () => {
+  it("interrupts a saved request when ownership changes during later preparation", async () => {
+    const fakes = conversationFakes();
+    let current = true;
+    const result = await startTurn((...args) => fakes.conversations.beginTurn(...args), input({
+      ownership: { current: () => current, interruptTurn: (...args) => fakes.conversations.interruptTurn(...args) },
+    }));
+    if (!result.ok) throw new Error("Expected durable start");
+    current = false;
+    await result.keepCurrent?.();
+    expect(fakes.conversations.list()[0]?.activeTurn?.state).toBe("interrupted");
+    expect(fakes.conversations.list()[0]?.messages.at(-1)?.content).toBe("next");
+  });
+
   it.each([false, true])("keeps a saved request recoverable when its owner changes (regenerate: %s)", async (regenerate) => {
     const fakes = conversationFakes({ conversations: [{ id: "c1", title: "Earlier chat", createdAt: 1, updatedAt: 1, messages: HISTORY }] });
     let current = true;
