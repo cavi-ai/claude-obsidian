@@ -1,4 +1,5 @@
 import type { Composer } from "./Composer";
+import { restoreDraftContext } from "./draftContextState";
 
 /** Unsent text in one pane; null owns its unstarted New chat draft. */
 export class ConversationDrafts {
@@ -27,15 +28,17 @@ export class ConversationDrafts {
 
   restore(state: unknown, conversationId: string | null): void {
     const entries = (state as { drafts?: unknown } | null)?.drafts;
-    if (!Array.isArray(entries)) return;
-    this.generation++;
-    this.drafts.clear();
-    for (const entry of entries) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-      const { conversationId, text } = entry as Record<string, unknown>;
-      if ((conversationId === null || typeof conversationId === "string") && typeof text === "string" && text) this.drafts.set(conversationId, text);
+    if (Array.isArray(entries)) {
+      this.generation++;
+      this.drafts.clear();
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+        const { conversationId, text } = entry as Record<string, unknown>;
+        if ((conversationId === null || typeof conversationId === "string") && typeof text === "string" && text) this.drafts.set(conversationId, text);
+      }
+      this.display(conversationId);
     }
-    this.display(conversationId);
+    restoreDraftContext(this.composer(), state);
   }
 
   private display(conversationId: string | null): void {

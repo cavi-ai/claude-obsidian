@@ -1,4 +1,4 @@
-import { draftContextState, restoreDraftContext } from "./chat/draftContextState";
+import { draftContextState } from "./chat/draftContextState";
 import { ItemView, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
 import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
@@ -292,7 +292,6 @@ export class ChatView extends ItemView {
     }
     if (raw === this.conversationId) {
       this.drafts.restore(state, this.conversationId);
-      restoreDraftContext(this.composer, state);
       this.updateUsageBar();
     }
     await super.setState(state, result);
