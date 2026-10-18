@@ -4,7 +4,9 @@ import type { Composer } from "./Composer";
 import { mediaKind, mediaMime, type MediaAttachment } from "../../context/attachments";
 import { MAX_PAGE_CONTEXT_CHARS, type AttachedPage } from "../../context/urlContext";
 
-type ContextHost = Pick<Composer, "contextToggles" | "attachedPaths" | "attachedMedia" | "attachedPages" | "renderContextManager">;
+export type DraftSources = Pick<Composer, "attachedPaths" | "attachedMedia" | "attachedPages">;
+export type DraftContext = DraftSources & Pick<Composer, "contextToggles">;
+type ContextHost = DraftContext & Pick<Composer, "renderContextManager">;
 const AUTOMATIC = ["activeNote", "selection", "linkedNotes", "searchVault"] as const;
 
 function storedPage(page: AttachedPage): AttachedPage {
@@ -21,17 +23,23 @@ function restoredPage(value: unknown): AttachedPage[] {
   return [storedPage({ url, markdown, ...(typeof title === "string" ? { title } : {}), ...(typeof error === "string" ? { error } : {}), ...(pending === true ? { pending } : {}) })];
 }
 
-/** Persist explicit vault references, captured page excerpts, and context choices with the draft. */
-export function draftContextState(host: ContextHost, defaults: ContextToggles): Record<string, unknown> {
+/** Serialize explicit sources without inline image bytes or tab-wide preferences. */
+export function draftSourcesState(host: DraftSources) {
   const media = host.attachedMedia.filter((item) => item.path).map(({ kind, label, path, mime }) => ({ kind, label, path, mime }));
-  const pages = host.attachedPages.map(storedPage);
-  if (!host.attachedPaths.length && !media.length && !pages.length && AUTOMATIC.every((key) => host.contextToggles[key] === defaults[key])) return {};
-  return { context: { automatic: { ...host.contextToggles }, paths: host.attachedPaths.map((entry) => ({ ...entry })), media, pages } };
+  return { paths: host.attachedPaths.map((entry) => ({ ...entry })), media, pages: host.attachedPages.map(storedPage) };
 }
 
-export function restoreDraftContext(host: ContextHost, state: unknown): boolean {
+/** Persist explicit sources and the current pane context alongside its draft. */
+export function draftContextState(host: DraftContext, defaults: ContextToggles): Record<string, unknown> {
+  const sources = draftSourcesState(host);
+  if (!sources.paths.length && !sources.media.length && !sources.pages.length && AUTOMATIC.every((key) => host.contextToggles[key] === defaults[key])) return {};
+  return { context: { automatic: { ...host.contextToggles }, ...sources } };
+}
+
+export function readDraftContext(fallback: DraftContext, state: unknown): DraftContext | null {
   const context = (state as { context?: unknown } | null)?.context;
-  if (!context || typeof context !== "object" || Array.isArray(context)) return false;
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const host: DraftContext = { contextToggles: { ...fallback.contextToggles }, attachedPaths: fallback.attachedPaths, attachedMedia: fallback.attachedMedia, attachedPages: fallback.attachedPages };
   const { automatic, paths, media, pages } = context as Record<string, unknown>;
   if (automatic && typeof automatic === "object" && !Array.isArray(automatic)) {
     const toggles = { ...host.contextToggles };
@@ -56,6 +64,13 @@ export function restoreDraftContext(host: ContextHost, state: unknown): boolean 
     }).map(({ path, kind, label }) => ({ path, kind, label, mime: mediaMime(path) }));
   }
   if (Array.isArray(pages)) host.attachedPages = pages.flatMap(restoredPage);
+  return host;
+}
+
+export function restoreDraftContext(host: ContextHost, state: unknown): boolean {
+  const context = readDraftContext(host, state);
+  if (!context) return false;
+  Object.assign(host, context);
   host.renderContextManager();
   return true;
 }
