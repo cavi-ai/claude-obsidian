@@ -77,7 +77,7 @@ export class PublishController {
   async publishArtifact(html: string, title: string): Promise<void> {
     const token = this.deps.token();
     if (!token) return this.deps.notice(NO_TOKEN);
-    await this.guarded(`artifact-pending:${title}`, async () => {
+    await this.guarded(`artifact-pending:${JSON.stringify([title, html])}`, async () => {
       if (!(await this.deps.confirm("artifact", title))) return;
       const files = { [ARTIFACT_FILE]: artifactPageHtml(html, title) };
       const outcome = await this.send(createGistRequest(this.deps.apiBase(), token, files, title), "create");
