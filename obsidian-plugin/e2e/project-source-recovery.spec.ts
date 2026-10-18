@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures";
 import type { App, TFile } from "obsidian";
 
-type AppWindow = Window & { app: App & { commands: { executeCommandById(id: string): Promise<void> } }; originalSeedCreate?: App["vault"]["create"]; releaseSeedSave?: () => void };
+type AppWindow = Window & { app: App & { commands: { executeCommandById(id: string): Promise<void> }; plugins: { plugins: Record<string, { lastMarkdownFile: TFile | null }> } }; originalSeedCreate?: App["vault"]["create"]; releaseSeedSave?: () => void };
 const projectPath = "Research/Incident notes/Project.md";
 const sourcePath = "Research/Incident notes/Sources/Incident notes.md";
 const note = "# Incident notes\n\n" + "The archive records how notifications interrupt engineers during incident response. ".repeat(8);
@@ -13,9 +13,11 @@ for (const action of ["retry", "open", "close"] as const) {
     page.on("pageerror", error => errors.push(error.message));
     await page.evaluate(async () => {
       const app = (window as unknown as AppWindow).app;
+      app.plugins.plugins["claude-companion"]!.lastMarkdownFile = null;
       await app.workspace.openLinkText("Incident notes.md", "", false);
-      await app.commands.executeCommandById("claude-companion:open-research-desk");
     });
+    await expect.poll(() => page.evaluate(() => (window as unknown as AppWindow).app.plugins.plugins["claude-companion"]!.lastMarkdownFile?.path)).toBe("Incident notes.md");
+    await page.evaluate(async () => { await (window as unknown as AppWindow).app.commands.executeCommandById("claude-companion:open-research-desk"); });
     await page.locator(".cc-research-desk").getByRole("button", { name: "From active note", exact: true }).click();
     const create = page.locator(".modal").filter({ has: page.getByRole("heading", { name: "Create research project", exact: true }) });
     await expect(create).toBeVisible();

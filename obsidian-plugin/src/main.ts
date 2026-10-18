@@ -507,7 +507,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
   /** Keeps the plan Build action and the last-seen note in step with the workspace. */
   private registerNoteTracking(): void {
     // Show a "Build" action in the header of any `type: plan` note.
-    this.registerEvent(this.app.workspace.on("file-open", () => this.research().syncPlanBuildActions()));
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (file?.extension === "md") this.lastMarkdownFile = file;
+      this.research().syncPlanBuildActions();
+    }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.research().syncPlanBuildActions()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
