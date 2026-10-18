@@ -10,7 +10,7 @@ import { ModeControl } from "../ModeControl";
 import type { ChatSession } from "./chatSession";
 import type { AttachedPath } from "../../context/vaultContext";
 import { type MediaAttachment, mediaKind, mediaMime } from "../../context/attachments";
-import { type AttachedPage, detectPageUrl, pageLabel } from "../../context/urlContext";
+import { type AttachedPage, detectPageUrl, pageLabel, snapshotPages } from "../../context/urlContext";
 import type { ContentBlock } from "../../providers/types";
 import { CLAUDE_MODELS } from "../../claude/models";
 import { DEVICE_MODELS } from "../../device/models";
@@ -258,6 +258,15 @@ export class Composer {
     return buildClaimItems(this.deps.cachedClaims());
   }
 
+  /** Keep the question while selected page captures are pending or unavailable. */
+  pageContext(pages: readonly AttachedPage[]): AttachedPage[] | null {
+    try { return snapshotPages(pages); }
+    catch (error) {
+      new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
   /** Capture explicit note/folder content while the question is still editable. */
   async noteContext(paths: readonly AttachedPath[]): Promise<PreparedAttachedNote[] | null> {
     try { return await loadAttachedNotes(this.app, paths, this.plugin.settings.maxContextNotes); }
@@ -345,7 +354,7 @@ export class Composer {
     this.renderContextManager();
     try {
       const result = await capture(page.url);
-      if (!result) {
+      if (!result?.markdown.trim()) {
         page.error = "No readable content on that page.";
       } else {
         page.markdown = result.markdown;

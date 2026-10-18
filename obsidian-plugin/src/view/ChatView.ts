@@ -610,6 +610,7 @@ export class ChatView extends ItemView {
     const generation = this.drafts.generation;
     const media = [...this.attachedMedia];
     const paths = [...this.attachedPaths];
+    const selectedPages = [...this.attachedPages];
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -636,6 +637,8 @@ export class ChatView extends ItemView {
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
 
+    const pages = this.composer.pageContext(selectedPages);
+    if (!pages) return false;
     const blocks = media.length ? await this.composer.mediaBlocks(media) : [];
     if (!blocks || this.drafts.generation !== generation) return false;
     const notes = paths.length ? await this.composer.noteContext(paths) : [];
@@ -716,7 +719,7 @@ export class ChatView extends ItemView {
       userText,
       (q, k) => this.plugin.semantic().semanticSearch(q, k, searchScope),
       pinnedPaths,
-      this.attachedPages,
+      pages,
       searchScope,
       ontology,
       notes,

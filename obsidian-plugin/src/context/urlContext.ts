@@ -15,6 +15,16 @@ export interface AttachedPage {
   pending?: boolean;
 }
 
+/** Take a request-local copy only after every explicitly selected capture is usable. */
+export function snapshotPages(pages: readonly AttachedPage[]): AttachedPage[] {
+  return pages.map((page) => {
+    if (page.pending) throw new Error(`Still capturing ${page.url}. Wait for capture to finish or remove the page from Message context, then send again.`);
+    if (page.error) throw new Error(`Couldn't capture ${page.url}: ${page.error}. Retry capture or remove the page from Message context, then send again.`);
+    if (!page.markdown.trim()) throw new Error(`No readable content was captured from ${page.url}. Retry capture or remove the page from Message context, then send again.`);
+    return { url: page.url, markdown: page.markdown, ...(page.title !== undefined ? { title: page.title } : {}) };
+  });
+}
+
 const URL_RE = /https?:\/\/[^\s<>"'()\]]+/i;
 
 /**
