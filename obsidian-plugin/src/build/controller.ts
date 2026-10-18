@@ -85,8 +85,25 @@ export class BuildController {
     return this.buildRuns[this.activeBuildRunId] ?? null;
   }
 
-  selectActiveRun(runId: string): void {
-    if (this.buildRuns[runId]) this.activeBuildRunId = runId;
+  async selectActiveRun(runId: string): Promise<void> {
+    if (!this.buildRuns[runId] || this.activeBuildRunId === runId) return;
+    const previous = this.activeBuildRunId;
+    this.activeBuildRunId = runId;
+    this.notifySelectedRun();
+    try {
+      await this.deps.persist();
+    } catch (cause) {
+      if (this.activeBuildRunId === runId) {
+        this.activeBuildRunId = previous;
+        this.notifySelectedRun();
+      }
+      this.deps.notice(`Couldn't save the selected build: ${cause instanceof Error ? cause.message : String(cause)}`, 8000);
+    }
+  }
+
+  private notifySelectedRun(): void {
+    const run = this.activeBuildRun();
+    if (run) for (const listener of this.buildRunListeners) listener(run);
   }
 
   async handoffToBuild(planFile: { path: string; basename: string } | null): Promise<string | null> {
@@ -194,6 +211,8 @@ export class BuildController {
   viewDependencies(): BuildViewDependencies {
     return {
       getRun: () => this.activeBuildRun(),
+      getRuns: () => Object.values(this.buildRuns),
+      selectRun: (runId) => this.selectActiveRun(runId),
       subscribe: (listener) => {
         this.buildRunListeners.add(listener);
         return () => this.buildRunListeners.delete(listener);
@@ -228,9 +247,7 @@ export class BuildController {
     const coordinator = new BuildRunCoordinator(run, {
       executor: this.buildExecutor(run.transport),
       persist: (snapshot) => this.persistBuildRun(snapshot),
-      onChange: (snapshot) => {
-        for (const listener of this.buildRunListeners) listener(snapshot);
-      },
+      onChange: () => this.notifySelectedRun(),
     });
     this.buildCoordinators.set(run.id, coordinator);
     return coordinator;
@@ -287,7 +304,6 @@ export class BuildController {
 
   private async persistBuildRun(run: BuildRun): Promise<void> {
     this.buildRuns[run.id] = run;
-    this.activeBuildRunId = run.id;
     await this.deps.persist();
     const previous = this.buildTrackerWriteChains.get(run.id) ?? Promise.resolve();
     const write = previous.catch(() => {}).then(async () => {
