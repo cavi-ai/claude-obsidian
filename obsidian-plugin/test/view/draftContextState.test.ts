@@ -4,10 +4,32 @@ import type { Composer } from "../../src/view/chat/Composer";
 
 const OFF = { activeNote: false, selection: false, linkedNotes: false, searchVault: false };
 function composer() {
-  return { contextToggles: { ...OFF }, attachedPaths: [], renderContextManager: () => undefined } as unknown as Composer;
+  return { contextToggles: { ...OFF }, attachedPaths: [], attachedMedia: [], renderContextManager: () => undefined } as unknown as Composer;
 }
 
 describe("draft context state", () => {
+  it("restores vault image and PDF references without serializing their bytes", () => {
+    const original = composer();
+    original.attachedMedia = [
+      { kind: "image", label: "Chart", path: "Notes/chart.png", mime: "image/png", data: "inline-image-bytes" },
+      { kind: "pdf", label: "Paper", path: "Notes/paper.pdf", mime: "application/pdf" },
+    ];
+    const serialized = JSON.stringify(draftContextState(original, OFF));
+    const restored = composer();
+    restoreDraftContext(restored, JSON.parse(serialized));
+    expect(restored.attachedMedia).toEqual([
+      { kind: "image", label: "Chart", path: "Notes/chart.png", mime: "image/png" },
+      { kind: "pdf", label: "Paper", path: "Notes/paper.pdf", mime: "application/pdf" },
+    ]);
+    expect(serialized).not.toContain("inline-image-bytes");
+  });
+
+  it("ignores invalid media references and derives MIME from the file type", () => {
+    const restored = composer();
+    restoreDraftContext(restored, { context: { media: [null, { kind: "image", label: "bad", path: "Notes/file.md" }, { kind: "pdf", label: "Paper", path: "Notes/paper.pdf", mime: "text/html" }] } });
+    expect(restored.attachedMedia).toEqual([{ kind: "pdf", label: "Paper", path: "Notes/paper.pdf", mime: "application/pdf" }]);
+  });
+
   it("omits unchanged defaults from legacy-compatible empty state", () => {
     expect(draftContextState(composer(), OFF)).toEqual({});
   });
