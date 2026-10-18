@@ -213,3 +213,28 @@ describe("ConversationsController archive, rename, fork", () => {
     expect(state().conversations.find((c) => c.id === convo.id)?.messages).toEqual([seed]);
   });
 });
+
+describe("accepted attachment renames", () => {
+  it("persists file and folder moves without changing conversation order or old snapshots", async () => {
+    const original = [{ role: "user" as const, content: "Chart", media: [{ label: "A.png", kind: "image" as const, mime: "image/png", path: "Charts/A.png" }] }];
+    const seed = saveConversation(emptyState(), { ...newConversation("c1", 1), messages: original }, 0);
+    const { controller, state, persisted } = harness(seed);
+    await controller.renameMedia("Charts", "Figures");
+    await controller.renameMedia("Figures/A.png", "Figures/B.png");
+    expect(original[0]!.media[0]!.path).toBe("Charts/A.png");
+    expect(state().conversations[0]?.messages[0]?.media?.[0]).toMatchObject({ path: "Figures/B.png", label: "B.png" });
+    expect(state().conversations[0]?.updatedAt).toBe(1);
+    expect(persisted).toHaveLength(2);
+    await controller.renameMedia("Other", "Irrelevant");
+    expect(persisted).toHaveLength(2);
+  });
+  it("does not restore a stale attachment path when a running answer finishes", async () => {
+    const media = [{ label: "A.png", kind: "image" as const, mime: "image/png", path: "Charts/A.png" }];
+    const messages = [{ role: "user" as const, content: "Chart", media }];
+    const { controller, state } = harness();
+    const turn = await controller.beginTurn(null, messages, { backend: "claude", model: "m", mode: "ask" });
+    await controller.renameMedia("Charts/A.png", "Charts/B.png");
+    await controller.completeTurn(turn.conversationId, turn.turnId, [...messages, { role: "assistant", content: "Answer" }]);
+    expect(state().conversations[0]?.messages[0]?.media?.[0]?.path).toBe("Charts/B.png");
+  });
+});

@@ -6,6 +6,7 @@
 import type { ChatMessage } from "../types";
 import type { ApiMessage } from "../providers/types";
 import type { ProposedEdit } from "../edit/diff";
+import { currentTurnMedia } from "../chat/turnMedia";
 
 export interface RecoverableEditProposal {
   path: string;
@@ -98,7 +99,7 @@ export function compactMessages(messages: ChatMessage[]): ChatMessage[] {
   for (const message of messages) {
     const prev = out[out.length - 1];
     if (prev?.role === "assistant" && message.role === "assistant") continue;
-    out.push({ ...message });
+    out.push({ ...message, ...(Array.isArray(message.media) ? { media: currentTurnMedia(message.media) } : {}) });
   }
   return out;
 }

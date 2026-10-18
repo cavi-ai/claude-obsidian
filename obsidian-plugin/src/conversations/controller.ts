@@ -1,5 +1,6 @@
 import type { ActivityStore } from "../activity/store";
 import { ChatTurnLifecycle } from "../chat/turnLifecycle";
+import { renameTurnMedia } from "../chat/turnMedia";
 import type { ChatMessage } from "../types";
 import type { PluginSettings } from "../types";
 import {
@@ -66,6 +67,26 @@ export class ConversationsController {
 
   getActive(): Conversation | null {
     return getActive(this.deps.state.get());
+  }
+
+  /** Update saved references on native file/folder moves, including inactive chats. */
+  async renameMedia(oldPath: string, newPath: string): Promise<void> {
+    const state = this.deps.state.get();
+    let changed = false;
+    const conversations = state.conversations.map((conversation) => {
+      let moved = false;
+      const messages = conversation.messages.map((message) => {
+        if (!Array.isArray(message.media)) return message;
+        const media = renameTurnMedia(message.media, oldPath, newPath);
+        if (media === message.media) return message;
+        changed = moved = true;
+        return { ...message, media };
+      });
+      return moved ? { ...conversation, messages } : conversation;
+    });
+    if (!changed) return;
+    this.deps.state.set({ ...state, conversations });
+    await this.deps.persist();
   }
 
   async beginTurn(
