@@ -413,6 +413,17 @@ describe("ChatView refused submissions", () => {
     expect(fakes.conversations.list()).toEqual([]);
   });
 
+  it("refuses an interrupted selected image before accepting a command request", async () => {
+    const { view, input, fakes } = fixture(true);
+    input.value = "Explain my image.";
+    Object.assign(view, { attachedMedia: [{ label: "Interrupted.png", kind: "image", mime: "image/png", error: "Image attachment was interrupted" }] });
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("Unexpected request acceptance"));
+    expect(await view.submitPrompt("Explain my image.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("Explain my image.");
+    expect(getNoticeMessages().join(" ")).toContain("interrupted");
+  });
+
   it("retains the existing composer when a command prompt cannot start", async () => {
     const { view, input } = fixture();
     input.value = "My unfinished question";

@@ -113,3 +113,31 @@ describe("draft context state", () => {
     expect(restored.attachedPaths).toEqual([{ kind: "note", path: "Notes/Source.md" }]);
   });
 });
+
+for (const state of ["pending", "failed", "inline"] as const) {
+  it(`restores a ${state} unbacked image as an explicit reattachment requirement`, () => {
+    const original = composer();
+    original.attachedMedia = [{ label: "Unfinished.png", kind: "image", mime: "image/png", ...(state === "pending" ? { pending: true } : state === "failed" ? { error: "Image read failed" } : { data: "private-inline-bytes" }) }];
+    const before = structuredClone(original.attachedMedia);
+    const serialized = JSON.stringify(draftContextState(original, OFF));
+    const restored = composer();
+    restoreDraftContext(restored, JSON.parse(serialized));
+    expect(restored.attachedMedia).toHaveLength(1);
+    expect(restored.attachedMedia[0]).toMatchObject({ label: "Unfinished.png", kind: "image" });
+    expect(restored.attachedMedia[0]?.error).toBeTruthy();
+    expect(restored.attachedMedia[0]?.pending).toBeUndefined();
+    expect(restored.attachedMedia[0]?.data).toBeUndefined();
+    expect(serialized).not.toContain("private-inline-bytes");
+    expect(original.attachedMedia).toEqual(before);
+  });
+}
+
+it("does not turn arbitrary saved objects into attachable image payloads", () => {
+  const restored = composer();
+  restoreDraftContext(restored, { context: { media: [
+    { label: "wrong", kind: "executable", error: "bad" },
+    { label: "not marked", kind: "image", data: "injected-bytes" },
+    { label: "interrupted", kind: "image", error: "Reattach this image", data: "injected-bytes", pending: true },
+  ] } });
+  expect(restored.attachedMedia).toEqual([{ label: "interrupted", kind: "image", mime: "image/png", error: "Reattach this image" }]);
+});

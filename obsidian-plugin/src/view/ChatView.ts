@@ -34,6 +34,7 @@ import { HeaderControls } from "./chat/HeaderControls";
 import { Composer } from "./chat/Composer";
 import { ConversationDrafts } from "./chat/conversationDrafts";
 import { DraftSubmission, type DraftStart } from "./chat/draftSubmission";
+import { draftMediaIssue } from "./chat/draftMediaState";
 import { reuseDraft } from "./chat/reuseDraft";
 import { pinChatAboveKeyboard } from "./chat/keyboardPin";
 import { Transcript } from "./chat/Transcript";
@@ -605,6 +606,8 @@ export class ChatView extends ItemView {
   }
 
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
+    const mediaIssue = draftMediaIssue(this.composer.attachedMedia);
+    if (mediaIssue) { new Notice(`Request not sent. ${mediaIssue}`); return false; }
     const generation = this.drafts.generation;
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;

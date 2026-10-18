@@ -1,7 +1,7 @@
 import type { ContextToggles } from "../../types";
 import type { AttachedPath } from "../../context/vaultContext";
 import type { Composer } from "./Composer";
-import { mediaKind, mediaMime, type MediaAttachment } from "../../context/attachments";
+import { storedDraftMedia, restoredDraftMedia } from "./draftMediaState";
 import { MAX_PAGE_CONTEXT_CHARS, type AttachedPage } from "../../context/urlContext";
 
 export type DraftSources = Pick<Composer, "attachedPaths" | "attachedMedia" | "attachedPages">;
@@ -25,7 +25,7 @@ function restoredPage(value: unknown): AttachedPage[] {
 
 /** Serialize explicit sources without inline image bytes or tab-wide preferences. */
 export function draftSourcesState(host: DraftSources) {
-  const media = host.attachedMedia.filter((item) => item.path).map(({ kind, label, path, mime }) => ({ kind, label, path, mime }));
+  const media = storedDraftMedia(host.attachedMedia);
   return { paths: host.attachedPaths.map((entry) => ({ ...entry })), media, pages: host.attachedPages.map(storedPage) };
 }
 
@@ -56,13 +56,7 @@ export function readDraftContext(fallback: DraftContext, state: unknown): DraftC
       return typeof path === "string" && path.length > 0 && (kind === "note" || kind === "folder");
     }).map(({ path, kind }) => ({ path, kind }));
   }
-  if (Array.isArray(media)) {
-    host.attachedMedia = media.filter((entry: unknown): entry is MediaAttachment & { path: string } => {
-      if (!entry || typeof entry !== "object") return false;
-      const { path, kind, label } = entry as Record<string, unknown>;
-      return typeof path === "string" && typeof label === "string" && mediaKind(path) !== null && mediaKind(path) === kind;
-    }).map(({ path, kind, label }) => ({ path, kind, label, mime: mediaMime(path) }));
-  }
+  if (Array.isArray(media)) host.attachedMedia = media.flatMap(restoredDraftMedia);
   if (Array.isArray(pages)) host.attachedPages = pages.flatMap(restoredPage);
   return host;
 }
