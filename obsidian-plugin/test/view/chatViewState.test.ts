@@ -446,6 +446,18 @@ describe("ChatView refused submissions", () => {
     expect(getNoticeMessages().join(" ")).toContain("sends text only");
   });
 
+  it("refuses a follow-up before acceptance when an earlier image is unavailable", async () => {
+    const { view, input, fakes } = fixture(true);
+    Object.assign(view, { messages: [{ role: "user", content: "Explain my chart", media: [{ label: "Earlier.png", path: "Earlier.png", kind: "image", mime: "image/png" }] }, { role: "assistant", content: "Original answer" }] });
+    input.value = "  What is in the corner?  ";
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("Request should not be accepted"));
+    expect(await view.submitPrompt("What is in the corner?")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("  What is in the corner?  ");
+    expect(getNoticeMessages().join(" ")).toContain("Earlier.png");
+    expect(getNoticeMessages().join(" ")).toContain("new chat");
+  });
+
   it("retains the existing composer when a command prompt cannot start", async () => {
     const { view, input } = fixture();
     input.value = "My unfinished question";

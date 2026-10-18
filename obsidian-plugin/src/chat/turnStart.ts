@@ -89,16 +89,23 @@ export type TurnStart =
   | { ok: true; turn: { conversationId: string; turnId: string }; messages: ChatMessage[]; turnMessages: ChatMessage[]; regenerating: boolean; keepCurrent(notify?: (notice: string) => void): Promise<boolean> }
   | { ok: false; notice: string };
 
-/** Prepares the turn's messages and begins it durably; a failed begin leaves the input untouched. */
-export async function startTurn(begin: BeginTurn, input: TurnStartInput): Promise<TurnStart> {
-  const { previousTurn, user } = input;
+/** Use the same history for source preparation and durable acceptance. */
+export function turnHistory(input: Pick<TurnStartInput, "messages" | "previousTurn" | "regenerate">): { messages: ChatMessage[]; regenerating: boolean } {
+  const { previousTurn } = input;
   const regenerating = !!input.regenerate && input.messages.at(-1)?.role === "assistant" && input.messages.at(-2)?.role === "user";
   const history = input.regenerate ? input.messages.slice(0, regenerating ? -2 : input.messages.at(-1)?.role === "user" ? -1 : input.messages.length) : input.messages;
   // A capped turn's partial work stays in context so the continuation sees what was done.
-  const base =
+  const messages =
     previousTurn && !previousTurn.regenerating && previousTurn.state !== "running" && previousTurn.state !== "capped"
       ? history.map((message, index) => (index >= previousTurn.userMessageIndex ? { ...message, contextExcluded: true } : message))
       : history;
+  return { messages, regenerating };
+}
+
+/** Prepares the turn's messages and begins it durably; a failed begin leaves the input untouched. */
+export async function startTurn(begin: BeginTurn, input: TurnStartInput): Promise<TurnStart> {
+  const { user } = input;
+  const { messages: base, regenerating } = turnHistory(input);
   const messages: ChatMessage[] = [...base, { role: "user", content: user.content, ...(user.display !== undefined ? { display: user.display } : {}), ...(user.media?.length ? { media: user.media } : {}), ...(user.contextAttachments ? { contextAttachments: user.contextAttachments } : {}) }];
   // Snapshot now: the view may switch conversations while the turn is in flight.
   const turnMessages = [...messages];

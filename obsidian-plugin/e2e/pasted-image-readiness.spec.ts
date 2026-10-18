@@ -65,9 +65,9 @@ for (const fail of [false, true]) {
       await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
       await expect(chat.getByRole("button", { name: "Regenerate", exact: true })).toBeVisible();
       await rig.control.setStubs({
-        ...(fail ? { providerFail: [{ match: PNG, status: 503 }] } : {}),
+        ...(fail ? { providerFail: [{ match: String.raw`/^(?=[\s\S]*${PNG.replaceAll("+", "[+]")})(?![\s\S]*${NEXT_PNG.replaceAll("+", "[+]")})/`, status: 503 }] } : {}),
         providerReply: [
-          { match: String.raw`/^(?=[\s\S]*${NEXT_PNG.replaceAll("+", "[+]")})(?![\s\S]*${PNG.replaceAll("+", "[+]")})/`, replies: ["Next image only."] },
+          { match: String.raw`/^(?=[\s\S]*${NEXT_PNG.replaceAll("+", "[+]")})(?=[\s\S]*${PNG.replaceAll("+", "[+]")})/`, replies: ["Next image with original history."] },
           { match: PNG, replies: ["Original image received."] },
           { match: "/./", replies: ["Wrong image selection."] },
         ],
@@ -98,8 +98,12 @@ for (const fail of [false, true]) {
       await expect(context).not.toContainText("OriginalChart.png");
       await page.screenshot({ path: testInfo.outputPath("next-image-survives-regeneration.png") });
       await context.getByRole("button", { name: "Close message context" }).click();
+      const sent = page.waitForRequest(request => request.method() === "POST" && request.url().endsWith("/messages"));
       await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
-      await expect(chat.locator(".cc-assistant .cc-body").last()).toHaveText("Next image only.");
+      const payload = (await sent).postDataJSON() as { messages: Array<{ content: unknown }> };
+      expect(payload.messages[0]?.content).toMatchObject([{ type: "image", source: { data: PNG } }, { type: "text", text: "Explain the original image." }]);
+      expect(payload.messages.at(-1)?.content).toMatchObject([{ type: "image", source: { data: NEXT_PNG } }, { type: "text", text: "Explain my next image." }]);
+      await expect(chat.locator(".cc-assistant .cc-body").last()).toHaveText("Next image with original history.");
       expect(await rig.providerRequests()).toBe(before + 1);
       expect(errors).toEqual([]);
     } finally { await page.evaluate(() => (window as unknown as TestWindow).finishPaste?.()); page.off("pageerror", onError); }

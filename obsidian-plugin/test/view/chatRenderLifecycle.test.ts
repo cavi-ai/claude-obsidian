@@ -47,6 +47,8 @@ describe("Chat render lifecycle", () => {
   it("persists the submitted turn before starting backend work", async () => {
     let releasePersist!: () => void;
     const persisted = new Promise<void>((resolve) => { releasePersist = resolve; });
+    let beginPersist!: () => void;
+    const persisting = new Promise<void>(resolve => { beginPersist = resolve; });
     const stream = vi.fn(async (_request: unknown, handlers: { onDone(text: string): void }) => { handlers.onDone("answer"); });
     const provider = { id: "anthropic", hasCredentials: () => true, stream };
     const settings = {
@@ -57,6 +59,7 @@ describe("Chat render lifecycle", () => {
     const fakes = conversationFakes({}, settings);
     const turns = fakes.stubTurns();
     turns.begin.mockImplementation(async () => {
+      beginPersist();
       await persisted;
       return { conversationId: "conversation-1", turnId: "turn-1" };
     });
@@ -98,7 +101,7 @@ describe("Chat render lifecycle", () => {
     seam.renderer.renderInto =async () => undefined;
 
     const running = seam.run("Research this");
-    await Promise.resolve();
+    await persisting;
 
     expect(turns.begin).toHaveBeenCalledOnce();
     expect(stream).not.toHaveBeenCalled();

@@ -8,9 +8,10 @@ import { continuationFor, shouldAutoContinue } from "./chat/continuation";
 import { watchAttachmentRenames } from "./chat/attachmentRenames";
 import { cliEntries } from "./chat/cliEntries";
 import { readTurnMedia, rememberTurnMedia, readTurnContext, rememberTurnContext, type TurnContextAttachments } from "../chat/turnSources";
-import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
-import type { ApiMessage } from "../providers/types";
-import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
+import { preflightTurn, startTurn, turnPersistence, turnHistory } from "../chat/turnStart";
+import { historyHasMedia, loadHistoryMedia, projectRequestMessages, type HistoryMedia } from "../chat/mediaHistory";
+import { loadMediaBlocks } from "./chat/mediaBlocks";
+import { compactMessages, type Conversation } from "../conversations/store";
 import { resolveModelId } from "../claude/models";
 import { type ChatControls, defaultChatControls } from "../claude/chatControls";
 import { routeTurn } from "../providers/chatTurn";
@@ -609,6 +610,10 @@ export class ChatView extends ItemView {
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; media?: MediaAttachment[]; sources?: TurnContextAttachments; submission?: DraftStart }): Promise<boolean> {
     if (opts?.media === undefined && !this.composer.pastedImages.ready()) return false;
     const generation = this.drafts.generation;
+    const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
+    const previousTurn = previousConversation?.activeTurn;
+    const before = previousTurn?.regenerating && previousTurn.state !== "running" ? previousConversation!.messages : this.messages;
+    const history = this.resumeCliSessionId ? [] : turnHistory({ messages: before, previousTurn, regenerate: !!opts?.regenerate }).messages;
     const media = opts?.media ?? [...this.attachedMedia];
     const paths = opts?.sources?.paths ?? [...this.attachedPaths];
     const selectedPages = opts?.sources?.pages ?? [...this.attachedPages];
@@ -620,7 +625,7 @@ export class ChatView extends ItemView {
     const router = this.plugin.router();
     const backend = router.chatBackend;
     const preflight = await preflightTurn({
-      backend, hasMedia: media.length > 0,
+      backend, hasMedia: media.length > 0 || historyHasMedia(history),
       chatProvider: () => router.chatProvider(),
       chatCapabilities: () => router.chatCapabilities(),
       anthropicHasCredentials: () => router.anthropic.hasCredentials(),
@@ -641,15 +646,16 @@ export class ChatView extends ItemView {
     if (!pages) return false;
     const blocks = media.length ? await this.composer.mediaBlocks(media) : [];
     if (!blocks || this.drafts.generation !== generation) return false;
+    let historyMedia: HistoryMedia;
+    try { historyMedia = await loadHistoryMedia(history, items => loadMediaBlocks(this.app, items)); }
+    catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); return false; }
+    if (this.drafts.generation !== generation) return false;
     const notes = paths.length ? await this.composer.noteContext(paths) : [];
     if (!notes || this.drafts.generation !== generation) return false;
 
-    const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
-    const previousTurn = previousConversation?.activeTurn;
-    if (previousTurn?.regenerating && previousTurn.state !== "running") this.messages = [...previousConversation!.messages];
     const started = await startTurn((conversationId, messages, input) => this.plugin.conversations().beginTurn(conversationId, messages, input), {
       conversationId: this.conversationId,
-      messages: this.messages,
+      messages: before,
       previousTurn,
       user: { content: userText, media: rememberTurnMedia(media), contextAttachments: rememberTurnContext(paths, pages), ...(display !== undefined ? { display } : {}) },
       backend,
@@ -667,7 +673,7 @@ export class ChatView extends ItemView {
     const { turn, turnMessages } = started;
     if (opts?.regenerate) {
       this.messagesEl.empty();
-      for (const message of started.regenerating ? this.messages : started.messages.slice(0, -1)) this.renderStoredMessage(message);
+      for (const message of started.regenerating ? before : started.messages.slice(0, -1)) this.renderStoredMessage(message);
     }
     this.messages = started.messages;
     this.drafts.consume(this.conversationId);
@@ -743,20 +749,11 @@ export class ChatView extends ItemView {
     if (controller.signal.aborted || !await keepCurrent()) return true;
     turnMessages[turnMessages.length - 1]!.contextSources = [...ctx.sources];
     // Resumed CLI sessions own their history; replaying it can duplicate writes.
-    const wireMessages = this.resumeCliSessionId ? this.messages.slice(-1) : compactArtifactsInHistory(this.messages);
-    const apiMessages: ApiMessage[] = toApiMessages(wireMessages);
-    if (ctx.text) {
-      const last = apiMessages[apiMessages.length - 1];
-      if (last && typeof last.content === "string") last.content = `${ctx.text}\n\n---\n\n${last.content}`;
-    }
+    const apiMessages = projectRequestMessages(this.resumeCliSessionId ? this.messages.slice(-1) : this.messages, historyMedia, blocks, ctx.text);
     if (this.conversationId === turn.conversationId) this.transcript.annotateContext(ctx.sources);
 
     // PDFs/images precede text after transport compatibility has been checked.
     if (media.length > 0) {
-      const last = apiMessages[apiMessages.length - 1];
-      if (blocks.length > 0 && last && typeof last.content === "string") {
-        last.content = [...blocks, { type: "text", text: last.content }];
-      }
       for (let i = this.attachedMedia.length - 1; i >= 0; i--) if (media.includes(this.attachedMedia[i]!)) this.attachedMedia.splice(i, 1);
       this.renderContextManager();
     }
@@ -769,7 +766,7 @@ export class ChatView extends ItemView {
     // ChatTurnService owns routing and persistence after the view closes.
     const agentRoute = agentActive || caps.cli;
     const coreRun = (handlers: AgentTurnHandlers, signal: AbortSignal): Promise<AgentTurnResult> => routeTurn(
-      { backend, agent: agentRoute, providerId: provider.id, hasMedia: media.length > 0 },
+      { backend, agent: agentRoute, providerId: provider.id, hasMedia: media.length > 0 || historyHasMedia(history) },
       {
         primary: () => agentRoute
           ? this.runners.agentTurn(apiMessages, handlers, signal, turn.conversationId)

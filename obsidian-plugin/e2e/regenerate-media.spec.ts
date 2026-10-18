@@ -84,7 +84,7 @@ for (const missing of [false, true]) {
     const queuedPattern = Buffer.from([...Buffer.from(PNG, "base64"), 0]).toString("base64").replaceAll("+", "[+]");
     await rig.control.setStubs({ providerReply: [
       { match: String.raw`/^(?=[\s\S]*${originalPattern})(?![\s\S]*${queuedPattern})/`, replies: ["Original image only."] },
-      { match: String.raw`/^(?=[\s\S]*${queuedPattern})(?![\s\S]*${originalPattern})/`, replies: ["Queued image only."] },
+      { match: String.raw`/^(?=[\s\S]*${queuedPattern})(?=[\s\S]*${originalPattern})/`, replies: ["Queued image with original history."] },
       { match: "/./", replies: ["Wrong image selection."] },
     ] });
     if (missing) await page.evaluate(async () => {
@@ -108,8 +108,22 @@ for (const missing of [false, true]) {
     await expect(context).not.toContainText("ChartOriginal.png");
     await page.screenshot({ path: testInfo.outputPath("next-question-keeps-its-queued-image.png") });
     await context.getByRole("button", { name: "Close message context" }).click();
+    if (missing) {
+      await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
+      await expect(page.locator(".notice").filter({ hasText: "Earlier attachment ChartOriginal.png" }).last()).toBeVisible();
+      await expect(input).toHaveValue("My next question.");
+      expect(await rig.providerRequests()).toBe(before);
+      await page.evaluate(async png => {
+        await (window as unknown as { app: { vault: { createBinary(path: string, bytes: ArrayBuffer): Promise<unknown> } } }).app.vault.createBinary("ChartOriginal.png", Uint8Array.from(atob(png), c => c.charCodeAt(0)).buffer);
+      }, PNG);
+    }
+    const sent = page.waitForRequest(request => request.method() === "POST" && request.url().endsWith("/messages"));
     await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();
-    await expect(chat.locator(".cc-assistant .cc-body").last()).toHaveText("Queued image only.");
+    const payload = (await sent).postDataJSON() as { messages: Array<{ content: unknown }> };
+    expect(payload.messages[0]?.content).toMatchObject([{ type: "image", source: { data: PNG } }, { type: "text", text: "Original chart question." }]);
+    const queued = Buffer.from([...Buffer.from(PNG, "base64"), 0]).toString("base64");
+    expect(payload.messages.at(-1)?.content).toMatchObject([{ type: "image", source: { data: queued } }, { type: "text", text: "My next question." }]);
+    await expect(chat.locator(".cc-assistant .cc-body").last()).toHaveText("Queued image with original history.");
   });
 }
 
