@@ -160,11 +160,11 @@ describe("ResearchFeature chat hand-off", () => {
     expect(view.submitPrompt).toHaveBeenCalledWith("prompt", "display");
   });
 
-  it("says Claude is busy when the prompt is not accepted", async () => {
+  it("does not infer a busy reply from an unaccepted prompt", async () => {
     const { feature, view } = rig();
     view.submitPrompt.mockResolvedValue(false);
     await expect(feature.askResearch("R/Project.md", "p", "d")).resolves.toBe(false);
-    expect(getNoticeMessages()).toEqual(["Claude is still busy — try again when the current reply finishes."]);
+    expect(getNoticeMessages()).toEqual([]);
   });
 
   it("returns false without a chat view", async () => {
