@@ -477,7 +477,8 @@ export class ChatView extends ItemView {
   // ---------- public entry point (used by commands) ----------
 
   async submitPrompt(text: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
-    if (!text.trim() || this.streaming || this.submission.pending) return false;
+    if (!text.trim()) return false;
+    if (this.streaming || this.submission.pending) { new Notice("Another request is in progress. Try again when it finishes."); return false; }
     return this.submitDraft((submission) => this.run(text.trim(), display, maxTokens, { ...opts, submission }), false);
   }
   private submitDraft(send: (submission: DraftStart) => Promise<boolean>, consumeDraft = true): Promise<boolean> {
