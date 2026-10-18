@@ -6,6 +6,7 @@ import { clip, section } from "./search";
 import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from "./hybridSearch";
 import { MAX_RELATION_EXPANSION, noteType, planRelationExpansion, typeLabel } from "./typedContext";
 import type { AttachedPage } from "./urlContext";
+import { folderMarkdown, type PreparedAttachedNote } from "./attachedNotes";
 
 export interface GatheredContext {
   text: string;
@@ -38,6 +39,8 @@ export async function gatherContext(
   searchScope?: (path: string) => boolean,
   /** Loaded ontology; null or empty leaves the context untyped. */
   ontology?: Pick<OntologyRegistry, "resolve" | "resolved"> | null,
+  /** Explicit sources captured before acceptance; remaining paths (e.g. pinned notes) load below. */
+  preparedNotes: readonly PreparedAttachedNote[] = [],
 ): Promise<GatheredContext> {
   const sources: string[] = [];
   const blocks: string[] = [];
@@ -71,8 +74,20 @@ export async function gatherContext(
   }
 
   // 2b. Explicitly @-attached notes / folders (a folder pulls its notes in).
-  if (attachedPaths.length > 0 && budget > 0) {
+  if ((attachedPaths.length > 0 || preparedNotes.length > 0) && budget > 0) {
     let added = 0;
+    const add = (path: string, content: string) => {
+      const block = section(`Attached: ${path}`, content);
+      const clipped = clip(block, Math.min(budget, 6000));
+      blocks.push(clipped);
+      budget -= clipped.length;
+      included.add(path);
+      added++;
+    };
+    for (const note of preparedNotes) {
+      if (budget <= 0) break;
+      add(note.path, note.content);
+    }
     for (const att of attachedPaths) {
       if (budget <= 0) break;
       const files =
@@ -82,12 +97,7 @@ export async function gatherContext(
       for (const f of files) {
         if (budget <= 0) break;
         const content = await app.vault.cachedRead(f);
-        const block = section(`Attached: ${f.path}`, content);
-        const clipped = clip(block, Math.min(budget, 6000));
-        blocks.push(clipped);
-        budget -= clipped.length;
-        included.add(f.path);
-        added++;
+        add(f.path, content);
       }
     }
     if (added > 0) sources.push(`${added} attached`);
@@ -204,16 +214,6 @@ export async function gatherContext(
 function frontmatterOf(app: App, path: string): Record<string, unknown> | undefined {
   const f = app.vault.getAbstractFileByPath(path);
   return f instanceof TFile ? app.metadataCache.getFileCache(f)?.frontmatter : undefined;
-}
-
-/** Markdown files directly under a folder path (newest first), capped at `limit`. */
-function folderMarkdown(app: App, folderPath: string, limit: number): TFile[] {
-  const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
-  return app.vault
-    .getMarkdownFiles()
-    .filter((f) => f.path.startsWith(prefix))
-    .sort((a, b) => b.stat.mtime - a.stat.mtime)
-    .slice(0, limit);
 }
 
 function collectLinkedFiles(app: App, file: TFile, limit: number): TFile[] {

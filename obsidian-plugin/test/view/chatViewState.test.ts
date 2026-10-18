@@ -408,6 +408,18 @@ describe("ChatView refused submissions", () => {
     expect(getNoticeMessages().join(" ")).toContain("not sent");
   });
 
+  it.each(["note", "folder"] as const)("retains the draft before a missing selected %s can create a turn", async (kind) => {
+    const { view, input, fakes } = fixture(true);
+    view.attachedPaths = [{ path: "Missing source", kind }];
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "Explain the source.";
+    expect(await view.submitPrompt("Explain the source.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("Explain the source.");
+    expect(view.attachedPaths).toEqual([{ path: "Missing source", kind }]);
+    expect(getNoticeMessages().join(" ")).toContain("Missing source");
+  });
+
   it("reports a genuinely running reply without creating another conversation", async () => {
     const { view, input, fakes } = fixture(true);
     Object.assign(view, { streaming: true });

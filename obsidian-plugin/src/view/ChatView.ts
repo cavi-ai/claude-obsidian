@@ -609,6 +609,7 @@ export class ChatView extends ItemView {
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
     const generation = this.drafts.generation;
     const media = [...this.attachedMedia];
+    const paths = [...this.attachedPaths];
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -637,6 +638,8 @@ export class ChatView extends ItemView {
 
     const blocks = media.length ? await this.composer.mediaBlocks(media) : [];
     if (!blocks || this.drafts.generation !== generation) return false;
+    const notes = paths.length ? await this.composer.noteContext(paths) : [];
+    if (!notes || this.drafts.generation !== generation) return false;
 
     const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
     const previousTurn = previousConversation?.activeTurn;
@@ -701,7 +704,7 @@ export class ChatView extends ItemView {
     const toggles = effectiveToggles(this.contextToggles, this.turnContextOverride, agentActive);
     // Project-pinned notes join this turn's context without changing the composer.
     const pinnedPaths: AttachedPath[] = (this.currentChatProject?.pinned ?? [])
-      .filter((path) => !this.attachedPaths.some((a) => a.path === path))
+      .filter((path) => !paths.some((a) => a.path === path))
       .map((path) => ({ path, kind: "note" as const }));
     const searchScope = this.currentChatProject ? projectSearchScope(this.currentChatProject) : undefined;
     const ontology = toggles.linkedNotes || toggles.searchVault ? await this.plugin.loadedOntology() : null;
@@ -712,10 +715,11 @@ export class ChatView extends ItemView {
       toggles,
       userText,
       (q, k) => this.plugin.semantic().semanticSearch(q, k, searchScope),
-      [...this.attachedPaths, ...pinnedPaths],
+      pinnedPaths,
       this.attachedPages,
       searchScope,
       ontology,
+      notes,
     );
     if (controller.signal.aborted || !await keepCurrent()) return true;
     try {

@@ -22,6 +22,7 @@ import type { ContextToggles } from "../../types";
 import { applyMention, initialToggles } from "./contextScope";
 import { appendCliModelOptions, syncModelSelection } from "./cliModelOptions";
 import { loadMediaBlocks } from "./mediaBlocks";
+import { loadAttachedNotes, type PreparedAttachedNote } from "../../context/attachedNotes";
 import { attachPastedImage } from "./pastedImage";
 
 export interface ComposerDeps {
@@ -255,6 +256,15 @@ export class Composer {
   /** Candidate sources for the "#" menu: research claims only. */
   hashItems(): AtItem[] {
     return buildClaimItems(this.deps.cachedClaims());
+  }
+
+  /** Capture explicit note/folder content while the question is still editable. */
+  async noteContext(paths: readonly AttachedPath[]): Promise<PreparedAttachedNote[] | null> {
+    try { return await loadAttachedNotes(this.app, paths, this.plugin.settings.maxContextNotes); }
+    catch (error) {
+      new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   /** Refuse the turn when any selected image/PDF cannot be loaded. */
