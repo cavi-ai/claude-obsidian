@@ -446,6 +446,15 @@ describe("extract evidence modal", () => {
     expect(texts).toContain("offline");
   });
 
+  it("reports an unusable model reply as a retryable failure", async () => {
+    const { actions } = setup({ sourceText, completeResearch: async () => "not a passage list" });
+    actions.extractEvidence(snap([]));
+    await settle();
+    expect(all("p").map((el) => el.textContent)).toContain("The model did not return a valid passage list.");
+    expect(button("Try reading again")).toBeDefined();
+    expect(all("p").map((el) => el.textContent)).not.toContain("No new exact passages were found for this source. Add one yourself below.");
+  });
+
   it("keeps failed passages checked and the modal open", async () => {
     const { actions, repository } = setup({ sourceText, completeResearch: async () => reply });
     (repository as any).createEvidence = vi.fn(async (input: { title: string }) => { if (input.title === "Closing") throw new Error("write failed"); return {}; });
