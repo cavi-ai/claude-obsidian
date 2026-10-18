@@ -191,7 +191,7 @@ export class Composer {
     this.sendBtn.addEventListener("click", () => this.deps.onSend());
   }
 
-  destroy(): void { this.modeControl?.dispose(); this.contextManager?.destroy(); }
+  destroy(): void { this.pastedImages.dispose(); this.modeControl?.dispose(); this.contextManager?.destroy(); }
 
   constructor(private app: App, private plugin: ComposerHost, private chat: ChatSession, private deps: ComposerDeps) {
     this.contextToggles = initialToggles(plugin.settings.context);

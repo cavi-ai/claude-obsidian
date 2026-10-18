@@ -3,6 +3,7 @@ import { arrayBufferToBase64, maxBytesFor, sniffMime, type MediaAttachment } fro
 import { quickNotice } from "../../notice";
 
 export interface PastedImageHost {
+  signal?: AbortSignal;
   media(): MediaAttachment[];
   changed(): void;
 }
@@ -15,6 +16,7 @@ export function cancelPastedImages(media: readonly MediaAttachment[]): void {
 
 /** A source item owns preparation, so shallow draft snapshots keep its result. */
 export async function attachPastedImage(file: File, host: PastedImageHost): Promise<void> {
+  if (host.signal?.aborted) return;
   if (file.size > maxBytesFor("image")) {
     new Notice(`Pasted image is too large to attach (max ${Math.round(maxBytesFor("image") / 1024 / 1024)} MB).`);
     return;
@@ -24,23 +26,24 @@ export async function attachPastedImage(file: File, host: PastedImageHost): Prom
   host.changed();
   try {
     const buf = await file.arrayBuffer();
-    if (cancelled.has(item)) return;
+    if (cancelled.has(item) || host.signal?.aborted) return;
     if (buf.byteLength > maxBytesFor("image")) throw new Error("The pasted image exceeds the attachment size limit.");
     item.mime = sniffMime(buf) ?? item.mime;
     item.data = arrayBufferToBase64(buf);
     if (host.media().includes(item)) quickNotice("Image attached to your next message.");
   } catch (error) {
-    if (cancelled.has(item)) return;
+    if (cancelled.has(item) || host.signal?.aborted) return;
     item.error = error instanceof Error ? error.message : String(error);
     if (host.media().includes(item)) new Notice(`Couldn't attach the pasted image: ${item.error}`);
   } finally {
     delete item.pending;
-    host.changed();
+    if (!host.signal?.aborted) host.changed();
   }
 }
 
 /** Preparation follows source objects across per-conversation draft snapshots. */
 export class PastedImagePreparation {
+  private readonly lifetime = new AbortController();
   constructor(private readonly current: () => MediaAttachment[]) {}
 
   get pending(): boolean { return this.current().some(item => item.pending); }
@@ -51,5 +54,7 @@ export class PastedImagePreparation {
     return false;
   }
 
-  async attach(file: File, host: PastedImageHost): Promise<void> { await attachPastedImage(file, host); }
+  dispose(): void { this.lifetime.abort(); }
+
+  async attach(file: File, host: PastedImageHost): Promise<void> { await attachPastedImage(file, { ...host, signal: this.lifetime.signal }); }
 }

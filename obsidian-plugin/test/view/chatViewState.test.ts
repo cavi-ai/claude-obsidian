@@ -134,6 +134,25 @@ describe("ChatView per-leaf conversation state", () => {
     expect(getNoticeMessages().join(" ")).toContain("read failed");
   });
 
+  for (const failed of [false, true]) {
+    it(`closing the composer cancels an inactive paste before its ${failed ? "failure" : "completion"}`, async () => {
+      clearNotices();
+      const seam = mediaView();
+      let complete!: (value: ArrayBuffer) => void, reject!: (error: Error) => void;
+      const read = new Promise<ArrayBuffer>((yes, no) => { complete = yes; reject = no; });
+      const task = seam.composer.attachPastedImage({ name: "closing.png", size: 4, type: "image/png", arrayBuffer: () => read } as File);
+      const original = [...seam.attachedMedia];
+      seam.attachedMedia = [];
+      (seam.composer as unknown as { destroy(): void }).destroy();
+      if (failed) reject(new Error("late image read failed"));
+      else complete(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer);
+      await task;
+      expect(original[0]?.data).toBeUndefined();
+      expect(original[0]?.error).toBeUndefined();
+      expect(getNoticeMessages()).toEqual([]);
+    });
+  }
+
   it("New chat clears both pasted images and pending vault PDFs", () => {
     const seam = mediaView();
     seam.attachedMedia = [

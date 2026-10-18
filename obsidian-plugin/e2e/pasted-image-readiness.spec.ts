@@ -135,3 +135,32 @@ test("a failed pasted image remains visible and refuses Send until removed", asy
     expect(errors).toEqual([]);
   } finally { page.off("pageerror", onError); }
 });
+
+test("closing a chat cancels its unfinished paste without a late attachment notice", async ({ rig }) => {
+  const { page } = await rig.reset({ settingsOverride: settings });
+  await page.evaluate(() => { (window as unknown as TestWindow).app.commands.executeCommandById("claude-companion:new-chat-tab"); });
+  const chat = page.locator(".cc-chat-root"), input = chat.locator(".cc-input");
+  const errors: string[] = [], onError = (error: Error) => errors.push(error.message);
+  page.on("pageerror", onError);
+  try {
+    await input.fill("Explain the chart.");
+    await input.evaluate((element, png) => {
+      const bytes = Uint8Array.from(atob(png), c => c.charCodeAt(0));
+      const file = new File([bytes], "closing-chart.png", { type: "image/png" });
+      const pending = new Promise<ArrayBuffer>(resolve => { (window as unknown as TestWindow).finishPaste = () => resolve(bytes.buffer); });
+      Object.defineProperty(file, "arrayBuffer", { value: () => pending });
+      const data = new DataTransfer(); data.items.add(file);
+      element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    }, PNG);
+    await chat.locator(".cc-context-trigger").click();
+    const context = chat.getByRole("dialog", { name: "Message context" });
+    await expect(context).toContainText("Attaching image");
+    await context.getByRole("button", { name: "Close message context" }).click();
+    await page.evaluate(() => { (window as unknown as TestWindow).app.commands.executeCommandById("workspace:close"); });
+    await expect(chat).toHaveCount(0);
+    await page.evaluate(async () => { (window as unknown as TestWindow).finishPaste?.(); await Promise.resolve(); await Promise.resolve(); });
+    await expect(page.locator(".notice").filter({ hasText: /Image (?:saved|attached)/ })).toHaveCount(0);
+    expect(await rig.providerRequests()).toBe(0);
+    expect(errors).toEqual([]);
+  } finally { await page.evaluate(() => { (window as unknown as TestWindow).finishPaste?.(); }); page.off("pageerror", onError); }
+});
