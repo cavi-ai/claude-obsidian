@@ -835,7 +835,8 @@ export class ChatView extends ItemView {
     if (!receipt || !continuation) return;
     if (original?.role !== "user") { new Notice("Original request unavailable. Start a new question instead."); return; }
     if (this.conversationId !== conversation.id) this.loadConversation(conversation);
-    this.resumeCliSessionId = receipt.cliSessionId ?? conversation.cliSessionId ?? null;
+    const cliBackend = this.plugin.router().chatCapabilities().cliBackend;
+    this.resumeCliSessionId = cliBackend === receipt.backend ? receipt.cliSessionId ?? conversation.cliSessionId ?? null : null;
     this.continuationDepth = continuation.depth;
     try {
       await this.run(continuation.prompt, continuation.display, undefined, { media: readTurnMedia([original]), sources: readTurnContext([original]) });

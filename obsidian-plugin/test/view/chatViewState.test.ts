@@ -640,3 +640,33 @@ describe("ChatView chat-scoped context toggles", () => {
     expect(seam.attachedPaths).toEqual([{ path: "Notes/Alpha.md", kind: "note" }]);
   });
 });
+
+
+describe("Resume transport ownership", () => {
+  it.each([
+    { backend: "claude", cliBackend: undefined, session: undefined, want: null },
+    { backend: "claude-cli", cliBackend: undefined, session: "receipt-session", want: null },
+    { backend: "claude-cli", cliBackend: "codex-cli", session: "receipt-session", want: null },
+    { backend: "claude", cliBackend: "claude-cli", session: undefined, want: null },
+    { backend: "claude-cli", cliBackend: "claude-cli", session: "receipt-session", want: "receipt-session" },
+    { backend: "claude-cli", cliBackend: "claude-cli", session: undefined, want: "conversation-session" },
+    { backend: "codex-cli", cliBackend: "codex-cli", session: "receipt-session", want: "receipt-session" },
+    { backend: "opencode-cli", cliBackend: "opencode-cli", session: "receipt-session", want: "receipt-session" },
+  ])("resumes $backend through $cliBackend with session $want", async ({ backend, cliBackend, session, want }) => {
+    const view = buildView(statePlugin({ router: () => ({ chatCapabilities: () => ({ cli: !!cliBackend, cliBackend }) }) })) as Seam & {
+      resumeInterruptedTurn(conversation: Conversation): Promise<void>;
+      resumeCliSessionId: string | null;
+      run: () => Promise<boolean>;
+    };
+    view.conversationId = "conversation";
+    let sessionDuringRequest: string | null | undefined;
+    view.run = async () => { sessionDuringRequest = view.resumeCliSessionId; return true; };
+    await view.resumeInterruptedTurn({
+      id: "conversation", title: "Chart discussion", createdAt: 1, updatedAt: 1,
+      cliSessionId: "conversation-session", messages: [{ role: "user", content: "Compare the chart" }],
+      activeTurn: { id: "turn", state: "interrupted", backend, model: "model", mode: "ask", userMessageIndex: 0, createdAt: 1, updatedAt: 1, ...(session ? { cliSessionId: session } : {}) },
+    });
+    expect(sessionDuringRequest).toBe(want);
+    expect(view.resumeCliSessionId).toBeNull();
+  });
+});
