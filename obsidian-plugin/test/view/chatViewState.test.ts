@@ -394,6 +394,20 @@ describe("ChatView refused submissions", () => {
     expect(getNoticeMessages()).toEqual(["Add your Anthropic credential in Claude Companion settings first."]);
   });
 
+  it("retains the question and selected media before a missing file can create a turn", async () => {
+    const { view, input, fakes } = fixture(true);
+    const media = [{ kind: "image" as const, label: "Missing.png", mime: "image/png", path: "Missing.png" }];
+    Object.assign(view, { attachedMedia: media });
+    const begin = vi.spyOn(fakes.conversations, "beginTurn").mockRejectedValue(new Error("turn started"));
+    input.value = "  Explain my image.  ";
+    expect(await view.submitPrompt("Explain my image.")).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
+    expect(input.value).toBe("  Explain my image.  ");
+    expect((view as unknown as { attachedMedia: MediaAttachment[] }).attachedMedia).toEqual(media);
+    expect(getNoticeMessages().join(" ")).toContain("Missing.png");
+    expect(getNoticeMessages().join(" ")).toContain("not sent");
+  });
+
   it("reports a genuinely running reply without creating another conversation", async () => {
     const { view, input, fakes } = fixture(true);
     Object.assign(view, { streaming: true });

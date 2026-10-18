@@ -5,6 +5,7 @@ import { errorMessage } from "../records";
 import { effectiveToggles } from "./chat/contextScope";
 import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
+import { watchAttachmentRenames } from "./chat/attachmentRenames";
 import { cliEntries } from "./chat/cliEntries";
 import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
 import type { ApiMessage } from "../providers/types";
@@ -339,6 +340,7 @@ export class ChatView extends ItemView {
 
     // User templates: load now, refresh when a note in the folder changes.
     this.slash.watch((ref) => this.registerEvent(ref));
+    watchAttachmentRenames(this.app.vault, this.composer, (ref) => this.registerEvent(ref));
 
     this.projects.watch((ref) => this.registerEvent(ref));
     this.transcript.watchWorkspace((ref) => this.registerEvent(ref));
@@ -606,6 +608,7 @@ export class ChatView extends ItemView {
 
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
     const generation = this.drafts.generation;
+    const media = [...this.attachedMedia];
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -631,6 +634,9 @@ export class ChatView extends ItemView {
     if (this.drafts.generation !== generation) return false;
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
+
+    const blocks = media.length ? await this.composer.mediaBlocks(media) : [];
+    if (!blocks || this.drafts.generation !== generation) return false;
 
     const previousConversation = this.conversationId ? this.plugin.conversations().list().find((entry) => entry.id === this.conversationId) : undefined;
     const previousTurn = previousConversation?.activeTurn;
@@ -738,16 +744,14 @@ export class ChatView extends ItemView {
     if (this.conversationId === turn.conversationId) this.transcript.annotateContext(ctx.sources);
 
     // PDFs/images precede text; local backends drop these per-turn blocks.
-    if (this.attachedMedia.length > 0) {
-      const blocks = await this.composer.mediaBlocks();
-      if (controller.signal.aborted || !await keepCurrent()) return true;
+    if (media.length > 0) {
       const last = apiMessages[apiMessages.length - 1];
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
       }
       // Media is per-turn, but keep a handle for failure-restore and Regenerate.
-      this.lastUserMedia = this.attachedMedia;
-      this.attachedMedia = [];
+      this.lastUserMedia = media;
+      this.attachedMedia = this.attachedMedia.filter((item) => !media.includes(item));
       this.renderContextManager();
     } else {
       this.lastUserMedia = [];

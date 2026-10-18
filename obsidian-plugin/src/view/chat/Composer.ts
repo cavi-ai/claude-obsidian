@@ -9,7 +9,7 @@ import { type AutomaticContextKey, buildContextManagerModel } from "../contextMa
 import { ModeControl } from "../ModeControl";
 import type { ChatSession } from "./chatSession";
 import type { AttachedPath } from "../../context/vaultContext";
-import { type MediaAttachment, arrayBufferToBase64, maxBytesFor, mediaBlock, mediaKind, mediaMime, sniffMime } from "../../context/attachments";
+import { type MediaAttachment, mediaKind, mediaMime } from "../../context/attachments";
 import { type AttachedPage, detectPageUrl, pageLabel } from "../../context/urlContext";
 import type { ContentBlock } from "../../providers/types";
 import { CLAUDE_MODELS } from "../../claude/models";
@@ -21,6 +21,7 @@ import type { ComposerHost } from "./hosts";
 import type { ContextToggles } from "../../types";
 import { applyMention, initialToggles } from "./contextScope";
 import { appendCliModelOptions, syncModelSelection } from "./cliModelOptions";
+import { loadMediaBlocks } from "./mediaBlocks";
 import { attachPastedImage } from "./pastedImage";
 
 export interface ComposerDeps {
@@ -256,31 +257,13 @@ export class Composer {
     return buildClaimItems(this.deps.cachedClaims());
   }
 
-  /** Load attached media into wire blocks; oversize/unreadable files are skipped with a notice. */
-  async mediaBlocks(): Promise<ContentBlock[]> {
-    const blocks: ContentBlock[] = [];
-    for (const m of this.attachedMedia) {
-      try {
-        let data = m.data;
-        let mime = m.mime;
-        if (!data && m.path) {
-          const file = this.app.vault.getAbstractFileByPath(m.path);
-          if (!(file instanceof TFile)) throw new Error("file not found");
-          if (file.stat.size > maxBytesFor(m.kind)) {
-            new Notice(`${m.label} is too large to attach (max ${Math.round(maxBytesFor(m.kind) / 1024 / 1024)} MB).`);
-            continue;
-          }
-          const buf = await this.app.vault.readBinary(file);
-          // Trust the bytes over the extension so a mislabeled file isn't 400'd.
-          mime = sniffMime(buf) ?? m.mime;
-          data = arrayBufferToBase64(buf);
-        }
-        if (data) blocks.push(mediaBlock(m.kind, mime, data));
-      } catch (e) {
-        new Notice(`Couldn't attach ${m.label}: ${e instanceof Error ? e.message : String(e)}`);
-      }
+  /** Refuse the turn when any selected image/PDF cannot be loaded. */
+  async mediaBlocks(media: readonly MediaAttachment[] = this.attachedMedia): Promise<ContentBlock[] | null> {
+    try { return await loadMediaBlocks(this.app, media); }
+    catch (error) {
+      new Notice(`Request not sent. ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
-    return blocks;
   }
 
   /** Attach an image pasted into the composer (screenshots, copied images). */
