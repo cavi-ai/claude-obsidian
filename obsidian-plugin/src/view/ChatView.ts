@@ -615,7 +615,6 @@ export class ChatView extends ItemView {
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
     this._lastBuffer = ""; // never let a previous turn's partial leak into this one
-    this.transcript.clearInterruptedTurnRow();
     void this.refreshBackendPill();
     const router = this.plugin.router();
     const backend = router.chatBackend;
@@ -663,6 +662,7 @@ export class ChatView extends ItemView {
       new Notice(started.notice);
       return false;
     }
+    this.transcript.clearInterruptedTurnRow();
     const { turn, turnMessages } = started;
     if (opts?.regenerate) {
       this.messagesEl.empty();
@@ -831,13 +831,17 @@ export class ChatView extends ItemView {
       await this.regenerate();
       return;
     }
-    const continuation = receipt ? continuationFor(receipt) : null;
+    const original = receipt ? conversation.messages[receipt.userMessageIndex] : undefined;
+    const continuation = receipt ? continuationFor(receipt, original?.content) : null;
     if (!receipt || !continuation) return;
+    if (original?.role !== "user") { new Notice("Original request unavailable. Start a new question instead."); return; }
+    if (this.conversationId !== conversation.id) this.loadConversation(conversation);
     this.resumeCliSessionId = receipt.cliSessionId ?? conversation.cliSessionId ?? null;
     this.continuationDepth = continuation.depth;
     try {
-      await this.run(continuation.prompt, continuation.display);
-    } finally {
+      await this.run(continuation.prompt, continuation.display, undefined, { media: readTurnMedia([original]), sources: readTurnContext([original]) });
+    } catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); }
+    finally {
       this.resumeCliSessionId = null;
       this.continuationDepth = 0;
     }
@@ -884,10 +888,11 @@ export class ChatView extends ItemView {
 
   /** Re-run the previous user turn; the saved answer survives until replacement succeeds. */
   private async regenerate(opts?: { maxTokens?: number }): Promise<void> {
-    if (this.streaming || !this.lastUserText) return;
+    const user = [...this.messages].reverse().find((message) => message.role === "user");
+    if (this.streaming || !user) return;
     try {
       const media = readTurnMedia(this.messages);
-      await this.run(this.lastUserText, this.lastDisplay, opts?.maxTokens, { regenerate: true, media, sources: readTurnContext(this.messages) });
+      await this.run(user.content, user.display, opts?.maxTokens, { regenerate: true, media, sources: readTurnContext(this.messages) });
     } catch (error) { new Notice(`Request not sent. ${errorMessage(error)}`); }
   }
 }
