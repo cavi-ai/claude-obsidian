@@ -28,6 +28,18 @@ function harness(initial = makeRun()) {
 const rootOf = (view: BuildView): FakeElement => view.contentEl as unknown as FakeElement;
 
 describe("BuildView", () => {
+  it("hides document and execution controls when no build is selected", async () => {
+    const h = harness();
+    await h.view.onOpen();
+    h.view.setRun(null);
+    const root = rootOf(h.view);
+    expect(root.querySelector(".cc-build-links")?.getAttribute("hidden")).toBe("");
+    expect(root.querySelector(".cc-build-task-list")?.getAttribute("hidden")).toBe("");
+    expect(root.querySelector(".cc-build-output")?.getAttribute("hidden")).toBe("");
+    h.update(makeRun());
+    expect(root.querySelector(".cc-build-links")?.getAttribute("hidden")).toBeNull();
+  });
+
   it("renders accessible Ready state and starts without exposing a command", async () => {
     const h = harness();
     await h.view.onOpen();
