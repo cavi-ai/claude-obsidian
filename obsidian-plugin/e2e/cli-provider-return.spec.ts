@@ -1,4 +1,4 @@
-import { expect, test, type Rig } from "./fixtures";
+import { dismissSettingsSurface, expect, test, type Rig } from "./fixtures";
 import { readFile } from "node:fs/promises";
 import type { ContentBlock } from "../src/providers/types";
 
@@ -15,7 +15,7 @@ async function switchBackend(rig: Rig, value: string) {
   const row = settings.locator(".setting-item").filter({ has: settings.locator(".setting-item-name").getByText("Chat backend", { exact: true }) });
   await row.getByRole("combobox").selectOption(value);
   await expect.poll(() => rig.page.evaluate(() => (window as unknown as AppWindow).app.plugins.plugins["claude-companion"]!.settings.chatBackend)).toBe(value);
-  await settings.keyboard.press("Escape");
+  await dismissSettingsSurface(settings);
 }
 
 for (const action of ["accepted", "selection", "refused"] as const) {

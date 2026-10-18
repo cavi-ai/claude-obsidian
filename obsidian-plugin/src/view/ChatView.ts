@@ -1,3 +1,4 @@
+import { draftContextState } from "./chat/draftContextState";
 import { ItemView, MarkdownView, Notice, Platform, WorkspaceLeaf, setIcon, type ViewStateResult } from "obsidian";
 import type { ChatViewHost } from "./chat/hosts";
 import type { ChatMessage, ContextToggles } from "../types";
@@ -46,7 +47,6 @@ import { SlashRunner } from "./chat/slashRunner";
 import { VersionedMarkdownRenderer } from "./chat/markdownRender";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
 interface ObsidianAppWithSettings {
   setting?: {
     open?: () => void;
@@ -277,15 +277,11 @@ export class ChatView extends ItemView {
     return "sparkles";
   }
 
-  override getState(): Record<string, unknown> {
-    return { conversationId: this.conversationId };
-  }
-
+  override getState(): Record<string, unknown> { return { ...this.drafts.getState(this.conversationId), ...draftContextState(this.composer, this.plugin.settings.context) }; }
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
     const raw = (state as { conversationId?: unknown } | null)?.conversationId;
     if (raw === null) {
-      // Explicit "start empty" signal (the New chat tab command) — overrides
-      // whatever onOpen loaded by default for a freshly created leaf.
+      // Explicit New chat state overrides onOpen's default conversation.
       this.resetToEmpty();
     } else if (typeof raw === "string") {
       const conversation = this.plugin.conversations().list().find((c) => c.id === raw);
@@ -293,6 +289,10 @@ export class ChatView extends ItemView {
         this.loadConversation(conversation);
       }
       // An unknown id (e.g. a deleted conversation) keeps the current state.
+    }
+    if (raw === this.conversationId) {
+      this.drafts.restore(state, this.conversationId);
+      this.updateUsageBar();
     }
     await super.setState(state, result);
   }
@@ -540,7 +540,6 @@ export class ChatView extends ItemView {
     this.conversationId = null;
     this.chat.clear();
     this.projects.clear();
-    this.composer.clearAttachments();
     this.composer.resetContextToggles();
     this.composer.dismissedPageUrl = null;
     this.composer.pageOfferEl?.setCssStyles({ display: "none" });

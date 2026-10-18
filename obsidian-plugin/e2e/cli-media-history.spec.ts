@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { dismissSettingsSurface, expect, test } from "./fixtures";
 import { readFile } from "node:fs/promises";
 import type { ContentBlock } from "../src/providers/types";
 
@@ -34,7 +34,7 @@ for (const reload of [false, true]) {
     const backend = settings.locator(".setting-item").filter({ has: settings.locator(".setting-item-name").getByText("Chat backend", { exact: true }) });
     await backend.getByRole("combobox").selectOption("claude-cli");
     await expect.poll(() => page.evaluate(() => (window as unknown as AppWindow).app.plugins.plugins["claude-companion"]!.settings.chatBackend)).toBe("claude-cli");
-    await settings.keyboard.press("Escape");
+    await dismissSettingsSurface(settings);
     await expect(chat.locator(".cc-backend-pill")).toContainText("Claude Code");
     await input.fill("Which part of that chart matters most?");
     await chat.getByRole("button", { name: /^Send(?: message)?$/ }).click();

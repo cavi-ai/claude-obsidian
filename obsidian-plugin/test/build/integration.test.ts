@@ -1,9 +1,16 @@
 import { App, FakeElement, Platform, TFile, clearNotices, getLastOpenedModal, getNoticeMessages } from "obsidian";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildPlugin } from "../fakes/plugin";
 import { DEFAULT_SETTINGS } from "../../src/types";
 import { CLOUD_ROUTINE_BETA_HEADER } from "../../src/cloud/routines";
 import type { BuildRun } from "../../src/build/run";
+
+const originalTimezone = process.env.TZ;
+afterEach(() => {
+  vi.useRealTimers();
+  if (originalTimezone === undefined) delete process.env.TZ;
+  else process.env.TZ = originalTimezone;
+});
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve(); };
 
@@ -215,4 +222,50 @@ describe("managed Build handoff", () => {
     expect(plugin.research().activeBuildRun()).toMatchObject({ status: "interrupted", activeTaskIndex: null });
     expect(plugin.research().activeBuildRun()?.tasks[0]?.status).toBe("pending");
   });
+});
+
+describe.each([
+  ["America/New_York", "2026-10-18T00:30:00Z", "2026-10-19T00:30:00Z", "2026-10-17"],
+  ["Pacific/Auckland", "2026-10-17T12:30:00Z", "2026-10-18T12:30:00Z", "2026-10-18"],
+  ["UTC", "2026-10-17T20:30:00Z", "2026-10-18T20:30:00Z", "2026-10-17"],
+])("build document dates in %s", (timezone, createdAt, updatedAt, expected) => {
+  it("uses the local creation day for both documents and preserves it on later tracker writes", async () => {
+    process.env.TZ = timezone;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(createdAt));
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    const run = plugin.research().activeBuildRun()!;
+    const spec = app.vault.getAbstractFileByPath(run.specPath) as TFile;
+    const tracker = app.vault.getAbstractFileByPath(run.trackerPath) as TFile;
+    expect(spec._content).toContain(`created: "${expected}"`);
+    expect(tracker._content).toContain(`created: "${expected}"`);
+    vi.setSystemTime(new Date(updatedAt));
+    const build = (plugin as unknown as { _build: { persistBuildRun(run: BuildRun): Promise<void> } })._build;
+    await build.persistBuildRun({ ...run, status: "paused", updatedAt: Date.now() });
+    expect(tracker._content).toContain(`created: "${expected}"`);
+    expect(tracker._content).toContain("**Status:** Paused");
+    expect(plugin.research().activeBuildRun()?.createdAt).toBe(new Date(createdAt).getTime());
+  });
+});
+
+it("keeps one local creation day when document writes cross midnight", async () => {
+  process.env.TZ = "America/New_York";
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const createdAt = new Date("2026-10-18T03:59:00Z").getTime();
+  vi.setSystemTime(createdAt);
+  const { app, plugin } = pluginHarness();
+  const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+  const create = app.vault.create.bind(app.vault);
+  vi.spyOn(app.vault, "create").mockImplementationOnce(async (path, content) => {
+    vi.setSystemTime(new Date("2026-10-18T04:01:00Z"));
+    return create(path, content);
+  });
+  await acceptBuild(plugin.research().handoffToBuild(plan));
+  const run = plugin.research().activeBuildRun()!;
+  expect(run.createdAt).toBe(createdAt);
+  const build = (plugin as unknown as { _build: { persistBuildRun(run: BuildRun): Promise<void> } })._build;
+  await build.persistBuildRun(run);
+  for (const path of [run.specPath, run.trackerPath]) expect((app.vault.getAbstractFileByPath(path) as TFile)._content).toContain('created: "2026-10-17"');
 });

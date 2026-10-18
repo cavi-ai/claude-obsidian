@@ -51,6 +51,7 @@ export class BuildView extends ItemView {
   private logEl!: HTMLElement;
   private taskListEl!: HTMLElement;
   private taskRows: HTMLElement[] = [];
+  private runSections: HTMLElement[] = [];
   private startButton!: HTMLButtonElement;
   private pauseButton!: HTMLButtonElement;
   private cancelButton!: HTMLButtonElement;
@@ -77,6 +78,7 @@ export class BuildView extends ItemView {
 
   setRun(run: BuildRun | null): void {
     this.run = run;
+    for (const section of this.runSections) visible(section, !!run);
     this.updateRunPicker(run);
     if (!run) {
       this.titleEl.setText("No build selected");
@@ -157,6 +159,7 @@ export class BuildView extends ItemView {
     const output = root.createEl("details", { cls: "cc-build-output" });
     output.createEl("summary", { text: "Build output" });
     this.logEl = output.createEl("pre", { cls: "cc-build-log" });
+    this.runSections = [progressGroup, actions, links, this.taskListEl, output];
 
     this.startButton.addEventListener("click", () => void (this.run?.status === "ready" ? this.dependencies.start() : this.dependencies.resume()));
     this.pauseButton.addEventListener("click", () => void this.dependencies.pause());

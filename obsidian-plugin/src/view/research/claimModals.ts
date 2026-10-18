@@ -26,8 +26,16 @@ const PASSAGE_WARNING: Record<NonNullable<PassageRow["flag"]>, string> = {
   unchecked: "This passage is not marked reviewed.",
 };
 
+function renderPassageContext(parent: HTMLElement, passage: PassageRow | undefined): void {
+  if (!passage) return;
+  const location = [passage.sourceTitle, passage.locator].filter(Boolean).join(" · ");
+  if (location) parent.createEl("p", { cls: "cc-research-modal-meta", text: location });
+  parent.createEl("p", { text: passage.flag ? PASSAGE_WARNING[passage.flag] : passage.trusted ? "Checked passage." : "This passage needs checking." });
+}
+
 export interface ClaimCreateDeps {
   evidence: EvidenceRecord[];
+  passages: PassageRow[];
   submit(input: ClaimModalInput): Promise<void>;
   rewriteText?: RewriteTextFn;
   /** Drafts the whole claim; absent when research AI is unavailable. */
@@ -54,9 +62,11 @@ export class ClaimCreateModal extends Modal {
     proposition.addEventListener("input", () => { touched.proposition = true; });
     confidence.addEventListener("change", () => { touched.confidence = true; });
     const relations = new Map<string, Record<EvidenceRelation, HTMLInputElement>>();
+    const passages = new Map(this.deps.passages.map((passage) => [passage.path, passage]));
     for (const item of evidence) {
       const row = this.contentEl.createDiv({ cls: "cc-research-claim-evidence" });
       row.createEl("strong", { text: item.title });
+      renderPassageContext(row, passages.get(item.path));
       row.createEl("p", { text: item.excerpt });
       const inputs = {} as Record<EvidenceRelation, HTMLInputElement>;
       for (const relation of RELATIONS) {
@@ -180,11 +190,7 @@ export class ClaimReviewModal extends Modal {
     let edited = false;
     const details = (parent: HTMLElement, path: string): PassageRow | undefined => {
       const passage = passageByPath.get(path);
-      if (passage) {
-        const location = [passage.sourceTitle, passage.locator].filter(Boolean).join(" · ");
-        if (location) parent.createEl("p", { cls: "cc-research-modal-meta", text: location });
-        parent.createEl("p", { text: passage.flag ? PASSAGE_WARNING[passage.flag] : passage.trusted ? "Checked passage." : "This passage needs checking." });
-      }
+      renderPassageContext(parent, passage);
       return passage;
     };
     const checkPassage = (parent: HTMLElement, item: EvidenceRecord): void => {

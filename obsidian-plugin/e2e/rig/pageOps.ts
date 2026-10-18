@@ -134,6 +134,12 @@ export async function openSettingsSurface(context: BrowserContext, page: Page, t
   }
 }
 
+export async function dismissSettingsSurface(settings: Page): Promise<void> {
+  await settings.keyboard.press("Escape").catch(error => {
+    if (!settings.isClosed()) throw error;
+  });
+}
+
 export async function settleObsidianPage(context: BrowserContext, page: Page, firstRun: boolean, hidden: boolean, pid?: number, checkTrust = true): Promise<void> {
   await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
   if (hidden && pid) await hideAppWindow(pid);
