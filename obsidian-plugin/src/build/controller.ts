@@ -26,10 +26,11 @@ export interface BuildControllerDeps {
   isMobile: boolean;
 
   vault: {
+    exists: (path: string) => boolean;
     cachedRead: (path: string) => Promise<string>;
     processFile: (path: string, fn: (data: string) => string) => Promise<void>;
   };
-  writeFile: (path: string, content: string) => Promise<void>;
+  createFile: (path: string, content: string) => Promise<void>;
   ensureFolder: (folder: string) => Promise<void>;
   openFile: (path: string) => Promise<void>;
   normalizePath: (path: string) => string;
@@ -53,6 +54,7 @@ export class BuildController {
   private buildCoordinators = new Map<string, BuildRunCoordinator>();
   private buildRunListeners = new Set<(run: BuildRun) => void>();
   private buildTrackerWriteChains = new Map<string, Promise<void>>();
+  private pendingDocumentPaths = new Set<string>();
 
   constructor(private readonly deps: BuildControllerDeps) {}
 
@@ -118,44 +120,75 @@ export class BuildController {
     });
     if (!confirmed) return null;
 
-    await this.deps.ensureFolder(folder);
-    const specPath = this.deps.normalizePath(`${folder}/${title} — spec.md`);
-    const trackerPath = this.deps.normalizePath(`${folder}/${title} — tracker.md`);
+    const { specPath, trackerPath } = this.reserveDocumentPaths(folder, title);
+    const created: string[] = [];
+    let newRunId: string | null = null;
+    let previousActiveId: string | null = null;
+    try {
+      await this.deps.ensureFolder(folder);
 
-    const input: SpecInput = { title, plan, specPath, trackerPath, tasks };
-    const now = new Date().toISOString().slice(0, 10);
+      const input: SpecInput = { title, plan, specPath, trackerPath, tasks };
+      const now = new Date().toISOString().slice(0, 10);
 
-    const specFm = buildFrontmatter({
-      title: `${title} — spec`,
-      created: now,
-      source: "claude-companion",
-      type: "build-spec",
-      tags: normalizeTags(["claude", "build", "spec"]),
-    });
-    await this.deps.writeFile(specPath, `${specFm}\n\n${specBody(input)}`);
+      const specFm = buildFrontmatter({
+        title: `${title} — spec`,
+        created: now,
+        source: "claude-companion",
+        type: "build-spec",
+        tags: normalizeTags(["claude", "build", "spec"]),
+      });
+      await this.deps.createFile(specPath, `${specFm}\n\n${specBody(input)}`);
+      created.push(specPath);
 
-    const run = createBuildRun({
-      id: `build-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      specPath,
-      trackerPath,
-      transport: this.deps.isMobile ? "cloud" : "desktop",
-      tasks,
-      now: Date.now(),
-    });
+      const run = createBuildRun({
+        id: `build-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        specPath,
+        trackerPath,
+        transport: this.deps.isMobile ? "cloud" : "desktop",
+        tasks,
+        now: Date.now(),
+      });
 
-    const trackerFm = buildFrontmatter({
-      title: `${title} — tracker`,
-      created: now,
-      source: "claude-companion",
-      type: "build-tracker",
-      tags: normalizeTags(["claude", "build", "tracker"]),
-    });
-    await this.deps.writeFile(trackerPath, `${trackerFm}\n\n${trackerNoteBody(run)}`);
-    this.buildRuns[run.id] = run;
-    this.activeBuildRunId = run.id;
-    await this.deps.persist();
-    return run.id;
+      const trackerFm = buildFrontmatter({
+        title: `${title} — tracker`,
+        created: now,
+        source: "claude-companion",
+        type: "build-tracker",
+        tags: normalizeTags(["claude", "build", "tracker"]),
+      });
+      await this.deps.createFile(trackerPath, `${trackerFm}\n\n${trackerNoteBody(run)}`);
+      created.push(trackerPath);
+      previousActiveId = this.activeBuildRunId;
+      newRunId = run.id;
+      this.buildRuns[run.id] = run;
+      this.activeBuildRunId = run.id;
+      await this.deps.persist();
+      return run.id;
+    } catch (error) {
+      if (newRunId) {
+        delete this.buildRuns[newRunId];
+        if (this.activeBuildRunId === newRunId) this.activeBuildRunId = previousActiveId;
+      }
+      this.deps.notice(`Couldn't create build: ${error instanceof Error ? error.message : String(error)}${created.length > 0 ? `\nSaved documents: ${created.join(", ")}` : ""}`, 10000);
+      return null;
+    } finally {
+      this.pendingDocumentPaths.delete(specPath);
+      this.pendingDocumentPaths.delete(trackerPath);
+    }
+  }
+
+  private reserveDocumentPaths(folder: string, title: string): { specPath: string; trackerPath: string } {
+    const owned = new Set(Object.values(this.buildRuns).flatMap((run) => [run.specPath, run.trackerPath]));
+    for (let suffix = 1; ; suffix++) {
+      const name = suffix === 1 ? title : `${title} ${suffix}`;
+      const specPath = this.deps.normalizePath(`${folder}/${name} — spec.md`);
+      const trackerPath = this.deps.normalizePath(`${folder}/${name} — tracker.md`);
+      if ([specPath, trackerPath].some((path) => owned.has(path) || this.pendingDocumentPaths.has(path) || this.deps.vault.exists(path))) continue;
+      this.pendingDocumentPaths.add(specPath);
+      this.pendingDocumentPaths.add(trackerPath);
+      return { specPath, trackerPath };
+    }
   }
 
   viewDependencies(): BuildViewDependencies {
