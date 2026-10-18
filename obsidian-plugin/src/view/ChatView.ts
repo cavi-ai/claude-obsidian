@@ -47,7 +47,6 @@ import { SlashRunner } from "./chat/slashRunner";
 import { VersionedMarkdownRenderer } from "./chat/markdownRender";
 
 export const CHAT_VIEW_TYPE = "claude-companion-chat";
-
 interface ObsidianAppWithSettings {
   setting?: {
     open?: () => void;
@@ -477,7 +476,8 @@ export class ChatView extends ItemView {
   // ---------- public entry point (used by commands) ----------
 
   async submitPrompt(text: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles> }): Promise<boolean> {
-    if (!text.trim() || this.streaming || this.submission.pending) return false;
+    if (!text.trim()) return false;
+    if (this.streaming || this.submission.pending) { new Notice("Another request is in progress. Try again when it finishes."); return false; }
     return this.submitDraft((submission) => this.run(text.trim(), display, maxTokens, { ...opts, submission }), false);
   }
   private submitDraft(send: (submission: DraftStart) => Promise<boolean>, consumeDraft = true): Promise<boolean> {
@@ -618,6 +618,7 @@ export class ChatView extends ItemView {
   }
 
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
+    const generation = this.drafts.generation;
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -640,7 +641,7 @@ export class ChatView extends ItemView {
       new Notice(preflight.notice);
       return false;
     }
-    if (opts?.submission && !opts.submission.current()) return false;
+    if (this.drafts.generation !== generation) return false;
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
 
@@ -657,6 +658,7 @@ export class ChatView extends ItemView {
       mode: this.mode.mode,
       continuationDepth: this.continuationDepth,
       regenerate: !!opts?.regenerate,
+      ownership: { current: () => this.drafts.generation === generation, interruptTurn: (...args) => this.plugin.conversations().interruptTurn(...args) },
     });
     if (!started.ok) {
       new Notice(started.notice);
@@ -671,12 +673,10 @@ export class ChatView extends ItemView {
     this.drafts.consume(this.conversationId);
     this.conversationId = turn.conversationId;
     this.refreshTabTitle();
-    await this.projects.bindPending(turn.conversationId);
-    await this.projects.refreshCurrent(); // memoized for the rest of this turn
     this.currentTurn = turn;
     this.abort = new AbortController();
     const controller = this.abort;
-    this.unregisterCurrentTurn = this.plugin.conversations().registerTurn(turn.conversationId, turn.turnId, () => {
+    const unregister = this.plugin.conversations().registerTurn(turn.conversationId, turn.turnId, () => {
       controller.abort();
       if (this.currentTurn?.turnId === turn.turnId) {
         this.currentTurn = null;
@@ -684,31 +684,35 @@ export class ChatView extends ItemView {
         this.setSending(false);
       }
     });
+    this.unregisterCurrentTurn = unregister;
+    const keepCurrent = () => started.keepCurrent((notice) => { controller.abort(); unregister(); new Notice(notice); });
+    await this.projects.bindPending(turn.conversationId);
+    if (controller.signal.aborted || !await keepCurrent()) return false;
+    await this.projects.refreshCurrent();
+    if (controller.signal.aborted || !await keepCurrent()) return false;
     this.setSending(true);
     opts?.submission?.accepted();
     this._turnUsage = null;
     if (!started.regenerating) this.transcript.renderMessage("user", display ?? userText, { command: display !== undefined, prompt: userText });
 
-    // Agent mode: the model pulls vault context itself via tools. Gated on the
-    // provider actually round-tripping tool_use (Claude, and local models whose
-    // metadata reports "tools") — local-only setups get the same agent.
+    // Agent mode needs a provider that round-trips tool_use.
     const toolCapable = await router.chatToolCapable();
-    if (controller.signal.aborted) return true;
+    if (controller.signal.aborted || !await keepCurrent()) return true;
     this.mode.setCapable(this.plugin.settings.agentModeEnabled && toolCapable);
     const agentActive = this.mode.capable;
     if (this.plugin.settings.agentModeEnabled && !toolCapable && caps.local) {
       new Notice(provider.id === "device" ? "On-device GPU models support text chat. Agent tools are off for this backend." : "The selected local model doesn't support tools, so the agent is off. Pick a tool-capable model (e.g. llama3.1, qwen3) in settings → Local models.", 8000);
     }
 
-    // Build context-augmented copy of the message list for the API. In agent
-    // mode the pre-emptive vault-search stuffing is skipped — the vault_search
-    // tool replaces it with better, model-chosen queries.
+    // Agent tools replace pre-emptive vault search in the API context.
     const toggles = effectiveToggles(this.contextToggles, this.turnContextOverride, agentActive);
     // Project-pinned notes join this turn's context without changing the composer.
     const pinnedPaths: AttachedPath[] = (this.currentChatProject?.pinned ?? [])
       .filter((path) => !this.attachedPaths.some((a) => a.path === path))
       .map((path) => ({ path, kind: "note" as const }));
     const searchScope = this.currentChatProject ? projectSearchScope(this.currentChatProject) : undefined;
+    const ontology = toggles.linkedNotes || toggles.searchVault ? await this.plugin.loadedOntology() : null;
+    if (controller.signal.aborted || !await keepCurrent()) return true;
     const ctx = await gatherContext(
       this.app,
       this.plugin.settings,
@@ -718,22 +722,24 @@ export class ChatView extends ItemView {
       [...this.attachedPaths, ...pinnedPaths],
       this.attachedPages,
       searchScope,
-      toggles.linkedNotes || toggles.searchVault ? await this.plugin.loadedOntology() : null,
+      ontology,
     );
-    if (controller.signal.aborted) return true;
+    if (controller.signal.aborted || !await keepCurrent()) return true;
     try {
       if (!await this.plugin.conversations().setTurnContext(turn.conversationId, turn.turnId, ctx.sources)) return true;
     } catch (error) {
       const message = `Couldn't save this request's context, so it was not sent: ${errorMessage(error)}`;
       await this.plugin.conversations().interruptTurn(turn.conversationId, turn.turnId, turnMessages, message);
-      this.unregisterCurrentTurn?.();
-      this.unregisterCurrentTurn = null;
-      this.currentTurn = null;
-      this.setSending(false);
+      unregister();
+      if (this.currentTurn?.turnId === turn.turnId) {
+        this.unregisterCurrentTurn = null;
+        this.currentTurn = null;
+        this.setSending(false);
+      }
       new Notice(message);
       return true;
     }
-    if (controller.signal.aborted) return true;
+    if (controller.signal.aborted || !await keepCurrent()) return true;
     turnMessages[turnMessages.length - 1]!.contextSources = [...ctx.sources];
     // Resumed CLI sessions own their history; replaying it can duplicate writes.
     const wireMessages = this.resumeCliSessionId ? this.messages.slice(-1) : compactArtifactsInHistory(this.messages);
@@ -744,12 +750,10 @@ export class ChatView extends ItemView {
     }
     if (this.conversationId === turn.conversationId) this.transcript.annotateContext(ctx.sources);
 
-    // Attached PDFs/images become content blocks ahead of the text (media is
-    // per-turn: consumed by this send, pills cleared). Local backends can't
-    // see them — textContent() drops non-text blocks on the Ollama path.
+    // PDFs/images precede text; local backends drop these per-turn blocks.
     if (this.attachedMedia.length > 0) {
       const blocks = await this.composer.mediaBlocks();
-      if (controller.signal.aborted) return true;
+      if (controller.signal.aborted || !await keepCurrent()) return true;
       const last = apiMessages[apiMessages.length - 1];
       if (blocks.length > 0 && last && typeof last.content === "string") {
         last.content = [...blocks, { type: "text", text: last.content }];
@@ -781,9 +785,7 @@ export class ChatView extends ItemView {
       handlers,
     );
 
-    // Cache one instance for this turn's whole lifecycle — start() and the
-    // subscribe() below must land on the same ChatTurnService (plugin.turnService()
-    // is a memoized singleton in production, but nothing here should rely on that).
+    // Starting and subscribing must use the same service instance.
     const turnService = this.plugin.turnService();
     this.unregisterCurrentTurn?.();
     this.unregisterCurrentTurn = null;

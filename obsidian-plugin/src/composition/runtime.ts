@@ -9,7 +9,7 @@ import { VaultTools } from "../mcp/vaultTools";
 import { OptimizeFeature } from "../optimize/feature";
 import type { OptimizeState } from "../optimize/state";
 import { UtilityUnavailableError } from "../providers/endpointPolicy";
-import { ensureVaultFolder, writeOrReplaceFile } from "../vault/vaultFiles";
+import { ensureVaultFolder } from "../vault/vaultFiles";
 import { ConfirmModal } from "../view/ConfirmModal";
 import { vaultToolOptions, type VaultToolsHost } from "./vaultTools";
 
@@ -25,6 +25,7 @@ export function buildBuildController(host: BuildHost, wiring: BuildWiring): Buil
     persist: () => host.persist(),
     isMobile: Platform.isMobile,
     vault: {
+      exists: (path) => host.app.vault.getAbstractFileByPath(path) !== null,
       cachedRead: (path) => {
         const file = host.app.vault.getAbstractFileByPath(path);
         return file instanceof TFile ? host.app.vault.cachedRead(file) : Promise.reject(new Error(`File not found: ${path}`));
@@ -34,7 +35,7 @@ export function buildBuildController(host: BuildHost, wiring: BuildWiring): Buil
         if (file instanceof TFile) await host.app.vault.process(file, fn);
       },
     },
-    writeFile: async (path, content) => { await writeOrReplaceFile(host.app, path, content); },
+    createFile: async (path, content) => { await host.app.vault.create(path, content); },
     ensureFolder: (folder) => ensureVaultFolder(host.app, folder),
     openFile: async (path) => {
       const file = host.app.vault.getAbstractFileByPath(path);
