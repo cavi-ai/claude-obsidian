@@ -6,6 +6,7 @@ import { errorMessage } from "../records";
 import { effectiveToggles } from "./chat/contextScope";
 import type { AgentTurnHandlers, AgentTurnResult } from "../agent/loop";
 import { continuationFor, shouldAutoContinue } from "./chat/continuation";
+import { cliEntries } from "./chat/cliEntries";
 import { preflightTurn, startTurn, turnPersistence } from "../chat/turnStart";
 import type { ApiMessage } from "../providers/types";
 import { compactArtifactsInHistory, compactMessages, toApiMessages, type Conversation } from "../conversations/store";
@@ -23,11 +24,6 @@ import { type MediaAttachment } from "../context/attachments";
 import { type AtItem } from "../context/atMention";
 import { projectSearchScope, type ChatProject } from "../projects/model";
 import { credentialSetupInputs, needsCredentialSetup } from "../providers/setupState";
-import { claudeBackend } from "../cli/backends/claude";
-import { codexBackend } from "../cli/backends/codex";
-import { opencodeBackend } from "../cli/backends/opencode";
-import type { CliBackend, CliSignInProvider } from "../cli/backends/types";
-import type { ProviderRouter } from "../providers/router";
 import { EMPTY_SESSION, type SessionUsage } from "../usage/tokens";
 import { type TokenUsage } from "../claude/sse";
 import type { CompanionWorkspaceCard } from "./companionWorkspace";
@@ -168,7 +164,7 @@ export class ChatView extends ItemView {
     });
     this.setupCard = new SetupCard({
       plugin,
-      cliEntries: (router) => this.cliEntries(router),
+      cliEntries: (router) => cliEntries(router),
       messagesEl: () => this.messagesEl,
       hasMessages: () => this.messages.length > 0,
       renderEmptyState: () => this.renderEmptyState(),
@@ -221,7 +217,7 @@ export class ChatView extends ItemView {
     this.header = new HeaderControls(this.app, plugin, this.chat, {
       anyContextEnabled: () => this.composer.anyContextEnabled(),
       clearChat: (...args) => this.clearChat(...args),
-      cliEntries: (...args) => this.cliEntries(...args),
+      cliEntries: (...args) => cliEntries(...args),
       loadConversation: (...args) => this.loadConversation(...args),
       openSettings: (...args) => this.openSettings(...args),
       renderContextManager: (...args) => this.renderContextManager(...args),
@@ -513,16 +509,6 @@ export class ChatView extends ItemView {
 
   private renderEmptyState(): void { return this.transcript.renderEmptyState(); }
 
-  /** Every CLI backend the router actually exposes, paired with its module (label, sign-in hint) — skips a partial test stub instead of crashing on it. */
-  private cliEntries(router: ProviderRouter): { backend: CliBackend; provider: CliSignInProvider }[] {
-    const candidates: [CliBackend, CliSignInProvider | undefined][] = [
-      [claudeBackend, router.claudeCli],
-      [codexBackend, (router as { codexCli?: CliSignInProvider }).codexCli],
-      [opencodeBackend, (router as { opencodeCli?: CliSignInProvider }).opencodeCli],
-    ];
-    return candidates.filter((e): e is [CliBackend, CliSignInProvider] => e[1] != null).map(([backend, provider]) => ({ backend, provider }));
-  }
-
   /** True when chatting requires configuration the user hasn't done yet. */
   private setupRequired(): boolean {
     return needsCredentialSetup(credentialSetupInputs(this.plugin.router()));
@@ -636,7 +622,7 @@ export class ChatView extends ItemView {
       chatCapabilities: () => router.chatCapabilities(),
       anthropicHasCredentials: () => router.anthropic.hasCredentials(),
       cliSignIn: () => {
-        const entry = this.cliEntries(router).find((e) => e.backend.id === backend);
+        const entry = cliEntries(router).find((e) => e.backend.id === backend);
         return entry ? { label: entry.backend.label, signInHint: entry.backend.signInHint, available: () => entry.provider.available(), refresh: () => entry.provider.refresh() } : null;
       },
     });
