@@ -75,6 +75,7 @@ describe("Chat render lifecycle", () => {
         localFallback: async () => null,
       }),
       ...fakes.host,
+      invalidateCliSession: vi.fn(),
       composeSystemPrompt: () => "system",
       semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
@@ -105,9 +106,11 @@ describe("Chat render lifecycle", () => {
 
     expect(turns.begin).toHaveBeenCalledOnce();
     expect(stream).not.toHaveBeenCalled();
+    expect(plugin.invalidateCliSession).not.toHaveBeenCalled();
 
     releasePersist();
     await running;
+    expect(plugin.invalidateCliSession).toHaveBeenCalledWith("conversation-1");
     expect(stream).toHaveBeenCalledOnce();
   });
 
@@ -137,6 +140,7 @@ describe("Chat render lifecycle", () => {
         localFallback: async () => null,
       }),
       ...fakes.host,
+      invalidateCliSession: vi.fn(),
       composeSystemPrompt: () => "system",
       semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
@@ -199,6 +203,7 @@ describe("Chat render lifecycle", () => {
         localFallback: async () => null,
       }),
       ...fakes.host,
+      invalidateCliSession: vi.fn(),
       composeSystemPrompt: () => "system",
       semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
@@ -397,6 +402,7 @@ describe("Chat render lifecycle", () => {
     const plugin = {
       settings,
       ...fakes.host,
+      invalidateCliSession: vi.fn(),
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(app), plugin);
     const seam = view as unknown as { runners: { reviewLastProposedEdit(conversation: Conversation): Promise<void> } };
@@ -435,6 +441,7 @@ describe("Chat render lifecycle", () => {
       semantic: () => ({ semanticSearch: async () => [] }),
       loadedOntology: vi.fn(async () => null),
       ...fakes.host,
+      invalidateCliSession: vi.fn(),
       turnService: () => new ChatTurnService(),
     } as unknown as ClaudeCompanionPlugin;
     const view = new ChatView(new WorkspaceLeaf(new App()), plugin);

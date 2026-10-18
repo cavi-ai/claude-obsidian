@@ -1065,6 +1065,10 @@ export default class ClaudeCompanionPlugin extends Plugin {
     }
   }
 
+  invalidateCliSession(conversationId: string): void {
+    this._cliPool?.invalidate(conversationId);
+  }
+
   interruptCliTurn(conversationId: string): void {
     this._cliPool?.interrupt(conversationId);
   }

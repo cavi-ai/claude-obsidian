@@ -671,6 +671,7 @@ export class ChatView extends ItemView {
     }
     this.transcript.clearInterruptedTurnRow();
     const { turn, turnMessages } = started;
+    if (!caps.cli) this.plugin.invalidateCliSession(turn.conversationId);
     if (opts?.regenerate) {
       this.messagesEl.empty();
       for (const message of started.regenerating ? before : started.messages.slice(0, -1)) this.renderStoredMessage(message);

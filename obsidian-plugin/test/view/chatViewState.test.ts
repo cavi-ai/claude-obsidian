@@ -52,6 +52,7 @@ function statePlugin(overrides: Partial<Record<string, unknown>> = {}, fakes = c
     }),
     composeSystemPrompt: () => "system",
     ...fakes.host,
+    invalidateCliSession: () => undefined,
     turnService: () => ({ live: () => null }),
     ...overrides,
   } as unknown as ClaudeCompanionPlugin;
