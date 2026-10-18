@@ -73,6 +73,27 @@ describe("saved build selection", () => {
     expect(h.files.get("second-tracker.md")).toBe("");
   });
 
+  it("keeps the selected build visible when another build finishes retrying its tracker", async () => {
+    const h = harness();
+    const view = h.controller.viewDependencies();
+    await h.controller.selectActiveRun("first");
+    const processFile = h.deps.vault.processFile;
+    let release: (() => void) | undefined;
+    vi.spyOn(h.deps.vault, "processFile").mockImplementationOnce(async (path, transform) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      await processFile(path, transform);
+    });
+    const pending = view.retryTracker();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await h.controller.selectActiveRun("second");
+    const shown: string[] = [];
+    view.subscribe((run) => shown.push(run.id));
+    release!();
+    await pending;
+    expect(view.getRun()?.id).toBe("second");
+    expect(shown).toEqual(["second"]);
+  });
+
   it("reports a selection save failure and restores the previous selection", async () => {
     const h = harness();
     h.deps.persist = async () => { throw new Error("disk full"); };

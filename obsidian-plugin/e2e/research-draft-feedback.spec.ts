@@ -106,7 +106,7 @@ test("fallback generation stays truthful after reload and supports recovery to a
   await expect(section.locator(".cc-draft-unchanged")).toHaveText("No text changes suggested.");
   await expect(section.getByRole("button", { name: "Accept revision", exact: true })).toBeVisible();
   expect(await readFile(join(rig.paths.vault, documentPath), "utf8")).toBe(saved);
-  await section.screenshot({ path: testInfo.outputPath("unchanged-revision-with-recovery-actions.png") });
+  await page.screenshot({ path: testInfo.outputPath("unchanged-revision-with-recovery-actions.png") });
   await section.getByRole("button", { name: "Discard revision", exact: true }).click();
   await expect(section.locator(".cc-revision-instruction")).toHaveValue("Improve clarity while preserving the facts.");
   await section.getByRole("button", { name: "Cancel revision", exact: true }).click();

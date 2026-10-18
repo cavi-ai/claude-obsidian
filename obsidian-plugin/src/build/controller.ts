@@ -106,6 +106,26 @@ export class BuildController {
     if (run) for (const listener of this.buildRunListeners) listener(run);
   }
 
+  async renameDocuments(oldPath: string, newPath: string): Promise<void> {
+    const renamed = (path: string): string => path === oldPath || path.startsWith(`${oldPath}/`)
+      ? newPath + path.slice(oldPath.length) : path;
+    let changed = false;
+    for (const run of Object.values(this.buildRuns)) {
+      const paths = { specPath: renamed(run.specPath), trackerPath: renamed(run.trackerPath) };
+      if (paths.specPath === run.specPath && paths.trackerPath === run.trackerPath) continue;
+      Object.assign(run, paths);
+      this.buildCoordinators.get(run.id)?.updateDocumentPaths(paths);
+      changed = true;
+    }
+    if (!changed) return;
+    this.notifySelectedRun();
+    try {
+      await this.deps.persist();
+    } catch (cause) {
+      this.deps.notice(`Couldn't save renamed build document paths: ${cause instanceof Error ? cause.message : String(cause)}`, 8000);
+    }
+  }
+
   async handoffToBuild(planFile: { path: string; basename: string } | null): Promise<string | null> {
     if (!planFile) {
       this.deps.notice(
@@ -224,6 +244,13 @@ export class BuildController {
       cancel: () => this.runActiveBuild("cancel"),
       openSpec: () => this.openActiveBuildFile("specPath"),
       openTracker: () => this.openActiveBuildFile("trackerPath"),
+      retryTracker: async () => {
+        const run = this.activeBuildRun();
+        if (run) {
+          await this.persistBuildRun(run);
+          this.notifySelectedRun();
+        }
+      },
       openSession: () => {
         const url = this.activeBuildRun()?.sessionUrl;
         if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -233,7 +260,10 @@ export class BuildController {
 
   private async openActiveBuildFile(field: "specPath" | "trackerPath"): Promise<void> {
     const path = this.activeBuildRun()?.[field];
-    if (path) await this.deps.openFile(path);
+    if (path) {
+      try { await this.deps.openFile(path); }
+      catch (cause) { this.deps.notice(`Couldn't open build document: ${cause instanceof Error ? cause.message : String(cause)}`, 8000); }
+    }
   }
 
   private runActiveBuild(action: "start" | "pause" | "resume" | "cancel"): Promise<void> {
@@ -304,10 +334,15 @@ export class BuildController {
   }
 
   private async persistBuildRun(run: BuildRun): Promise<void> {
+    const current = this.buildRuns[run.id];
+    run = { ...run, specPath: current?.specPath ?? run.specPath, trackerPath: current?.trackerPath ?? run.trackerPath };
+    if (current?.trackerError) run.trackerError = current.trackerError;
+    else delete run.trackerError;
     this.buildRuns[run.id] = run;
     await this.deps.persist();
     const previous = this.buildTrackerWriteChains.get(run.id) ?? Promise.resolve();
     const write = previous.catch(() => {}).then(async () => {
+      const paths = this.buildRuns[run.id]!;
       const trackerFm = buildFrontmatter({
         title: `${run.title} — tracker`,
         created: localCalendarDate(new Date(run.createdAt)),
@@ -315,7 +350,19 @@ export class BuildController {
         type: "build-tracker",
         tags: normalizeTags(["claude", "build", "tracker"]),
       });
-      await this.deps.vault.processFile(run.trackerPath, () => `${trackerFm}\n\n${trackerNoteBody(run)}`);
+      let trackerError: string | undefined;
+      try {
+        await this.deps.vault.processFile(paths.trackerPath, () => `${trackerFm}\n\n${trackerNoteBody(run)}`);
+      } catch (cause) {
+        trackerError = `Couldn't update build tracker "${paths.trackerPath}": ${cause instanceof Error ? cause.message : String(cause)}. Restore the note or fix access, then retry the tracker update.`;
+      }
+      const latest = this.buildRuns[run.id]!;
+      if (latest.trackerError !== trackerError) {
+        if (trackerError) latest.trackerError = trackerError;
+        else delete latest.trackerError;
+        if (trackerError) this.deps.notice(trackerError, 10000);
+        await this.deps.persist();
+      }
     });
     this.buildTrackerWriteChains.set(run.id, write);
     await write;

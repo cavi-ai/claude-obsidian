@@ -14,6 +14,7 @@ export interface BuildViewDependencies {
   cancel(): void | Promise<void>;
   openSpec(): void | Promise<void>;
   openTracker(): void | Promise<void>;
+  retryTracker(): void | Promise<void>;
   openSession(): void | Promise<void>;
 }
 
@@ -56,6 +57,7 @@ export class BuildView extends ItemView {
   private pauseButton!: HTMLButtonElement;
   private cancelButton!: HTMLButtonElement;
   private sessionButton!: HTMLButtonElement;
+  private retryTrackerButton!: HTMLButtonElement;
 
   constructor(leaf: WorkspaceLeaf, private readonly dependencies: BuildViewDependencies) {
     super(leaf);
@@ -91,6 +93,7 @@ export class BuildView extends ItemView {
       visible(this.errorEl, false);
       visible(this.cloudBoundaryEl, false);
       visible(this.sessionButton, false);
+      visible(this.retryTrackerButton, false);
       return;
     }
 
@@ -107,8 +110,9 @@ export class BuildView extends ItemView {
     const active = run.activeTaskIndex === null ? null : run.tasks[run.activeTaskIndex];
     this.currentTaskEl.setText(active ? `Current task · ${active.title}` : "");
     visible(this.currentTaskEl, !!active);
-    this.errorEl.setText(run.error ?? "");
-    visible(this.errorEl, !!run.error);
+    this.errorEl.setText([run.error, run.trackerError].filter(Boolean).join("\n"));
+    visible(this.errorEl, !!run.error || !!run.trackerError);
+    visible(this.retryTrackerButton, !!run.trackerError);
     this.logEl.setText(run.log || "No output yet.");
 
     const resumable = ["paused", "failed", "interrupted"].includes(run.status);
@@ -154,6 +158,7 @@ export class BuildView extends ItemView {
     const links = root.createDiv({ cls: "cc-build-links" });
     const specButton = links.createEl("button", { cls: "cc-build-link", text: "Open spec" });
     const trackerButton = links.createEl("button", { cls: "cc-build-link", text: "Open tracker note" });
+    this.retryTrackerButton = links.createEl("button", { cls: "cc-build-link cc-build-retry-tracker", text: "Retry tracker update" });
     this.sessionButton = links.createEl("button", { cls: "cc-build-link cc-build-session", text: "Open cloud session" });
     this.taskListEl = root.createDiv({ cls: "cc-build-task-list", attr: { "aria-label": "Build tasks" } });
     const output = root.createEl("details", { cls: "cc-build-output" });
@@ -166,6 +171,7 @@ export class BuildView extends ItemView {
     this.cancelButton.addEventListener("click", () => void this.dependencies.cancel());
     specButton.addEventListener("click", () => void this.dependencies.openSpec());
     trackerButton.addEventListener("click", () => void this.dependencies.openTracker());
+    this.retryTrackerButton.addEventListener("click", () => void this.dependencies.retryTracker());
     this.sessionButton.addEventListener("click", () => void this.dependencies.openSession());
   }
 

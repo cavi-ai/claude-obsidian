@@ -70,6 +70,7 @@ const inertBuildDeps: BuildViewDependencies = {
   cancel: fail,
   openSpec: fail,
   openTracker: fail,
+  retryTracker: fail,
   openSession: fail,
 };
 
