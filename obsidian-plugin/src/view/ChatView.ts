@@ -280,9 +280,7 @@ export class ChatView extends ItemView {
     return "sparkles";
   }
 
-  override getState(): Record<string, unknown> {
-    return { conversationId: this.conversationId };
-  }
+  override getState(): Record<string, unknown> { return this.drafts.getState(this.conversationId); }
 
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
     const raw = (state as { conversationId?: unknown } | null)?.conversationId;
@@ -297,6 +295,7 @@ export class ChatView extends ItemView {
       }
       // An unknown id (e.g. a deleted conversation) keeps the current state.
     }
+    if (raw === this.conversationId) this.drafts.restore(state, this.conversationId);
     await super.setState(state, result);
   }
 

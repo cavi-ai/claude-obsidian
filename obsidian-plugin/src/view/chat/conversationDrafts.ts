@@ -14,8 +14,34 @@ export class ConversationDrafts {
     const text = composer.draft();
     if (text) this.drafts.set(from, text);
     else this.drafts.delete(from);
+    this.display(to);
+  }
+
+  getState(conversationId: string | null): Record<string, unknown> {
+    const drafts = new Map(this.drafts);
+    const text = this.composer().draft();
+    if (text) drafts.set(conversationId, text);
+    else drafts.delete(conversationId);
+    return { conversationId, ...(drafts.size ? { drafts: [...drafts].map(([conversationId, text]) => ({ conversationId, text })) } : {}) };
+  }
+
+  restore(state: unknown, conversationId: string | null): void {
+    const entries = (state as { drafts?: unknown } | null)?.drafts;
+    if (!Array.isArray(entries)) return;
+    this.generation++;
+    this.drafts.clear();
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const { conversationId, text } = entry as Record<string, unknown>;
+      if ((conversationId === null || typeof conversationId === "string") && typeof text === "string" && text) this.drafts.set(conversationId, text);
+    }
+    this.display(conversationId);
+  }
+
+  private display(conversationId: string | null): void {
+    const composer = this.composer();
     if (!composer.inputEl) return;
-    composer.inputEl.value = this.drafts.get(to) ?? "";
+    composer.inputEl.value = this.drafts.get(conversationId) ?? "";
     composer.autosizeInput();
     composer.slashMenu?.hide();
     composer.atMenu?.hide();
