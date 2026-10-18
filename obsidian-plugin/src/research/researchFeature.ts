@@ -204,9 +204,7 @@ export class ResearchFeature {
     const view = await this.deps.activateView();
     if (!view) return false;
     view.attachNote(projectPath);
-    const started = await view.submitPrompt(prompt, display);
-    if (!started) new Notice("Claude is still busy — try again when the current reply finishes.");
-    return started;
+    return view.submitPrompt(prompt, display);
   }
 
   private openDiscovery(snapshot: ProjectSnapshot): void {
@@ -401,7 +399,7 @@ export class ResearchFeature {
   }
 
   async activateBuildView(runId?: string): Promise<BuildView | null> {
-    if (runId) this.deps.build().selectActiveRun(runId);
+    if (runId) await this.deps.build().selectActiveRun(runId);
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(BUILD_VIEW_TYPE)[0] ?? null;
     if (!leaf) {

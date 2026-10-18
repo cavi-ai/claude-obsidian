@@ -1,4 +1,4 @@
-import { App, FakeElement, getLastOpenedModal, WorkspaceLeaf } from "obsidian";
+import { App, FakeElement, getLastOpenedModal, WorkspaceLeaf, clearNotices, getNoticeMessages } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatTurnService } from "../../src/chat/turnService";
 import { defaultChatControls } from "../../src/claude/chatControls";
@@ -359,6 +359,7 @@ describe("ChatView reused drafts", () => {
 });
 
 describe("ChatView refused submissions", () => {
+  beforeEach(() => { clearNotices(); });
   function fixture(credentials = false) {
     const fakes = conversationFakes();
     const provider = { id: "anthropic", hasCredentials: () => credentials };
@@ -390,6 +391,34 @@ describe("ChatView refused submissions", () => {
     input.value = "My unfinished question";
     expect(await view.submitPrompt("A generated workflow prompt")).toBe(false);
     expect(input.value).toBe("My unfinished question");
+    expect(getNoticeMessages()).toEqual(["Add your Anthropic credential in Claude Companion settings first."]);
+  });
+
+  it("reports a genuinely running reply without creating another conversation", async () => {
+    const { view, input, fakes } = fixture(true);
+    Object.assign(view, { streaming: true });
+    input.value = "My unfinished question";
+    expect(await view.submitPrompt("Research instruction")).toBe(false);
+    expect(getNoticeMessages()).toEqual(["Another request is in progress. Try again when it finishes."]);
+    expect(input.value).toBe("My unfinished question");
+    expect(fakes.conversations.list()).toEqual([]);
+  });
+
+  it("reports an in-progress submission before its request has started", async () => {
+    const { view, fakes } = fixture(true);
+    let entered!: () => void;
+    const saving = new Promise<void>((resolve) => { entered = resolve; });
+    let reject!: (error: Error) => void;
+    vi.spyOn(fakes.conversations, "beginTurn").mockImplementation(() => {
+      entered();
+      return new Promise((_resolve, fail) => { reject = fail; });
+    });
+    const first = view.submitPrompt("First instruction");
+    await saving;
+    expect(await view.submitPrompt("Second instruction")).toBe(false);
+    expect(getNoticeMessages()).toEqual(["Another request is in progress. Try again when it finishes."]);
+    reject(new Error("disk full"));
+    await first;
   });
 
   it("does not replace newer typing when saving a request fails", async () => {

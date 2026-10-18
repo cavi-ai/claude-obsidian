@@ -34,6 +34,10 @@ export interface NoteFlowsDeps {
   ontology: () => OntologyRegistry | null;
 }
 
+function frontmatterTags(value: unknown): string[] {
+  return normalizeTags(Array.isArray(value) ? value.map(String) : typeof value === "string" ? [value] : []);
+}
+
 export class NoteFlows {
   constructor(private deps: NoteFlowsDeps) {}
 
@@ -138,8 +142,10 @@ export class NoteFlows {
     const progress = beginActivity(this.activity, `Tidying ${file.basename}…`);
     try {
       const proposal = await this.buildEnrichProposal(file, options);
+      const failures = proposal.failures?.map(({ step, message }) => `${step}: ${message}`).join("\n");
+      if (failures) progress.fail(failures);
       if (!proposal.rename && !proposal.frontmatter && !proposal.plan) {
-        new Notice(`${file.basename} is already in good shape.`);
+        new Notice(failures ? `Tidy couldn't finish ${file.basename}.\n${failures}\nRun Tidy again to retry.` : `${file.basename} is already in good shape.`, failures ? 12000 : 6000);
         return;
       }
       progress.finish();
@@ -148,7 +154,7 @@ export class NoteFlows {
       );
       if (!decision) return;
       await this.applyEnrichDecision(file, proposal, decision);
-      new Notice(`Tidied ${file.basename}.`);
+      new Notice(failures ? `Applied selected changes to ${file.basename}. Some Tidy steps failed; run Tidy again to retry.` : `Tidied ${file.basename}.`, failures ? 12000 : 6000);
     } catch (e) {
       progress.fail(e);
       new Notice(`Tidy failed — ${e instanceof Error ? e.message : String(e)}`);
@@ -189,7 +195,8 @@ export class NoteFlows {
         tagResult = await summarizeAndTag(this.deps.router(), content, vaultVocabulary(this.app));
       } catch (e) {
         if (e instanceof UtilityUnavailableError) throw e;
-        // Tagging is best-effort — links/lint still run.
+        const step = [options.rename ? "Rename note" : "", options.frontmatter ? "Tags & summary" : ""].filter(Boolean).join(" / ");
+        (proposal.failures ??= []).push({ step, message: e instanceof Error ? e.message : String(e) });
       }
     }
 
@@ -212,7 +219,7 @@ export class NoteFlows {
         });
         body = parseLintResponse(text, body) ?? body;
       } catch (e) {
-        console.debug("Claude Companion: lint pass failed, keeping prior result", e);
+        (proposal.failures ??= []).push({ step: "Lint note", message: e instanceof Error ? e.message : String(e) });
       }
     }
     const edits = diffToEdits(content, body);
@@ -230,7 +237,7 @@ export class NoteFlows {
 
     if (options.frontmatter && tagResult) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-      const existing: string[] = Array.isArray(fm?.tags) ? fm.tags.map(String) : typeof fm?.tags === "string" ? [fm.tags] : [];
+      const existing = frontmatterTags(fm?.tags);
       const merged = normalizeTags([...existing, ...tagResult.tags]);
       const addedTags = merged.filter((t) => !existing.includes(t));
       const newTags = addedTags.filter((t) => tagResult.newTags.includes(t));
@@ -252,10 +259,11 @@ export class NoteFlows {
       await this.app.vault.process(file, (current) => applyPlan(current, plan, decision.accepted));
     }
     if (proposal.frontmatter && decision.frontmatter) {
-      const { tags, summary } = proposal.frontmatter;
+      const { addedTags, summary } = proposal.frontmatter;
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        (fm as Record<string, unknown>).tags = tags;
-        if (summary) (fm as Record<string, unknown>).summary = summary;
+        const current = fm as Record<string, unknown>;
+        current.tags = normalizeTags([...frontmatterTags(current.tags), ...addedTags]);
+        if (summary && !current.summary) current.summary = summary;
       });
     }
     if (proposal.rename && decision.rename) {
@@ -297,9 +305,10 @@ export class NoteFlows {
 
       // Merge additively against what's already in the note's frontmatter.
       const fm = (this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) as Record<string, unknown>;
-      const currentTags = Array.isArray(fm.tags) ? fm.tags.map(String) : typeof fm.tags === "string" ? [fm.tags] : [];
+      const currentTags = frontmatterTags(fm.tags);
       const resolved = resolveTags(suggestion.tags, vocab);
       const tags = normalizeTags([...currentTags, ...resolved.map((r) => r.tag)]);
+      const addedTags = tags.filter((tag) => !currentTags.includes(tag));
       const proposal = {
         ...(suggestion.type && !fm.type ? { type: suggestion.type } : {}),
         tags,
@@ -313,7 +322,7 @@ export class NoteFlows {
         await this.app.fileManager.processFrontMatter(file, (f) => {
           const rec = f as Record<string, unknown>;
           if (proposal.type && !rec.type) rec.type = proposal.type;
-          rec.tags = proposal.tags;
+          rec.tags = normalizeTags([...frontmatterTags(rec.tags), ...addedTags]);
           if (proposal.summary && !rec.summary) rec.summary = proposal.summary;
         });
         new Notice(`Frontmatter updated: ${file.basename}`);

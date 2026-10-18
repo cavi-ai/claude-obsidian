@@ -61,6 +61,8 @@ export function systemView(plugin: ClaudeCompanionPlugin = buildPlugin(), deps: 
 
 const inertBuildDeps: BuildViewDependencies = {
   getRun: fail,
+  getRuns: fail,
+  selectRun: fail,
   subscribe: fail,
   start: fail,
   pause: fail,

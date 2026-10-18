@@ -37,7 +37,7 @@ case "$*" in
           printf '{"type":"result","subtype":"success","result":"pong from claude code","session_id":"e2e-session","num_turns":1,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}\\n' ;;
       esac
     done ;;
-  *) sleep 0.4; printf '{"type":"result","result":"Fixture task completed"}\\n' ;;
+  *) sleep 0.4; printf '{"type":"result","subtype":"success","is_error":false,"result":"Fixture task completed"}\\n' ;;
 esac
 `;
 

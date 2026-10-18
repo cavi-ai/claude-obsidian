@@ -30,6 +30,100 @@ async function acceptBuild(pending: Promise<void>): Promise<void> {
 describe("managed Build handoff", () => {
   beforeEach(() => { clearNotices(); Platform.isMobile = false; Platform.isDesktop = true; });
 
+  it("keeps earlier build documents and user edits when creating another build", async () => {
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] First task");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    const first = structuredClone(plugin.research().activeBuildRun()!);
+    const spec = app.vault.getAbstractFileByPath(first.specPath) as TFile;
+    const tracker = app.vault.getAbstractFileByPath(first.trackerPath) as TFile;
+    await app.vault.append(spec, "\nUser spec notes.");
+    await app.vault.append(tracker, "\nUser tracker notes.");
+    const before = [spec._content, tracker._content];
+    await app.vault.modify(plan, "- [ ] Revised task");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    const second = plugin.research().activeBuildRun()!;
+    expect(second.specPath).not.toBe(first.specPath);
+    expect(second.trackerPath).not.toBe(first.trackerPath);
+    expect([spec._content, tracker._content]).toEqual(before);
+    expect((app.vault.getAbstractFileByPath(second.specPath) as TFile)._content).toContain("Revised task");
+  });
+
+  it.each(["spec", "tracker"])("avoids a document pair when only the %s path is occupied", async (kind) => {
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+    const occupied = app.vault.seed(`Claude/Builds/Feature — ${kind}.md`, "User-owned document.");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    const run = plugin.research().activeBuildRun()!;
+    expect(run.specPath).toBe("Claude/Builds/Feature 2 — spec.md");
+    expect(run.trackerPath).toBe("Claude/Builds/Feature 2 — tracker.md");
+    expect(occupied._content).toBe("User-owned document.");
+  });
+
+  it("reserves separate document pairs while another build is being created", async () => {
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+    const create = app.vault.create.bind(app.vault);
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    vi.spyOn(app.vault, "create").mockImplementationOnce(async (path, body) => {
+      await new Promise<void>((resolve) => { release = resolve; started(); });
+      return create(path, body);
+    });
+    const first = acceptBuild(plugin.research().handoffToBuild(plan));
+    await pending;
+    try { await acceptBuild(plugin.research().handoffToBuild(plan)); }
+    finally { release(); await first; }
+    const runs = (plugin as unknown as { _build: { serializeState(): { buildRuns: BuildRun[] } } })._build.serializeState().buildRuns;
+    expect(runs).toHaveLength(2);
+    expect(new Set(runs.flatMap((run) => [run.specPath, run.trackerPath])).size).toBe(4);
+  });
+
+  it("keeps persisted run paths reserved when their documents are absent from the vault lookup", async () => {
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    const first = structuredClone(plugin.research().activeBuildRun()!);
+    const build = (plugin as unknown as { _build: { restoreState(runs: unknown, active: unknown): void } })._build;
+    build.restoreState([first], first.id);
+    const lookup = app.vault.getAbstractFileByPath.bind(app.vault);
+    vi.spyOn(app.vault, "getAbstractFileByPath").mockImplementation((path) => path === first.specPath || path === first.trackerPath ? null : lookup(path));
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    expect(plugin.research().activeBuildRun()!.specPath).not.toBe(first.specPath);
+    expect(plugin.research().activeBuildRun()!.trackerPath).not.toBe(first.trackerPath);
+  });
+
+  it("never replaces a file created after path selection and allows another attempt", async () => {
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+    const create = app.vault.create.bind(app.vault);
+    vi.spyOn(app.vault, "create").mockImplementationOnce(async (path, body) => {
+      app.vault.seed(path, "Arrived while creating the build.");
+      return create(path, body);
+    });
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    expect(plugin.research().activeBuildRun()).toBeNull();
+    expect((app.vault.getAbstractFileByPath("Claude/Builds/Feature — spec.md") as TFile)._content).toBe("Arrived while creating the build.");
+    expect(getNoticeMessages().join("\n")).toContain("Couldn't create build");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    expect(plugin.research().activeBuildRun()!.specPath).toBe("Claude/Builds/Feature 2 — spec.md");
+  });
+
+  it("keeps the previous active run when saving a new run fails", async () => {
+    const { app, plugin } = pluginHarness();
+    const plan = app.vault.seed("Plans/Feature.md", "- [ ] Task");
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    const first = plugin.research().activeBuildRun()!;
+    vi.mocked(plugin.persist).mockRejectedValueOnce(new Error("storage unavailable"));
+    await acceptBuild(plugin.research().handoffToBuild(plan));
+    expect(plugin.research().activeBuildRun()?.id).toBe(first.id);
+    const runs = (plugin as unknown as { _build: { serializeState(): { buildRuns: BuildRun[] } } })._build.serializeState().buildRuns;
+    expect(runs.map(({ id }) => id)).toEqual([first.id]);
+    expect(getNoticeMessages().join("\n")).toContain("storage unavailable");
+    expect(getNoticeMessages().join("\n")).toContain("Saved documents:");
+  });
+
   it("creates spec and tracker documents plus a Ready desktop run without touching the clipboard", async () => {
     const { app, plugin, activateBuildView } = pluginHarness();
     const plan = app.vault.seed("Plans/Feature.md", "# Feature\n\n- [ ] Parser\n- [ ] UI");

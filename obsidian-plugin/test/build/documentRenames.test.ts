@@ -22,7 +22,11 @@ function harness(done = false) {
     cloud: () => { throw new Error("not a cloud test"); }, vaultBasePath: () => "/vault", desktopProcess: () => ({ platform: "darwin", env: { HOME: "/user" } }),
     desktopRuntimeLoader: async () => ({
       createNodeDesktopRuntime: async () => ({ resolveClaudeCodeExecutable: async () => "claude" }),
-      createNodeManagedProcessPort: () => ({ run: async (_executable, args, options) => { await new Promise<void>((resolve) => pending.push({ args, options, finish: resolve })); return { code: 0, stderr: "" }; } }),
+      createNodeManagedProcessPort: () => ({ run: async (_executable, args, options) => {
+        await new Promise<void>((resolve) => pending.push({ args, options, finish: resolve }));
+        options.onStdout('{"type":"result","subtype":"success","is_error":false,"result":"Task complete"}\n');
+        return { code: 0, stderr: "" };
+      } }),
     }),
   };
   const opened: string[] = [];
@@ -65,7 +69,7 @@ describe("build document renames", () => {
     const executing = view.start();
     await vi.waitFor(() => expect(h.pending).toHaveLength(1));
     await h.move("Builds", "Projects/Builds");
-    h.pending[0]!.options.onStdout('{"type":"result","result":"first complete"}\n');
+    h.pending[0]!.options.onStdout('{"type":"assistant","message":{"content":[{"type":"text","text":"first task progress"}]}}\n');
     h.pending[0]!.finish();
     await vi.waitFor(() => expect(h.pending).toHaveLength(2));
     expect(h.pending[1]!.args.join(" ")).toContain("Projects/Builds/spec.md");
