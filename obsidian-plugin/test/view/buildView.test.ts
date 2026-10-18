@@ -30,6 +30,18 @@ function harness(initial = makeRun(), runs = [initial]) {
 const rootOf = (view: BuildView): FakeElement => view.contentEl as unknown as FakeElement;
 
 describe("BuildView", () => {
+  it("hides document and execution controls when no build is selected", async () => {
+    const h = harness();
+    await h.view.onOpen();
+    h.view.setRun(null);
+    const root = rootOf(h.view);
+    expect(root.querySelector(".cc-build-links")?.getAttribute("hidden")).toBe("");
+    expect(root.querySelector(".cc-build-task-list")?.getAttribute("hidden")).toBe("");
+    expect(root.querySelector(".cc-build-output")?.getAttribute("hidden")).toBe("");
+    h.update(makeRun());
+    expect(root.querySelector(".cc-build-links")?.getAttribute("hidden")).toBeNull();
+  });
+
   it("offers named saved builds and changes controls without replacing the picker", async () => {
     const first = makeRun("paused");
     const second = { ...makeRun(), id: "run-2", createdAt: 2 };
