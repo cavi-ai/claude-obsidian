@@ -148,7 +148,7 @@ export class NoteFlows {
         new Notice(failures ? `Tidy couldn't finish ${file.basename}.\n${failures}\nRun Tidy again to retry.` : `${file.basename} is already in good shape.`, failures ? 12000 : 6000);
         return;
       }
-      progress.finish();
+      progress.setMessage("Review proposed changes");
       const decision = await new Promise<EnrichDecision | null>((resolve) =>
         new EnrichReviewModal(this.app, proposal, resolve).open(),
       );
@@ -254,6 +254,7 @@ export class NoteFlows {
     proposal: EnrichProposal,
     decision: EnrichDecision,
   ): Promise<void> {
+    this.ensureCurrentNote(file);
     if (proposal.plan && decision.accepted.some(Boolean)) {
       const plan = proposal.plan;
       await this.app.vault.process(file, (current) => applyPlan(current, plan, decision.accepted));
@@ -268,6 +269,12 @@ export class NoteFlows {
     }
     if (proposal.rename && decision.rename) {
       await this.app.fileManager.renameFile(file, proposal.rename.to);
+    }
+  }
+
+  private ensureCurrentNote(file: TFile): void {
+    if (this.app.vault.getAbstractFileByPath(file.path) !== file) {
+      throw new Error("This note is no longer available. Reopen the note and try again.");
     }
   }
 
@@ -293,6 +300,7 @@ export class NoteFlows {
     const existingTags = selectPromptTags(vocab, content);
     const typeOptions = this.settings.ontologyEnabled ? [...(this.deps.ontology()?.resolved().keys() ?? [])] : [];
     const notice = beginActivity(this.activity, "Suggesting frontmatter…");
+    let applying = false;
     try {
       const existingLine = existingTags.length > 0 ? `Existing tags (prefer these when relevant): ${existingTags.join(", ")}\n\n` : "";
       const body = content.length > 8000 ? content.slice(0, 8000) + "\n…[truncated]" : content;
@@ -315,21 +323,26 @@ export class NoteFlows {
         newTags: resolved.filter((r) => r.match === "new" && !currentTags.includes(r.tag)).map((r) => r.tag),
         ...(suggestion.summary && !fm.summary ? { summary: suggestion.summary } : {}),
       };
-      notice.finish();
+      notice.setMessage("Review suggested frontmatter");
 
-      new FrontmatterModal(this.app, file.basename, proposal, provider.label, async (apply) => {
-        if (!apply) return;
-        await this.app.fileManager.processFrontMatter(file, (f) => {
-          const rec = f as Record<string, unknown>;
-          if (proposal.type && !rec.type) rec.type = proposal.type;
-          rec.tags = normalizeTags([...frontmatterTags(rec.tags), ...addedTags]);
-          if (proposal.summary && !rec.summary) rec.summary = proposal.summary;
-        });
-        new Notice(`Frontmatter updated: ${file.basename}`);
-      }).open();
+      const apply = await new Promise<boolean>((resolve) => {
+        new FrontmatterModal(this.app, file.basename, proposal, provider.label, resolve).open();
+      });
+      if (!apply) return;
+      applying = true;
+      this.ensureCurrentNote(file);
+      await this.app.fileManager.processFrontMatter(file, (f) => {
+        const rec = f as Record<string, unknown>;
+        if (proposal.type && !rec.type) rec.type = proposal.type;
+        rec.tags = normalizeTags([...frontmatterTags(rec.tags), ...addedTags]);
+        if (proposal.summary && !rec.summary) rec.summary = proposal.summary;
+      });
+      new Notice(`Frontmatter updated: ${file.basename}`);
     } catch (e) {
       notice.fail(e);
-      new Notice(`Couldn't suggest frontmatter: ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(`Couldn't ${applying ? "apply" : "suggest"} frontmatter: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      notice.finish();
     }
   }
 }
