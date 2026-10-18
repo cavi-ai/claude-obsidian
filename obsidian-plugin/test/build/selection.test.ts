@@ -61,7 +61,7 @@ describe("saved build selection", () => {
     await h.controller.selectActiveRun("second");
     const shown: BuildRun[] = [];
     view.subscribe((run) => shown.push(run));
-    h.processOptions().onStdout('{"type":"result","result":"First task done"}\n');
+    h.processOptions().onStdout('{"type":"result","subtype":"success","is_error":false,"result":"First task done"}\n');
     h.finish();
     await pending;
     expect(view.getRun()?.id).toBe("second");
