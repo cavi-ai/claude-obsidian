@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendAssistantMessage, preflightTurn, startTurn, turnPersistence, type CliSignIn, type TurnStartInput } from "../../src/chat/turnStart";
+import { appendAssistantMessage, preflightTurn, startTurn, turnPersistence, type BeginTurn, type CliSignIn, type TurnStartInput } from "../../src/chat/turnStart";
 import type { ChatMessage } from "../../src/types";
 import type { ChatTurnReceipt } from "../../src/conversations/store";
 import type { AgentTurnResult } from "../../src/agent/loop";
+
+import { conversationFakes } from "../fakes/conversations";
 
 const CLI = { cli: true, local: false };
 const NOT_CLI = { cli: false, local: false };
@@ -115,6 +117,33 @@ function input(overrides: Partial<TurnStartInput> = {}): TurnStartInput {
 const begun = { conversationId: "c1", turnId: "t1" };
 
 describe("startTurn", () => {
+  it.each([false, true])("keeps a saved request recoverable when its owner changes (regenerate: %s)", async (regenerate) => {
+    const fakes = conversationFakes({ conversations: [{ id: "c1", title: "Earlier chat", createdAt: 1, updatedAt: 1, messages: HISTORY }] });
+    let current = true;
+    const begin: BeginTurn = async (...args) => {
+      const turn = await fakes.conversations.beginTurn(...args);
+      current = false;
+      return turn;
+    };
+    const result = await startTurn(begin, input({
+      regenerate,
+      ownership: { current: () => current, interruptTurn: (...args) => fakes.conversations.interruptTurn(...args) },
+    }));
+    expect(result).toMatchObject({ ok: false, notice: expect.stringContaining("Resume it from history") });
+    const saved = fakes.conversations.list()[0]!;
+    expect(saved.activeTurn?.state).toBe("interrupted");
+    expect(saved.messages.map((message) => message.content)).toEqual(regenerate ? ["a", "b", "c", "d"] : ["a", "b", "c", "d", "next"]);
+  });
+
+  it("accepts the saved request while its owner remains current", async () => {
+    const fakes = conversationFakes();
+    const result = await startTurn((...args) => fakes.conversations.beginTurn(...args), input({
+      ownership: { current: () => true, interruptTurn: (...args) => fakes.conversations.interruptTurn(...args) },
+    }));
+    expect(result.ok).toBe(true);
+    expect(fakes.conversations.list()[0]?.activeTurn?.state).toBe("running");
+  });
+
   it("regenerates without sending the superseded answer or mutating the saved exchange", async () => {
     const begin = vi.fn(async () => begun);
     const result = await startTurn(begin, input({ regenerate: true, user: { content: "c" } }));

@@ -72,6 +72,7 @@ export interface TurnStartInput {
   mode: ChatTurnMode;
   continuationDepth: number;
   regenerate?: boolean;
+  ownership?: { current(): boolean; interruptTurn: TurnPersistence["interruptTurn"] };
 }
 
 export type BeginTurn = (
@@ -105,6 +106,11 @@ export async function startTurn(begin: BeginTurn, input: TurnStartInput): Promis
       ...(input.continuationDepth > 0 ? { continuationDepth: input.continuationDepth } : {}),
       ...(regenerating ? { regenerating: true } : {}),
     });
+    if (input.ownership && !input.ownership.current()) {
+      const notice = "Request saved but not sent because you switched chats. Resume it from history.";
+      await input.ownership.interruptTurn(turn.conversationId, turn.turnId, turnMessages, notice);
+      return { ok: false, notice };
+    }
     return { ok: true, turn, messages, turnMessages, regenerating };
   } catch (error) {
     return { ok: false, notice: `Couldn't save this request, so it was not started: ${error instanceof Error ? error.message : String(error)}` };

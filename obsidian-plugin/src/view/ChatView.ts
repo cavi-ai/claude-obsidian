@@ -618,6 +618,7 @@ export class ChatView extends ItemView {
   }
 
   private async run(userText: string, display?: string, maxTokens?: number, opts?: { model?: string; context?: Partial<ContextToggles>; regenerate?: boolean; submission?: DraftStart }): Promise<boolean> {
+    const generation = this.drafts.generation;
     this.maxTokensOverride = maxTokens ?? null; // reset each turn
     this.turnModelOverride = opts?.model ?? null;
     this.turnContextOverride = opts?.context ?? null;
@@ -640,7 +641,7 @@ export class ChatView extends ItemView {
       new Notice(preflight.notice);
       return false;
     }
-    if (opts?.submission && !opts.submission.current()) return false;
+    if (this.drafts.generation !== generation) return false;
     const { provider, model, caps } = preflight;
     if (preflight.reprobed) void this.refreshBackendPill();
 
@@ -657,6 +658,7 @@ export class ChatView extends ItemView {
       mode: this.mode.mode,
       continuationDepth: this.continuationDepth,
       regenerate: !!opts?.regenerate,
+      ownership: { current: () => this.drafts.generation === generation, interruptTurn: (...args) => this.plugin.conversations().interruptTurn(...args) },
     });
     if (!started.ok) {
       new Notice(started.notice);
