@@ -200,6 +200,15 @@ describe("NoteFlows enrichNoteFlow", () => {
     expect(activity.snapshot().records.map((r) => r.state)).not.toContain("running");
   });
 
+  it("reports no changes when copyediting completed with an unchanged reply", async () => {
+    const { app, flows, activity } = rig();
+    const note = app.vault.seed("Doc.md", "Original body.");
+    lint.parseLintResponse.mockReturnValue(null);
+    await flows.enrichNoteFlow(note, { ...OPTIONS, lint: true });
+    expect(getNoticeMessages()).toEqual(["Doc is already in good shape."]);
+    expect(activity.snapshot().records[0]?.state).toBe("succeeded");
+  });
+
   it("proposes a rename and merged tags, then applies only what the review accepts", async () => {
     const { app, flows } = rig();
     const note = app.vault.seed("Doc.md", "---\ntags:\n  - existing\n---\nbody", { frontmatter: { tags: ["existing"] } });
@@ -241,15 +250,15 @@ describe("NoteFlows enrichNoteFlow", () => {
     expect(getNoticeMessages()).toEqual(["Tidied Doc."]);
   });
 
-  it("keeps going when the copyedit pass fails", async () => {
-    const { app, flows, complete } = rig();
+  it("reports a failed copyedit without claiming the note passed its checks", async () => {
+    const { app, flows, complete, activity } = rig();
     const note = app.vault.seed("Notes/Doc.md", "text");
     complete.mockRejectedValue(new Error("model down"));
-    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     await flows.enrichNoteFlow(note, { ...OPTIONS, lint: true });
-    expect(debug).toHaveBeenCalled();
-    debug.mockRestore();
-    expect(getNoticeMessages()).toEqual(["Doc is already in good shape."]);
+    expect(getNoticeMessages().join("\n")).toContain("Lint note: model down");
+    expect(getNoticeMessages().join("\n")).not.toContain("already in good shape");
+    expect(note._content).toBe("text");
+    expect(activity.snapshot().records[0]?.state).toBe("needs-attention");
   });
 
   it("writes nothing when the review is dismissed", async () => {
@@ -262,18 +271,57 @@ describe("NoteFlows enrichNoteFlow", () => {
     expect(getNoticeMessages()).toEqual([]);
   });
 
-  it("ignores a failed best-effort tagging pass but stops on an unavailable utility model", async () => {
+  it("reports a failed tagging pass and stops on an unavailable utility model", async () => {
     const { app, flows, activity } = rig();
     const note = app.vault.seed("Notes/Doc.md", "body");
     tagger.summarizeAndTag.mockRejectedValueOnce(new Error("bad json"));
     await flows.enrichNoteFlow(note, { ...OPTIONS, rename: true });
-    expect(getNoticeMessages()).toEqual(["Doc is already in good shape."]);
+    expect(getNoticeMessages().join("\n")).toContain("Rename note: bad json");
+    expect(getNoticeMessages().join("\n")).not.toContain("already in good shape");
 
     clearNotices();
     tagger.summarizeAndTag.mockRejectedValueOnce(new UtilityUnavailableError("Utility model is not available.", {} as never));
     await flows.enrichNoteFlow(note, { ...OPTIONS, rename: true });
     expect(getNoticeMessages()).toEqual(["Tidy failed — Utility model is not available."]);
     expect(activity.snapshot().records.some((r) => r.state === "needs-attention")).toBe(true);
+  });
+
+  it.each([true, false])("keeps valid copyedits reviewable when tagging fails (apply: %s)", async (apply) => {
+    const { app, flows, activity } = rig();
+    const note = app.vault.seed("Doc.md", "Original body.");
+    tagger.summarizeAndTag.mockRejectedValue(new Error("tag service unavailable"));
+    lint.parseLintResponse.mockReturnValue("Corrected body.");
+    ui.decision = apply ? { accepted: [true], frontmatter: false, rename: false } : null;
+    await flows.enrichNoteFlow(note, { ...OPTIONS, rename: true, frontmatter: true, lint: true });
+    expect(ui.proposals[0]).toMatchObject({ failures: [{ step: "Rename note / Tags & summary", message: "tag service unavailable" }], plan: { hunks: expect.any(Array) } });
+    expect(note._content).toBe(apply ? "Corrected body." : "Original body.");
+    expect(activity.snapshot().records[0]?.state).toBe("needs-attention");
+    expect(getNoticeMessages().join("\n")).not.toContain("Tidied Doc.");
+    if (apply) expect(getNoticeMessages().join("\n")).toContain("Some Tidy steps failed");
+  });
+
+  it("preserves valid metadata proposals when copyediting fails", async () => {
+    const { app, flows, complete, activity } = rig();
+    const note = app.vault.seed("Doc.md", "Original body.");
+    tagger.summarizeAndTag.mockResolvedValue({ title: "Renamed", tags: ["fresh"], newTags: ["fresh"], summary: "Summary." });
+    complete.mockRejectedValue(new Error("copyeditor unavailable"));
+    ui.decision = null;
+    await flows.enrichNoteFlow(note, { ...OPTIONS, rename: true, frontmatter: true, lint: true });
+    expect(ui.proposals[0]).toMatchObject({ rename: { to: "Renamed.md" }, frontmatter: { tags: ["fresh"] }, failures: [{ step: "Lint note", message: "copyeditor unavailable" }] });
+    expect(note._content).toBe("Original body.");
+    expect(activity.snapshot().records[0]?.state).toBe("needs-attention");
+  });
+
+  it("reports every failed pass when no proposal can be reviewed", async () => {
+    const { app, flows, complete } = rig();
+    const note = app.vault.seed("Doc.md", "Original body.");
+    tagger.summarizeAndTag.mockRejectedValue(new Error("tag service unavailable"));
+    complete.mockRejectedValue(new Error("copyeditor unavailable"));
+    await flows.enrichNoteFlow(note, { ...OPTIONS, rename: true, lint: true });
+    expect(ui.proposals).toEqual([]);
+    expect(getNoticeMessages().join("\n")).toContain("Rename note: tag service unavailable");
+    expect(getNoticeMessages().join("\n")).toContain("Lint note: copyeditor unavailable");
+    expect(note._content).toBe("Original body.");
   });
 });
 

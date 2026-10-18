@@ -138,8 +138,10 @@ export class NoteFlows {
     const progress = beginActivity(this.activity, `Tidying ${file.basename}…`);
     try {
       const proposal = await this.buildEnrichProposal(file, options);
+      const failures = proposal.failures?.map(({ step, message }) => `${step}: ${message}`).join("\n");
+      if (failures) progress.fail(failures);
       if (!proposal.rename && !proposal.frontmatter && !proposal.plan) {
-        new Notice(`${file.basename} is already in good shape.`);
+        new Notice(failures ? `Tidy couldn't finish ${file.basename}.\n${failures}\nRun Tidy again to retry.` : `${file.basename} is already in good shape.`, failures ? 12000 : 6000);
         return;
       }
       progress.finish();
@@ -148,7 +150,7 @@ export class NoteFlows {
       );
       if (!decision) return;
       await this.applyEnrichDecision(file, proposal, decision);
-      new Notice(`Tidied ${file.basename}.`);
+      new Notice(failures ? `Applied selected changes to ${file.basename}. Some Tidy steps failed; run Tidy again to retry.` : `Tidied ${file.basename}.`, failures ? 12000 : 6000);
     } catch (e) {
       progress.fail(e);
       new Notice(`Tidy failed — ${e instanceof Error ? e.message : String(e)}`);
@@ -189,7 +191,8 @@ export class NoteFlows {
         tagResult = await summarizeAndTag(this.deps.router(), content, vaultVocabulary(this.app));
       } catch (e) {
         if (e instanceof UtilityUnavailableError) throw e;
-        // Tagging is best-effort — links/lint still run.
+        const step = [options.rename ? "Rename note" : "", options.frontmatter ? "Tags & summary" : ""].filter(Boolean).join(" / ");
+        (proposal.failures ??= []).push({ step, message: e instanceof Error ? e.message : String(e) });
       }
     }
 
@@ -212,7 +215,7 @@ export class NoteFlows {
         });
         body = parseLintResponse(text, body) ?? body;
       } catch (e) {
-        console.debug("Claude Companion: lint pass failed, keeping prior result", e);
+        (proposal.failures ??= []).push({ step: "Lint note", message: e instanceof Error ? e.message : String(e) });
       }
     }
     const edits = diffToEdits(content, body);
