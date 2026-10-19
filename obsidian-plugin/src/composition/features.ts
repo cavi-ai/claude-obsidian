@@ -1,8 +1,9 @@
-// Wires the feature objects: utility routing, clipper, onboarding, note flows, views, shell, research, desktop integrations, orders and publishing.
+// Wires the feature objects: utility routing, clipper, onboarding, note flows, views, shell, research, desktop integrations, orders, publishing and living views.
 
 import { Platform } from "obsidian";
 import { NoteFlows } from "../enrich/noteFlows";
 import { DesktopFeature, type DesktopFeatureDeps } from "../integrations/desktopFeature";
+import { LivingSources } from "../living/feature";
 import type ClaudeCompanionPlugin from "../main";
 import { Onboarding } from "../onboarding/onboarding";
 import { OrdersFeature, type OrdersFeatureDeps } from "../orders/ordersFeature";
@@ -203,5 +204,15 @@ export function buildPublishing(host: PublishingHost): PublishFeature {
     settings: () => host.settings,
     activity: () => host.activity,
     persist: () => host.persist(),
+  });
+}
+
+export type LivingSourcesHost = Pick<ClaudeCompanionPlugin, "app" | "settings" | "utilityRouting">;
+
+export function buildLivingSources(host: LivingSourcesHost): LivingSources {
+  return new LivingSources({
+    app: host.app,
+    folder: () => host.settings.artifactFolder,
+    selection: () => host.utilityRouting().resolveSession(),
   });
 }
