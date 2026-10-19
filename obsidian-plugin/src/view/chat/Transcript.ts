@@ -24,6 +24,7 @@ import { removeInterruptedTurnRow, renderInterruptedTurnRow, renderRecoverableEd
 import { renderResearchQuickActions } from "./researchQuickActions";
 import { ThinkingStatus } from "./thinkingStatus";
 import { StickToBottom } from "./stickToBottom";
+import { insertReplyIntoNote } from "./replyInsertion";
 import type { ChatSession, TurnState } from "./chatSession";
 
 export interface TranscriptDeps {
@@ -491,7 +492,7 @@ export class Transcript {
       void navigator.clipboard.writeText(output());
       quickNotice("Copied to clipboard");
     });
-    this.actionBtn(bar, "Insert", "text-cursor-input", () => this.insertIntoNote(output()));
+    this.actionBtn(bar, "Insert", "text-cursor-input", () => insertReplyIntoNote(this.deps.resolveMarkdownContextView()?.editor, output()));
     // One Save button that adapts to the content: an artifact saves as an inline
     // `claude-html` note (accented to stand out), anything else saves as a plain
     // chat note. (These used to be two separate buttons running the same handler.)
@@ -687,13 +688,4 @@ export class Transcript {
     await this.app.workspace.getLeaf(true).openFile(file);
   }
 
-  private insertIntoNote(text: string): void {
-    const view = this.deps.resolveMarkdownContextView();
-    if (!view) {
-      new Notice("Open a note to insert into.");
-      return;
-    }
-    view.editor.replaceSelection(text);
-    quickNotice("Inserted into note");
-  }
 }
