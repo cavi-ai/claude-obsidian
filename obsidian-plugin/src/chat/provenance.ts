@@ -46,6 +46,18 @@ export function renameCitationTargets(targets: CitationTarget[] | undefined, old
   return changed ? next : targets;
 }
 
+/** A deleted source must not reconnect to a different file that later reuses its path. */
+export function invalidateCitationTargets(targets: CitationTarget[] | undefined, deletedPath: string): CitationTarget[] | undefined {
+  if (!targets) return targets;
+  let changed = false;
+  const next = targets.map(target => {
+    if (target.path !== deletedPath && !target.path?.startsWith(`${deletedPath}/`)) return target;
+    changed = true;
+    return { ...target, path: null };
+  });
+  return changed ? next : targets;
+}
+
 /** found: source exists; no-section: heading is absent; missing: no source; ambiguous: several notes share the name. */
 export type CitationStatus = "found" | "no-section" | "missing" | "ambiguous";
 
