@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FakeElement, type App } from "obsidian";
 import { LivingSources } from "../../src/living/feature";
 import { readBinding } from "../../src/living/view";
+import { parseTranscript, type Transcript } from "../../src/living/transcript";
 import { linkingApp } from "../context/typedVault";
 
 const ARTICLE = "---\ntype: article\ntitle: Tide Study\n---\n# Tide Study\n\nThe moon pulls the oceans and creates two tides a day.";
@@ -10,7 +11,7 @@ const element = (): HTMLElement => new FakeElement() as unknown as HTMLElement;
 const state = (el: HTMLElement): string => el.querySelector(".cc-living-state")?.textContent ?? "";
 const map = (thesis: string): string => JSON.stringify({ thesis, claims: [{ claim: "Two tides a day.", evidence: [], objections: [] }], takeaway: "" });
 
-function setup(replies: Array<string | Error>) {
+function setup(replies: Array<string | Error>, transcript?: (url: string) => Promise<Transcript | null>) {
   const app = linkingApp() as App & { vault: { seed: (p: string, c: string, o?: object) => unknown; frontmatters: Map<string, Record<string, unknown>> } };
   app.vault.seed("Sources/Tide Study.md", ARTICLE, { frontmatter: { type: "article", title: "Tide Study" } });
   const openFile = vi.fn(async () => undefined);
@@ -25,6 +26,7 @@ function setup(replies: Array<string | Error>) {
     folder: () => "Claude/Artifacts",
     selection: async () => ({ provider: { complete } as never, model: "m" }),
     now: () => new Date("2026-10-19T14:00:00.000Z"),
+    ...(transcript ? { transcript } : {}),
   });
   const source = app.vault.getAbstractFileByPath("Sources/Tide Study.md") as never;
   const viewText = async (): Promise<string> => app.vault.read(app.vault.getAbstractFileByPath(VIEW) as never);
@@ -74,6 +76,41 @@ describe("LivingSources", () => {
     t.living.renderStatus(fresh, VIEW);
     await vi.waitFor(() => expect(state(fresh)).toContain("Up to date"));
     expect(t.complete).toHaveBeenCalledTimes(3);
+  });
+
+  it("maps a video's chapters from the transcript in its note, links each chapter, and fills the video's fields", async () => {
+    const chapters = JSON.stringify({ summary: "Tides and waves.", chapters: [{ start: "0:00", title: "Welcome", summary: "" }, { start: "2:09", title: "Waves", summary: "Wind." }], key_moments: [{ time: "2:10", moment: "Wind makes waves" }] });
+    const transcript = vi.fn(async () => null);
+    const t = setup([chapters], transcript);
+    const note = "---\ntype: video\ntitle: Tide Talk\nurl: https://youtu.be/abc123XYZ00\n---\n## Transcript\n\n**0:00** · Welcome.\n**2:10** · Wind makes waves.";
+    t.app.vault.seed("Sources/Tide Talk.md", note, { frontmatter: { type: "video", title: "Tide Talk", url: "https://youtu.be/abc123XYZ00" } });
+    const video = t.app.vault.getAbstractFileByPath("Sources/Tide Talk.md") as never;
+    expect(t.living.kindOf(video)).toBe("chapter-map");
+    await t.living.open(video);
+    const view = await t.app.vault.read(t.app.vault.getAbstractFileByPath("Claude/Artifacts/Living views/Tide Talk — chapter map.md") as never);
+    expect(view).toContain("- [2:10 Waves](https://www.youtube.com/watch?v=abc123XYZ00&t=130s)");
+    expect(readBinding(view)?.kind).toBe("chapter-map");
+    const source = await t.app.vault.read(video);
+    expect(source).toContain("transcript_summary");
+    expect(source).toContain("2:10 — Wind makes waves");
+    expect(t.complete).toHaveBeenCalledTimes(1);
+    expect(transcript).not.toHaveBeenCalled();
+  });
+
+  it("fetches a YouTube transcript only when the note holds none, and builds nothing without one", async () => {
+    const chapters = JSON.stringify({ summary: "", chapters: [{ start: "0:00", title: "Start", summary: "" }], key_moments: [] });
+    const fetched = parseTranscript("**0:00** · Hello.\n**0:30** · Goodbye.");
+    const transcript = vi.fn(async (url: string) => (url.includes("youtube") ? fetched : null));
+    const t = setup([chapters], transcript);
+    t.app.vault.seed("Sources/Clip.md", "---\ntype: video\n---\nMy notes.", { frontmatter: { type: "video", source: "https://www.youtube.com/watch?v=abc123XYZ00" } });
+    t.app.vault.seed("Sources/Bare.md", "---\ntype: video\n---\nNo transcript here.", { frontmatter: { type: "video", url: "https://vimeo.com/1" } });
+    await t.living.open(t.app.vault.getAbstractFileByPath("Sources/Clip.md") as never);
+    expect(transcript).toHaveBeenCalledWith("https://www.youtube.com/watch?v=abc123XYZ00");
+    expect(await t.app.vault.read(t.app.vault.getAbstractFileByPath("Claude/Artifacts/Living views/Clip — chapter map.md") as never)).toContain("Goodbye.");
+    await t.living.open(t.app.vault.getAbstractFileByPath("Sources/Bare.md") as never);
+    expect(transcript).toHaveBeenCalledTimes(1);
+    expect(t.app.vault.getAbstractFileByPath("Claude/Artifacts/Living views/Bare — chapter map.md")).toBeNull();
+    expect(t.complete).toHaveBeenCalledTimes(1);
   });
 
   it("builds a dataset explorer from its CSV without a model call and offers nothing for other notes", async () => {

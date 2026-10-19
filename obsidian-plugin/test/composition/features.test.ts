@@ -320,5 +320,7 @@ describe("buildLivingSources", () => {
     expect(call("living", "folder")).toBe("Views");
     expect(await call("living", "selection")).toBe("selection");
     expect(resolveSession).toHaveBeenCalledTimes(1);
+    // No DOM parser here, so video notes must carry their transcript.
+    expect(captured.living!.transcript).toBeUndefined();
   });
 });

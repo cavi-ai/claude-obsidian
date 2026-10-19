@@ -39,6 +39,34 @@ const DATASET = [
   "![[prices.csv]]",
 ].join("\n");
 
+const VIDEO = [
+  "---",
+  "type: video",
+  "source_enriched: true",
+  "title: Tide Talk",
+  "channel: Ocean Lab",
+  "summary: A short talk on tides and waves.",
+  "url: https://www.youtube.com/watch?v=abc123XYZ00",
+  "---",
+  "# Tide Talk",
+  "",
+  "## Transcript",
+  "",
+  "**0:00** · Welcome to the talk.",
+  "**0:45** · First we cover how the moon moves the tides.",
+  "**2:10** · Then we cover how wind makes waves.",
+  "**4:30** · Thanks for watching.",
+].join("\n");
+const CHAPTERS = JSON.stringify({
+  summary: "How the moon makes tides and wind makes waves.",
+  chapters: [
+    { start: "0:00", title: "Welcome", summary: "The speaker opens the talk." },
+    { start: "0:44", title: "Tides", summary: "The moon moves the tides." },
+    { start: "2:10", title: "Waves", summary: "Wind makes waves." },
+  ],
+  key_moments: [{ time: "2:10", moment: "Wind makes waves" }],
+});
+
 type PageApp = {
   commands: { executeCommandById(id: string): Promise<void> };
   vault: { getAbstractFileByPath(path: string): unknown; read(file: unknown): Promise<string>; modify(file: unknown, data: string): Promise<void> };
@@ -84,6 +112,30 @@ test("an article's living view maps its argument and rebuilds after the article 
   await expect(view.locator(".cc-living-status")).toContainText("Up to date", { timeout: 20_000 });
   await expect(view.locator(".cc-artifact iframe").contentFrame().locator("body")).toContainText("Lunar and solar gravity drive the tides.");
   expect(await rig.providerRequests()).toBe(2);
+});
+
+test("a video's living view maps chapters from its transcript and fills the video's derived fields", async ({ rig }, testInfo) => {
+  const { page } = await rig.reset({
+    settingsOverride: { agentModeEnabled: false },
+    extraFiles: { "Sources/Tide Talk.md": VIDEO },
+    providerReply: [{ match: "Map the chapters", replies: [CHAPTERS] }],
+  });
+  await openNote(page, "Sources/Tide Talk.md");
+  await runCommand(page);
+  await expect.poll(() => activePath(page), { timeout: 20_000 }).toBe("Claude/Artifacts/Living views/Tide Talk — chapter map.md");
+  const view = page.locator(".workspace-leaf.mod-active .markdown-reading-view");
+  await expect(view.locator(".cc-living-status")).toContainText("Up to date", { timeout: 15_000 });
+  const frame = view.locator(".cc-artifact iframe").contentFrame();
+  await expect(frame.locator(".lv-chapter")).toHaveCount(3);
+  await expect(frame.locator("body")).toContainText("Wind makes waves");
+  await expect(view.locator('a[href="https://www.youtube.com/watch?v=abc123XYZ00&t=45s"]')).toContainText("0:45 Tides");
+  await page.screenshot({ path: testInfo.outputPath("chapter-map.png") });
+  await expect.poll(() => page.evaluate(() => {
+    const app = (window as unknown as { app: PageApp }).app;
+    const fm = app.metadataCache.getFileCache(app.vault.getAbstractFileByPath("Sources/Tide Talk.md"))?.frontmatter ?? {};
+    return [fm.chapters, fm.key_moments, fm.transcript_summary];
+  })).toEqual([3, ["2:10 — Wind makes waves"], "How the moon makes tides and wind makes waves."]);
+  expect(await rig.providerRequests()).toBe(1);
 });
 
 test("a dataset's living view explores its CSV without a model call", async ({ rig }, testInfo) => {
