@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { checkCitations, extractCitations, sectionExcerpt } from "../../src/chat/provenance";
+import { checkCitations, currentCitationTargets, extractCitations, sectionExcerpt } from "../../src/chat/provenance";
+
+it("copies saved citation targets and rejects malformed persisted targets", () => {
+  const targets = [{ linkpath: "Alpha", heading: "Findings", path: "Notes/Alpha.md" }];
+  const copy = currentCitationTargets(targets)!;
+  copy[0]!.path = "Archive/Alpha.md";
+  expect(targets[0]!.path).toBe("Notes/Alpha.md");
+  for (const raw of [null, {}, [null], [{ linkpath: "Alpha", heading: 1, path: "Notes/Alpha.md" }], [{ linkpath: "Alpha", heading: null, path: false }]]) expect(currentCitationTargets(raw)).toBeUndefined();
+});
 
 describe("extractCitations", () => {
   it("returns each cited note and section once, in first-seen order", () => {

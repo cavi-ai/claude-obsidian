@@ -12,6 +12,31 @@ export interface Citation {
   heading: string | null;
 }
 
+/** The source resolved when an answer was saved; independent of its historical wording. */
+export interface CitationTarget extends Citation {
+  path: string | null;
+}
+
+export function currentCitationTargets(raw: unknown): CitationTarget[] | undefined {
+  if (!Array.isArray(raw) || !raw.every((value: unknown): value is CitationTarget => {
+    if (!value || typeof value !== "object") return false;
+    const item = value as Record<string, unknown>;
+    return typeof item.linkpath === "string" && (item.heading === null || typeof item.heading === "string") && (item.path === null || typeof item.path === "string");
+  })) return undefined;
+  return raw.map(({ linkpath, heading, path }) => ({ linkpath, heading, path }));
+}
+
+export function renameCitationTargets(targets: CitationTarget[] | undefined, oldPath: string, newPath: string): CitationTarget[] | undefined {
+  if (!targets) return targets;
+  let changed = false;
+  const next = targets.map(target => {
+    if (target.path !== oldPath && !target.path?.startsWith(`${oldPath}/`)) return target;
+    changed = true;
+    return { ...target, path: newPath + target.path.slice(oldPath.length) };
+  });
+  return changed ? next : targets;
+}
+
 /** found: the note (and section) exist; no-section: the note exists without that heading; missing: no note resolves. */
 export type CitationStatus = "found" | "no-section" | "missing";
 

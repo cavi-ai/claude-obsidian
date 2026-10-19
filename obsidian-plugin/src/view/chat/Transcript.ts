@@ -1,5 +1,5 @@
 import { type App, type EventRef, MarkdownView, Notice, setIcon, type TFile } from "obsidian";
-import { renderProvenance } from "./provenanceFooter";
+import { ProvenanceFooters } from "./provenanceFooter";
 import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
 import { errorMessage } from "../../records";
@@ -49,17 +49,18 @@ export class Transcript {
   private list!: HTMLElement;
   private stick: StickToBottom | null = null;
   private workspaceGeneration = 0;
-
+  private readonly provenance: ProvenanceFooters;
   /** The transcript's scroller; it follows the latest message while the reader is at the bottom. */
   get messagesEl(): HTMLElement { return this.list; }
   set messagesEl(el: HTMLElement) {
+    this.provenance.clear();
     this.stick?.destroy();
     this.list = el;
     this.stick = new StickToBottom(el, { ResizeObserver: window.ResizeObserver, MutationObserver: window.MutationObserver });
   }
   /** Rotating "thinking" status word timer + per-turn start offset. */
   private readonly thinking = new ThinkingStatus();
-  constructor(private app: App, private plugin: TranscriptHost, private chat: ChatSession, private deps: TranscriptDeps) {}
+  constructor(private app: App, private plugin: TranscriptHost, private chat: ChatSession, private deps: TranscriptDeps) { this.provenance = new ProvenanceFooters(app, () => this.messagesEl); }
 
   private get turn(): TurnState { return this.chat.turn; }
   private get lastUserText(): string { return this.chat.lastUserText; }
@@ -121,6 +122,7 @@ export class Transcript {
     };
     register(this.app.workspace.on("file-open", refresh));
     register(this.app.workspace.on("active-leaf-change", refresh));
+    this.provenance.watch(register);
   }
 
   private async renderContextualWorkspace(mount: HTMLElement): Promise<void> {
@@ -273,7 +275,7 @@ export class Transcript {
     const full = !keepPrevious && !incompleteArtifact && result.text.trim().length > 0 ? result.text : null;
     if (full) {
       this.messages.push({ role: "assistant", content: full, ...(result.trace.length > 0 ? { toolTrace: result.trace } : {}) });
-      this.addAssistantActions(bubble, full, contextSources);
+      this.addAssistantActions(bubble, full, contextSources, this.plugin.conversations().list().find(c => c.id === conversationId)?.messages.at(-1));
     }
     if (result.error && !full) {
       const providerId = (result.error as Error & { ccProvider?: ErrorHintProvider }).ccProvider ?? "anthropic";
@@ -410,7 +412,7 @@ export class Transcript {
       if (stored) this.renderContextNote(bubble, stored.contextSources);
     } else if (stored?.content.trim()) {
       const user = this.messages[this.messages.indexOf(stored) - 1];
-      this.addAssistantActions(bubble, stored.content, user?.role === "user" ? user.contextSources : undefined);
+      this.addAssistantActions(bubble, stored.content, user?.role === "user" ? user.contextSources : undefined, stored);
     }
     // A send shows the latest message; saved history does not change scroll ownership.
     if (!stored) {
@@ -475,12 +477,12 @@ export class Transcript {
     bubble.createDiv({ cls: "cc-context-note", text: valid ? `+ context: ${sources.join(", ")}` : "Context details unavailable" });
   }
 
-  private addAssistantActions(bubble: HTMLElement, full: string, contextSources?: string[]): void {
+  private addAssistantActions(bubble: HTMLElement, full: string, contextSources?: string[], message?: ChatMessage): void {
     const sources = contextSnapshot(contextSources);
     bubble.querySelectorAll(":scope > .cc-actions, :scope > .cc-provenance").forEach((el) => el.remove());
     // Per-code-block copy buttons inside the rendered markdown.
     this.decorateCodeBlocks(bubble);
-    renderProvenance(this.app, bubble, full);
+    this.provenance.render(bubble, full, message?.content === full ? message.citationTargets : undefined);
 
     const bar = bubble.createDiv({ cls: "cc-actions" });
     this.actionBtn(bar, "Copy", "copy", () => {
@@ -562,6 +564,7 @@ export class Transcript {
   }
 
   stopFollowing(): void {
+    this.provenance.clear();
     this.workspaceGeneration++;
     this.stick?.destroy();
     this.stick = null;

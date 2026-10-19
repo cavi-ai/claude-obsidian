@@ -36,6 +36,7 @@ export function buildChat(host: ChatHost, wiring: ChatWiring): ChatCluster {
       persist: () => host.persist(),
       activity: () => host.activity,
       settings: () => host.settings,
+      resolveCitation: linkpath => host.app.metadataCache.getFirstLinkpathDest(linkpath, "")?.path ?? null,
     }),
     distiller: () => distillController ??= new DistillController({
       get: (id) => cluster.conversations().list().find((c) => c.id === id),
