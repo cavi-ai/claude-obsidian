@@ -1,7 +1,7 @@
 import type { ActivityStore } from "../activity/store";
 import { ChatTurnLifecycle } from "../chat/turnLifecycle";
 import { renameTurnMedia, renameTurnContext } from "../chat/turnSources";
-import { currentCitationTargets, extractCitations, renameCitationTargets } from "../chat/provenance";
+import { currentCitationTargets, extractCitations, invalidateCitationTargets, renameCitationTargets } from "../chat/provenance";
 import type { ChatMessage } from "../types";
 import type { PluginSettings } from "../types";
 import {
@@ -98,6 +98,25 @@ export class ConversationsController {
         return { ...message, ...(media ? { media } : {}), ...(contextAttachments ? { contextAttachments } : {}), ...(citationTargets ? { citationTargets } : {}) };
       });
       return moved ? { ...conversation, messages } : conversation;
+    });
+    if (!changed) return;
+    this.deps.state.set({ ...state, conversations });
+    await this.deps.persist();
+  }
+
+  /** Persist deleted sources as unavailable in active and inactive conversations. */
+  async invalidateCitations(deletedPath: string): Promise<void> {
+    const state = this.deps.state.get();
+    let changed = false;
+    const conversations = state.conversations.map(conversation => {
+      let invalidated = false;
+      const messages = conversation.messages.map(message => {
+        const citationTargets = invalidateCitationTargets(message.citationTargets, deletedPath);
+        if (!citationTargets || citationTargets === message.citationTargets) return message;
+        changed = invalidated = true;
+        return { ...message, citationTargets };
+      });
+      return invalidated ? { ...conversation, messages } : conversation;
     });
     if (!changed) return;
     this.deps.state.set({ ...state, conversations });
