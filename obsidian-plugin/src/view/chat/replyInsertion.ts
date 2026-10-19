@@ -23,5 +23,6 @@ export function insertReplyIntoNote(editor: Editor | undefined, text: string): v
   const from = editor.posToOffset(editor.getCursor("from"));
   const to = editor.posToOffset(editor.getCursor("to"));
   editor.replaceSelection(formatReplyInsertion(text, note.slice(0, from), note.slice(to)));
+  editor.focus();
   quickNotice("Inserted into note");
 }

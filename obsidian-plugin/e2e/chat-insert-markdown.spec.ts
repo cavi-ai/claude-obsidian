@@ -40,11 +40,12 @@ test("inserting a structured reply preserves the existing paragraph and its new 
     return view.editor.getValue();
   });
   expect(text).toBe(`${original}\n\n${answer}`);
-  await page.locator(".markdown-source-view .cm-content").click();
+  await expect(page.locator(".markdown-source-view .cm-content")).toBeFocused();
   await page.keyboard.press("ControlOrMeta+z");
   expect(await page.evaluate(() => {
     const view = (window as unknown as VaultWindow).app.workspace.getLeavesOfType("markdown").find(leaf => leaf.view.file?.path === "Notes/Review.md")!.view;
     return view.editor.getValue();
   })).toBe(original);
+  await page.screenshot({ path: testInfo.outputPath("immediate-undo-restores-note.png") });
   expect(errors).toEqual([]);
 });
