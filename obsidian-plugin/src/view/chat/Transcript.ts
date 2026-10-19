@@ -492,7 +492,7 @@ export class Transcript {
       void navigator.clipboard.writeText(output());
       quickNotice("Copied to clipboard");
     });
-    this.actionBtn(bar, "Insert", "text-cursor-input", () => insertReplyIntoNote(this.deps.resolveMarkdownContextView()?.editor, output()));
+    this.actionBtn(bar, "Insert", "text-cursor-input", () => void insertReplyIntoNote(this.deps.resolveMarkdownContextView(), output()));
     // One Save button that adapts to the content: an artifact saves as an inline
     // `claude-html` note (accented to stand out), anything else saves as a plain
     // chat note. (These used to be two separate buttons running the same handler.)
