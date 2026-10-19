@@ -4,6 +4,28 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] — 2026-10-19
+
+### Added
+- Chat replies cite vault notes by section, and a Cited notes footer checks each citation against the vault and opens the note at the cited heading.
+- Build Runner lists saved builds with their status and opens from the command palette without starting a new build.
+
+### Fixed
+- Chat drafts survive reopening a tab, reloading the plugin, switching chats during a save, and requests sent from Research Desk; Research Desk keeps one draft per project.
+- Pasted chat images are saved as vault attachments, and attached files follow renames and keep the question when a file can't be read.
+- Session rename has Save and Cancel, and saved replies use the local date and keep their own turn's context.
+- Claim review and new claims show each passage's source, location, and trust warnings, and open evidence review from a passage.
+- Passages need a location before they are kept, stay with their source when switching sources, and unlocated passages are guided to review.
+- Research drafting shows progress and Cancel, labels fallback text, explains rejected revisions, and keeps question edits made while a draft generates.
+- Research Desk reports note imports and the real reason an instruction can't be sent, and offers Retry when a new project's first source fails to save.
+- Each build keeps its own spec and tracker, which follow renames and use local dates; build tasks skip frontmatter and fenced examples.
+- A failed Claude Code result stops the build queue with Retry task, and a failed tracker update can be retried without rerunning tasks.
+- Publishing follows note renames, publishes distinct artifacts independently, and reports clipboard failures.
+- Tidy, frontmatter suggestions, and safe fixes keep metadata changed during review, report failed steps and write failures, and reject stale proposals.
+- Tidy options, clipping moves, and review checkboxes have accessible names, and clicking their text toggles the choice.
+- Inbox waits for open edits before enriching, clears failures that a retry resolved, and keeps batch status after reopening.
+- Semantic tag suggestions never target a tag on most notes or a tag with an empty path segment.
+
 ## [0.45.2] — 2026-10-17
 
 ### Fixed
