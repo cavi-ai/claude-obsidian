@@ -2,7 +2,7 @@ import { type App, type EventRef, Notice, type TAbstractFile, TFile } from "obsi
 import { checkCitations, currentCitationTargets, extractCitations, resolveCitationPath, type CheckedCitation, type CitationTarget } from "../../chat/provenance";
 
 const PROVENANCE_ITEMS = 12;
-export interface ProvenanceFooter { refresh(changed?: TAbstractFile): void; dispose(): void }
+export interface ProvenanceFooter { refresh(changed?: TAbstractFile): void; targets(): CitationTarget[]; dispose(): void }
 
 /** Own citation listeners for exactly the bubbles displayed by one transcript. */
 export class ProvenanceFooters {
@@ -30,6 +30,10 @@ export class ProvenanceFooters {
   clear(): void {
     this.handles.forEach(handle => handle.dispose());
     this.handles.clear();
+  }
+
+  targets(bubble: HTMLElement): CitationTarget[] {
+    return this.handles.get(bubble)?.targets() ?? [];
   }
 
   private prune(): void {
@@ -110,7 +114,7 @@ export function renderProvenance(app: App, bubble: HTMLElement, full: string, ta
   bubble.addEventListener("click", onClick, true);
   bubble.addEventListener("auxclick", onClick, true);
   refresh();
-  return { refresh, dispose: () => {
+  return { refresh, targets: () => citations.map((citation, index) => ({ ...citation, path: currentFile(index)?.path ?? null })), dispose: () => {
     disposed = true;
     generation++;
     bubble.removeEventListener("click", onClick, true);

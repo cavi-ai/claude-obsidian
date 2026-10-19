@@ -68,23 +68,50 @@ export interface CitationVault {
 const EXCERPT_CHARS = 160;
 const WIKILINK = /(!?)\[\[([^\]\n]+?)\]\]/g;
 
-/** Strip fenced code blocks and inline code so links inside code are not citations. */
+/** Mask code without changing offsets, so citation edits preserve the original Markdown. */
 function withoutCode(markdown: string): string {
   const lines: string[] = [];
   let fence: string | null = null;
+  const mask = (text: string) => " ".repeat(text.length);
   for (const line of markdown.split("\n")) {
     const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
       if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+      lines.push(mask(line));
       continue;
     }
     if (marker) {
       fence = marker;
+      lines.push(mask(line));
       continue;
     }
-    lines.push(line.replace(/`[^`\n]*`/g, ""));
+    lines.push(line.replace(/(`+)(?!`)([^`]|(?!\1)`)*?\1(?!`)/g, mask));
   }
   return lines.join("\n");
+}
+
+/** Resolve exported links at action time; never change the stored conversation or code examples. */
+export function exportCitationLinks(markdown: string, targets: readonly CitationTarget[]): string {
+  let result = "";
+  let offset = 0;
+  for (const match of withoutCode(markdown).matchAll(WIKILINK)) {
+    if (match[1]) continue;
+    const citation = extractCitations(match[0])[0];
+    if (!citation) continue;
+    const target = targets.find(item => item.linkpath.toLowerCase() === citation.linkpath.toLowerCase() && item.heading?.toLowerCase() === citation.heading?.toLowerCase());
+    if (!target) continue;
+    const raw = match[2]!;
+    const pipe = raw.indexOf("|");
+    const destination = pipe < 0 ? raw : raw.slice(0, pipe);
+    const hash = destination.indexOf("#");
+    const alias = pipe < 0 ? "" : raw.slice(pipe);
+    const replacement = target.path
+      ? `[[${target.path}${hash < 0 ? "" : destination.slice(hash)}${alias}]]`
+      : `${(alias ? alias.slice(1) : destination).replace(/[\\`*_{}[\]<>!|]/g, "\\$&")} (source unavailable)`;
+    result += markdown.slice(offset, match.index) + replacement;
+    offset = match.index + match[0].length;
+  }
+  return result + markdown.slice(offset);
 }
 
 /** Wikilinks a reply cites, in first-seen order, one per note and section; embeds and code are skipped. */
