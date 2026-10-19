@@ -365,6 +365,8 @@ export class Transcript {
   }
 
   createAssistantBubble(): { bubble: HTMLElement; body: HTMLElement } {
+    // These controls retry the latest question, so they must not remain on earlier turns.
+    for (const selector of [".cc-regenerate", ".cc-error-retry"]) this.messagesEl.querySelectorAll(selector).forEach(button => button.remove());
     const bubble = this.messagesEl.createDiv({ cls: "cc-msg cc-assistant" });
     bubble.createDiv({ cls: "cc-role", text: "Claude" });
     this.addSparkMark(bubble);
@@ -415,7 +417,7 @@ export class Transcript {
       if (stored) this.renderContextNote(bubble, stored.contextSources);
     } else if (stored?.content.trim()) {
       const user = this.messages[this.messages.indexOf(stored) - 1];
-      this.addAssistantActions(bubble, stored.content, user?.role === "user" ? user.contextSources : undefined, stored);
+      this.addAssistantActions(bubble, stored.content, user?.role === "user" ? user.contextSources : undefined, stored, stored === this.messages.at(-1));
     }
     // A send shows the latest message; saved history does not change scroll ownership.
     if (!stored) {
@@ -480,7 +482,7 @@ export class Transcript {
     bubble.createDiv({ cls: "cc-context-note", text: valid ? `+ context: ${sources.join(", ")}` : "Context details unavailable" });
   }
 
-  private addAssistantActions(bubble: HTMLElement, full: string, contextSources?: string[], message?: ChatMessage): void {
+  private addAssistantActions(bubble: HTMLElement, full: string, contextSources?: string[], message?: ChatMessage, latest = true): void {
     const sources = contextSnapshot(contextSources);
     bubble.querySelectorAll(":scope > .cc-actions, :scope > .cc-provenance").forEach((el) => el.remove());
     // Per-code-block copy buttons inside the rendered markdown.
@@ -521,8 +523,8 @@ export class Transcript {
     // Regenerate the last reply (only on the most recent assistant message).
     const tail = this.messages[this.messages.length - 1];
     const isLast = tail?.role === "assistant";
-    if (isLast && this.lastUserText) {
-      this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.deps.regenerate());
+    if (latest && isLast && this.lastUserText) {
+      this.actionBtn(bar, "Regenerate", "refresh-cw", () => void this.deps.regenerate()).addClass("cc-regenerate");
     }
   }
 
