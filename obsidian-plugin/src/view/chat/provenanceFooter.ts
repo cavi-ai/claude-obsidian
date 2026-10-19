@@ -1,5 +1,5 @@
 import { type App, type EventRef, Notice, type TAbstractFile, TFile } from "obsidian";
-import { checkCitations, currentCitationTargets, extractCitations, type CheckedCitation, type CitationTarget } from "../../chat/provenance";
+import { checkCitations, currentCitationTargets, extractCitations, resolveCitationPath, type CheckedCitation, type CitationTarget } from "../../chat/provenance";
 
 const PROVENANCE_ITEMS = 12;
 export interface ProvenanceFooter { refresh(changed?: TAbstractFile): void; dispose(): void }
@@ -46,9 +46,10 @@ export function renderProvenance(app: App, bubble: HTMLElement, full: string, ta
   const citations = extractCitations(full);
   if (!citations.length) return;
   const saved = currentCitationTargets(targets);
+  const paths = app.vault.getFiles().map(file => file.path);
   const bindings = citations.map(citation => {
     const target = saved?.find(item => item.linkpath === citation.linkpath && item.heading === citation.heading);
-    const path = target ? target.path : app.metadataCache.getFirstLinkpathDest(citation.linkpath, "")?.path;
+    const path = target ? target.path : resolveCitationPath(citation.linkpath, paths).path;
     const file = path ? app.vault.getAbstractFileByPath(path) : null;
     return { citation, file: file instanceof TFile ? file : null };
   });
@@ -61,6 +62,7 @@ export function renderProvenance(app: App, bubble: HTMLElement, full: string, ta
   };
   const check = () => checkCitations(citations, {
     resolve: linkpath => currentFile(bindings.findIndex(binding => binding.citation.linkpath === linkpath))?.path ?? null,
+    ambiguous: linkpath => resolveCitationPath(linkpath, paths).ambiguous,
     read: async path => {
       const file = app.vault.getAbstractFileByPath(path);
       return file instanceof TFile ? app.vault.cachedRead(file) : "";
@@ -81,7 +83,7 @@ export function renderProvenance(app: App, bubble: HTMLElement, full: string, ta
       if (disposed) return;
       const file = currentFile(index);
       if (!file || !checked) {
-        new Notice("Cited note is no longer in the vault. No note was created.");
+        new Notice(checked?.status === "ambiguous" ? "Several notes share this name. The citation needs the note's folder path." : "Cited note is no longer in the vault. No note was created.");
         refresh();
         return;
       }
@@ -123,14 +125,14 @@ function fillProvenance(footer: HTMLElement, checked: CheckedCitation[], open: (
   footer.createDiv({ cls: "cc-provenance-title", text: unverified ? `Cited notes · ${unverified} unverified` : "Cited notes" });
   shown.forEach((citation, index) => {
     const item = footer.createDiv({ cls: `cc-provenance-item${citation.status === "found" ? "" : ` is-${citation.status}`}` });
-    const name = citation.path ? citation.path.split("/").pop()!.replace(/\.md$/, "") : citation.linkpath;
+    const name = citation.path ? (citation.linkpath.includes("/") ? citation.path : citation.path.split("/").pop()!).replace(/\.md$/, "") : citation.linkpath;
     const label = citation.heading ? `${name} › ${citation.heading}` : name;
     const row = item.createDiv({ cls: "cc-provenance-row" });
     if (citation.path) {
       const link = row.createEl("a", { cls: "cc-provenance-link", text: label, href: "#" });
       link.addEventListener("click", event => { event.preventDefault(); void open(index, event.ctrlKey || event.metaKey); });
     } else row.createSpan({ cls: "cc-provenance-name", text: label });
-    if (citation.status !== "found") row.createSpan({ cls: "cc-provenance-status", text: citation.status === "missing" ? "Not in vault" : "Section not found" });
+    if (citation.status !== "found") row.createSpan({ cls: "cc-provenance-status", text: citation.status === "ambiguous" ? "Multiple notes match" : citation.status === "missing" ? "Not in vault" : "Section not found" });
     if (citation.excerpt) item.createDiv({ cls: "cc-provenance-excerpt", text: citation.excerpt });
   });
   if (checked.length > shown.length) footer.createDiv({ cls: "cc-provenance-more", text: `+${checked.length - shown.length} more` });

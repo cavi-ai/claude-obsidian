@@ -3,6 +3,7 @@
 import { Notice, Platform, TFile } from "obsidian";
 import { saveSummaryNote } from "../artifacts/artifactStore";
 import { ChatTurnService } from "../chat/turnService";
+import { resolveCitationPath } from "../chat/provenance";
 import { shouldNotifyTurnComplete } from "../chat/turnNotice";
 import { ConversationsController, type ConversationsControllerDeps } from "../conversations/controller";
 import { DistillController } from "../conversations/distillController";
@@ -36,7 +37,7 @@ export function buildChat(host: ChatHost, wiring: ChatWiring): ChatCluster {
       persist: () => host.persist(),
       activity: () => host.activity,
       settings: () => host.settings,
-      resolveCitation: linkpath => host.app.metadataCache.getFirstLinkpathDest(linkpath, "")?.path ?? null,
+      resolveCitation: linkpath => resolveCitationPath(linkpath, host.app.vault.getFiles().map(file => file.path)).path,
     }),
     distiller: () => distillController ??= new DistillController({
       get: (id) => cluster.conversations().list().find((c) => c.id === id),
