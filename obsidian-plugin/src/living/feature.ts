@@ -8,17 +8,33 @@ import { completeJsonWithRepair } from "../providers/jsonRepair";
 import type { ProviderSelection } from "../providers/router";
 import { ensureVaultFolder, uniqueNotePath } from "../vault/vaultFiles";
 import { ARGUMENT_MAP_SCHEMA, ARGUMENT_MAP_SYSTEM, argumentMapPrompt, parseArgumentMap, renderArgumentMap, type ArticleInput } from "./argumentMap";
+import { CHAPTER_MAP_SCHEMA, CHAPTER_MAP_SYSTEM, chapterMapPrompt, parseChapterMap, renderChapterMap, videoFields, watchLinks, type VideoInput } from "./chapterMap";
 import { parseCsv, renderDatasetExplorer } from "./datasetExplorer";
 import { fingerprint } from "./fingerprint";
+import { parseTranscript, youtubeId, type Transcript } from "./transcript";
 import { KIND_LABEL, buildViewNote, defaultViewPath, livingKindFor, noteBody, readBinding, type LivingKind } from "./view";
 
 export interface LivingSourcesDeps {
   app: App;
   /** Folder that holds the "Living views" folder (the artifact folder). */
   folder(): string;
-  /** The model for argument maps; may ask for consent. */
+  /** The model for argument and chapter maps; may ask for consent. */
   selection(): Promise<ProviderSelection>;
+  /** A YouTube video's transcript, fetched when the note holds none; absent where pages cannot be parsed. */
+  transcript?(url: string): Promise<Transcript | null>;
   now?(): Date;
+}
+
+/** A video note's URL: the enriched `url`, else the clipper's `source`. */
+function videoUrl(fm: Record<string, unknown>): string | null {
+  for (const value of [fm.url, fm.source]) if (typeof value === "string" && /^https?:\/\//i.test(value.trim())) return value.trim();
+  return null;
+}
+
+/** What a chapter map is built from: the video URL and any transcript the note holds. */
+function videoKey(url: string | null, body: string): string {
+  const transcript = parseTranscript(body);
+  return `${url ?? ""}\n${transcript ? transcript.segments.map((s) => `${s.start} ${s.text}`).join("\n") : ""}`;
 }
 
 export class LivingSources {
@@ -32,7 +48,7 @@ export class LivingSources {
     return this.deps.app;
   }
 
-  /** The view a note gets, or null when it is not an article or a dataset with a CSV. */
+  /** The view a note gets, or null when it is not an article, a video, or a dataset with a CSV. */
   kindOf(file: TFile): LivingKind | null {
     if (file.extension !== "md") return null;
     return livingKindFor(this.app.metadataCache.getFileCache(file)?.frontmatter);
@@ -42,7 +58,7 @@ export class LivingSources {
   async open(source: TFile): Promise<void> {
     const kind = this.kindOf(source);
     if (!kind) {
-      new Notice("Living views are available for article notes and dataset notes with a CSV.");
+      new Notice("Living views are available for article notes, video notes, and dataset notes with a CSV.");
       return;
     }
     try {
@@ -50,7 +66,7 @@ export class LivingSources {
       const current = await this.sourceFingerprint(source, kind);
       const binding = view ? readBinding(await this.app.vault.read(view)) : null;
       if (!view || binding?.hash !== current) {
-        if (kind === "argument-map") new Notice(`Building the ${KIND_LABEL[kind]} for ${source.basename}…`);
+        if (kind !== "dataset-explorer") new Notice(`Building the ${KIND_LABEL[kind]} for ${source.basename}…`);
         view = await this.rebuild(source, kind, view);
       }
       await this.app.workspace.getLeaf(false).openFile(view, { state: { mode: "preview" } });
@@ -178,19 +194,35 @@ export class LivingSources {
         ...(Array.isArray(fm.key_claims) ? { keyClaims: fm.key_claims.map(String) } : {}),
         ...(typeof fm.url === "string" ? { url: fm.url } : {}),
       };
-      const selection = await this.deps.selection();
-      const { response } = await completeJsonWithRepair(selection.provider, {
-        system: ARGUMENT_MAP_SYSTEM,
-        messages: [{ role: "user", content: argumentMapPrompt(input) }],
-        model: selection.model,
-        maxTokens: 2500,
-        temperature: 0,
-        responseFormat: "json",
-        responseSchema: ARGUMENT_MAP_SCHEMA,
-        thinking: { type: "disabled" },
-      }, parseArgumentMap);
-      const html = renderArgumentMap(response, input);
-      return buildViewNote({ ...binding, title: `${title} — ${KIND_LABEL[kind]}`, hash: fingerprint(text), html });
+      const map = await this.complete(ARGUMENT_MAP_SYSTEM, argumentMapPrompt(input), ARGUMENT_MAP_SCHEMA, parseArgumentMap, 2500);
+      return buildViewNote({ ...binding, title: `${title} — ${KIND_LABEL[kind]}`, hash: fingerprint(text), html: renderArgumentMap(map, input) });
+    }
+    if (kind === "chapter-map") {
+      const body = noteBody(await this.app.vault.read(source));
+      const url = videoUrl(fm);
+      const id = url ? youtubeId(url) : null;
+      const transcript = parseTranscript(body) ?? (url && id && this.deps.transcript ? await this.deps.transcript(url) : null);
+      if (!transcript) {
+        throw new Error(id ? "The video has no transcript Companion can read" : "Add the video's transcript to the note or a YouTube url to its properties");
+      }
+      const input: VideoInput = {
+        title,
+        transcript,
+        ...(typeof fm.channel === "string" ? { channel: fm.channel } : {}),
+        ...(typeof fm.summary === "string" ? { summary: fm.summary } : {}),
+        ...(url ? { url } : {}),
+      };
+      const map = await this.complete(CHAPTER_MAP_SYSTEM, chapterMapPrompt(input), CHAPTER_MAP_SCHEMA, (raw) => parseChapterMap(raw, transcript), 3000);
+      await this.app.fileManager.processFrontMatter(source, (front: Record<string, unknown>) => {
+        Object.assign(front, videoFields(map));
+      });
+      return buildViewNote({
+        ...binding,
+        title: `${title} — ${KIND_LABEL[kind]}`,
+        hash: fingerprint(videoKey(url, body)),
+        html: renderChapterMap(map, input),
+        after: watchLinks(map, id),
+      });
     }
     const asset = this.assetOf(source);
     if (!asset) throw new Error(`The dataset's CSV is not in the vault: ${String(fm.asset)}`);
@@ -201,6 +233,22 @@ export class LivingSources {
     return buildViewNote({ ...binding, title: `${title} — ${KIND_LABEL[kind]}`, hash: fingerprint(csv), html });
   }
 
+  /** One schema-bound model call with a single repair turn. */
+  private async complete<T>(system: string, user: string, schema: Record<string, unknown>, parse: (raw: string) => T, maxTokens: number): Promise<T> {
+    const selection = await this.deps.selection();
+    const { response } = await completeJsonWithRepair(selection.provider, {
+      system,
+      messages: [{ role: "user", content: user }],
+      model: selection.model,
+      maxTokens,
+      temperature: 0,
+      responseFormat: "json",
+      responseSchema: schema,
+      thinking: { type: "disabled" },
+    }, parse);
+    return response;
+  }
+
   private assetOf(source: TFile): TFile | null {
     const asset: unknown = this.app.metadataCache.getFileCache(source)?.frontmatter?.asset;
     if (typeof asset !== "string" || !asset.trim()) return null;
@@ -209,9 +257,12 @@ export class LivingSources {
     return this.app.metadataCache.getFirstLinkpathDest(asset.trim(), source.path);
   }
 
-  /** What a view of this kind was built from: an article's body, a dataset's CSV. */
+  /** What a view of this kind was built from: an article's body, a video's URL and transcript, a dataset's CSV. */
   private async sourceFingerprint(source: TFile, kind: LivingKind): Promise<string> {
     if (kind === "argument-map") return fingerprint(noteBody(await this.app.vault.read(source)));
+    if (kind === "chapter-map") {
+      return fingerprint(videoKey(videoUrl(this.app.metadataCache.getFileCache(source)?.frontmatter ?? {}), noteBody(await this.app.vault.read(source))));
+    }
     const asset = this.assetOf(source);
     if (!asset) throw new Error("The dataset's CSV is not in the vault");
     return fingerprint(await this.app.vault.read(asset));

@@ -3,12 +3,13 @@ import { fingerprint } from "../../src/living/fingerprint";
 import { buildViewNote, defaultViewPath, livingKindFor, noteBody, readBinding } from "../../src/living/view";
 
 describe("livingKindFor", () => {
-  it("maps articles to argument maps and CSV datasets to explorers, and nothing else", () => {
+  it("maps articles to argument maps, videos to chapter maps and CSV datasets to explorers, and nothing else", () => {
     expect(livingKindFor({ type: "article" })).toBe("argument-map");
+    expect(livingKindFor({ type: "video" })).toBe("chapter-map");
     expect(livingKindFor({ type: "dataset", asset: "Data/prices.CSV" })).toBe("dataset-explorer");
     expect(livingKindFor({ type: "dataset", asset: "Data/prices.xlsx" })).toBeNull();
     expect(livingKindFor({ type: "dataset" })).toBeNull();
-    expect(livingKindFor({ type: "video" })).toBeNull();
+    expect(livingKindFor({ type: "person" })).toBeNull();
     expect(livingKindFor({ type: "living-view" })).toBeNull();
     expect(livingKindFor(undefined)).toBeNull();
   });
@@ -34,6 +35,7 @@ describe("view notes", () => {
     expect(note).toContain("```claude-html height=720\n<p>map</p>\n```");
     expect(noteBody(note).startsWith("```claude-living")).toBe(true);
     expect(note).toContain('title: "Tide Study — argument map"');
+    expect(buildViewNote({ ...readBinding(note)!, title: "T", html: "<p/>", after: "## Watch\n\n- [0:00 Start](https://youtu.be/x)" }).endsWith("```\n\n## Watch\n\n- [0:00 Start](https://youtu.be/x)\n")).toBe(true);
   });
 
   it("read no binding from a note without a source link, kind, or fingerprint", () => {
