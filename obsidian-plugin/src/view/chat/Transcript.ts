@@ -1,4 +1,5 @@
 import { type App, type EventRef, MarkdownView, Notice, setIcon, type TFile } from "obsidian";
+import { renderProvenance } from "./provenanceFooter";
 import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
 import { errorMessage } from "../../records";
@@ -13,7 +14,7 @@ import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from ".
 import { contextSnapshot } from "../../artifacts/replyContext";
 import { extractTasks, isPlanReply } from "../../build/spec";
 import { errorHint, type ErrorHintProvider } from "../../providers/errorHints";
-import { chipLabel } from "../toolChipLabel";
+import { chipLabel, previewText } from "../toolChipLabel";
 import { addUsage } from "../../usage/tokens";
 import { mergeUsage } from "../../claude/sse";
 import type { CompanionWorkspaceCard } from "../companionWorkspace";
@@ -23,11 +24,6 @@ import { renderResearchQuickActions } from "./researchQuickActions";
 import { ThinkingStatus } from "./thinkingStatus";
 import { StickToBottom } from "./stickToBottom";
 import type { ChatSession, TurnState } from "./chatSession";
-
-/** Truncate a tool result for the expandable chip body. */
-function previewText(text: string): string {
-  return text.length > 400 ? `${text.slice(0, 400)}…` : text;
-}
 
 export interface TranscriptDeps {
   /** Prepare text after any replacement confirmation, optionally sending it. */
@@ -481,9 +477,10 @@ export class Transcript {
 
   private addAssistantActions(bubble: HTMLElement, full: string, contextSources?: string[]): void {
     const sources = contextSnapshot(contextSources);
-    bubble.querySelectorAll(":scope > .cc-actions").forEach((el) => el.remove());
+    bubble.querySelectorAll(":scope > .cc-actions, :scope > .cc-provenance").forEach((el) => el.remove());
     // Per-code-block copy buttons inside the rendered markdown.
     this.decorateCodeBlocks(bubble);
+    renderProvenance(this.app, bubble, full);
 
     const bar = bubble.createDiv({ cls: "cc-actions" });
     this.actionBtn(bar, "Copy", "copy", () => {

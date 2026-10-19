@@ -351,6 +351,35 @@ body:not(.is-mobile) .cc-user {
   color: var(--cc-text-muted);
   margin-top: 2px;
 }
+.cc-provenance {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: var(--cc-text-sm);
+}
+.cc-provenance-title {
+  font-family: var(--cc-mono);
+  font-size: var(--cc-text-2xs);
+  color: var(--cc-text-muted);
+  margin-bottom: 4px;
+}
+.cc-provenance-item { padding: 3px 0; min-width: 0; }
+.cc-provenance-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.cc-provenance-link,
+.cc-provenance-name { overflow-wrap: anywhere; }
+.cc-provenance-name { color: var(--cc-text-muted); text-decoration: line-through; }
+.cc-provenance-status {
+  font-size: var(--cc-text-2xs);
+  color: var(--text-error);
+}
+.cc-provenance-item.is-no-section .cc-provenance-status { color: var(--text-warning); }
+.cc-provenance-excerpt,
+.cc-provenance-more {
+  color: var(--cc-text-muted);
+  font-size: var(--cc-text-xs);
+  line-height: 1.4;
+}
+.cc-provenance-excerpt { overflow-wrap: anywhere; }
 .cc-error {
   /* Explicit high-contrast colors so the message is always readable,
      regardless of theme (don't rely on --text-error/--background-modifier-error,

@@ -7,6 +7,10 @@ import { fuseKeywordAndSemantic, keywordVaultSearch, type SemanticSearch } from 
 import { MAX_RELATION_EXPANSION, noteType, planRelationExpansion, typeLabel } from "./typedContext";
 import { MAX_PAGE_CONTEXT_CHARS, type AttachedPage } from "./urlContext";
 import { folderMarkdown, type PreparedAttachedNote } from "./attachedNotes";
+import { CITATION_FORM } from "../chat/provenance";
+
+/** Appended after vault-note context so replies cite the notes and sections they draw on. */
+export const CITATION_RULE = `When you draw on the vault notes above, cite each point inline as ${CITATION_FORM}, so the reader can open the passage.`;
 
 export interface GatheredContext {
   text: string;
@@ -44,6 +48,7 @@ export async function gatherContext(
 ): Promise<GatheredContext> {
   const sources: string[] = [];
   const blocks: string[] = [];
+  let pageBlocks = 0;
   let budget = settings.contextCharBudget;
   const typed = ontology && ontology.resolved().size > 0 ? ontology : null;
   const label = (path: string): string => (typed ? typeLabel(noteType(frontmatterOf(app, path))) : "");
@@ -115,6 +120,7 @@ export async function gatherContext(
       budget -= clipped.length;
       added++;
     }
+    pageBlocks = added;
     if (added > 0) sources.push(`${added} page${added > 1 ? "s" : ""}`);
   }
 
@@ -192,19 +198,11 @@ export async function gatherContext(
     if (added > 0) {
       sources.push(`${added} ${semantic.length ? "semantic" : "search"} match${added > 1 ? "es" : ""}`);
       if (related > 0) sources.push(`${related} related note${related > 1 ? "s" : ""}`);
-      // Ask for click-through citations to the source notes (the 1.2 "ask your
-      // vault with citations" behavior). Count it against the budget so context
-      // never exceeds contextCharBudget; drop it if there's no room left.
-      const cited = related > 0 ? '"Search match" or "Related" notes' : '"Search match" notes';
-      const citation =
-        `When you draw on the ${cited} above, cite each inline as an ` +
-        "Obsidian wikilink — [[Note Name]], using the note's file name without the " +
-        "folder path or .md extension — so the reader can click through to the source.";
-      if (budget >= citation.length) {
-        blocks.push(citation);
-      }
     }
   }
+
+  // Counted against the budget so context never exceeds contextCharBudget; dropped when there is no room.
+  if (blocks.length > pageBlocks && budget >= CITATION_RULE.length) blocks.push(CITATION_RULE);
 
   if (blocks.length === 0) return { text: "", sources: [] };
   const text = ["<vault_context>", ...blocks, "</vault_context>"].join("\n\n");
