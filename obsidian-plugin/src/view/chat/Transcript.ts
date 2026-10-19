@@ -1,4 +1,4 @@
-import { type App, type EventRef, MarkdownView, Notice, setIcon, type TFile } from "obsidian";
+import { type App, type EventRef, type MarkdownView, Notice, setIcon, type TFile } from "obsidian";
 import { ProvenanceFooters } from "./provenanceFooter";
 import type { TranscriptHost } from "./hosts";
 import type { ChatMessage, ToolTraceEntry } from "../../types";
@@ -12,6 +12,7 @@ import { TurnRenderer, type TurnRendererHost } from "../turnRenderer";
 import { ARTIFACT_HEIGHT } from "../../artifacts/renderInline";
 import { extractArtifact, saveArtifactNote, saveChatNote, savePlanNote } from "../../artifacts/artifactStore";
 import { contextSnapshot } from "../../artifacts/replyContext";
+import { exportCitationLinks, type CitationTarget } from "../../chat/provenance";
 import { extractTasks, isPlanReply } from "../../build/spec";
 import { errorHint, type ErrorHintProvider } from "../../providers/errorHints";
 import { chipLabel, previewText } from "../toolChipLabel";
@@ -34,6 +35,7 @@ export interface TranscriptDeps {
   renderMarkdownInto(el: HTMLElement, markdown: string): Promise<void>;
   renderSetupCard(parent: HTMLElement): void;
   renderStreamingArtifactInto(el: HTMLElement, buffer: string): void;
+  resolveMarkdownContextView(): MarkdownView | null;
   resumeInterruptedTurn(conversation: Conversation): Promise<void>;
   reviewLastProposedEdit(conversation: Conversation): Promise<void>;
   discardLastProposedEdit(conversation: Conversation): Promise<void>;
@@ -483,13 +485,13 @@ export class Transcript {
     // Per-code-block copy buttons inside the rendered markdown.
     this.decorateCodeBlocks(bubble);
     this.provenance.render(bubble, full, message?.content === full ? message.citationTargets : undefined);
-
+    const output = () => exportCitationLinks(full, this.provenance.targets(bubble));
     const bar = bubble.createDiv({ cls: "cc-actions" });
     this.actionBtn(bar, "Copy", "copy", () => {
-      void navigator.clipboard.writeText(full);
+      void navigator.clipboard.writeText(output());
       quickNotice("Copied to clipboard");
     });
-    this.actionBtn(bar, "Insert", "text-cursor-input", () => this.insertIntoNote(full));
+    this.actionBtn(bar, "Insert", "text-cursor-input", () => this.insertIntoNote(output()));
     // One Save button that adapts to the content: an artifact saves as an inline
     // `claude-html` note (accented to stand out), anything else saves as a plain
     // chat note. (These used to be two separate buttons running the same handler.)
@@ -501,7 +503,7 @@ export class Transcript {
       () => {
         if (saveBtn.disabled) return;
         saveBtn.disabled = true;
-        void this.saveReplyAsNote(full, sources)
+        void this.saveReplyAsNote(output(), sources, this.provenance.targets(bubble))
           .catch((error: unknown) => new Notice(`Couldn't save or open the reply: ${errorMessage(error)}`))
           .finally(() => { saveBtn.disabled = false; });
       },
@@ -513,7 +515,7 @@ export class Transcript {
     if (isPlanReply(full)) {
       const impl = this.actionBtn(bar, "Implement", "play", () => void this.implementFromReply(full));
       impl.addClass("cc-accent");
-      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(full, sources));
+      this.actionBtn(bar, "Build", "hammer", () => void this.buildFromReply(output(), sources, this.provenance.targets(bubble)));
     }
     // Regenerate the last reply (only on the most recent assistant message).
     const tail = this.messages[this.messages.length - 1];
@@ -597,17 +599,18 @@ export class Transcript {
   }
 
   /** Save a plan reply as a `type: plan` note, then hand it to the build flow. */
-  private async buildFromReply(full: string, contextSources?: string[]): Promise<void> {
-    const file = await this.savePlanReply(full, contextSources);
+  private async buildFromReply(full: string, contextSources?: string[], citationTargets?: CitationTarget[]): Promise<void> {
+    const file = await this.savePlanReply(full, contextSources, citationTargets);
     await this.plugin.research().handoffToBuild(file);
   }
 
-  private async savePlanReply(full: string, contextSources?: string[]) {
+  private async savePlanReply(full: string, contextSources?: string[], citationTargets?: CitationTarget[]) {
     const artifact = extractArtifact(full);
     const { tags, summary, title } = await this.maybeIndex(full);
     const planTitle = title ?? artifact?.title ?? this.fallbackTitle();
     return savePlanNote(this.app, this.plugin.settings.planFolder, planTitle, full, {
       extraTags: tags,
+      ...(citationTargets ? { citationTargets } : {}),
       ...(contextSources ? { contextSources } : {}),
       ...(summary !== undefined ? { summary } : {}),
     });
@@ -650,13 +653,8 @@ export class Transcript {
     return (sentence || "Claude chat").slice(0, 60);
   }
 
-  /**
-   * Save a reply as a durable, indexed note. If the reply contains a
-   * `claude-html` artifact, it's saved as an artifact note (renders inline) —
-   * not a raw fenced dump. Either way it gets auto-tags + a summary in
-   * frontmatter so semantic/query search and Dataview index it correctly.
-   */
-  private async saveReplyAsNote(full: string, contextSources?: string[]): Promise<void> {
+  /** Save an indexed chat, plan, or inline artifact with this reply's source context. */
+  private async saveReplyAsNote(full: string, contextSources?: string[], citationTargets?: CitationTarget[]): Promise<void> {
     const artifact = extractArtifact(full);
     new Notice("Indexing & saving…");
     let file: TFile;
@@ -664,11 +662,12 @@ export class Transcript {
     // A plan reply carries a `## Build tasks` checklist. Save it as a canonical
     // `type: plan` note (artifact renders inline + checklist drives Build).
     if (isPlanReply(full)) {
-      file = await this.savePlanReply(full, contextSources);
+      file = await this.savePlanReply(full, contextSources, citationTargets);
     } else if (artifact) {
       const { tags, summary } = await this.maybeIndex(`${artifact.title}\n\n${full}`);
       file = await saveArtifactNote(this.app, this.plugin.settings.artifactFolder, artifact, {
         height: ARTIFACT_HEIGHT,
+        ...(citationTargets ? { citationTargets } : {}),
         ...(contextSources ? { contextSources } : {}),
         baseTags: this.plugin.settings.artifactBaseTags,
         extraTags: tags,
@@ -679,6 +678,7 @@ export class Transcript {
       const heuristic = full.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 60) ?? "Claude reply";
       file = await saveChatNote(this.app, this.plugin.settings.chatFolder, title ?? heuristic, full, {
         baseTags: this.plugin.settings.chatBaseTags,
+        ...(citationTargets ? { citationTargets } : {}),
         ...(contextSources ? { contextSources } : {}),
         extraTags: tags,
         ...(summary !== undefined ? { summary } : {}),
@@ -688,7 +688,7 @@ export class Transcript {
   }
 
   private insertIntoNote(text: string): void {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const view = this.deps.resolveMarkdownContextView();
     if (!view) {
       new Notice("Open a note to insert into.");
       return;
