@@ -4,7 +4,6 @@ import {
   OBSIDIAN_AGENT_PLUGIN_ID,
   claudeDesktopConfigPath,
   claudeCodeSetupPlan,
-  mergeClaudeDesktopConfig,
   parseClaudeVersion,
   parseMarketplaceList,
   parsePluginList,
@@ -15,6 +14,7 @@ import {
   type ProbeResult,
 } from "./desktop";
 import type { ManagedProcessPort } from "../build/desktopExecutor";
+import { EXTENSION_FILE_NAME, EXTENSION_VERSION, buildExtensionBundle, withoutLegacyBridgeEntry } from "./desktopExtension";
 
 export interface ExecResult {
   stdout: string;
@@ -50,6 +50,8 @@ export interface DesktopFsPort {
   read(path: string): Promise<string | null>;
   backup(path: string): Promise<string | null>;
   atomicWrite(path: string, body: string): Promise<void>;
+  /** Write bytes, replacing any file at the path. */
+  writeBinary(path: string, data: Uint8Array): Promise<void>;
 }
 
 /** What the caller knows about Companion's bridge before Claude Code has been asked. */
@@ -71,6 +73,10 @@ export interface DesktopRuntimeOptions {
   execDir?: string | undefined;
   /** Companion's MCP bridge as configured; omitted means disabled. */
   bridge?: BridgeSetupInput | undefined;
+  /** Folder the Claude Desktop extension bundle is written to before it is opened. */
+  tempDir?: string | undefined;
+  /** Open a file with the app the OS registers for it. */
+  openPath?: ((path: string) => Promise<void>) | undefined;
 }
 
 interface ProcessStreamLike {
@@ -174,9 +180,12 @@ export interface ClaudeDesktopInstallInput {
 }
 
 export interface ClaudeDesktopInstallResult {
+  /** The extension bundle handed to Claude Desktop. */
+  bundlePath: string;
   configPath: string;
+  /** Set when the mcp-remote entry earlier versions wrote was removed from the config. */
   backupPath: string | null;
-  restartRequired: true;
+  legacyRemoved: boolean;
 }
 
 export interface TerminalLaunchResult {
@@ -336,27 +345,37 @@ export class DesktopRuntime {
     return after;
   }
 
+  /**
+   * Hand Claude Desktop the vault extension: write the bundle, open it so Claude
+   * Desktop shows its install dialog, then drop the mcp-remote entry earlier
+   * versions wrote (its token sat in the config in plain text). The token itself
+   * is never written; the user pastes it into the extension's settings.
+   */
   async installClaudeDesktop(input: ClaudeDesktopInstallInput): Promise<ClaudeDesktopInstallResult> {
-    if (!input.token.trim()) throw new DesktopIntegrationError("Configure Claude Desktop", "The MCP bridge token is empty.");
+    const stage = "Install the Claude Desktop extension";
+    if (!input.token.trim()) throw new DesktopIntegrationError(stage, "The MCP bridge token is empty.");
     const configPath = input.configPath ?? claudeDesktopConfigPath(
       this.options.platform,
       this.options.homeDir,
       this.options.env ?? {},
     );
-    const current = await this.options.fs.read(configPath);
-    const body = mergeClaudeDesktopConfig(current, {
-      command: "npx",
-      args: [
-        "-y",
-        "mcp-remote",
-        `http://127.0.0.1:${input.port}/mcp`,
-        "--header",
-        `Authorization: Bearer ${input.token}`,
-      ],
-    });
-    const backupPath = await this.options.fs.backup(configPath);
-    await this.options.fs.atomicWrite(configPath, body);
-    return { configPath, backupPath, restartRequired: true };
+    const { tempDir, openPath } = this.options;
+    if (!tempDir || !openPath) throw new DesktopIntegrationError(stage, "This device cannot write or open the extension file.");
+    const separator = this.options.platform === "win32" ? "\\" : "/";
+    const bundlePath = `${tempDir.replace(/[\\/]+$/, "")}${separator}${EXTENSION_FILE_NAME}`;
+    await this.options.fs.writeBinary(bundlePath, buildExtensionBundle({ version: EXTENSION_VERSION, url: `http://127.0.0.1:${input.port}/mcp` }));
+    try {
+      await openPath(bundlePath);
+    } catch (cause) {
+      throw commandError(stage, new Error(`${cause instanceof Error ? cause.message : String(cause)}. Open ${bundlePath} with Claude Desktop.`));
+    }
+    const cleaned = withoutLegacyBridgeEntry(await this.options.fs.read(configPath));
+    let backupPath: string | null = null;
+    if (cleaned !== null) {
+      backupPath = await this.options.fs.backup(configPath);
+      await this.options.fs.atomicWrite(configPath, cleaned);
+    }
+    return { bundlePath, configPath, backupPath, legacyRemoved: cleaned !== null };
   }
 
   async openTerminalAtVault(vaultPath: string): Promise<TerminalLaunchResult> {
@@ -463,9 +482,20 @@ export async function createNodeDesktopRuntime(
         throw cause;
       }
     },
+    async writeBinary(target, data) {
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, data);
+    },
   };
 
-  return new DesktopRuntime({ exec, fs: desktopFs, platform, homeDir, env, execDir, bridge });
+  const os = nodeRequire("node:os") as typeof import("node:os");
+  const electron = nodeRequire("electron") as { shell: { openPath(target: string): Promise<string> } };
+  const openPath = async (target: string): Promise<void> => {
+    const failure = await electron.shell.openPath(target);
+    if (failure) throw new Error(failure);
+  };
+
+  return new DesktopRuntime({ exec, fs: desktopFs, platform, homeDir, env, execDir, bridge, tempDir: os.tmpdir(), openPath });
 }
 
 export function createNodeManagedProcessPort(): ManagedProcessPort {
