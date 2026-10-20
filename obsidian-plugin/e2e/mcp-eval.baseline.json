@@ -10,157 +10,34 @@
   "readiness": {
     "areas": [
       {
-        "checks": [
-          {
-            "hint": "a protocol request timed out, closed the connection, or broke the exchange; answer every request within 15 seconds without ending the session",
-            "id": "protocol.negotiation",
-            "observed": null,
-            "reason": "protocol-call-failed",
-            "score": 0,
-            "tool": null
-          }
-        ],
+        "checks": [],
         "measurements": {},
         "name": "protocol",
-        "score": 83,
+        "score": 100,
         "weight": 15
       },
       {
-        "checks": [
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "vault_search"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "related_notes"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "note_read"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "list_recent"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "vault_tags"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "list_titles"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "get_backlinks"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "get_outgoing_links"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "frontmatter_query"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "ontology_get"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "research_project_read"
-          },
-          {
-            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
-            "id": "catalog.output-schema",
-            "observed": null,
-            "reason": "catalog-no-output-schema",
-            "score": 0,
-            "tool": "research_audit"
-          }
-        ],
+        "checks": [],
         "measurements": {},
         "name": "catalog",
-        "score": 78,
+        "score": 100,
         "weight": 20
       },
       {
         "checks": [],
         "measurements": {
-          "catalog_tokens": 1101,
-          "heaviest_tool_tokens": 242
+          "catalog_tokens": 1993,
+          "heaviest_tool_tokens": 321
         },
         "name": "context",
         "score": 100,
         "weight": 15
       },
       {
-        "checks": [
-          {
-            "hint": "the tool accepted arguments that violate its input schema; validate arguments and refuse invalid ones with -32602 or an isError result that says what is wrong",
-            "id": "error-honesty.invalid-arguments",
-            "observed": null,
-            "reason": "honesty-accepted-invalid",
-            "score": 0,
-            "tool": "list_recent"
-          },
-          {
-            "hint": "the tool accepted arguments that violate its input schema; validate arguments and refuse invalid ones with -32602 or an isError result that says what is wrong",
-            "id": "error-honesty.invalid-arguments",
-            "observed": null,
-            "reason": "honesty-accepted-invalid",
-            "score": 0,
-            "tool": "ontology_get"
-          }
-        ],
+        "checks": [],
         "measurements": {},
         "name": "error-honesty",
-        "score": 80,
+        "score": 100,
         "weight": 15
       },
       {
@@ -259,7 +136,7 @@
       "writer_tools_excluded": 0
     },
     "attested_read_only": false,
-    "badge": "https://img.shields.io/badge/mcpeval-79%2F100-yellow",
+    "badge": "https://img.shields.io/badge/mcpeval-89%2F100-brightgreen",
     "measurement_profile": {
       "architecture": "aarch64",
       "attested_read_only": false,
@@ -271,7 +148,7 @@
       "schema": "mcpeval.measurement-profile/v1",
       "skip_tools": []
     },
-    "score": 79,
+    "score": 89,
     "standard": "mcpeval-standard/2",
     "surface": {
       "exercised": 8,
