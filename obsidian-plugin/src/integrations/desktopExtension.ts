@@ -12,7 +12,7 @@ import type { DesktopPlatform } from "./desktop";
 export const EXTENSION_FILE_NAME = "companion-obsidian-vault.mcpb";
 export const EXTENSION_NAME = "companion-obsidian-vault";
 /** Version of the proxy and manifest; raise it when either changes so Claude Desktop offers the update. */
-export const EXTENSION_VERSION = "1.0.0";
+export const EXTENSION_VERSION = "1.1.0";
 /** Folder of the connection file, under the platform's per-user application data. */
 const CONNECTION_FOLDER = "Companion for Claude";
 const CONNECTION_FILE = "bridge.json";
@@ -130,9 +130,11 @@ input.on("line", (line) => {
   if (!line.trim()) return;
   let message;
   try { message = JSON.parse(line); } catch { return out({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }); }
-  // Everything waits for the latest initialize, so its session is in place; the rest run concurrently.
+  // The handshake (initialize, then notifications/initialized) completes in order before anything after it;
+  // later requests run concurrently.
   const run = ready.then(() => forward(message));
-  if (!Array.isArray(message) && message && message.method === "initialize") ready = run.catch(() => undefined);
+  const method = !Array.isArray(message) && message ? message.method : undefined;
+  if (method === "initialize" || method === "notifications/initialized") ready = run.catch(() => undefined);
   const task = run.catch((error) => failAll(message, String((error && error.message) || error)));
   pending.add(task);
   task.finally(() => pending.delete(task));

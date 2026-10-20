@@ -58,8 +58,12 @@ describe("withoutLegacyBridgeEntry", () => {
   });
 });
 
-/** A stand-in for Companion's bridge: JSON replies, a session id, 202 for notifications, 404 for an unknown session. */
-function bridge(accepted: { token: string }) {
+/**
+ * A stand-in for Companion's bridge: JSON replies, a session id, 202 for notifications, 404 for an unknown session.
+ * `afterInitialized` runs once the handshake's notification is answered, so a test can change the bridge at a
+ * known point instead of guessing at timing.
+ */
+function bridge(accepted: { token: string }, afterInitialized?: () => void) {
   const sessions = new Set<string>();
   const seen: Array<{ method: string; session: string | undefined; auth: string | undefined }> = [];
   let next = 1;
@@ -79,7 +83,11 @@ function bridge(accepted: { token: string }) {
         return;
       }
       if (!session || !sessions.has(session)) { res.writeHead(404, { "content-type": "application/json" }).end('{"error":"unknown session"}'); return; }
-      if (message.id === undefined) { res.writeHead(202).end(); return; }
+      if (message.id === undefined) {
+        res.writeHead(202).end();
+        if (message.method === "notifications/initialized") afterInitialized?.();
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "vault_search" }] } }));
     });
@@ -114,8 +122,8 @@ function home(connection?: { url: string; token: string }) {
   return { env: { HOME: dir, USERPROFILE: dir, APPDATA: join(dir, "AppData") }, write };
 }
 
-/** Run the proxy under plain node: send `lines` on stdin (calling `before[i]` first), close it, and collect each JSON line it prints. */
-function runProxy(env: Record<string, string>, lines: unknown[], before: Record<number, () => void> = {}): Promise<Array<Record<string, any>>> {
+/** Run the proxy under plain node: send `lines` on stdin, close it, and collect each JSON line it prints. */
+function runProxy(env: Record<string, string>, lines: unknown[]): Promise<Array<Record<string, any>>> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [proxyFile], { env: { PATH: process.env.PATH ?? "", ...env }, stdio: ["pipe", "pipe", "inherit"] });
     let out = "";
@@ -123,8 +131,7 @@ function runProxy(env: Record<string, string>, lines: unknown[], before: Record<
     child.on("error", reject);
     child.on("close", () => resolve(out.split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, any>)));
     void (async () => {
-      for (const [index, line] of lines.entries()) {
-        before[index]?.();
+      for (const line of lines) {
         child.stdin.write(`${JSON.stringify(line)}\n`);
         await new Promise((r) => setTimeout(r, 40));
       }
@@ -155,9 +162,10 @@ describe("Claude Desktop extension proxy", () => {
   });
 
   it("starts a new session and retries once when the bridge forgets the old one", async () => {
-    server = bridge({ token: "tok" });
+    // Obsidian restarting: the bridge forgets every session right after the handshake.
+    server = bridge({ token: "tok" }, () => server?.forget());
     const url = await server.listen();
-    const replies = await runProxy(home({ url, token: "tok" }).env, [INIT, INITIALIZED, LIST], { 2: server.forget });
+    const replies = await runProxy(home({ url, token: "tok" }).env, [INIT, INITIALIZED, LIST]);
     expect(replies.map((r) => r.id)).toEqual([1, 2]);
     expect(server.seen.map((s) => `${s.method}@${s.session ?? "-"}`)).toEqual([
       "initialize@-", "notifications/initialized@s1", "tools/list@s1", "initialize@-", "notifications/initialized@s2", "tools/list@s2",
@@ -166,11 +174,12 @@ describe("Claude Desktop extension proxy", () => {
 
   it("picks up a new token from the connection file without being reinstalled", async () => {
     const accepted = { token: "old" };
-    server = bridge(accepted);
+    let user: ReturnType<typeof home> | null = null;
+    // Companion issuing a new token right after the handshake: the bridge and the connection file change together.
+    server = bridge(accepted, () => { accepted.token = "new"; user?.write({ url, token: "new" }); });
     const url = await server.listen();
-    const user = home({ url, token: "old" });
-    const rotate = () => { accepted.token = "new"; user.write({ url, token: "new" }); };
-    const replies = await runProxy(user.env, [INIT, INITIALIZED, LIST], { 2: rotate });
+    user = home({ url, token: "old" });
+    const replies = await runProxy(user.env, [INIT, INITIALIZED, LIST]);
     expect(replies.map((r) => r.id)).toEqual([1, 2]);
     expect(replies[1]!.result).toBeDefined();
     expect(server.seen.at(-1)).toMatchObject({ method: "tools/list", auth: "Bearer new" });
