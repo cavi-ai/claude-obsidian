@@ -2,6 +2,8 @@
 // can be unit-tested in isolation. The transport/server layer feeds raw request
 // objects in and serializes the responses out.
 
+import { argumentError } from "./arguments";
+
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
   id?: string | number | null;
@@ -178,10 +180,17 @@ export async function handleRpc(
       if (typeof params.name !== "string") {
         return err(req.id, RPC.INVALID_PARAMS, "tools/call requires a string 'name'");
       }
-      if (!ctx.tools.some((t) => t.name === params.name) && !ctx.hiddenTools?.has(params.name)) {
+      const def = ctx.tools.find((t) => t.name === params.name);
+      if (!def && !ctx.hiddenTools?.has(params.name)) {
         return err(req.id, RPC.METHOD_NOT_FOUND, `Unknown tool: ${params.name}`);
       }
-      const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
+      const given = params.arguments ?? {};
+      const invalid = typeof given !== "object" || given === null || Array.isArray(given)
+        ? "arguments must be an object"
+        : def ? argumentError(def.inputSchema, given as Record<string, unknown>) : null;
+      // Refused as a tool error so the model reads which argument to fix.
+      if (invalid) return ok(req.id, { content: [{ type: "text", text: `Invalid arguments for ${params.name}: ${invalid}.` }], isError: true });
+      const args = given as Record<string, unknown>;
       try {
         const text = await ctx.call(params.name, args);
         return ok(req.id, { content: [{ type: "text", text }], isError: false });
