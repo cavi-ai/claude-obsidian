@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, getAllTags } from "obsidian";
+import { App, TFile, getAllTags } from "obsidian";
 import { vaultTagEntries } from "../../tags/vaultTags";
 import type { ToolOutput } from "../protocol";
 import type { ToolRecord } from "../toolRecord";
@@ -193,7 +193,7 @@ export class SearchTools {
   }
 
   private async backlinks(target: string): Promise<ToolOutput> {
-    const t = normalizePath(target);
+    const t = resolveFile(this.app, assertVaultPath(target)).path;
     const links = this.resolvedLinks();
     const sources = Object.keys(links).filter((src) => src !== t && links[src] && t in links[src]);
     sources.sort();
@@ -203,7 +203,7 @@ export class SearchTools {
   }
 
   private async outgoingLinks(source: string): Promise<ToolOutput> {
-    const s = normalizePath(source);
+    const s = resolveFile(this.app, assertVaultPath(source)).path;
     const targets = Object.keys(this.resolvedLinks()[s] ?? {}).sort();
     const structured = { path: s, links: targets };
     if (targets.length === 0) return { text: `${s} has no outgoing links.`, structured };
