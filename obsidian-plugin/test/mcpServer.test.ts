@@ -163,6 +163,33 @@ describe("MCP bridge — handshake & discovery", () => {
   });
 });
 
+describe("MCP bridge — structured results", () => {
+  async function structured(name: string, args: Record<string, unknown>): Promise<{ text: string; structuredContent: unknown }> {
+    const res = await rpc({ jsonrpc: "2.0", id: 40, method: "tools/call", params: { name, arguments: args } });
+    const json = (await res.json()) as { result: { content: Array<{ text: string }>; structuredContent?: unknown } };
+    return { text: json.result.content[0]?.text ?? "", structuredContent: json.result.structuredContent };
+  }
+
+  it("declares an outputSchema on every read tool", async () => {
+    const res = await rpc({ jsonrpc: "2.0", id: 41, method: "tools/list" });
+    const json = (await res.json()) as { result: { tools: Array<{ name: string; outputSchema?: unknown; annotations?: { readOnlyHint?: boolean } }> } };
+    const reads = json.result.tools.filter((tool) => tool.annotations?.readOnlyHint);
+    expect(reads.map((tool) => tool.name)).toEqual(expect.arrayContaining(["vault_search", "note_read", "list_recent", "research_audit"]));
+    for (const tool of reads) expect(tool.outputSchema, tool.name).toMatchObject({ type: "object" });
+  });
+
+  it("returns structuredContent beside the text a model reads", async () => {
+    const read = await structured("note_read", { path: "Notes/Welcome.md" });
+    expect(read.structuredContent).toEqual({ path: "Notes/Welcome.md", content: read.text });
+    const titles = await structured("list_titles", {});
+    expect(titles.structuredContent).toEqual({ notes: [{ path: "Notes/Other.md", title: "Other" }, { path: "Notes/Welcome.md", title: "Welcome" }] });
+    const search = await structured("vault_search", { query: "pelican migration" });
+    expect(search.structuredContent).toMatchObject({ mode: "keyword", results: [expect.objectContaining({ path: "Notes/Welcome.md" })] });
+    const none = await structured("get_backlinks", { path: "Notes/Welcome.md" });
+    expect(none.structuredContent).toEqual({ path: "Notes/Welcome.md", backlinks: [] });
+  });
+});
+
 describe("MCP bridge — vault tools over the wire", () => {
   it("vault_search finds the seeded note by keyword", async () => {
     const r = await call("vault_search", { query: "pelican migration" });
