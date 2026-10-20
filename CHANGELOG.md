@@ -4,6 +4,15 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.0] — 2026-10-20
+
+### Added
+- Connect Claude Desktop installs the vault as a Claude Desktop extension that finds Companion's vault bridge on its own, with no token to paste, and removes the vault entry earlier versions wrote to Claude Desktop's config.
+
+### Changed
+- Settings have a search box across every setting, a category list, task shortcuts and a Get started button, and fit narrow panes and light themes.
+- PDF text extraction uses the pdf.js built into Obsidian, which makes the plugin about 1 MB smaller.
+
 ## [0.47.0] — 2026-10-20
 
 ### Added
