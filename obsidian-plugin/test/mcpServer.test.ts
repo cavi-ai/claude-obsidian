@@ -123,6 +123,20 @@ describe("MCP bridge — handshake & discovery", () => {
     expect(json.result.capabilities).toBeDefined();
   });
 
+  it("keeps the session id when a live session initializes again", async () => {
+    const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: MCP_PROTOCOL_VERSION } };
+    const first = await rpc(init);
+    const session = first.headers.get("mcp-session-id");
+    expect(session).toBeTruthy();
+    const again = await fetch(base, {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", "mcp-session-id": session ?? "" },
+      body: JSON.stringify({ ...init, id: 2 }),
+    });
+    expect(again.status).toBe(200);
+    expect(again.headers.get("mcp-session-id")).toBe(session);
+  });
+
   it("accepts the initialized notification with 202 and no body", async () => {
     const res = await rpc({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(res.status).toBe(202);
