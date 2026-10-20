@@ -4,6 +4,18 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.0] — 2026-10-20
+
+### Added
+- Living views for source notes: an article gets an argument map with quoted evidence marked, a dataset with a CSV gets an explorer, and a video gets a chapter map with key moments, a searchable transcript, and links that open the video at each chapter. A view rebuilds when its source has changed.
+- Video notes get their chapters, key moments, and transcript summary filled in; the transcript comes from the note or, when it has none, from YouTube.
+
+### Fixed
+- Chat citations stay linked to their notes after renames and moves, flag an ambiguous short name instead of opening an unrelated note, and stay marked unavailable after a source is deleted.
+- Saved, copied, and inserted replies keep their citation links, and unavailable citations export as plain text.
+- Insert puts a reply into the open note even while the chat has focus, keeps its headings and lists apart from the surrounding text, switches the note out of Reading view first, and focuses it so Undo works right away.
+- Regenerate appears only on the latest answer, including in reopened chats.
+
 ## [0.46.0] — 2026-10-19
 
 ### Added
