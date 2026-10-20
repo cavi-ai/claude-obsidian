@@ -1,0 +1,286 @@
+{
+  "cases": [],
+  "gate": null,
+  "generator": {
+    "name": "mcpeval",
+    "version": "0.7.1"
+  },
+  "manifest_sha256": null,
+  "passed": true,
+  "readiness": {
+    "areas": [
+      {
+        "checks": [
+          {
+            "hint": "a protocol request timed out, closed the connection, or broke the exchange; answer every request within 15 seconds without ending the session",
+            "id": "protocol.negotiation",
+            "observed": null,
+            "reason": "protocol-call-failed",
+            "score": 0,
+            "tool": null
+          }
+        ],
+        "measurements": {},
+        "name": "protocol",
+        "score": 83,
+        "weight": 15
+      },
+      {
+        "checks": [
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "vault_search"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "related_notes"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "note_read"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "list_recent"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "vault_tags"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "list_titles"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "get_backlinks"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "get_outgoing_links"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "frontmatter_query"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "ontology_get"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "research_project_read"
+          },
+          {
+            "hint": "declare outputSchema and return structuredContent so agents can read results without parsing prose",
+            "id": "catalog.output-schema",
+            "observed": null,
+            "reason": "catalog-no-output-schema",
+            "score": 0,
+            "tool": "research_audit"
+          }
+        ],
+        "measurements": {},
+        "name": "catalog",
+        "score": 78,
+        "weight": 20
+      },
+      {
+        "checks": [],
+        "measurements": {
+          "catalog_tokens": 1101,
+          "heaviest_tool_tokens": 242
+        },
+        "name": "context",
+        "score": 100,
+        "weight": 15
+      },
+      {
+        "checks": [
+          {
+            "hint": "the tool accepted arguments that violate its input schema; validate arguments and refuse invalid ones with -32602 or an isError result that says what is wrong",
+            "id": "error-honesty.invalid-arguments",
+            "observed": null,
+            "reason": "honesty-accepted-invalid",
+            "score": 0,
+            "tool": "list_recent"
+          },
+          {
+            "hint": "the tool accepted arguments that violate its input schema; validate arguments and refuse invalid ones with -32602 or an isError result that says what is wrong",
+            "id": "error-honesty.invalid-arguments",
+            "observed": null,
+            "reason": "honesty-accepted-invalid",
+            "score": 0,
+            "tool": "ontology_get"
+          }
+        ],
+        "measurements": {},
+        "name": "error-honesty",
+        "score": 80,
+        "weight": 15
+      },
+      {
+        "checks": [
+          {
+            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability",
+            "id": "reliability.success",
+            "observed": 0,
+            "reason": "reliability-call-failed",
+            "score": 0,
+            "tool": "related_notes"
+          },
+          {
+            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability",
+            "id": "reliability.success",
+            "observed": 0,
+            "reason": "reliability-call-failed",
+            "score": 0,
+            "tool": "note_read"
+          },
+          {
+            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability",
+            "id": "reliability.success",
+            "observed": 0,
+            "reason": "reliability-call-failed",
+            "score": 0,
+            "tool": "research_project_read"
+          },
+          {
+            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability",
+            "id": "reliability.success",
+            "observed": 0,
+            "reason": "reliability-call-failed",
+            "score": 0,
+            "tool": "research_audit"
+          }
+        ],
+        "measurements": {
+          "rejected_calls": 0,
+          "rpc_errors": 0,
+          "successful_calls": 24,
+          "tool_errors": 12,
+          "transport_errors": 0,
+          "untested_tools": 0
+        },
+        "name": "reliability",
+        "score": 71,
+        "weight": 20
+      },
+      {
+        "checks": [
+          {
+            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session",
+            "id": "coverage.exercised",
+            "observed": null,
+            "reason": "coverage-call-failed",
+            "score": 0,
+            "tool": "related_notes"
+          },
+          {
+            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session",
+            "id": "coverage.exercised",
+            "observed": null,
+            "reason": "coverage-call-failed",
+            "score": 0,
+            "tool": "note_read"
+          },
+          {
+            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session",
+            "id": "coverage.exercised",
+            "observed": null,
+            "reason": "coverage-call-failed",
+            "score": 0,
+            "tool": "research_project_read"
+          },
+          {
+            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session",
+            "id": "coverage.exercised",
+            "observed": null,
+            "reason": "coverage-call-failed",
+            "score": 0,
+            "tool": "research_audit"
+          }
+        ],
+        "measurements": {},
+        "name": "coverage",
+        "score": 67,
+        "weight": 15
+      }
+    ],
+    "assessment": {
+      "read_only_tools": 12,
+      "scope": "read-only-structural",
+      "semantic_correctness": "requires-reviewed-oracle",
+      "tools_exercised": 8,
+      "writer_tools_excluded": 0
+    },
+    "attested_read_only": false,
+    "badge": "https://img.shields.io/badge/mcpeval-79%2F100-yellow",
+    "measurement_profile": {
+      "architecture": "aarch64",
+      "attested_read_only": false,
+      "call_timeout_ms": 15000,
+      "client_capabilities": "none",
+      "evaluator_version": "0.7.1",
+      "platform": "macos",
+      "repeats": 3,
+      "schema": "mcpeval.measurement-profile/v1",
+      "skip_tools": []
+    },
+    "score": 79,
+    "standard": "mcpeval-standard/2",
+    "surface": {
+      "exercised": 8,
+      "read_only": 12,
+      "tools": 12,
+      "writers": 0
+    }
+  },
+  "readiness_error": null,
+  "schema": "mcpeval.probe-report/v2",
+  "server": "claude-companion"
+}
