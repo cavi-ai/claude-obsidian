@@ -1,41 +1,43 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { strFromU8, unzipSync } from "fflate";
 import { McpbManifestSchema } from "@anthropic-ai/mcpb/schemas/0.3";
 import {
   EXTENSION_VERSION,
   PROXY_SOURCE,
   buildExtensionBundle,
+  connectionFileBody,
+  connectionFilePath,
   extensionManifest,
   withoutLegacyBridgeEntry,
 } from "../../src/integrations/desktopExtension";
 
-const URL_INPUT = { version: EXTENSION_VERSION, url: "http://127.0.0.1:22360/mcp" };
-
 describe("Claude Desktop extension bundle", () => {
   it("carries a manifest the official MCPB 0.3 schema accepts", () => {
-    const parsed = McpbManifestSchema.safeParse(extensionManifest(URL_INPUT));
+    const parsed = McpbManifestSchema.safeParse(extensionManifest(EXTENSION_VERSION));
     expect(parsed.error?.issues ?? []).toEqual([]);
     expect(parsed.success).toBe(true);
   });
 
-  it("zips the manifest and the proxy at the root, with the token as a masked setting and never a value", () => {
-    const files = unzipSync(buildExtensionBundle(URL_INPUT));
+  it("zips the manifest and the proxy at the root and asks for no settings at install", () => {
+    const files = unzipSync(buildExtensionBundle(EXTENSION_VERSION));
     expect(Object.keys(files).sort()).toEqual(["manifest.json", "server/index.js"]);
     const manifest = JSON.parse(strFromU8(files["manifest.json"]!)) as Record<string, any>;
-    expect(manifest.server.mcp_config).toEqual({
-      command: "node",
-      args: ["${__dirname}/server/index.js"],
-      env: { COMPANION_VAULT_URL: "${user_config.url}", COMPANION_VAULT_TOKEN: "${user_config.token}" },
-    });
-    expect(manifest.user_config.url.default).toBe("http://127.0.0.1:22360/mcp");
-    expect(manifest.user_config.token).toMatchObject({ sensitive: true, required: true });
-    expect(manifest.user_config.token.default).toBeUndefined();
+    expect(manifest.server.mcp_config).toEqual({ command: "node", args: ["${__dirname}/server/index.js"] });
+    expect(manifest.user_config).toBeUndefined();
     expect(strFromU8(files["server/index.js"]!)).toBe(PROXY_SOURCE);
+  });
+
+  it("puts the connection file in the platform's per-user application data", () => {
+    expect(connectionFilePath("darwin", "/Users/me/", {})).toBe("/Users/me/Library/Application Support/Companion for Claude/bridge.json");
+    expect(connectionFilePath("win32", "C:\\Users\\me", { APPDATA: "C:\\Users\\me\\AppData\\Roaming\\" }))
+      .toBe("C:\\Users\\me\\AppData\\Roaming\\Companion for Claude\\bridge.json");
+    expect(connectionFilePath("win32", "C:\\Users\\me", {})).toBe("C:\\Users\\me\\AppData\\Roaming\\Companion for Claude\\bridge.json");
+    expect(JSON.parse(connectionFileBody("http://127.0.0.1:1/mcp", "t"))).toEqual({ url: "http://127.0.0.1:1/mcp", token: "t" });
   });
 });
 
@@ -57,7 +59,7 @@ describe("withoutLegacyBridgeEntry", () => {
 });
 
 /** A stand-in for Companion's bridge: JSON replies, a session id, 202 for notifications, 404 for an unknown session. */
-function bridge(token: string) {
+function bridge(accepted: { token: string }) {
   const sessions = new Set<string>();
   const seen: Array<{ method: string; session: string | undefined; auth: string | undefined }> = [];
   let next = 1;
@@ -68,7 +70,7 @@ function bridge(token: string) {
       const message = JSON.parse(body) as { id?: number; method: string };
       const session = req.headers["mcp-session-id"] as string | undefined;
       seen.push({ method: message.method, session, auth: req.headers.authorization });
-      if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401).end("{}"); return; }
+      if (req.headers.authorization !== `Bearer ${accepted.token}`) { res.writeHead(401).end("{}"); return; }
       if (message.method === "initialize") {
         const id = `s${next++}`;
         sessions.add(id);
@@ -100,8 +102,20 @@ const proxyFile = (() => {
   return file;
 })();
 
-/** Run the proxy under plain node: send `lines` on stdin, close it, and collect each JSON line it prints. */
-function runProxy(env: Record<string, string>, lines: unknown[], between?: () => void): Promise<Array<Record<string, any>>> {
+/** A home folder holding Companion's connection file, as the proxy finds it on this platform. */
+function home(connection?: { url: string; token: string }) {
+  const dir = mkdtempSync(join(tmpdir(), "companion-home-"));
+  const file = connectionFilePath(process.platform === "win32" ? "win32" : "darwin", dir, { APPDATA: join(dir, "AppData") });
+  const write = (value: { url: string; token: string }) => {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, connectionFileBody(value.url, value.token));
+  };
+  if (connection) write(connection);
+  return { env: { HOME: dir, USERPROFILE: dir, APPDATA: join(dir, "AppData") }, write };
+}
+
+/** Run the proxy under plain node: send `lines` on stdin (calling `before[i]` first), close it, and collect each JSON line it prints. */
+function runProxy(env: Record<string, string>, lines: unknown[], before: Record<number, () => void> = {}): Promise<Array<Record<string, any>>> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [proxyFile], { env: { PATH: process.env.PATH ?? "", ...env }, stdio: ["pipe", "pipe", "inherit"] });
     let out = "";
@@ -110,7 +124,7 @@ function runProxy(env: Record<string, string>, lines: unknown[], between?: () =>
     child.on("close", () => resolve(out.split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, any>)));
     void (async () => {
       for (const [index, line] of lines.entries()) {
-        if (index === 2) between?.();
+        before[index]?.();
         child.stdin.write(`${JSON.stringify(line)}\n`);
         await new Promise((r) => setTimeout(r, 40));
       }
@@ -127,10 +141,10 @@ describe("Claude Desktop extension proxy", () => {
   let server: ReturnType<typeof bridge> | null = null;
   afterEach(async () => { await server?.close(); server = null; });
 
-  it("relays initialize, a notification and a request over the bridge session as single JSON lines", async () => {
-    server = bridge("tok");
+  it("reads Companion's connection file and relays initialize, a notification and a request as single JSON lines", async () => {
+    server = bridge({ token: "tok" });
     const url = await server.listen();
-    const replies = await runProxy({ COMPANION_VAULT_URL: url, COMPANION_VAULT_TOKEN: "tok" }, [INIT, INITIALIZED, LIST]);
+    const replies = await runProxy(home({ url, token: "tok" }).env, [INIT, INITIALIZED, LIST]);
     expect(replies.map((r) => r.id)).toEqual([1, 2]);
     expect(replies[1]!.result).toEqual({ tools: [{ name: "vault_search" }] });
     expect(server.seen).toEqual([
@@ -141,25 +155,35 @@ describe("Claude Desktop extension proxy", () => {
   });
 
   it("starts a new session and retries once when the bridge forgets the old one", async () => {
-    server = bridge("tok");
+    server = bridge({ token: "tok" });
     const url = await server.listen();
-    const restart = server.forget;
-    const replies = await runProxy({ COMPANION_VAULT_URL: url, COMPANION_VAULT_TOKEN: "tok" }, [INIT, INITIALIZED, LIST], restart);
+    const replies = await runProxy(home({ url, token: "tok" }).env, [INIT, INITIALIZED, LIST], { 2: server.forget });
     expect(replies.map((r) => r.id)).toEqual([1, 2]);
-    expect(replies[1]!.result).toBeDefined();
     expect(server.seen.map((s) => `${s.method}@${s.session ?? "-"}`)).toEqual([
       "initialize@-", "notifications/initialized@s1", "tools/list@s1", "initialize@-", "notifications/initialized@s2", "tools/list@s2",
     ]);
   });
 
-  it("answers each request with what to fix: a wrong token, a closed bridge, missing settings", async () => {
-    server = bridge("tok");
+  it("picks up a new token from the connection file without being reinstalled", async () => {
+    const accepted = { token: "old" };
+    server = bridge(accepted);
     const url = await server.listen();
-    const wrong = await runProxy({ COMPANION_VAULT_URL: url, COMPANION_VAULT_TOKEN: "nope" }, [INIT]);
-    expect(wrong).toEqual([{ jsonrpc: "2.0", id: 1, error: { code: -32000, message: expect.stringContaining("rejected the token") } }]);
-    const closed = await runProxy({ COMPANION_VAULT_URL: "http://127.0.0.1:9/mcp", COMPANION_VAULT_TOKEN: "tok" }, [INIT]);
+    const user = home({ url, token: "old" });
+    const rotate = () => { accepted.token = "new"; user.write({ url, token: "new" }); };
+    const replies = await runProxy(user.env, [INIT, INITIALIZED, LIST], { 2: rotate });
+    expect(replies.map((r) => r.id)).toEqual([1, 2]);
+    expect(replies[1]!.result).toBeDefined();
+    expect(server.seen.at(-1)).toMatchObject({ method: "tools/list", auth: "Bearer new" });
+  });
+
+  it("answers each request with what to do: no connection file, a closed bridge, a rejected token", async () => {
+    const missing = await runProxy(home().env, [INIT, INITIALIZED]);
+    expect(missing).toEqual([{ jsonrpc: "2.0", id: 1, error: { code: -32000, message: expect.stringContaining("click Connect Claude Desktop") } }]);
+    const closed = await runProxy(home({ url: "http://127.0.0.1:9/mcp", token: "tok" }).env, [INIT]);
     expect(closed[0]!.error.message).toContain("not reachable at http://127.0.0.1:9/mcp");
-    const unset = await runProxy({}, [INIT, INITIALIZED]);
-    expect(unset).toEqual([{ jsonrpc: "2.0", id: 1, error: { code: -32000, message: expect.stringContaining("Set the vault bridge URL and token") } }]);
+    server = bridge({ token: "tok" });
+    const url = await server.listen();
+    const wrong = await runProxy(home({ url, token: "nope" }).env, [INIT]);
+    expect(wrong[0]!.error.message).toContain("rejected the token");
   });
 });

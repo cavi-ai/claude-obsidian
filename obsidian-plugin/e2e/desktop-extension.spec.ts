@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { strFromU8, unzipSync } from "fflate";
-import { buildExtensionBundle, EXTENSION_VERSION } from "../src/integrations/desktopExtension";
+import { buildExtensionBundle, connectionFileBody, connectionFilePath, EXTENSION_VERSION } from "../src/integrations/desktopExtension";
 import { expect, test } from "./fixtures";
 
 async function freePort(): Promise<number> {
@@ -40,7 +40,7 @@ function runExtension(bundle: Uint8Array, env: Record<string, string>, messages:
   });
 }
 
-test("the Claude Desktop extension's server reaches the vault through Companion's live bridge", async ({ rig }) => {
+test("the Claude Desktop extension's server finds Companion's live bridge through the connection file", async ({ rig }) => {
   const port = await freePort();
   const harness = await rig.reset({
     settingsOverride: { mcpEnabled: true, mcpPort: port, mcpAllowWrites: false, mcpToken: "9b2d4f6a8c0e1b3d5f7a9c1e3b5d7f9a" },
@@ -53,8 +53,13 @@ test("the Claude Desktop extension's server reaches the vault through Companion'
       await plugin.syncMcpServer();
       return plugin.resolvedMcpToken();
     });
-    const url = `http://127.0.0.1:${port}/mcp`;
-    const replies = await runExtension(buildExtensionBundle({ version: EXTENSION_VERSION, url }), { COMPANION_VAULT_URL: url, COMPANION_VAULT_TOKEN: token }, [
+    // The connection file Companion writes, in a throwaway home so the real one is never touched.
+    const home = mkdtempSync(join(tmpdir(), "companion-home-"));
+    const connection = connectionFilePath(process.platform === "win32" ? "win32" : "darwin", home, { APPDATA: join(home, "AppData") });
+    mkdirSync(dirname(connection), { recursive: true });
+    writeFileSync(connection, connectionFileBody(`http://127.0.0.1:${port}/mcp`, token));
+    const env = { HOME: home, USERPROFILE: home, APPDATA: join(home, "AppData") };
+    const replies = await runExtension(buildExtensionBundle(EXTENSION_VERSION), env, [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "1" } } },
       { jsonrpc: "2.0", method: "notifications/initialized" },
       { jsonrpc: "2.0", id: 2, method: "tools/list" },

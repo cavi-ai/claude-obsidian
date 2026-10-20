@@ -14,7 +14,14 @@ import {
   type ProbeResult,
 } from "./desktop";
 import type { ManagedProcessPort } from "../build/desktopExecutor";
-import { EXTENSION_FILE_NAME, EXTENSION_VERSION, buildExtensionBundle, withoutLegacyBridgeEntry } from "./desktopExtension";
+import {
+  EXTENSION_FILE_NAME,
+  EXTENSION_VERSION,
+  buildExtensionBundle,
+  connectionFileBody,
+  connectionFilePath,
+  withoutLegacyBridgeEntry,
+} from "./desktopExtension";
 
 export interface ExecResult {
   stdout: string;
@@ -182,6 +189,8 @@ export interface ClaudeDesktopInstallInput {
 export interface ClaudeDesktopInstallResult {
   /** The extension bundle handed to Claude Desktop. */
   bundlePath: string;
+  /** The user-only file the extension reads the bridge URL and token from. */
+  connectionPath: string;
   configPath: string;
   /** Set when the mcp-remote entry earlier versions wrote was removed from the config. */
   backupPath: string | null;
@@ -346,24 +355,23 @@ export class DesktopRuntime {
   }
 
   /**
-   * Hand Claude Desktop the vault extension: write the bundle, open it so Claude
-   * Desktop shows its install dialog, then drop the mcp-remote entry earlier
-   * versions wrote (its token sat in the config in plain text). The token itself
-   * is never written; the user pastes it into the extension's settings.
+   * Hand Claude Desktop the vault extension: write the connection file the
+   * extension reads (bridge URL and token, user-only), write the bundle, open it
+   * so Claude Desktop shows its install dialog, then drop the mcp-remote entry
+   * earlier versions wrote into Claude Desktop's config.
    */
   async installClaudeDesktop(input: ClaudeDesktopInstallInput): Promise<ClaudeDesktopInstallResult> {
     const stage = "Install the Claude Desktop extension";
     if (!input.token.trim()) throw new DesktopIntegrationError(stage, "The MCP bridge token is empty.");
-    const configPath = input.configPath ?? claudeDesktopConfigPath(
-      this.options.platform,
-      this.options.homeDir,
-      this.options.env ?? {},
-    );
+    const env = this.options.env ?? {};
+    const configPath = input.configPath ?? claudeDesktopConfigPath(this.options.platform, this.options.homeDir, env);
     const { tempDir, openPath } = this.options;
     if (!tempDir || !openPath) throw new DesktopIntegrationError(stage, "This device cannot write or open the extension file.");
+    const connectionPath = connectionFilePath(this.options.platform, this.options.homeDir, env);
+    await this.options.fs.atomicWrite(connectionPath, connectionFileBody(`http://127.0.0.1:${input.port}/mcp`, input.token));
     const separator = this.options.platform === "win32" ? "\\" : "/";
     const bundlePath = `${tempDir.replace(/[\\/]+$/, "")}${separator}${EXTENSION_FILE_NAME}`;
-    await this.options.fs.writeBinary(bundlePath, buildExtensionBundle({ version: EXTENSION_VERSION, url: `http://127.0.0.1:${input.port}/mcp` }));
+    await this.options.fs.writeBinary(bundlePath, buildExtensionBundle(EXTENSION_VERSION));
     try {
       await openPath(bundlePath);
     } catch (cause) {
@@ -375,7 +383,7 @@ export class DesktopRuntime {
       backupPath = await this.options.fs.backup(configPath);
       await this.options.fs.atomicWrite(configPath, cleaned);
     }
-    return { bundlePath, configPath, backupPath, legacyRemoved: cleaned !== null };
+    return { bundlePath, connectionPath, configPath, backupPath, legacyRemoved: cleaned !== null };
   }
 
   async openTerminalAtVault(vaultPath: string): Promise<TerminalLaunchResult> {

@@ -1,5 +1,4 @@
 import { sanitizeDesktopError, type ClaudeCodeInspection } from "./desktop";
-import { EXTENSION_TOKEN_TITLE } from "./desktopExtension";
 import type {
   ClaudeDesktopInstallInput,
   ClaudeDesktopInstallResult,
@@ -117,17 +116,12 @@ export class DesktopIntegrationCoordinator {
         return;
       }
       try {
-        // Copy before Claude Desktop opens: Obsidian cannot write the clipboard once it loses focus.
-        const copied = await this.options.copy(bridge.token).then(() => true, () => false);
         const result = await this.options.runtime.installClaudeDesktop(bridge);
         if (!this.isCurrent(generation)) return;
-        const paste = copied
-          ? `paste the token Companion copied into “${EXTENSION_TOKEN_TITLE}”`
-          : `enter the token from Companion's MCP settings into “${EXTENSION_TOKEN_TITLE}”`;
         this.setState({
           status: "ready",
           providerReady: this.options.providerReady(),
-          message: `Claude Desktop is showing the Obsidian vault extension. Click Install, then ${paste}.`
+          message: "Claude Desktop is showing the Obsidian vault extension. Click Install; it connects to this vault on its own."
             + (result.legacyRemoved ? " The older Claude Desktop config entry was removed and backed up." : ""),
           claudeDesktopConfigPath: result.configPath,
         });
