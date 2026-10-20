@@ -70,7 +70,6 @@
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
     "defuddle": "^0.19.5",
-    "fflate": "^0.8.3",
-    "pdfjs-dist": "~6.2.108"
+    "fflate": "^0.8.3"
   }
 }
