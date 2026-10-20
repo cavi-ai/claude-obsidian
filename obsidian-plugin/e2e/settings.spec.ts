@@ -49,10 +49,13 @@ for (const [layout, width, theme] of [["desktop", 675, "dark"], ["narrow", 350, 
         const select = element.querySelector("select:not(.is-measuring)")!.getBoundingClientRect();
         const style = getComputedStyle(element);
         const available = rowRect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-        return { available, infoWidth: info.width, infoBottom: info.bottom, controlTop: control.top, selectWidth: select.width, controlWidth: control.width, overflow: element.scrollWidth - element.clientWidth };
+        return { available, infoWidth: info.width, infoRight: info.right, infoBottom: info.bottom, controlLeft: control.left, controlTop: control.top, selectWidth: select.width, controlWidth: control.width, overflow: element.scrollWidth - element.clientWidth };
       });
       expect(bounds.infoWidth).toBeGreaterThanOrEqual(Math.min(240, bounds.available) - 1);
-      expect(bounds.controlTop).toBeGreaterThanOrEqual(bounds.infoBottom - 1);
+      const stacked = bounds.controlTop >= bounds.infoBottom - 1;
+      const separateColumns = bounds.controlLeft >= bounds.infoRight + 12;
+      expect(stacked || separateColumns, "description and selector must not overlap").toBe(true);
+      if (layout === "narrow") expect(stacked).toBe(true);
       expect(bounds.selectWidth).toBeLessThanOrEqual(bounds.controlWidth + 1);
       expect(bounds.overflow).toBeLessThanOrEqual(1);
     } finally { await harness.close(); }
