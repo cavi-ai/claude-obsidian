@@ -12,7 +12,7 @@ work forward.
 · [Quick start](#quick-start)
 · [Read the guides](#guides)
 
-![Companion in Obsidian: a note with pending inline edits and the chat that proposed them](obsidian-plugin/assets/hero.png)
+![Companion in Obsidian: onboarding interviews connected to a finding, proposal, and next research session beside Claude Opus 5.5 chat](assets/canvas-output.png)
 
 ## Quick start
 
@@ -48,7 +48,7 @@ fingerprint, and only reviewed, current evidence counts as trusted support. The
 vault remains the readable source of truth at every stage.
 
 <p align="center">
-  <img src="assets/research-desk.png" width="760" alt="Research Desk showing a project's suggested next steps, claim cards with their status, and document progress">
+  <img src="assets/research-desk.png" width="1000" alt="Research Desk showing source-linked evidence, a challenging passage, and document progress beside Companion chat">
 </p>
 
 [See the research workflow →](guides/research-workbench.md)

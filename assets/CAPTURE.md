@@ -28,7 +28,7 @@ assets. GIFs remain manual captures and follow the same visual rules below.
 
 Apply to every asset — consistency across shots matters more than any single shot.
 
-- **Display:** retina / 2× scale.
+- **Display:** retina / 2× scale for panel crops; whole-workspace Research Desk and Canvas scenes use a 1600×1000 CSS-pixel viewport at 1× to preserve the full layout within the inline-image size limit.
 - **Theme:** dark, default Obsidian appearance (theme "obsidian"). Companion's chrome reads better on dark, and the README renders on both GitHub themes.
 - **Vault:** deterministic demo data only. Never a real vault, and no personal note titles anywhere in frame.
 - **Same fixture vocabulary for every asset** so the product looks coherent across the README, the guides, and the store.
@@ -77,7 +77,8 @@ Regenerate it any time with `python3 demo-vault/_generate-demo-vault.py demo-vau
 | `working-map.png` | Legacy working-map example retained for the asset archive. | Not currently embedded |
 | `agent-tool-chips.png` | Chat with a vault-search tool chain and one expanded result. | `guides/getting-started.md` · `guides/agent-mode.md` |
 | `diff-review.png` | Two independently reviewable edit hunks. | `guides/agent-mode.md` |
-| `research-desk.png` | Wide Research Desk view with a supported claim, a drafted white-paper section, next action, and attention queue. | Root README · `guides/research-workbench.md` |
+| `research-desk.png` | Research Desk beside Opus 5.5 chat, with reviewed source-linked evidence, a challenging passage, and document progress. | Root README · `guides/research-workbench.md` |
+| `canvas-output.png` | Native Canvas created through `canvas_create` from a fictional onboarding study: two interview notes, a finding, an unresolved question, a proposal, and the next research session beside Opus 5.5 chat. | Root README · plugin README |
 | `research-workbench-intelligence.png` | Intelligence tab with deterministic findings visible. | `guides/research-workbench.md` |
 | `mcp-bridge-settings.png` | Running loopback MCP bridge with its token masked. | `guides/claude-code-bridge.md` |
 | `local-fallback-indicator.png` | Tight chat crop showing the local fallback status and reason. | `guides/local-models.md` |
@@ -94,7 +95,6 @@ that the current release assets do not already show.
 | `slash-palette.png` | The `/` fuzzy palette open in the composer, several commands visible (`/artifact`, `/summarize`, `/research`) plus at least one user template so custom commands are legible. | `guides/getting-started.md` §4 |
 | `plan-mode.png` | Composer with the **Plan** toggle lit, and Claude's proposed plan in the transcript — ordered steps naming vault paths, nothing written. | Unassigned — candidate for `guides/agent-mode.md` §Plan Mode |
 | `chat-controls.png` | In-chat controls: per-message model switcher, extended-thinking toggle with the effort dial, and the reasoning panel expanded. | Unassigned — candidate for a future guide section |
-| `canvas-output.png` | A `.canvas` mind map produced by `canvas_create`, open in Obsidian, with `file` nodes pointing at real notes and labeled edges. | Unassigned — candidate for `guides/agent-mode.md` |
 | `session-to-note.png` | Still frame of the `hero-session-to-note.gif` end state: the produced note with frontmatter and wikilinks. | Fallback if the GIF isn't captured |
 
 ## Wiring a new asset
