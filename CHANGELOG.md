@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.0] — 2026-10-21
+
+### Added
+- Desktop integrations connects the Codex and Antigravity command-line agents to the vault in one click each, with no token written to their configuration; calling a vault tool opens Obsidian when it is closed.
+
+### Fixed
+- Links and screenshots in the published guides open from the release page and the website.
+
 ## [0.48.1] — 2026-10-21
 
 ### Added
