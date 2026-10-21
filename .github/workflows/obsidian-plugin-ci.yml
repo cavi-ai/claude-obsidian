@@ -8,6 +8,16 @@ on:
       - "claude-plugin"
       - "claude-plugin/**"
       - "CHANGELOG.md"
+      - "README.md"
+      - "guides/**"
+      - "assets/**"
+      - "CONTRIBUTING.md"
+      - "CODE_OF_CONDUCT.md"
+      - "native-ios/README.md"
+      - "SECURITY.md"
+      - "NOTICE"
+      - "LICENSE"
+      - ".github/workflows/release-obsidian-plugin.yml"
       - ".github/workflows/obsidian-plugin-ci.yml"
   pull_request:
     paths:
@@ -15,6 +25,16 @@ on:
       - "claude-plugin"
       - "claude-plugin/**"
       - "CHANGELOG.md"
+      - "README.md"
+      - "guides/**"
+      - "assets/**"
+      - "CONTRIBUTING.md"
+      - "CODE_OF_CONDUCT.md"
+      - "native-ios/README.md"
+      - "SECURITY.md"
+      - "NOTICE"
+      - "LICENSE"
+      - ".github/workflows/release-obsidian-plugin.yml"
       - ".github/workflows/obsidian-plugin-ci.yml"
   workflow_dispatch:
 

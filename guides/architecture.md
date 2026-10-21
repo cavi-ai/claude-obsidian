@@ -97,9 +97,9 @@ artifacts, and built-in semantic search run on mobile.
 
 Four boundaries, each documented in [`SECURITY.md`](../SECURITY.md):
 
-**Credentials** live in Obsidian plugin settings on the user's device. Never
-logged. Password-typed inputs. The MCP token can be sourced from
-`OBSIDIAN_COMPANION_MCP_TOKEN` instead, to keep it out of a synced vault.
+**Credentials** use Obsidian's encrypted secret storage and are excluded from
+vault-synced plugin data. The MCP token can also come from
+`OBSIDIAN_COMPANION_MCP_TOKEN`.
 
 **The MCP bridge** must bind `127.0.0.1`, require a non-empty bearer token
 (startup fails without one), compare it in constant time, reject non-loopback
