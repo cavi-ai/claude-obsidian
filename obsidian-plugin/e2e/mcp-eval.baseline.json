@@ -171,123 +171,25 @@
         "weight": 15
       },
       {
-        "checks": [
-          {
-            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability. When a value built from the schema means nothing to the server (a path, an ID), declare examples that work, or pass working arguments with --arguments",
-            "id": "reliability.success",
-            "observed": 0,
-            "reason": "reliability-call-failed",
-            "score": 0,
-            "tool": "related_notes"
-          },
-          {
-            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability. When a value built from the schema means nothing to the server (a path, an ID), declare examples that work, or pass working arguments with --arguments",
-            "id": "reliability.success",
-            "observed": 0,
-            "reason": "reliability-call-failed",
-            "score": 0,
-            "tool": "note_read"
-          },
-          {
-            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability. When a value built from the schema means nothing to the server (a path, an ID), declare examples that work, or pass working arguments with --arguments",
-            "id": "reliability.success",
-            "observed": 0,
-            "reason": "reliability-call-failed",
-            "score": 0,
-            "tool": "get_backlinks"
-          },
-          {
-            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability. When a value built from the schema means nothing to the server (a path, an ID), declare examples that work, or pass working arguments with --arguments",
-            "id": "reliability.success",
-            "observed": 0,
-            "reason": "reliability-call-failed",
-            "score": 0,
-            "tool": "get_outgoing_links"
-          },
-          {
-            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability. When a value built from the schema means nothing to the server (a path, an ID), declare examples that work, or pass working arguments with --arguments",
-            "id": "reliability.success",
-            "observed": 0,
-            "reason": "reliability-call-failed",
-            "score": 0,
-            "tool": "research_project_read"
-          },
-          {
-            "hint": "make valid read-only calls succeed; consistent tool errors are failures, not evidence of reliability. When a value built from the schema means nothing to the server (a path, an ID), declare examples that work, or pass working arguments with --arguments",
-            "id": "reliability.success",
-            "observed": 0,
-            "reason": "reliability-call-failed",
-            "score": 0,
-            "tool": "research_audit"
-          }
-        ],
+        "checks": [],
         "measurements": {
           "rejected_calls": 0,
           "rpc_errors": 0,
-          "score_without_latency": 57,
-          "successful_calls": 18,
-          "tool_errors": 18,
+          "score_without_latency": 100,
+          "successful_calls": 36,
+          "tool_errors": 0,
           "transport_errors": 0,
           "untested_tools": 0
         },
         "name": "reliability",
-        "score": 57,
+        "score": 100,
         "weight": 20
       },
       {
-        "checks": [
-          {
-            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session. When a value built from the schema means nothing to the server, declare examples that work, or pass working arguments with --arguments",
-            "id": "coverage.exercised",
-            "observed": null,
-            "reason": "coverage-call-failed",
-            "score": 0,
-            "tool": "related_notes"
-          },
-          {
-            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session. When a value built from the schema means nothing to the server, declare examples that work, or pass working arguments with --arguments",
-            "id": "coverage.exercised",
-            "observed": null,
-            "reason": "coverage-call-failed",
-            "score": 0,
-            "tool": "note_read"
-          },
-          {
-            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session. When a value built from the schema means nothing to the server, declare examples that work, or pass working arguments with --arguments",
-            "id": "coverage.exercised",
-            "observed": null,
-            "reason": "coverage-call-failed",
-            "score": 0,
-            "tool": "get_backlinks"
-          },
-          {
-            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session. When a value built from the schema means nothing to the server, declare examples that work, or pass working arguments with --arguments",
-            "id": "coverage.exercised",
-            "observed": null,
-            "reason": "coverage-call-failed",
-            "score": 0,
-            "tool": "get_outgoing_links"
-          },
-          {
-            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session. When a value built from the schema means nothing to the server, declare examples that work, or pass working arguments with --arguments",
-            "id": "coverage.exercised",
-            "observed": null,
-            "reason": "coverage-call-failed",
-            "score": 0,
-            "tool": "research_project_read"
-          },
-          {
-            "hint": "no call succeeded: each returned a tool or JSON-RPC error, timed out, closed the connection, or broke the protocol exchange; a read-only tool must answer valid calls successfully within 15 seconds without ending the session. When a value built from the schema means nothing to the server, declare examples that work, or pass working arguments with --arguments",
-            "id": "coverage.exercised",
-            "observed": null,
-            "reason": "coverage-call-failed",
-            "score": 0,
-            "tool": "research_audit"
-          }
-        ],
+        "checks": [],
         "measurements": {},
         "name": "coverage",
-        "score": 50,
+        "score": 100,
         "weight": 15
       }
     ],
@@ -295,13 +197,14 @@
       "read_only_tools": 12,
       "scope": "read-only-structural",
       "semantic_correctness": "requires-reviewed-oracle",
-      "tools_exercised": 6,
+      "tools_exercised": 12,
       "writer_tools_excluded": 0
     },
     "attested_read_only": false,
-    "badge": "https://img.shields.io/badge/mcpeval-84%2F100-brightgreen",
+    "badge": "https://img.shields.io/badge/mcpeval-100%2F100-brightgreen",
     "measurement_profile": {
       "architecture": "aarch64",
+      "arguments_sha256": "13c2b777d74d4568ba4e6428fa8c8f8095f5ad07cf363f6f3f4108df9c070641",
       "attested_read_only": false,
       "call_timeout_ms": 15000,
       "client_capabilities": "none",
@@ -311,11 +214,11 @@
       "schema": "mcpeval.measurement-profile/v1",
       "skip_tools": []
     },
-    "score": 84,
-    "score_without_latency": 84,
+    "score": 100,
+    "score_without_latency": 100,
     "standard": "mcpeval-standard/2",
     "surface": {
-      "exercised": 6,
+      "exercised": 12,
       "read_only": 12,
       "tools": 12,
       "writers": 0
