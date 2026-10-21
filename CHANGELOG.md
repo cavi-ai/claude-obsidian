@@ -4,6 +4,16 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.1] — 2026-10-21
+
+### Added
+- Research Desk shows each passage's source and review status, expands secondary passages in place, and opens sources in their own tabs on desktop; Canvas tool results have an Open Canvas button.
+- The settings home links to the GitHub repository and its issues.
+
+### Fixed
+- The Claude Desktop extension stays connected while Obsidian is closed, opens the vault when a vault tool is called, and follows a changed port or token without reinstalling.
+- A living view checked while another rebuild is running is rebuilt once, not twice.
+
 ## [0.48.0] — 2026-10-20
 
 ### Added
