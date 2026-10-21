@@ -37,6 +37,8 @@ button.cc-settings-destination:focus-visible, .cc-settings-disclosure:focus-visi
 .cc-settings-chevron { display: flex; flex: 0 0 20px; color: var(--text-muted); }
 .cc-settings-grid .cc-settings-advanced-link { margin-top: 8px; border-top: 1px solid var(--background-modifier-border); border-bottom: 0; }
 .cc-settings-home > button:nth-last-child(2) { border-bottom: 0; }
+.cc-settings-grid .cc-settings-open-source { display: block; padding: 12px 4px 0; border: 0; }
+.cc-settings-open-source p { margin: 0; }
 .cc-settings-browser button.mod-cta, .cc-settings-browser .checkbox-container.is-enabled { background-color: var(--cc-accent); color: var(--cc-accent-fg); }
 .cc-settings-grid .cc-settings-category-title { display: block; padding: 12px 0 0; border: 0; }
 .cc-settings-category-title h2 { margin: 0; padding: 0; font-size: var(--cc-text-xl); }

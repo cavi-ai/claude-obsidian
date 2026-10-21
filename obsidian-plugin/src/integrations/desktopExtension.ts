@@ -5,6 +5,7 @@
 // nothing and a changed token or port is picked up without reinstalling. Pure.
 
 import { strToU8, zipSync } from "fflate";
+import { REPOSITORY_URL } from "../project";
 import { isRecord } from "../records";
 import type { DesktopPlatform } from "./desktop";
 
@@ -150,7 +151,7 @@ export function extensionManifest(version: string): Record<string, unknown> {
     display_name: "Obsidian vault (Companion for Claude)",
     version,
     description: "Your Obsidian vault in Claude Desktop through Companion for Claude's vault bridge. Obsidian must be open.",
-    author: { name: "Companion for Claude", url: "https://github.com/cavi-ai/companion-for-claude" },
+    author: { name: "Companion for Claude", url: REPOSITORY_URL },
     server: {
       type: "node",
       entry_point: "server/index.js",
