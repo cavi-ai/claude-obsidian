@@ -113,10 +113,10 @@ function redditIo(page: string, feed: () => Response): WebCaptureIo & { fetch: R
     toMarkdown,
     // Mirrors Reddit today: old.reddit.com answers anonymous clients with a login page.
     fetch: vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      if (url.includes("old.reddit.com")) return new Response("<html><body><form id=\"login\"></form></body></html>");
-      if (url.endsWith("/.rss")) return feed();
-      throw new Error(`unexpected request: ${url}`);
+      const url = new URL(String(input));
+      if (url.hostname === "old.reddit.com") return new Response("<html><body><form id=\"login\"></form></body></html>");
+      if (url.hostname === "www.reddit.com" && url.pathname.endsWith("/.rss")) return feed();
+      throw new Error(`unexpected request: ${url.href}`);
     }),
   };
 }
@@ -130,7 +130,7 @@ describe("captureWebSource on Reddit", () => {
     expect(result?.title).toBe("Run it locally");
     const requested = target.fetch.mock.calls.map(([input]) => String(input));
     expect(requested).toContain("https://www.reddit.com/r/unsloth/comments/1abc23/run_it_locally/.rss");
-    expect(requested.every((url) => new URL(url).hostname.endsWith("reddit.com"))).toBe(true);
+    expect(new Set(requested.map((url) => new URL(url).hostname))).toEqual(new Set(["old.reddit.com", "www.reddit.com"]));
   });
 
   it("keeps the post text the page carries when the feed refuses", async () => {
