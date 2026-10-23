@@ -4,6 +4,12 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.1] — 2026-10-23
+
+### Fixed
+- Settings no longer use a `:has()` selector to lay out dropdown rows, which made Obsidian re-check styles across the whole app on every change; the community store scan no longer warns about it.
+- The Advanced settings sidebar spacing no longer uses `column-gap`, which the store scan reported as partially supported.
+
 ## [0.49.0] — 2026-10-21
 
 ### Added
