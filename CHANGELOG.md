@@ -4,6 +4,12 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.2] — 2026-10-23
+
+### Fixed
+- A Reddit post saved by Web Clipper as a blank note is filled in: Companion reads a clip that arrives empty from its source page while enriching it, and reads a Reddit post, share links included, with its comments from Reddit's own feed.
+- Pages captured from a URL, attached to chat, or read by the web fetch tool arrive as markdown instead of HTML.
+
 ## [0.49.1] — 2026-10-23
 
 ### Fixed

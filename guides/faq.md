@@ -51,6 +51,8 @@ The complete list of hosts the plugin can ever contact:
 | `html.duckduckgo.com` or `api.search.brave.com` | Agent web search, only on an explicit search and only if you enabled the tool |
 | The page a web-fetch tool call names | Agent web fetch, only on an explicit tool call and only if you enabled the tool |
 | A page you asked to capture or fetch | Web-source capture, attach-page, or the agent's web fetch tool |
+| The source page of a clip that arrives empty | Source enrichment, only for an inbox clip with no body and only after you allow automatic enrichment or enrich it yourself |
+| `www.reddit.com`, `old.reddit.com` | Reading a Reddit post from Reddit's own feed when one of the pages above is a Reddit post |
 | Any MCP server URL you configure | External MCP client tools, on explicit agent tool calls |
 
 On desktop, two optional features touch files outside the vault: session capture
