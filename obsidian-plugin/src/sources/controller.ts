@@ -1,6 +1,6 @@
 import type { PluginSettings } from "../types";
 import type { EnrichDeps } from "./enrich";
-import { enrichCapture } from "./enrich";
+import { ClipPageError, enrichCapture } from "./enrich";
 import { shouldEnrich } from "./watcher";
 import { parseClipUrl } from "./detect";
 import { KeyedSerialQueue } from "./keyedSerialQueue";
@@ -10,6 +10,7 @@ import type { EnrichDiagnostics } from "./enrichDiagnostics";
 import { TFile } from "obsidian";
 import { applySourceFrontmatter, sourceProperties } from "./frontmatterMerge";
 import { extractResearchSourceEnrichment } from "../research/enrichSource";
+import type { WebCapture } from "../research/webCapture";
 
 export interface FileRef {
   path: string;
@@ -47,6 +48,8 @@ export interface SourceEnrichmentControllerDeps {
   mobileSourceNoteMaxBytes: number;
 
   enrichApp: EnrichDeps["app"];
+  /** Reads the source page of a clip that arrived empty; absent where no DOM is available. */
+  captureWeb?: WebCapture | undefined;
   vault: {
     cachedRead: (path: string) => Promise<string>;
   };
@@ -315,7 +318,8 @@ export class SourceEnrichmentController {
         title: "Enrich clips automatically?",
         message:
           `Source capture can type each new file in ${this.deps.settings().sourceInboxFolder}/ into a schema-validated source note. ` +
-          "This sends the file's content to your utility model (Claude, unless you enable the local model in settings).",
+          "This sends the file's content to your utility model (Claude, unless you enable the local model in settings). " +
+          "A clip that arrives empty is first read from its source page.",
         buttons: [
           { label: "Enrich automatically", value: "allow", cta: true },
           { label: "Manual only", value: "deny" },
@@ -379,7 +383,7 @@ export class SourceEnrichmentController {
           completed: 1,
           total: 1,
           succeeded: 1,
-          details: [{ label: res.file.path, message: `Typed as ${res.type}`, state: "success" }],
+          details: [{ label: res.file.path, message: res.readFromPage ? `Typed as ${res.type}, read from its page` : `Typed as ${res.type}`, state: "success" }],
         });
       }
       return { status: "enriched" };
@@ -389,7 +393,8 @@ export class SourceEnrichmentController {
       }
       if (!(e instanceof UtilityUnavailableError)) console.warn("[companion] source enrichment failed", e);
       const message = e instanceof Error ? e.message : String(e);
-      const detail = e instanceof UtilityUnavailableError
+      // A page-read failure is not the model's: provider hints would misattribute it.
+      const detail = e instanceof UtilityUnavailableError || e instanceof ClipPageError
         ? message
         : selection
           ? errorHint(message, selection.provider.id, selection.endpoint) ?? message
@@ -455,6 +460,7 @@ export class SourceEnrichmentController {
       enrichedBy: selection.provider.id === "anthropic" ? "claude" : "local",
       now: () => new Date().toISOString(),
       assertActive: () => this.deps.assertUtilityLifecycleActive(lifecycleGeneration),
+      captureWeb: this.deps.captureWeb,
     };
   }
 }

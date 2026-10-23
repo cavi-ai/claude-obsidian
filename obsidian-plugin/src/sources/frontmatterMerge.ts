@@ -35,11 +35,16 @@ export function sourceProperties(content: string): Record<string, unknown> {
   return (parsed ?? {}) as Record<string, unknown>;
 }
 
-/** Pure, frontmatter-only merge. Live values win; system enrichment markers deliberately refresh. */
+/**
+ * Pure merge of source-owned keys. Live values win; system enrichment markers
+ * deliberately refresh. The body is preserved, except that `fillBody` fills a
+ * body that is still empty (a clip re-read from its source page).
+ */
 export function mergeSourceMarkdown(
   content: string,
   fm: FrontmatterData,
   validateMerged?: MergedFrontmatterValidator,
+  fillBody?: string,
 ): string {
   const frontmatter = sourceProperties(content);
   const block = frontmatterBlock(content);
@@ -57,8 +62,10 @@ export function mergeSourceMarkdown(
   validateMerged?.(frontmatter);
 
   const yaml = stringifyYaml(frontmatter).replace(/\r?\n$/, "").replace(/\r?\n/g, eol);
-  const output = `---${eol}${yaml}${yaml ? eol : ""}---${eol}${body}`;
-  assertBodyPreserved(content, output);
+  // Text written into the note since the page was read wins over the page.
+  const filled = fillBody?.trim() && !body.trim() ? `${fillBody.trim().replace(/\r?\n/g, eol)}${eol}` : undefined;
+  const output = `---${eol}${yaml}${yaml ? eol : ""}---${eol}${filled ?? body}`;
+  if (filled === undefined) assertBodyPreserved(content, output);
   return output;
 }
 
@@ -67,6 +74,7 @@ export async function applySourceFrontmatter(
   file: TFile,
   fm: FrontmatterData,
   validateMerged?: MergedFrontmatterValidator,
+  fillBody?: string,
 ): Promise<void> {
-  await app.vault.process(file, (current) => mergeSourceMarkdown(current, fm, validateMerged));
+  await app.vault.process(file, (current) => mergeSourceMarkdown(current, fm, validateMerged, fillBody));
 }
