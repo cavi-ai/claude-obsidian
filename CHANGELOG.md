@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.3] — 2026-10-25
+
+### Fixed
+- Source enrichment repairs unambiguous YAML formatting errors and preserves article text when a leading separator was mistaken for a properties block.
+- Web Clipper setup saves actual JSON files to the device, explains JSON text import, and selects the video template on matching YouTube pages.
+- Template verification checks the exported template identity, and template changes correctly prompt a new import.
+- Manual and Inbox enrichment of the same note share one operation.
+
 ## [0.49.2] — 2026-10-23
 
 ### Fixed
