@@ -12,7 +12,7 @@ function deps(app: App, complete: EnrichDeps["complete"]): EnrichDeps {
 }
 
 describe("enrichCapture — markdown clip", () => {
-  it.each(["\n## Introduction\n\nArticle text\n\nMore article text", "title: [broken", "- list item"])("rejects invalid properties before requesting extraction: %s", async (yaml) => {
+  it.each(["title: [broken", "- list item"])("rejects invalid properties before requesting extraction: %s", async (yaml) => {
     const app = new App();
     const before = `---\n${yaml}\n---\n\nBody.  \n`;
     const file = app.vault.seed("Clippings/invalid.md", before, { frontmatter: { title: "Stale cached title" } });

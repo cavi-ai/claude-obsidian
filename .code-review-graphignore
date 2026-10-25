@@ -1,0 +1,63 @@
+# Paths excluded from code graph indexing. A directory name matches at any depth.
+# A leading slash anchors to the repo root.
+
+# Dependencies, caches, editor metadata, local output
+node_modules/
+.pnpm/
+.pnpm-store/
+bower_components/
+site-packages/
+__pycache__/
+.venv/
+venv/
+.tox/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.turbo/
+.parcel-cache/
+.cache/
+coverage/
+.tmp/
+tmp/
+.temp/
+temp/
+DerivedData/
+.gradle/
+.dart_tool/
+cdk.out/
+.artifacts/
+.crabbox/
+.cursor/
+.dev-notes/
+.docker-local-bind/
+.quarantine/
+.qurantine/
+.vscode/
+.idea/
+dist-runtime/
+.dist-runtime/
+.db/
+*.min.js
+*.min.css
+*.map
+*.snap
+
+# Root output directories. Anchored so a source folder of the same name stays indexed.
+/dist/
+/build/
+/data/
+
+# Colocated tests. Drops the test-node fanout.
+*.test.ts
+*.test.tsx
+*.test.js
+*.test.mjs
+*.test.jsx
+*.spec.ts
+*.spec.tsx
+*.spec.js
+*.spec.mjs
+
+__snapshots__/
+fixtures/

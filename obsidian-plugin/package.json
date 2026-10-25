@@ -69,12 +69,12 @@
     "tslib": "^2.6.3",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.71.2",
-    "vitest": "^5.0.5",
-    "yaml": "^2.9.1"
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
     "defuddle": "^0.19.5",
-    "fflate": "^0.8.3"
+    "fflate": "^0.8.3",
+    "yaml": "^2.9.1"
   }
 }
