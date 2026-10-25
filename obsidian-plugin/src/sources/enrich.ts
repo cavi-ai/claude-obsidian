@@ -10,6 +10,7 @@ import { applySourceFrontmatter, sourceProperties } from "./frontmatterMerge";
 import { sanitizeFileName } from "../artifacts/parse";
 import { validateEnrichment, validateMergedSourceProvenance } from "./enrichmentQuality";
 import { stripFrontmatter } from "../markdown/frontmatter";
+import { prepareSourceMarkdown } from "./sourceMarkdown";
 import type { WebCapture } from "../research/webCapture";
 
 export interface EnrichDeps {
@@ -126,6 +127,7 @@ export function prefilledFields(schema: SourceTypeSchema, frontmatter: Record<st
 
 /** Run a capture through the pipeline and write the typed result. */
 export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Promise<EnrichResult> {
+  if (capture.kind === "markdown") capture = { ...capture, content: prepareSourceMarkdown(capture.content).content };
   const type = detectType(capture);
   const schema = getSchema(type, deps.overrides);
 

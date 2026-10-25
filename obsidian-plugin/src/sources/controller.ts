@@ -9,6 +9,7 @@ import { UtilityUnavailableError } from "../providers/endpointPolicy";
 import type { EnrichDiagnostics } from "./enrichDiagnostics";
 import { TFile } from "obsidian";
 import { applySourceFrontmatter, sourceProperties } from "./frontmatterMerge";
+import { prepareSourceMarkdown, SourcePropertiesError } from "./sourceMarkdown";
 import { extractResearchSourceEnrichment } from "../research/enrichSource";
 import type { WebCapture } from "../research/webCapture";
 
@@ -165,7 +166,7 @@ export class SourceEnrichmentController {
             details: [{ label: path, message: detail, state: "error" }],
             recovery: [
               { id: "review-inbox-failures", label: "Open Source Inbox", kind: "retry" },
-              { id: "utility-settings", label: "Open utility settings", kind: "settings" },
+              ...(error instanceof SourcePropertiesError ? [] : [{ id: "utility-settings", label: "Open utility settings", kind: "settings" }]),
             ],
           });
         }
@@ -236,7 +237,7 @@ export class SourceEnrichmentController {
       total: 1,
     });
     try {
-      const content = await this.deps.vault.cachedRead(file.path);
+      const content = prepareSourceMarkdown(await this.deps.vault.cachedRead(file.path)).content;
       sourceProperties(content);
       const selection = await this.deps.router().utilitySelection();
       const enrichDeps = this.buildEnrichDeps(selection, lifecycleGeneration);
@@ -276,7 +277,9 @@ export class SourceEnrichmentController {
         failed: 1,
         technicalDetails: detail,
         details: [{ label: file.path, message: detail, state: "error" }],
-        recovery: [{ id: "utility-settings", label: "Open utility settings", kind: "settings" }],
+        recovery: e instanceof SourcePropertiesError
+          ? [{ id: "review-inbox-failures", label: "Review failed notes", kind: "retry" }]
+          : [{ id: "utility-settings", label: "Open utility settings", kind: "settings" }],
       });
       return { status: "failed", error: e instanceof Error ? e : new Error(String(e)) };
     }
@@ -295,7 +298,7 @@ export class SourceEnrichmentController {
     if (this.deps.settings().sourceCaptureConsent !== "allow" && !(await this.askSourceCaptureConsent())) {
       return { status: "skipped", reason: "automatic source enrichment was not approved." };
     }
-    return this.runEnrich(file, notify, file.extension === "md" ? content : undefined);
+    return this.performEnrich(file, notify, file.extension === "md" ? content : undefined);
   }
 
   mobileSourceSizeFailure(file: FileRef): Extract<EnrichRunOutcome, { status: "failed" }> | null {
@@ -352,7 +355,15 @@ export class SourceEnrichmentController {
     return consent;
   }
 
-  async runEnrich(file: FileRef, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
+  runEnrich(file: FileRef, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
+    const generation = this.deps.utilityLifecycleGeneration();
+    const coordinator = this._coordinator ??= new KeyedSerialQueue<string, EnrichRunOutcome>();
+    return coordinator.run(file.path, () => this.deps.isUtilityLifecycleActive(generation)
+      ? this.performEnrich(file, notify, prefetchedContent)
+      : Promise.resolve({ status: "failed", error: new Error("Companion unloaded before source enrichment started; no content was sent.") }));
+  }
+
+  private async performEnrich(file: FileRef, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
     const sizeFailure = this.mobileSourceSizeFailure(file);
     if (sizeFailure) return sizeFailure;
     let selection: ProviderSelection | undefined;
@@ -366,7 +377,8 @@ export class SourceEnrichmentController {
         })
       : undefined;
     try {
-      const raw = prefetchedContent ?? await this.deps.vault.cachedRead(file.path);
+      const original = prefetchedContent ?? await this.deps.vault.cachedRead(file.path);
+      const raw = file.extension === "md" ? prepareSourceMarkdown(original).content : original;
       this.deps.enrichDiagnostics().log("item-start", { path: file.path, bytes: raw.length });
       const capture =
         file.extension === "md"
@@ -409,7 +421,7 @@ export class SourceEnrichmentController {
           details: [{ label: file.path, message: safeDetail, state: "error" }],
           recovery: [
             { id: "review-inbox-failures", label: "Open Source Inbox", kind: "retry" },
-            { id: "utility-settings", label: "Open utility settings", kind: "settings" },
+            ...(e instanceof SourcePropertiesError ? [] : [{ id: "utility-settings", label: "Open utility settings", kind: "settings" }]),
           ],
         });
       }
