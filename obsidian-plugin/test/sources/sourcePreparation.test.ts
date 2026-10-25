@@ -5,7 +5,7 @@ import { enrichCapture } from "../../src/sources/enrich";
 import { detectType, parseClipUrl } from "../../src/sources/detect";
 import { stripFrontmatter } from "../../src/markdown/frontmatter";
 
-const article = "---\n\n## Introduction\n\nA study explains its task: compare the evidence.\n\n---\n\n## Methods\n\nKeep this section too.  \n";
+const article = "---\n\n## Introduction\n\nA study compares several sources of evidence.\n\nThe task: evaluate their findings.\n\n---\n\n## Methods\n\nKeep this section too.  \n";
 
 describe("source input preparation", () => {
   it("preserves an article beginning with a thematic break through an atomic enrichment", async () => {
@@ -27,7 +27,7 @@ describe("source input preparation", () => {
   });
 
   it.each(["\n", "\r\n"])("repairs a stray opening separator without a later separator using %j", (eol) => {
-    const body = ["---", "", "# A heading", "", "A paragraph: with a colon.", ""].join(eol);
+    const body = ["---", "", "# A heading", "", "A paragraph describing the evidence.", ""].join(eol);
     const out = mergeSourceMarkdown(body, { summary: "A summary" });
     expect(stripFrontmatter(out)).toBe(body);
   });
@@ -70,9 +70,21 @@ describe("source input preparation", () => {
   });
 
   it.each([
+    ['"custom key": keep', { "custom key": "keep" }],
+    ["标题: 保留", { 标题: "保留" }],
+    ["custom.key: keep", { "custom.key": "keep" }],
+    ["custom key: keep", { "custom key": "keep" }],
+  ])("preserves valid commented properties beginning with %s", (field, expected) => {
+    const out = mergeSourceMarkdown(`---\n## Metadata\n\n${field}\n---\n\nBody`, { summary: "A summary" });
+    expect(sourceProperties(out)).toMatchObject(expected);
+    expect(stripFrontmatter(out)).toBe("\nBody");
+  });
+
+  it.each([
     "---\ntitle: [broken\n---\n\nBody",
     "---\ntitle: First\ntitle: Second\n---\n\nBody",
     "---\ntitle: Existing\n\n# Body without a closing fence",
+    "---\n## Metadata\n\ncustom key: [broken\n---\n\nBody",
   ])("rejects ambiguous YAML before extraction and leaves the note unchanged", async (before) => {
     const app = new App();
     const file = app.vault.seed("Clippings/invalid.md", before);

@@ -99,7 +99,7 @@ function startsArticle(text: string): boolean {
   const lines = text.trimStart().split(/\r?\n/);
   if (!/^#{1,6}\s+\S/.test(lines[0] ?? "") || lines[1]?.trim()) return false;
   const firstText = lines.find((line) => line.trim() && !/^\s*#/.test(line));
-  return firstText !== undefined && !/^[\w-]+\s*:/.test(firstText);
+  return firstText !== undefined && fields(firstText).length === 0;
 }
 
 export function renderSourceMarkdown(prepared: Omit<PreparedSourceMarkdown, "content">): string {
@@ -116,15 +116,20 @@ export function prepareSourceMarkdown(content: string): PreparedSourceMarkdown {
   let yaml = "";
   let body = text;
   let properties: Record<string, unknown> = {};
-  if (block && !startsArticle(block.yaml)) {
+  if (block) {
     yaml = repairYaml(block.yaml);
     let parsed: unknown;
-    try { parsed = parseYaml(yaml); }
-    catch (error) { throw new SourcePropertiesError(error instanceof Error ? error.message.split("\n")[0]! : "the properties could not be parsed"); }
-    if (parsed !== null && (typeof parsed !== "object" || Array.isArray(parsed))) throw new SourcePropertiesError("the properties must be a mapping");
-    properties = (parsed ?? {}) as Record<string, unknown>;
-    fields(yaml);
-    body = text.slice(block.end);
+    let failure: unknown;
+    try { parsed = parseYaml(yaml); } catch (error) { failure = error; }
+    if (!failure && (parsed === null || (typeof parsed === "object" && !Array.isArray(parsed)))) {
+      properties = (parsed ?? {}) as Record<string, unknown>;
+      fields(yaml);
+      body = text.slice(block.end);
+    } else if (startsArticle(block.yaml)) {
+      yaml = "";
+    } else {
+      throw new SourcePropertiesError(failure instanceof Error ? failure.message.split("\n")[0]! : "the properties must be a mapping");
+    }
   } else if (!block && /^---[ \t]*(?:\r?\n|$)/.test(text)) {
     if (!startsArticle(text.slice(text.indexOf("\n") + 1))) {
       throw new SourcePropertiesError("the opening block has no closing --- delimiter");

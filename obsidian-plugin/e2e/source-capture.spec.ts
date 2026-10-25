@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "./fixtures";
 
-const article = "---\n\n## Introduction\n\nA study describes its task: compare the evidence.\n\n---\n\n## Methods\n\nPreserve tables, equations, and code examples.  \n";
+const article = "---\n\n## Introduction\n\nA study compares several sources of evidence.\n\nThe task: evaluate their findings.\n\n---\n\n## Methods\n\nPreserve tables, equations, and code examples.  \n";
 
 test("Inbox enrichment prepares an article with a leading separator without losing its body", async ({ rig }, testInfo) => {
   const input = process.env.CC_SOURCE_FIXTURE ? await readFile(process.env.CC_SOURCE_FIXTURE, "utf8") : article;
