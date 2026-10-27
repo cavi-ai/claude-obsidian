@@ -4,6 +4,15 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.4] — 2026-10-27
+
+### Fixed
+- Web Clipper setup provides separate template and property-type JSON files with their matching import destinations.
+- Reopening semantic search settings preserves the last rebuild result while index statistics load.
+
+### Security
+- Update dependencies to address security advisories.
+
 ## [0.49.3] — 2026-10-25
 
 ### Fixed
