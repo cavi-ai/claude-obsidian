@@ -152,6 +152,9 @@ jobs:
           echo "Obsidian $installed installed; plugin floor $floor"
           node -e "const c=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]??0)-(y[i]??0);if(d)return d}return 0};process.exit(c('$installed','$floor')<0?1:0)"
 
+      - name: Install Chromium for Web Clipper imports
+        run: pnpm exec playwright install chromium
+
       - name: Run the Playwright suite against Obsidian
         env:
           CC_E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
