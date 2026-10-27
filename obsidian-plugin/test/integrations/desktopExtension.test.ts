@@ -5,7 +5,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { strFromU8, unzipSync } from "fflate";
-import { McpbManifestSchema } from "@anthropic-ai/mcpb/schemas/0.3";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import manifestSchema from "../fixtures/mcpb/manifest-v0.3.schema.json";
 import {
   EXTENSION_VERSION,
   PROXY_SOURCE,
@@ -18,11 +20,45 @@ import {
   withoutLegacyBridgeEntry,
 } from "../../src/integrations/desktopExtension";
 
+// The published JSON Schema omits MCPB's runtime version-presence refinement.
+const validateManifest = addFormats(new Ajv({ allErrors: false })).compile({
+  ...manifestSchema,
+  anyOf: [{ required: ["manifest_version"] }, { required: ["dxt_version"] }],
+});
+
 describe("Claude Desktop extension bundle", () => {
   it("carries a manifest the official MCPB 0.3 schema accepts", () => {
-    const parsed = McpbManifestSchema.safeParse(extensionManifest(EXTENSION_VERSION));
-    expect(parsed.error?.issues ?? []).toEqual([]);
-    expect(parsed.success).toBe(true);
+    const valid = validateManifest(extensionManifest(EXTENSION_VERSION));
+    expect(validateManifest.errors ?? []).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("also accepts the legacy version marker", () => {
+    const { manifest_version, ...manifest } = extensionManifest(EXTENSION_VERSION);
+    expect(validateManifest({ ...manifest, dxt_version: manifest_version })).toBe(true);
+  });
+
+  it.each([
+    { manifest_version: undefined },
+    { manifest_version: "0.2" },
+    { unexpected: true },
+    { server: { type: "node" } },
+    { author: { name: "Example", url: "invalid-url" } },
+    { tools: [{ name: 123 }] },
+  ])("rejects an invalid manifest: %j", (invalid) => {
+    expect(validateManifest({ ...extensionManifest(EXTENSION_VERSION), ...invalid })).toBe(false);
+  });
+
+  it("stops reporting errors at the first invalid tool in an oversized list", () => {
+    const tools = Array.from({ length: 10_000 }, () => ({ name: 123 }));
+    let laterReads = 0;
+    Object.defineProperty(tools, 1, { get: () => { laterReads++; return { name: 123 }; } });
+    expect(validateManifest({
+      ...extensionManifest(EXTENSION_VERSION),
+      tools,
+    })).toBe(false);
+    expect(validateManifest.errors).toHaveLength(1);
+    expect(laterReads).toBe(0);
   });
 
   it("zips the manifest and the proxy at the root and asks for no settings at install", () => {
