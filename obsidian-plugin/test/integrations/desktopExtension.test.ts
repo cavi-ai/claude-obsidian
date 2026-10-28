@@ -125,9 +125,10 @@ const TOOLS = [{ name: "vault_search", inputSchema: { type: "object" } }];
  * `afterInitialized` runs once the handshake's notification is answered, so a test can change the bridge at a
  * known point instead of guessing at timing.
  */
-function bridge(accepted: { token: string }, afterInitialized?: () => void) {
+function bridge(accepted: { token: string }, afterInitialized?: () => void, toolReplyOrder?: readonly string[]) {
   const sessions = new Set<string>();
   const seen: Array<{ method: string; session: string | undefined; auth: string | undefined }> = [];
+  const toolReplies = new Map<string, () => void>();
   let next = 1;
   const server: Server = createServer((req: IncomingMessage, res) => {
     let body = "";
@@ -152,7 +153,13 @@ function bridge(accepted: { token: string }, afterInitialized?: () => void) {
       }
       res.writeHead(200, { "content-type": "application/json" });
       const result = message.method === "tools/list" ? { tools: TOOLS } : { content: [{ type: "text", text: "Notes/Heron.md" }], isError: false };
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+      const reply = () => res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+      if (toolReplyOrder?.includes(message.method)) {
+        toolReplies.set(message.method, reply);
+        if (toolReplyOrder.every((method) => toolReplies.has(method))) {
+          for (const method of toolReplyOrder) toolReplies.get(method)!();
+        }
+      } else reply();
     });
   });
   return {
@@ -238,20 +245,26 @@ describe("Claude Desktop extension proxy", () => {
     expect(replies[1]).toEqual({ jsonrpc: "2.0", id: 2, result: { tools: TOOLS } });
   });
 
-  it("relays requests on its own bridge session and saves the tool list", async () => {
-    server = bridge({ token: "tok" });
+  it.each([
+    { order: ["tools/list", "tools/call"] },
+    { order: ["tools/call", "tools/list"] },
+  ])("relays requests on its own bridge session and saves the tool list ($order)", async ({ order }) => {
+    server = bridge({ token: "tok" }, undefined, order);
     const url = await server.listen();
     const user = home({ url, token: "tok" });
     const replies = await runProxy(user.env, [INIT, INITIALIZED, LIST, CALL]);
-    expect(replies.map((r) => r.id)).toEqual([1, 2, 3]);
-    expect(replies[1]!.result).toEqual({ tools: TOOLS });
-    expect(replies[2]!.result.content[0].text).toBe("Notes/Heron.md");
-    expect(server.seen).toEqual([
+    expect(replies.map((r) => r.id).sort()).toEqual([1, 2, 3]);
+    expect(replies.find((r) => r.id === 2)!.result).toEqual({ tools: TOOLS });
+    expect(replies.find((r) => r.id === 3)!.result.content[0].text).toBe("Notes/Heron.md");
+    expect(server.seen.slice(0, 2)).toEqual([
       { method: "initialize", session: undefined, auth: "Bearer tok" },
       { method: "notifications/initialized", session: "s1", auth: "Bearer tok" },
+    ]);
+    expect(server.seen.slice(2)).toHaveLength(2);
+    expect(server.seen.slice(2)).toEqual(expect.arrayContaining([
       { method: "tools/list", session: "s1", auth: "Bearer tok" },
       { method: "tools/call", session: "s1", auth: "Bearer tok" },
-    ]);
+    ]));
     expect(JSON.parse(readFileSync(user.tools, "utf8"))).toEqual(TOOLS);
   });
 
