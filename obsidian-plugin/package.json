@@ -74,7 +74,7 @@
     "vitest": "^5.0.5"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
+    "@huggingface/transformers": "^4.3.2",
     "defuddle": "^0.19.6",
     "fflate": "^0.8.3",
     "yaml": "^2.9.1"
