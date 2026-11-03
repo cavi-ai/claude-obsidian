@@ -1,6 +1,6 @@
 import { App, TFile, normalizePath } from "obsidian";
 import type { FieldValue, RawCapture, SourceRecord, SourceType, SourceTypeSchema } from "./types";
-import { detectType, parseClipUrl } from "./detect";
+import { detectType, parseClipUrl, sourceUrlFromProperties } from "./detect";
 import { getSchema, type SchemaOverrides } from "./registry";
 import { parseCsvMeta } from "./csvMeta";
 import { extractFields, type ExtractCompletionOpts } from "./extract";
@@ -176,6 +176,9 @@ export async function enrichCapture(deps: EnrichDeps, capture: RawCapture): Prom
       sourceFrontmatter(record, deps.baseTags, deps.resolveTags),
       (frontmatter) => {
         deps.assertActive?.();
+        if (pageBody !== undefined && sourceUrlFromProperties(frontmatter) !== (parseClipUrl(capture.content) ?? url)) {
+          throw new ClipPageError("This clip's source URL changed while enrichment was running. No changes were saved. Retry from the Source Inbox.");
+        }
         const context = { captureBasename: capture.basename };
         const provenance = validateMergedSourceProvenance(frontmatter);
         validateEnrichment(

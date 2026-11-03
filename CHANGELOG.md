@@ -4,6 +4,14 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.5] — 2026-11-03
+
+### Fixed
+- Reddit share links served as challenge pages resolve to their post feeds, and unreadable clips stay unchanged for retry.
+- Empty clips use the `url` property when their `source` property is blank.
+- Source recovery stops without changing the note if its source URL changes during enrichment.
+- Video classification checks the source URL's host and path instead of matching YouTube text inside unrelated URLs.
+
 ## [0.49.4] — 2026-10-27
 
 ### Fixed
