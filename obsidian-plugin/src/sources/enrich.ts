@@ -46,15 +46,17 @@ export class ClipPageError extends Error {
 /**
  * Web Clipper saves some pages with no content (a Reddit post can arrive as a
  * blank note), so an empty clip is read from its source URL instead.
- * Undefined when the clip has a body, carries no URL, or the page has nothing
- * readable.
+ * Undefined when the clip has a body or carries no URL. An unreadable page
+ * leaves the note unchanged so enrichment can be retried.
  */
 async function emptyClipBody(deps: EnrichDeps, capture: Extract<RawCapture, { kind: "markdown" }>): Promise<string | undefined> {
   if (!deps.captureWeb || stripFrontmatter(capture.content).trim()) return undefined;
   const url = capture.url ?? parseClipUrl(capture.content);
   if (!url) return undefined;
   try {
-    return (await deps.captureWeb(url))?.markdown;
+    const markdown = (await deps.captureWeb(url))?.markdown;
+    if (!markdown?.trim()) throw new Error("The page returned no readable content");
+    return markdown;
   } catch (e) {
     let host = url;
     try { host = new URL(url).hostname; } catch { /* keep the raw URL */ }
