@@ -2,7 +2,7 @@ name: Release Obsidian plugin
 
 # Mirrors obsidian-plugin/ to cavi-ai/companion-for-claude and pushes the tag.
 # That repo's release.yml builds, attests, and publishes.
-# Needs RELEASE_REPO_TOKEN with contents:write on the release repo.
+# CONSUMER_DISPATCH_TOKEN needs contents:write on the release and CAVI Home repos.
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
       - name: Resolve release state
         id: state
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
@@ -83,7 +83,7 @@ jobs:
       - name: Mirror source into the release repo
         if: steps.state.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
@@ -124,7 +124,7 @@ jobs:
       - name: Tag the release repo
         if: steps.state.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
@@ -139,7 +139,7 @@ jobs:
       - name: Wait for the release repo to publish
         if: steps.state.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.CONSUMER_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./obsidian-plugin/manifest.json').version")"
