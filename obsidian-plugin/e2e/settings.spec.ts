@@ -146,7 +146,7 @@ test("connection tasks distinguish vault access from external tools", async ({ r
     await tab.screenshot({ path: test.info().outputPath("connections-dark.png") });
     await tab.getByRole("button", { name: /Cloud sessions/ }).click();
     await expect(tab.getByText(/this sends your prompt \+ attached note context/)).toBeVisible();
-    await tab.getByRole("button", { name: "Back to connections", exact: true }).click();
+    await tab.getByRole("button", { name: "Back", exact: true }).click();
     await tab.getByRole("button", { name: "Add tool server", exact: true }).click();
     await expect(tab.getByText("External tools", { exact: true })).toBeVisible();
   } finally { await harness.close(); }

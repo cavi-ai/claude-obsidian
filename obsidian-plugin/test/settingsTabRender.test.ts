@@ -215,6 +215,47 @@ describe("settings tab render", () => {
     button!.dispatchEvent({ type: "click" });
   }
 
+  it("returns from advanced controls to the task that opened them", () => {
+    const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin());
+    const container = tab.containerEl as unknown as FakeElement;
+    openSettingTab(tab);
+    click(container, "Control access to my notes");
+    click(container, "More vault access settings");
+    click(container, "Back");
+    expect(container.querySelectorAll("h2").map((el) => el.textContent)).toContain("Control access to my notes");
+    click(container, "Back");
+    expect(container.querySelectorAll(".cc-settings-home")).toHaveLength(1);
+    expect(container.querySelectorAll(".cc-settings-back")).toHaveLength(0);
+  });
+
+  it("returns from a connection detail to the connection choices", () => {
+    const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin());
+    const container = tab.containerEl as unknown as FakeElement;
+    openSettingTab(tab);
+    click(container, "Connect apps & tools");
+    click(container, "Cloud sessions");
+    const current = container.querySelectorAll("span").filter((el) => el.getAttribute("aria-current") === "page");
+    expect(current.map((el) => el.textContent)).toEqual(["Cloud sessions (experimental)"]);
+    click(container, "Back");
+    expect(container.querySelectorAll(".cc-settings-connections")).toHaveLength(1);
+    click(container, "Back");
+    expect(container.querySelectorAll(".cc-settings-home")).toHaveLength(1);
+  });
+
+  it("leaves search without losing the current settings page", () => {
+    const tab = new ClaudeCompanionSettingTab(new App() as never, stubPlugin());
+    const container = tab.containerEl as unknown as FakeElement;
+    openSettingTab(tab);
+    click(container, "Control access to my notes");
+    const input = container.querySelector("input")!;
+    input.value = "Max response tokens";
+    input.dispatchEvent({ type: "input" });
+    expect(container.querySelectorAll("h2").map((el) => el.textContent)).toContain("Search settings");
+    click(container, "Back");
+    expect(container.querySelectorAll("h2").map((el) => el.textContent)).toContain("Control access to my notes");
+    expect(container.querySelector("input")?.value).toBe("");
+  });
+
   it("uses the same persisted permissions in everyday and advanced views", async () => {
     const plugin = stubPlugin();
     const tab = new ClaudeCompanionSettingTab(new App() as never, plugin);
@@ -225,7 +266,7 @@ describe("settings tab render", () => {
     await tab.setControlValue("agentAllowWrites", true);
     click(container, "More vault access settings");
     expect(tab.getControlValue("agentAllowWrites")).toBe(true);
-    expect(container.querySelectorAll("nav")).toHaveLength(1);
+    expect(container.querySelectorAll("nav").filter((el) => el.getAttribute("aria-label") === "Settings categories")).toHaveLength(1);
     expect(container.querySelectorAll(".setting-item-name").map((el) => el.textContent)).not.toContain("Max tool iterations per turn");
     click(container, "Agent behavior");
     expect(container.querySelectorAll(".setting-item-name").map((el) => el.textContent)).toContain("Max tool iterations per turn");
