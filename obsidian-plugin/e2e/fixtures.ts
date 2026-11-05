@@ -26,7 +26,7 @@ export interface Rig {
   reloadPlugin(): Promise<void>;
   /** Mutate the renderer's live process.env over CDP (e.g. widen PATH for a liveClaude test). reset() restores the hermetic baseline. */
   setProcessEnv(env: Record<string, string>): Promise<void>;
-  /** No-op: the rig is never torn down by a test. Kept so existing try/finally blocks port unchanged. */
+  /** Flush editor saves and record the owned scenario; keep shared scenarios running. */
   close(options?: { keep?: boolean }): Promise<void>;
 }
 
@@ -62,6 +62,7 @@ async function buildRig(): Promise<Rig> {
     providerServed: () => control.providerServed(),
     githubRequests: () => control.githubRequests(),
     async reset(options: ScenarioOptions = {}) {
+      scenarioActive = false;
       lastTheme = options.theme ?? "light";
       await control.setStubs(options);
       await resetVaultState({ context, page }, state.vault, state.argvLog, ports as StubPorts, PLUGIN_ROOT, options, hermeticEnv, state.obsidianPid);
@@ -76,17 +77,16 @@ async function buildRig(): Promise<Rig> {
     },
     async close() {
       if (scenarioActive) {
-        // Stop plugin work and flush Obsidian's debounced editor saves before sealing the fixture.
+        // Flush debounced editor saves without unloading shared serial scenarios.
         await page.evaluate(async () => {
-          const app = (window as unknown as { app: import("obsidian").App & { plugins: { disablePlugin(id: string): Promise<void> } } }).app;
-          await app.plugins.disablePlugin("claude-companion");
+          const app = (window as unknown as { app: import("obsidian").App }).app;
           const saves = app.workspace.getLeavesOfType("markdown").map((leaf) => {
             const view = leaf.view as import("obsidian").MarkdownView;
             return view.file ? view.save() : Promise.resolve();
           });
           await Promise.all(saves);
         });
-        await recordVaultOwnership(state.vault); scenarioActive = false;
+        await recordVaultOwnership(state.vault);
       }
     },
   };

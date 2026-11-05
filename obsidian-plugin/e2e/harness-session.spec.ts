@@ -36,7 +36,14 @@ test("closing a scenario saves pending editor text before ownership is sealed", 
     leaf.view.editor.setValue("An edit still waiting for Obsidian's debounced save.");
   });
   await first.close();
-  expect(await readFile(join(first.paths.vault, "Pending.md"), "utf8")).toBe("An edit still waiting for Obsidian\'s debounced save.");
+  expect(await readFile(join(first.paths.vault, "Pending.md"), "utf8")).toBe("An edit still waiting for Obsidian's debounced save.");
+  expect(await first.page.evaluate(() => Boolean((window as unknown as { app: { plugins: { plugins: Record<string, unknown> } } }).app.plugins.plugins["claude-companion"]))).toBe(true);
+  await first.page.evaluate(() => {
+    const app = (window as unknown as { app: import("obsidian").App }).app;
+    (app.workspace.getLeavesOfType("markdown")[0]!.view as import("obsidian").MarkdownView).editor.setValue("A later test in the same shared scenario.");
+  });
+  await first.close();
+  expect(await readFile(join(first.paths.vault, "Pending.md"), "utf8")).toBe("A later test in the same shared scenario.");
   await rig.reset();
   await expect.poll(() => stat(join(rig.paths.vault, "Pending.md")).then(() => true, () => false)).toBe(false);
 });
