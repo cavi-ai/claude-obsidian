@@ -1,3 +1,4 @@
+import { recordVaultOwnership } from "./rig/ownership.ts";
 import { expect, test as base } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { ControlClient, PLUGIN_ROOT, liveState } from "./rig/client.ts";
@@ -47,6 +48,7 @@ async function buildRig(): Promise<Rig> {
   // real HOME), only PATH/SHELL stay hermetic. See rig/daemon.ts.
   const hermeticEnv: Record<string, string> = { SHELL: `${bin}/login-shell`, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` };
   let lastTheme: "light" | "dark" = "light";
+  let scenarioActive = false;
 
   const rig: Rig = {
     page,
@@ -63,6 +65,7 @@ async function buildRig(): Promise<Rig> {
       lastTheme = options.theme ?? "light";
       await control.setStubs(options);
       await resetVaultState({ context, page }, state.vault, state.argvLog, ports as StubPorts, PLUGIN_ROOT, options, hermeticEnv, state.obsidianPid);
+      scenarioActive = true;
       return rig;
     },
     async reloadPlugin() {
@@ -71,12 +74,17 @@ async function buildRig(): Promise<Rig> {
     async setProcessEnv(env: Record<string, string>) {
       await setProcessEnv(page, env);
     },
-    async close() { /* the rig outlives every test; nothing to release */ },
+    async close() {
+      if (scenarioActive) {
+        await recordVaultOwnership(state.vault); scenarioActive = false;
+      }
+    },
   };
   return rig;
 }
 
-export const test = base.extend<{}, { rig: Rig }>({
+export const test = base.extend<{ _scenarioOwnership: void }, { rig: Rig }>({
+  _scenarioOwnership: [async ({ rig }, use) => { try { await use(); } finally { await rig.close(); } }, { auto: true }],
   rig: [async ({}, use) => {
     const rig = await buildRig();
     await use(rig);

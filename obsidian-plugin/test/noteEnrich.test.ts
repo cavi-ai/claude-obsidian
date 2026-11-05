@@ -1,41 +1,40 @@
 import { describe, it, expect } from "vitest";
-import { parseLintResponse, lintMaxTokens, buildLintUser } from "../src/enrich/noteEnrich";
+import { parseLintResponse, lintMaxTokens } from "../src/enrich/noteEnrich";
 
-describe("parseLintResponse", () => {
-  const original = "# Title\n\nSome note body with a typo.\n";
+const reply = (old_str: string, new_str: string): string => JSON.stringify({ complete: true, edits: [{ old_str, new_str }] });
 
-  it("returns cleaned text that differs from the original", () => {
-    expect(parseLintResponse("# Title\n\nSome note body without a typo.", original)).toBe("# Title\n\nSome note body without a typo.\n");
+describe("Tidy safe replacements", () => {
+  const note = "# Garden\n\nWater teh plants in the morning.\n\nCritical limitation: never water at night.\n";
+  it("changes only the exact accepted prose and preserves the remaining note bytes", () => {
+    expect(parseLintResponse(reply("Water teh plants", "Water the plants"), note)).toBe(note.replace("teh", "the"));
+    expect(parseLintResponse(JSON.stringify({ complete: true, edits: [] }), note)).toBeNull();
   });
-
-  it("strips a wrapping code fence", () => {
-    expect(parseLintResponse("```markdown\n# Title\n\nFixed body.\n```", original)).toBe("# Title\n\nFixed body.\n");
+  it.each([
+    "---\ntitle: Secret\n---\n\nProse.",
+    "```ts\nconst secret = 42;\n```\n\nProse.",
+    "Read [[Secret]] and `Secret`.",
+    "Read ``Secret``.",
+    "    Secret",
+    "Read [Secret](https://example.com).",
+    "> ```ts\n> Secret\n> ```",
+  ])("rejects changes to protected Markdown: %s", (original) => {
+    expect(() => parseLintResponse(reply("Secret", "Changed"), original)).toThrow();
   });
-
-  it("returns null for an unchanged reply (nothing to review)", () => {
-    expect(parseLintResponse(original, original)).toBeNull();
+  it.each([
+    "# Garden\n\nWater the plants in the morning.",
+    '{"complete":true,"edits":[',
+    JSON.stringify({ edits: [] }),
+    reply("Water teh plants in the morning.", ""),
+    reply(note.trim(), "Water the plants."),
+    reply("Water teh plants", "Read [[Different]]"),
+  ])("rejects whole-note, incomplete, destructive or non-prose output", (raw) => {
+    expect(() => parseLintResponse(raw, note)).toThrow();
   });
-
-  it("rejects empty replies as an incomplete copyedit", () => {
-    expect(() => parseLintResponse("   ", original)).toThrow("empty");
+  it("rejects ambiguous replacements and preserves numbers", () => {
+    expect(() => parseLintResponse(reply("word", "words"), "word word")).toThrow();
+    expect(() => parseLintResponse(reply("Use 42 units", "Use 24 units"), "Use 42 units.")).toThrow();
   });
-
-  it("rejects suspiciously short replies as an incomplete copyedit", () => {
-    expect(() => parseLintResponse("# Title", original)).toThrow("too much");
-  });
-
-  it("preserves the original's no-trailing-newline convention", () => {
-    expect(parseLintResponse("fixed body", "typo body")).toBe("fixed body");
-  });
-});
-
-describe("lint helpers", () => {
-  it("scales max tokens with content length within the cap", () => {
-    expect(lintMaxTokens("x".repeat(300))).toBe(1124);
-    expect(lintMaxTokens("x".repeat(60000))).toBe(16000);
-  });
-
-  it("embeds the note in the user prompt", () => {
-    expect(buildLintUser("hello")).toBe("NOTE:\n\nhello");
+  it("bounds the response budget for small edits regardless of note size", () => {
+    expect(lintMaxTokens("x".repeat(60000))).toBeLessThanOrEqual(4096);
   });
 });
