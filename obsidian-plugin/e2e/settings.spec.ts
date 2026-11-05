@@ -79,7 +79,8 @@ test("everyday settings and advanced controls share persisted values", async ({ 
     await expect(tab.locator("input[placeholder*='sk-ant-oat']")).toBeVisible();
     await auth.selectOption("apiKey");
     await expect(tab.locator("input[placeholder*='sk-ant-api']")).toBeVisible();
-    await tab.getByRole("button", { name: "Everyday settings", exact: true }).click();
+    await tab.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(tab.getByRole("heading", { name: "Companion settings", exact: true })).toBeVisible();
     await tab.getByRole("button", { name: /Control access to my notes/ }).click();
     const writes = tab.locator('.setting-item:has(.setting-item-name:text-is("Create and edit notes")) .checkbox-container');
     await writes.click();
