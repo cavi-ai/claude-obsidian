@@ -149,7 +149,8 @@ test("connection tasks distinguish vault access from external tools", async ({ r
     await expect(tab.getByText(/this sends your prompt \+ attached note context/)).toBeVisible();
     await tab.getByRole("button", { name: "Back", exact: true }).click();
     await tab.getByRole("button", { name: "Add tool server", exact: true }).click();
-    await expect(tab.getByText("External tools", { exact: true })).toBeVisible();
+    await expect(tab.getByRole("heading", { name: "External tools", exact: true })).toBeVisible();
+    await expect(tab.getByRole("navigation", { name: "Settings breadcrumb" }).getByText("External tools", { exact: true })).toHaveAttribute("aria-current", "page");
   } finally { await harness.close(); }
 });
 
