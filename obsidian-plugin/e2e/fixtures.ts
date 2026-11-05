@@ -76,6 +76,16 @@ async function buildRig(): Promise<Rig> {
     },
     async close() {
       if (scenarioActive) {
+        // Stop plugin work and flush Obsidian's debounced editor saves before sealing the fixture.
+        await page.evaluate(async () => {
+          const app = (window as unknown as { app: import("obsidian").App & { plugins: { disablePlugin(id: string): Promise<void> } } }).app;
+          await app.plugins.disablePlugin("claude-companion");
+          const saves = app.workspace.getLeavesOfType("markdown").map((leaf) => {
+            const view = leaf.view as import("obsidian").MarkdownView;
+            return view.file ? view.save() : Promise.resolve();
+          });
+          await Promise.all(saves);
+        });
         await recordVaultOwnership(state.vault); scenarioActive = false;
       }
     },

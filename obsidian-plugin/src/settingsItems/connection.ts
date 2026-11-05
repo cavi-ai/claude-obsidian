@@ -30,7 +30,8 @@ function cliStatusItems(ctx: ConnectionItemsContext, backend: CliBackend, cliOf:
       name: backend.label,
       desc: `Status of the ${backend.binary} command this backend runs. Companion never sees your credentials; ${backend.label} holds them.`,
       render: (setting) => {
-        const status = setting.settingEl.createDiv({ cls: "cc-conn-status" });
+        const status = setting.settingEl.querySelector<HTMLElement>(".cc-conn-status")
+          ?? setting.settingEl.createDiv({ cls: "cc-conn-status" });
         const cli = cliOf(plugin.router());
         const probe = cli.probe();
         if (probe) ctx.renderStatus(status, { ok: probe.loggedIn, detail: probe.loggedIn ? `${backend.label} ${probe.version} · signed in via ${probe.method} · ${probe.executable}` : `Not signed in — ${backend.signInHint}.` });
@@ -39,7 +40,7 @@ function cliStatusItems(ctx: ConnectionItemsContext, backend: CliBackend, cliOf:
             .setButtonText(`Check ${backend.label}`)
             .onClick(async () => {
               ctx.renderStatus(status, { ok: true, detail: "Checking…" });
-              const result = await plugin.connection().connect({ backend: backend.id });
+              const result = await cliOf(plugin.router()).test();
               ctx.renderStatus(status, result);
               plugin.refreshViews();
             }),

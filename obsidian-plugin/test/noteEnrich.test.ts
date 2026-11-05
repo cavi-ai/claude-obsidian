@@ -1,3 +1,6 @@
+import { buildSync } from "esbuild";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { parseLintResponse, lintMaxTokens } from "../src/enrich/noteEnrich";
 
@@ -33,6 +36,29 @@ describe("Tidy safe replacements", () => {
   it("rejects ambiguous replacements and preserves numbers", () => {
     expect(() => parseLintResponse(reply("word", "words"), "word word")).toThrow();
     expect(() => parseLintResponse(reply("Use 42 units", "Use 24 units"), "Use 42 units.")).toThrow();
+  });
+  it("bounds nested blockquote parsing through the actual Tidy parser", () => {
+    const bundle = buildSync({ entryPoints: [fileURLToPath(new URL("../src/enrich/noteEnrich.ts", import.meta.url))], bundle: true, write: false, platform: "node", format: "cjs" }).outputFiles[0]!.text;
+    const trigger = `
+      const parse = module.exports.parseLintResponse;
+      const response = (before, after) => JSON.stringify({ complete: true, edits: [{ old_str: before, new_str: after }] });
+      const prefix = '> '.repeat(64);
+      const original = prefix + 'quoted prose\\n\\nA teh typo.';
+      if (parse(response('teh', 'the'), original) !== original.replace('teh', 'the')) process.exit(2);
+      const replacement = prefix + 'the';
+      if (parse(response('teh', replacement), 'teh') !== replacement) process.exit(3);
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=commonjs"], { input: bundle + trigger, encoding: "utf8", timeout: 2000 });
+    expect(result.error, "nested quotes must settle without blocking the UI").toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+  });
+  it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])("preserves quoted/indented code across line separator %j", (separator) => {
+    for (const prefix of ["    ", "\t", ">    ", "> \t", ">\t ", "    > ", "> >    "]) {
+      const original = `Unchanged prose.${separator}${prefix}Secret`;
+      expect(() => parseLintResponse(reply("Secret", "Changed"), original)).toThrow();
+    }
+    const original = `Unchanged prose.${separator}> >   A teh typo.`;
+    expect(parseLintResponse(reply("teh", "the"), original)).toBe(original.replace("teh", "the"));
   });
   it("bounds the response budget for small edits regardless of note size", () => {
     expect(lintMaxTokens("x".repeat(60000))).toBeLessThanOrEqual(4096);

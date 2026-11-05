@@ -12,8 +12,23 @@ export const LINT_SYSTEM =
 export function buildLintUser(content: string): string { return `NOTE:\n\n${content}`; }
 export function lintMaxTokens(_content: string): number { return 4096; }
 
+/** Scan quote prefixes once; repeated whitespace groups must never backtrack. */
+function indentedCode(line: string): boolean {
+  let offset = 0;
+  while (offset < line.length) {
+    let columns = 0;
+    while (line[offset] === " " || line[offset] === "\t") {
+      columns += line[offset++] === "\t" ? 4 - (columns % 4) : 1;
+      if (columns >= 4) return true;
+    }
+    if (line[offset] !== ">") return false;
+    offset++;
+  }
+  return false;
+}
+
 function editableProse(content: string): string {
-  return maskNonProse(content).replace(/^(?:[ \t]*>[ \t]?)*(?: {4}|\t).*$/gm, (line) => line.replace(/[^\n]/g, " "));
+  return maskNonProse(content).replace(/[^\r\n\u2028\u2029]+/g, (line) => indentedCode(line) ? " ".repeat(line.length) : line);
 }
 
 /** Only a complete edit envelope is accepted; all content outside edits survives verbatim. */
