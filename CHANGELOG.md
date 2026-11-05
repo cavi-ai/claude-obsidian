@@ -4,6 +4,20 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.0] — 2026-11-05
+
+### Changed
+- Connect directly from chat with an API key or an existing command-line sign-in, without a setup wizard. Enter submits the key.
+- Settings expose controls in one level of categories, with search and back navigation.
+
+### Fixed
+- Manual source enrichment works when automatic enrichment is disabled, and CSV sidecars preserve existing notes and annotations.
+- Tidy proposes bounded prose corrections, protects metadata and code, reports incomplete work, and supports stopping a running request.
+- Connection checks reject gateway or OAuth token changes made while verification is running.
+
+### Security
+- Remove pathological backtracking from Tidy's quote parsing and update vulnerable dependencies.
+
 ## [0.49.5] — 2026-11-03
 
 ### Fixed
