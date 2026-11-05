@@ -79,7 +79,8 @@ test("everyday settings and advanced controls share persisted values", async ({ 
     await expect(tab.locator("input[placeholder*='sk-ant-oat']")).toBeVisible();
     await auth.selectOption("apiKey");
     await expect(tab.locator("input[placeholder*='sk-ant-api']")).toBeVisible();
-    await tab.getByRole("button", { name: "Everyday settings", exact: true }).click();
+    await tab.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(tab.getByRole("heading", { name: "Companion settings", exact: true })).toBeVisible();
     await tab.getByRole("button", { name: /Control access to my notes/ }).click();
     const writes = tab.locator('.setting-item:has(.setting-item-name:text-is("Create and edit notes")) .checkbox-container');
     await writes.click();
@@ -146,9 +147,10 @@ test("connection tasks distinguish vault access from external tools", async ({ r
     await tab.screenshot({ path: test.info().outputPath("connections-dark.png") });
     await tab.getByRole("button", { name: /Cloud sessions/ }).click();
     await expect(tab.getByText(/this sends your prompt \+ attached note context/)).toBeVisible();
-    await tab.getByRole("button", { name: "Back to connections", exact: true }).click();
+    await tab.getByRole("button", { name: "Back", exact: true }).click();
     await tab.getByRole("button", { name: "Add tool server", exact: true }).click();
-    await expect(tab.getByText("External tools", { exact: true })).toBeVisible();
+    await expect(tab.getByRole("heading", { name: "External tools", exact: true })).toBeVisible();
+    await expect(tab.getByRole("navigation", { name: "Settings breadcrumb" }).getByText("External tools", { exact: true })).toHaveAttribute("aria-current", "page");
   } finally { await harness.close(); }
 });
 

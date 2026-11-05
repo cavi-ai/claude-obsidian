@@ -51,13 +51,30 @@ export class SettingsNavigation {
   private category: SettingsCategory | null = null;
   private detail: string | null = null;
   private query = "";
+  private history: Array<{ advanced: boolean; category: SettingsCategory | null; detail: string | null }> = [];
   private expanded = new Set(["permissions", "connection", "files"]);
 
   constructor(private host: SettingsNavigationHost) {}
 
-  home(): void { this.advanced = false; this.category = null; this.detail = null; this.query = ""; this.refresh(); }
-  showTask(category: SettingsCategory): void { this.advanced = false; this.category = category; this.detail = null; this.query = ""; this.refresh(); }
-  showAdvanced(category: SettingsCategory = "vault"): void { this.advanced = true; this.category = category; this.detail = null; this.query = ""; this.refresh(); }
+  home(): void { this.history = []; this.advanced = false; this.category = null; this.detail = null; this.query = ""; this.refresh(); }
+  showTask(category: SettingsCategory): void { this.navigate(false, category); }
+  showAdvanced(category: SettingsCategory = "vault"): void { this.navigate(true, category); }
+
+  private navigate(advanced: boolean, category: SettingsCategory | null, detail: string | null = null): void {
+    if (this.advanced !== advanced || this.category !== category || this.detail !== detail) {
+      this.history.push({ advanced: this.advanced, category: this.category, detail: this.detail });
+    }
+    this.advanced = advanced; this.category = category; this.detail = detail; this.query = "";
+    this.refresh();
+  }
+
+  private back(): void {
+    if (this.query.trim()) { this.query = ""; this.refresh(); return; }
+    const previous = this.history.pop();
+    if (!previous) { this.home(); return; }
+    this.advanced = previous.advanced; this.category = previous.category; this.detail = previous.detail; this.query = "";
+    this.refresh();
+  }
 
   definitions(catalog: SettingDefinitionItem[], settings: PluginSettings): SettingDefinitionItem[] {
     const sections = settingsSections(catalog);
@@ -71,7 +88,7 @@ export class SettingsNavigation {
       group?.listEl.addClass("cc-settings-grid");
       group?.listEl.toggleClass("is-advanced", this.advanced && !searching);
       if (group) watchDropdownRows(group.listEl);
-      this.renderHeader(setting.settingEl, settings, home, searching);
+      this.renderHeader(setting.settingEl, settings, home, searching, sections.find((section) => section.id === this.detail)?.title);
     } }];
     // The storage warning is independent of navigation and must never be hidden by a task filter.
     const intro = catalog.find((item) => "type" in item && item.type === "group" && !item.heading);
@@ -159,18 +176,29 @@ export class SettingsNavigation {
     this.host.container().querySelector<HTMLElement>(selector)?.focus();
   }
 
-  private openDetail(id: string): void { this.detail = id; this.query = ""; this.expanded.add(id); this.refresh(); }
+  private openDetail(id: string): void { this.expanded.add(id); this.navigate(this.advanced, this.category, id); }
 
-  private renderHeader(el: HTMLElement, settings: PluginSettings, home: boolean, searching: boolean): void {
-    const breadcrumb = el.createDiv({ cls: "cc-settings-breadcrumb" });
+  private renderHeader(el: HTMLElement, settings: PluginSettings, home: boolean, searching: boolean, detailTitle?: string): void {
     if (!home) {
-      const back = breadcrumb.createEl("button", { text: "Everyday settings", cls: "cc-settings-back" });
-      back.addEventListener("click", () => this.home());
-      breadcrumb.createSpan({ text: this.advanced ? " / Advanced" : ` / ${CATEGORIES.find((category) => category.id === this.category)?.title ?? "Search"}` });
-      if (this.detail) {
-        const backToTask = breadcrumb.createEl("button", { text: "Back to connections", cls: "cc-settings-back" });
-        backToTask.addEventListener("click", () => this.showTask("connections"));
+      const navigation = el.createDiv({ cls: "cc-settings-navigation" });
+      const back = navigation.createEl("button", { cls: "cc-settings-back", attr: { type: "button" } });
+      setIcon(back.createSpan({ attr: { "aria-hidden": "true" } }), "arrow-left");
+      back.createSpan({ text: "Back" });
+      back.addEventListener("click", () => this.back());
+      const breadcrumb = navigation.createEl("nav", { cls: "cc-settings-breadcrumb", attr: { "aria-label": "Settings breadcrumb" } });
+      const root = breadcrumb.createEl("button", { text: "Everyday settings", cls: "cc-settings-crumb", attr: { type: "button" } });
+      root.addEventListener("click", () => this.home());
+      const separator = (): void => { setIcon(breadcrumb.createSpan({ cls: "cc-settings-crumb-separator", attr: { "aria-hidden": "true" } }), "chevron-right"); };
+      separator();
+      if (!searching && (this.advanced || this.detail)) {
+        if (this.advanced) breadcrumb.createSpan({ text: "Advanced" });
+        else {
+          const parent = breadcrumb.createEl("button", { text: "Connections", cls: "cc-settings-crumb", attr: { type: "button" } });
+          parent.addEventListener("click", () => this.showTask("connections"));
+        }
+        separator();
       }
+      breadcrumb.createSpan({ text: searching ? "Search results" : detailTitle ?? CATEGORIES.find((category) => category.id === this.category)?.title ?? "Settings", attr: { "aria-current": "page" } });
     }
     if (!this.advanced || searching) el.createEl("h2", { text: home ? "Companion settings" : searching ? "Search settings" : CATEGORIES.find((category) => category.id === this.category)?.task ?? "Settings", attr: { tabindex: "-1" } });
     const search = el.createDiv({ cls: "cc-settings-search" });
