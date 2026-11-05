@@ -38,6 +38,7 @@ export class ConnectionController {
   private async perform(choice: ConnectionChoice): Promise<ProviderStatus> {
     const settings = this.deps.settings();
     const previous = { chatBackend: settings.chatBackend, authMode: settings.authMode, apiKey: settings.apiKey };
+    const checked = { ...previous, baseUrl: settings.baseUrl, oauthToken: settings.oauthToken };
     const next = { ...settings, chatBackend: choice.backend };
     if (choice.apiKey !== undefined) {
       if (!choice.apiKey.trim()) return { ok: false, detail: "Enter an API key." };
@@ -48,7 +49,7 @@ export class ConnectionController {
     const result = await this.deps.test(next);
     if (!result.ok) return result;
     if (this.disposed) throw new Error("Connection setup was closed. Try again.");
-    if (Object.entries(previous).some(([key, value]) => settings[key as keyof typeof previous] !== value)) {
+    if (Object.entries(checked).some(([key, value]) => settings[key as keyof typeof checked] !== value)) {
       throw new Error("The connection changed while checking it. Try again.");
     }
     const store = this.deps.store;

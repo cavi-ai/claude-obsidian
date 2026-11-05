@@ -71,4 +71,28 @@ describe("connection transaction", () => {
     expect(r.settings.apiKey).toBe("");
     expect(r.saved.get(secretIdFor("apiKey")) ?? "").toBe("");
   });
+  it.each(["baseUrl", "oauthToken"] as const)("rejects a stale check when %s changes while it runs", async (key) => {
+    const r = rig();
+    r.settings.authMode = "oauthToken";
+    let release!: () => void;
+    r.test.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ ok: true, detail: "Connected" }); }));
+    const pending = r.controller.connect({ backend: "claude" });
+    r.settings[key] = "changed-during-check";
+    release();
+    expect(await pending).toMatchObject({ ok: false });
+    expect(r.settings[key]).toBe("changed-during-check");
+    expect(r.settings.chatBackend).toBe("claude-cli");
+    expect(r.save).not.toHaveBeenCalled();
+  });
+  it("preserves unrelated preference edits made during a connection check", async () => {
+    const r = rig();
+    let release!: () => void;
+    r.test.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ ok: true, detail: "Connected" }); }));
+    const pending = r.controller.connect({ backend: "claude", apiKey: "audit-key" });
+    r.settings.notifyOnTurnComplete = !r.settings.notifyOnTurnComplete;
+    const preference = r.settings.notifyOnTurnComplete;
+    release();
+    expect(await pending).toMatchObject({ ok: true });
+    expect(r.settings.notifyOnTurnComplete).toBe(preference);
+  });
 });
