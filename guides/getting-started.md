@@ -26,10 +26,14 @@ direct API credential or a local model.
 
 The simple path on every device is an Anthropic API key:
 
-1. Open the [Anthropic Console → API keys](https://console.anthropic.com/settings/keys) and create a key.
-2. In Obsidian, go to *Settings → Companion for Claude → Choose how I chat*.
-3. Leave **Authentication** on **API key** and paste the key into **Anthropic API key**.
-4. Click **Save & test connection**. A green result means you're done.
+1. Open Companion from the sparkles ribbon icon or **Open chat panel** command.
+2. On the **Connect to Claude** card, paste your Anthropic API key. The card links
+   to the [Anthropic Console](https://console.anthropic.com/settings/keys) if you need one.
+3. Click **Connect** or press **Enter**, then read the connection result. A failed
+   check leaves the card visible with its error.
+
+Use **Other connections…** for local models or advanced connection settings.
+The first connection does not require the setup wizard.
 
 You pay Anthropic for usage; nothing is billed by this plugin, and there is no
 account to create with us.
@@ -48,7 +52,7 @@ command palette (*Open chat panel*).
 Above the composer is a row of **Context** chips. Toggle one on and its content
 rides along with your next message:
 
-- **Active note** — the note you're looking at.
+- **Note** — the note you're looking at.
 - **Selection** — just the text you highlighted.
 - **Linked / Backlinks** — notes the active note points at, and notes pointing back.
 - **Search** — a keyword (or semantic, if enabled) sweep of the whole vault.
@@ -61,13 +65,21 @@ fetches it and reduces it to clean readable markdown (the same Defuddle engine
 behind Obsidian's Web Clipper). The fetch only happens when you ask for it, and a
 failure shows on the pill instead of derailing the chat.
 
-Try: open a note with some substance, toggle **Active note**, and ask
+Try: open a note with some substance, toggle **Note**, and ask
 *"What am I actually claiming here, and what's unsupported?"*
 
 Companion trims attached context to a character budget (default 24,000
 characters, 6 notes) so a big vault can't blow up a request. Both are adjustable
 under *Settings → Companion for Claude → Advanced settings → Chat & models → Prompts & context*.
 
+
+### Review a note change
+
+Try the [sample-note exercise](../obsidian-plugin/README.md#try-one-note-edit-you-control):
+ask for a clearer next step while preserving a single-user constraint. Inspect
+and accept or reject the proposed changes before checking the saved note.
+[Edit review](agent-mode.md#editing-notes-diffs-not-writes) explains how hunks
+are applied; creating a new note uses a separate write confirmation.
 
 ## 4. Your first artifact
 

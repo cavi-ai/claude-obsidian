@@ -13,7 +13,9 @@ source of truth.
 · [Getting started](../guides/getting-started.md)
 · [All guides](../README.md#guides)
 
-![Companion in Obsidian: onboarding interviews connected to a finding, proposal, and next research session beside Claude Opus 5.5 chat](../assets/canvas-output.png)
+![Example note-edit review with two change checkboxes and an Apply selected button](../assets/diff-review.png)
+
+The review image shows an example note; use the separate sample below to try it yourself.
 
 ## Try one note edit you control
 
@@ -26,7 +28,7 @@ Constraint: Keep it single-user; do not add account registration.
 Next step: Choose the smallest useful first screen.
 ```
 
-After [setup](https://github.com/cavi-ai/companion-for-claude/blob/main/guides/getting-started.md), open the note and enable the **Note**
+After [setup](../guides/getting-started.md), open the note and enable the **Note**
 context chip. Select **Act** and keep **Allow write tools** enabled. Ask:
 
 > Propose a clearer next step for this project. Keep its constraints unchanged
@@ -38,7 +40,7 @@ stayed intact? The model may propose one hunk or several; rejecting the entire
 proposal is a valid outcome.
 
 Model access is separate. Attached context is sent through the backend you
-select. See [edit review and guardrails](https://github.com/cavi-ai/companion-for-claude/blob/main/guides/agent-mode.md).
+select. See [edit review and guardrails](../guides/agent-mode.md).
 
 ## Install
 

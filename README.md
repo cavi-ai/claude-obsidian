@@ -12,6 +12,11 @@ work forward.
 · [Quick start](#quick-start)
 · [Read the guides](#guides)
 
+Install the plugin from the store link above. To build or contribute, start
+with [CONTRIBUTING.md](CONTRIBUTING.md) and the [plugin source](obsidian-plugin/).
+The public release repository is
+[companion-for-claude](https://github.com/cavi-ai/companion-for-claude).
+
 ![Companion in Obsidian: onboarding interviews connected to a finding, proposal, and next research session beside Claude Opus 5.5 chat](assets/canvas-output.png)
 
 ## Quick start
@@ -23,6 +28,7 @@ work forward.
 3. Open a note, turn on the **Note** context chip, and ask Claude what to work on
    next.
 
+[Try a reviewed note edit →](obsidian-plugin/README.md#try-one-note-edit-you-control) ·
 [Full setup guide →](guides/getting-started.md)
 
 ## One vault. One continuous workflow.
