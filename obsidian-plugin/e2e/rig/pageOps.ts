@@ -6,6 +6,7 @@ import { assertOwnedVault, resetOwnedVault, type VaultDeletion } from "./ownersh
 
 import { chromium, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -14,7 +15,7 @@ import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion } from "../coreAsar.ts";
 import { seedVault, type FixtureIO } from "./seed.ts";
 import { buildLaunchPlan } from "./launch.ts";
-import { vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
+import { markdownTextHash, vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
 import type { ScenarioOptions, StubPorts } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -259,7 +260,16 @@ export async function syncSecretStore(page: Page, settings: Record<string, unkno
 const MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "manifest.json");
 
 /** Observe both native file bytes and the Markdown consumer's cached revision. */
-async function waitForNativeVaultModel(page: Page, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
+async function waitForNativeVaultModel(page: Page, vault: string, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
+  const expectedTextHashes: Record<string, string> = {};
+  if (phase === "seeded") {
+    for (const [path, rawHash] of Object.entries(expected.files)) {
+      if (!path.toLowerCase().endsWith(".md")) continue;
+      const bytes = await readFile(join(vault, path));
+      if (createHash("sha256").update(bytes).digest("hex") !== rawHash) throw new Error(`Owned fixture bytes changed before native text verification: ${path}`);
+      expectedTextHashes[path] = markdownTextHash(bytes);
+    }
+  }
   await expect.poll(async () => {
     const observed = await page.evaluate(async ({ filePaths, includeHashes }) => {
       const vault = (window as unknown as {
@@ -296,7 +306,7 @@ async function waitForNativeVaultModel(page: Page, expected: VaultSnapshot, phas
       }
       return { paths, hashes, markdownPaths: markdownFiles.map(file => file.path), cachedHashes };
     }, { filePaths: Object.keys(expected.files), includeHashes: phase === "seeded" });
-    return vaultModelIssues(phase, expected, observed);
+    return vaultModelIssues(phase, expected, observed, expectedTextHashes);
   }, { timeout: 30_000, message: `The native vault must acknowledge the ${phase} fixture.` }).toEqual([]);
 }
 
@@ -398,13 +408,13 @@ export async function resetVaultState(
   await closeResetViews(page);
   const fixtureIO = nativeFixtureIO(page, vault);
   await resetOwnedVault(vault, fixtureIO);
-  await waitForNativeVaultModel(page, owned, "removed");
+  await waitForNativeVaultModel(page, vault, owned, "removed");
   await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   for (const file of ["appearance.json", "workspace.json", "workspace-mobile.json"]) {
     await rm(join(vault, ".obsidian", file), { force: true });
   }
   await seedVault(vault, ports, options, buildDir, fixtureIO);
-  await waitForNativeVaultModel(page, await assertOwnedVault(vault), "seeded");
+  await waitForNativeVaultModel(page, vault, await assertOwnedVault(vault), "seeded");
   const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
   const data = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
   // The store, not the file, is where a credential survives across resets —
