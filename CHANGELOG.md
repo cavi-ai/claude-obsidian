@@ -4,7 +4,7 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.50.1] — 2026-11-07
+## [0.50.1] — 2026-11-08
 
 ### Fixed
 - Model selectors share backend choices and discovered models; the selected CLI is checked before first-send fallback.
