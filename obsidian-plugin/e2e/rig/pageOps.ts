@@ -6,12 +6,14 @@ import { assertOwnedVault, resetOwnedVault } from "./ownership.ts";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion } from "../coreAsar.ts";
 import { seedVault } from "./seed.ts";
+import { buildLaunchPlan } from "./launch.ts";
 import type { ScenarioOptions, StubPorts } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -43,12 +45,7 @@ export async function selectRigPage(pages: Page[], expectedVault: string): Promi
   return page;
 }
 
-/**
- * `open -a` never hands back the launched app's pid (LaunchServices spawns it,
- * not us), so find the real Electron main process by the --user-data-dir it was
- * launched with. Excludes Chromium's own renderer/GPU/utility helper processes,
- * which all carry a --type= flag that the main process never does.
- */
+/** Find the isolated Electron main process by its owned profile. */
 export async function findObsidianPid(userDataDir: string, timeoutMs = 30_000): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -69,6 +66,9 @@ export async function findObsidianPid(userDataDir: string, timeoutMs = 30_000): 
 
 /** Connect to the running Obsidian instance and find its vault window. Never disconnects the app — just drop the reference when done. */
 export async function connectRig(cdpPort: number, expectedVault: string): Promise<RigConnection> {
+  const root = dirname(expectedVault);
+  buildLaunchPlan({ platform: process.platform, containerized: existsSync("/.dockerenv"), env: process.env, root, cdpPort });
+  if (expectedVault !== join(root, "vault")) throw new Error("The rig may only attach to its dedicated fixture vault.");
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
   const context = browser.contexts()[0];
   if (!context) throw new Error("Obsidian browser context not found");
@@ -103,16 +103,6 @@ export async function assertSupportedObsidian(executable: string, manifestPath: 
   }
 }
 
-let hideWarned = false;
-/** Deactivate the Obsidian process without a real OS-level hide (that pauses the Chromium renderer and blanks screenshots); a failure is logged once and the run stays visible. */
-export async function hideAppWindow(pid: number): Promise<void> {
-  try {
-    await execFileAsync("osascript", ["-e", `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to false`]);
-  } catch (error) {
-    if (!hideWarned) { hideWarned = true; console.warn("rig: could not unfocus the Obsidian window, run stays visible:", error); }
-  }
-}
-
 /** The container Obsidian renders a settings tab into, whichever window holds it. */
 const SETTINGS_TAB = ".vertical-tab-content-container .vertical-tab-content";
 
@@ -141,9 +131,8 @@ export async function dismissSettingsSurface(settings: Page): Promise<void> {
   });
 }
 
-export async function settleObsidianPage(context: BrowserContext, page: Page, firstRun: boolean, hidden: boolean, pid?: number, checkTrust = true): Promise<void> {
+export async function settleObsidianPage(context: BrowserContext, page: Page, firstRun: boolean, _hidden: boolean, _pid?: number, checkTrust = true): Promise<void> {
   await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
-  if (hidden && pid) await hideAppWindow(pid);
   if (checkTrust) {
     const trustDeadline = Date.now() + 5_000;
     let trustAccepted = false;
@@ -180,8 +169,6 @@ export async function settleObsidianPage(context: BrowserContext, page: Page, fi
       const title = await candidate.title().catch(() => "");
       if (title.startsWith("Settings - ")) await candidate.close();
     }
-    await page.bringToFront();
-    if (hidden && pid) await hideAppWindow(pid);
   }
 }
 
