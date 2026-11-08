@@ -3727,6 +3727,8 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
   overflow: hidden;
 }
 .cc-chat-root > .cc-header {
+  --cc-header-control-size: 32px;
+  --cc-header-control-min-width: 0px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -3756,8 +3758,8 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
   justify-content: center;
   gap: 4px;
   box-sizing: border-box;
-  min-width: 32px;
-  min-height: 32px;
+  min-width: var(--cc-header-control-size);
+  min-height: var(--cc-header-control-size);
   height: auto;
   padding: 4px 6px;
   font-size: var(--cc-text-sm);
@@ -3771,8 +3773,8 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  min-width: 0;
-  min-height: 32px;
+  min-width: var(--cc-header-control-min-width);
+  min-height: var(--cc-header-control-size);
   height: auto;
   margin: 0;
   padding: 4px 8px;
@@ -3795,8 +3797,8 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
   align-items: center;
   gap: 4px;
   width: auto;
-  min-width: 0;
-  min-height: 32px;
+  min-width: var(--cc-header-control-min-width);
+  min-height: var(--cc-header-control-size);
   height: auto;
   padding: 4px 6px;
   font-size: var(--cc-text-sm);
@@ -3809,8 +3811,8 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
 .cc-activity-indicator-icon svg { width: 14px; height: 14px; }
 .cc-activity-indicator-count { color: var(--text-muted); font-size: var(--cc-text-sm); }
 .cc-header-routing .cc-activity-progress { display: none; }
-.cc-header-routing .cc-write-grant-pill { flex: 0 0 auto; max-width: 64px; min-height: 32px; height: auto; padding: 4px 6px; overflow: hidden; font-size: var(--cc-text-sm); white-space: nowrap; }
-.cc-header-routing .cc-mcp-dot { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; padding: 8px; border-radius: var(--cc-radius-sm); background: transparent; }
+.cc-header-routing .cc-write-grant-pill { flex: 0 0 auto; max-width: 64px; min-width: var(--cc-header-control-min-width); min-height: var(--cc-header-control-size); height: auto; padding: 4px 6px; overflow: hidden; font-size: var(--cc-text-sm); white-space: nowrap; }
+.cc-header-routing .cc-mcp-dot { display: inline-flex; align-items: center; justify-content: center; min-width: var(--cc-header-control-size); min-height: var(--cc-header-control-size); padding: 8px; border-radius: var(--cc-radius-sm); background: transparent; }
 .cc-header-routing .cc-mcp-dot svg { width: 14px; height: 14px; flex: none; }
 .cc-header-routing .cc-mcp-dot.is-on { color: var(--cc-olive); }
 .cc-header-routing .cc-mcp-dot.is-warn { color: var(--cc-clay); }
@@ -3876,6 +3878,7 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
 .cc-model-configure { align-self: flex-start; flex: none; min-height: 40px; height: auto; font-size: var(--cc-text-base); }
 .is-mobile .cc-chat-root .cc-controls { display: none; }
 .is-mobile .cc-chat-root .cc-send-icon { min-width: 44px; min-height: 44px; }
+.is-mobile .cc-chat-root > .cc-header { --cc-header-control-size: var(--cc-touch-min); --cc-header-control-min-width: var(--cc-touch-min); }
 
 @container cc-chat (max-width: 719px) {
   .cc-header .cc-header-secondary { display: none; }
@@ -3892,8 +3895,8 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
   .is-mobile .cc-chat-root .cc-composer-toolbar { flex-wrap: wrap; }
 }
 @media (pointer: coarse) {
-  .cc-chat-root .cc-header :is(.cc-icon-btn, .cc-sessions-btn, button.cc-model, .cc-activity-indicator, .cc-write-grant-pill, .cc-mcp-dot),
+  .cc-chat-root > .cc-header { --cc-header-control-size: var(--cc-touch-min); --cc-header-control-min-width: var(--cc-touch-min); }
   .cc-chat-root .cc-mode-segment, .cc-chat-root .cc-tune-btn, .cc-chat-root .cc-send,
   .cc-pane-popover-close, .cc-pane-popover .cc-activity-actions button, .cc-snippet-copy, .cc-feedback-dismiss { min-height: 44px; }
-  .cc-chat-root .cc-header .cc-icon-btn, .cc-chat-root .cc-tune-btn { min-width: 44px; }
+  .cc-chat-root .cc-tune-btn { min-width: 44px; }
 }
