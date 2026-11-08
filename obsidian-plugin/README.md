@@ -47,7 +47,7 @@ select. See [edit review and guardrails](../guides/agent-mode.md).
 1. Open **Settings → Community plugins → Browse**.
 2. Search for **Companion for Claude**, then install and enable it.
 3. Open Companion and choose a connection:
-   - **Claude Code sign-in** on desktop, using the installed `claude` command.
+   - **CLI sign-in** on desktop through Claude Code, Codex, or OpenCode.
    - **Anthropic API** on desktop or mobile, using your own credential.
    - **Local model** through Ollama or an OpenAI-compatible endpoint.
 4. Open a note, enable the **Note** context chip, and send your first message.
@@ -61,7 +61,7 @@ select. See [edit review and guardrails](../guides/agent-mode.md).
   screenshots as context. Pasted images are saved as ordinary vault files in
   your configured Obsidian attachment folder.
 - **Agent mode** that can search, read, and follow links while showing every tool
-  call; writes remain behind confirmation.
+  call; writes ask for confirmation unless you grant access for the session.
 - **Reviewable edits** with per-hunk acceptance before a note changes.
 - **Research Desk** for sources, evidence, claims, outlines,
   drafts, and deterministic assurance checks.
@@ -93,9 +93,10 @@ behavior and setup live in the guides:
 
 ## Desktop agents
 
-Companion chat can run directly through Claude Code. Choose **Claude Code — your
-subscription** under **Connection** and Companion uses one resumable CLI session
-per saved conversation. This backend does not require the MCP bridge.
+Companion chat can run through an installed, signed-in Claude Code, Codex, or
+OpenCode CLI. Choose its backend and model from the chat header, or under
+**Settings → Companion for Claude → Chat & models → Provider & model**.
+The in-chat CLI connection does not require enabling the standalone MCP bridge.
 
 For portable Claude Code workflows using the official Obsidian CLI:
 

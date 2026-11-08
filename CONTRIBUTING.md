@@ -26,10 +26,15 @@ pnpm run audit
 ```
 
 The plugin targets desktop and mobile. Chat, vault context, artifacts, and
-semantic search run on both; only the MCP bridge and session import require
-desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
+semantic search run on both. CLI chat, the MCP bridge, stdio MCP clients, and
+session import require desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
 `main.js`, `manifest.json`, and `styles.css` into a test vault under
 `.obsidian/plugins/claude-companion/`.
+
+Native UI tests run in the isolated Linux Docker/Xvfb runner. Its fixture vault
+is separate from your normal vault. Use the image-build and container-run commands
+in [Obsidian plugin CI](.github/workflows/obsidian-plugin-ci.yml), with the pinned
+[test image](obsidian-plugin/e2e/rig/Dockerfile).
 
 ### Manual smoke-test checklist (needs a real vault + API key)
 
@@ -61,7 +66,9 @@ desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
 ## Releases (maintainers)
 
 1. Bump `manifest.json`, `versions.json` (version → `minAppVersion`), and
-   `package.json` in lockstep; the git tag is the exact version, no `v` prefix.
+   `package.json` in lockstep, and add the version to `CHANGELOG.md`. The
+   development repository uses `obsidian-v<version>` tags; the community-store
+   mirror uses the bare version.
 2. Merge to `main`, then dispatch the **Release Obsidian plugin** workflow
    (`.github/workflows/release-obsidian-plugin.yml`) with that version.
 3. The workflow runs the release gate (typecheck, lint, tests, build),
@@ -74,6 +81,8 @@ desktop (Electron/Node). For manual testing on desktop, build `main.js` and copy
    not here: GitHub records attestations against the repo whose workflow
    produced them, and Obsidian verifies them against the repo listed in
    `community-plugins.json`.
+5. The development repository publishes the versioned documentation artifact
+   under `obsidian-v<version>` and dispatches its verified release facts to CAVI Home.
 
 ## Licensing and attribution
 
