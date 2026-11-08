@@ -1,4 +1,4 @@
-FROM node:22.23.4-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d
+FROM node:22.23.4-trixie-slim@sha256:be1e2a3dc2c4fd68cdfadad2a696a280e0d2749098bee509230174d72fb768c6
 
 ARG TARGETARCH
 ENV OBSIDIAN_APP_PATH=/opt/obsidian/obsidian \
@@ -9,7 +9,7 @@ ENV OBSIDIAN_APP_PATH=/opt/obsidian/obsidian \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl dbus-x11 libgtk-3-0 libnotify4 libsecret-1-0 libxss1 libxtst6 x11-utils xvfb \
+    && apt-get install -y --no-install-recommends ca-certificates curl dbus-x11 libgtk-3-0t64 libnotify4 libsecret-1-0 libxss1 libxtst6 x11-utils xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global pnpm@10.32.1
 
