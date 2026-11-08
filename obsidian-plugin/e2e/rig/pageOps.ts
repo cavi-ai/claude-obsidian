@@ -4,7 +4,7 @@ import { assertOwnedVault, resetOwnedVault } from "./ownership.ts";
 // makes its own chromium.connectOverCDP() to the same live Obsidian instance;
 // none of them ever call browser.close() — that would terminate the real app.
 
-import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion } from "../coreAsar.ts";
 import { seedVault } from "./seed.ts";
 import { buildLaunchPlan } from "./launch.ts";
+import { vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
 import type { ScenarioOptions, StubPorts } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -257,6 +258,35 @@ export async function syncSecretStore(page: Page, settings: Record<string, unkno
 
 const MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "manifest.json");
 
+/** Observe the native vault, including bytes read through its public API. */
+async function waitForNativeVaultModel(page: Page, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
+  await expect.poll(async () => {
+    const observed = await page.evaluate(async ({ filePaths, includeHashes }) => {
+      const vault = (window as unknown as {
+        app: { vault: {
+          getAllLoadedFiles(): Array<{ path: string }>;
+          getAbstractFileByPath(path: string): { path: string } | null;
+          readBinary(file: { path: string }): Promise<ArrayBuffer>;
+        } };
+      }).app.vault;
+      const paths = vault.getAllLoadedFiles().map(file => file.path);
+      const hashes: Record<string, string> = {};
+      if (includeHashes) {
+        await Promise.all(filePaths.map(async path => {
+          const file = vault.getAbstractFileByPath(path);
+          if (!file) return;
+          try {
+            const digest = await crypto.subtle.digest("SHA-256", await vault.readBinary(file));
+            hashes[path] = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+          } catch { /* An unreadable file remains a content mismatch until the condition times out. */ }
+        }));
+      }
+      return { paths, hashes };
+    }, { filePaths: Object.keys(expected.files), includeHashes: phase === "seeded" });
+    return vaultModelIssues(phase, expected, observed);
+  }, { timeout: 30_000, message: `The native vault must acknowledge the ${phase} fixture.` }).toEqual([]);
+}
+
 /**
  * Full per-scenario reset: close extra windows/modals, detach every Companion
  * leaf, disable the plugin, wipe the vault except `.obsidian`, reseed fixture
@@ -272,7 +302,7 @@ export async function resetVaultState(
   originalEnv: Record<string, string>,
   processId: number,
 ): Promise<void> {
-  await assertOwnedVault(vault);
+  const owned = await assertOwnedVault(vault);
   const { context, page } = connection;
   for (const candidate of context.pages()) {
     if (candidate !== page && !candidate.isClosed()) await candidate.close();
@@ -290,11 +320,13 @@ export async function resetVaultState(
     return app.plugins.disablePlugin("claude-companion");
   });
   await resetOwnedVault(vault);
+  await waitForNativeVaultModel(page, owned, "removed");
   await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   for (const file of ["appearance.json", "workspace.json", "workspace-mobile.json"]) {
     await rm(join(vault, ".obsidian", file), { force: true });
   }
   await seedVault(vault, ports, options, buildDir);
+  await waitForNativeVaultModel(page, await assertOwnedVault(vault), "seeded");
   const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
   const data = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
   // The store, not the file, is where a credential survives across resets —

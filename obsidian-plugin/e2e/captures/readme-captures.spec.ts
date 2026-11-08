@@ -371,8 +371,25 @@ test.describe("README captures", () => {
         await input.press("Enter");
         const answer = root.locator(".cc-msg.cc-assistant").last();
         await expect(answer).toContainText(CHAT_REPLY_LEAD, { timeout: 15_000 });
+        await expect(answer).toContainText("Finish by running the audit so the draft and its sources stay in sync.");
         await expect(answer.locator("a.internal-link")).toHaveCount(1);
-        await shootThrough(root, answer, 386, "chat-panel.png", theme, PLUGIN_ASSETS);
+        await expect(answer.locator(".cc-provenance")).toContainText("Continuity claim");
+        await expect(answer.locator(".cc-actions")).toBeVisible();
+        await expect(root.locator(".cc-header-session > .cc-session-title")).toBeVisible();
+        await expect(root.getByRole("button", { name: "Sessions", exact: true })).toBeVisible();
+        await expect(root.getByRole("button", { name: /^Choose model and backend/ })).toBeVisible();
+        const send = root.getByRole("button", { name: /^Send(?: message)?$/ });
+        await send.click({ trial: true });
+        // A square frame includes the complete answer, cited notes and reply
+        // actions beneath the session/model rows at the unchanged 520px width.
+        const rootBox = await root.boundingBox();
+        const answerBox = await answer.boundingBox();
+        expect(rootBox?.width, "chat-panel pane width").toBe(520);
+        await shootThrough(root, answer, 520, "chat-panel.png", theme, PLUGIN_ASSETS);
+        const png = await readFile(outputPath("chat-panel.png", theme, PLUGIN_ASSETS));
+        expect(png.readUInt32BE(16), "chat-panel output width").toBe(1040);
+        expect(png.readUInt32BE(20), "chat-panel output height").toBe(1040);
+        await test.info().attach("chat-panel-composition", { body: JSON.stringify({ frame: { width: 520, height: 520 }, root: rootBox, answer: answerBox, send: await send.boundingBox() }, null, 2), contentType: "application/json" });
       });
 
       test("composer-320.png", async () => {

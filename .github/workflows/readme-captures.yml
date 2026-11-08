@@ -17,54 +17,30 @@ defaults:
 
 jobs:
   capture:
-    name: capture · real Obsidian (macOS)
-    runs-on: macos-latest
+    name: capture · real Obsidian (Linux)
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+          persist-credentials: false
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6.1.0
-        with:
-          version: 10.32.1
-
-      - name: Use Node 22
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.x
-          cache: pnpm
-          cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # The runner image's Homebrew index is a stale snapshot; the harness needs the cask at or above manifest.minAppVersion.
-      # A quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
-      - name: Install Obsidian
-        run: |
-          brew update --quiet || true
-          brew install --cask obsidian
-          sudo xattr -dr com.apple.quarantine /Applications/Obsidian.app || true
-          installed=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Obsidian.app/Contents/Info.plist)
-          floor=$(node -p "require('./manifest.json').minAppVersion")
-          echo "Obsidian $installed installed; plugin floor $floor"
-          node -e "const c=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]??0)-(y[i]??0);if(d)return d}return 0};process.exit(c('$installed','$floor')<0?1:0)"
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Start the rig on the fresh build
-        run: node e2e/rig/cli.ts reload
+      - name: Build the Obsidian test image
+        run: docker build --file e2e/rig/Dockerfile --tag companion-e2e .
 
       - name: Capture the dark README scenes
-        env:
-          CC_E2E_CAPTURE: "1"
-          CC_E2E_CAPTURE_THEME: dark
-          CC_E2E_CAPTURE_DIR: ${{ runner.temp }}/captures
-          CC_E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
-        run: pnpm exec playwright test --config=e2e/captures/playwright.config.ts e2e/captures/readme-captures.spec.ts
+        run: |
+          mkdir -p "${{ runner.temp }}/captures" "${{ runner.temp }}/e2e"
+          docker run --rm --init \
+            --env CC_E2E_CAPTURE=1 \
+            --env CC_E2E_CAPTURE_THEME=dark \
+            --env CC_E2E_CAPTURE_DIR=/captures \
+            --mount "type=bind,source=${{ github.workspace }},target=/workspace" \
+            --mount type=volume,target=/workspace/obsidian-plugin/node_modules \
+            --mount "type=bind,source=${{ runner.temp }}/captures,target=/captures" \
+            --mount "type=bind,source=${{ runner.temp }}/e2e,target=/e2e-output" \
+            companion-e2e pnpm run e2e:captures
 
       - name: Upload captures
         if: always()
