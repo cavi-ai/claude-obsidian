@@ -167,7 +167,20 @@ export function mountActivityIndicator(
     latest = snapshot;
     const dominant = dominantActivity(snapshot.records);
     if (!dominant) {
-      close(); indicator?.remove(); indicator = null; host.empty(); return;
+      const focused = root.ownerDocument.activeElement;
+      const restoreFocus = focused && (host.contains(focused) || drawer?.contains(focused));
+      const pane = root.closest<HTMLElement>(".cc-chat-root") ?? root.closest<HTMLElement>(".cc-root") ?? root;
+      close(); indicator?.remove(); indicator = null; host.empty();
+      if (restoreFocus) {
+        const candidates = [".cc-input", ".cc-companion-quick-options", ".cc-model", ".cc-sessions-btn", "input", "textarea", "select", "button"]
+          .flatMap(selector => [...pane.querySelectorAll<HTMLElement>(selector)]);
+        const target = candidates.find(control => control.isConnected !== false
+          && !(control as HTMLButtonElement).disabled && control.getAttribute("aria-disabled") !== "true"
+          && control.getAttribute("hidden") === null
+          && (typeof control.checkVisibility !== "function" || control.checkVisibility({ checkVisibilityCSS: true })));
+        target?.focus({ preventScroll: true });
+      }
+      return;
     }
     if (!indicator) {
       indicator = host.createEl("button", { cls: "cc-activity-indicator", attr: { type: "button", "aria-expanded": "false" } });

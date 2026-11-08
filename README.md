@@ -23,7 +23,7 @@ The public release repository is
 
 1. In Obsidian, open **Settings → Community plugins → Browse**, search for
    **Companion for Claude**, then install and enable it.
-2. Open Companion and choose how Claude runs: your signed-in Claude Code CLI on
+2. Open Companion and choose a signed-in Claude Code, Codex, or OpenCode CLI on
    desktop, an Anthropic API key on any device, or a local model.
 3. Open a note, turn on the **Note** context chip, and ask Claude what to work on
    next.
@@ -62,7 +62,7 @@ vault remains the readable source of truth at every stage.
 ### Review before Claude changes anything
 
 Claude can propose edits, create notes, build native Canvas and Bases files, or
-hand a plan to Claude Code. Writes stay behind confirmation, and note edits are
+hand a plan to Claude Code. Write tools ask for confirmation unless you grant access for the session, and note edits are
 presented as reviewable hunks so you choose exactly what lands. If the app
 closes during a turn, the saved conversation restores the interrupted work as
 stopped with a **Retry** action.
@@ -71,8 +71,8 @@ stopped with a **Retry** action.
 
 ## Choose how Claude runs
 
-- **Claude Code sign-in** — desktop chat through the installed, signed-in
-  `claude` command; no API credential stored by Companion.
+- **CLI sign-in** — desktop chat through an installed, signed-in Claude Code,
+  Codex, or OpenCode command. Each CLI keeps its own credentials.
 - **Anthropic API** — direct streaming chat on desktop and mobile with your API
   key, long-term OAuth token, or environment credential.
 - **Local models** — Ollama or an OpenAI-compatible endpoint for chat and

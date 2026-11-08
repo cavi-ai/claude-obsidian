@@ -233,4 +233,76 @@ describe("mountActivityIndicator", () => {
     expect(element(first, ".cc-activity-action").getAttribute("data-focused")).toBeNull();
   });
 
+  it("returns focus to the owning chat composer when Dismiss removes the final activity", () => {
+    const root = new FakeElement(); root.addClass("cc-root"); root.addClass("cc-chat-root");
+    const input = root.createEl("textarea", { cls: "cc-input" }); const store = new ActivityStore();
+    mountActivityIndicator(root as never, { store, runRecovery: vi.fn(), dismiss: id => store.dismiss(id) });
+    const id = store.start({ id: "last", kind: "semantic-index", title: "Index" }); store.fail(id, { failed: 1 });
+    element(root, ".cc-activity-indicator").dispatchEvent({ type: "click" });
+    const dismiss = element(root, ".cc-activity-dismiss"); dismiss.focus(); dismiss.dispatchEvent({ type: "click" });
+    expect(root.querySelector(".cc-activity-indicator")).toBeNull();
+    expect(root.querySelector(".cc-activity-drawer")).toBeNull();
+    expect(store.snapshot().records).toEqual([]); expect(fakeDocument.activeElement).toBe(input);
+  });
+
+  it("returns focus to a surviving page control outside chat", () => {
+    const root = new FakeElement(); root.addClass("cc-root");
+    const options = root.createEl("button", { cls: "cc-companion-quick-options" }); const store = new ActivityStore();
+    mountActivityIndicator(root as never, { store, runRecovery: vi.fn(), dismiss: id => store.dismiss(id) });
+    const id = store.start({ id: "last", kind: "semantic-index", title: "Index" }); store.fail(id, { failed: 1 });
+    element(root, ".cc-activity-indicator").dispatchEvent({ type: "click" });
+    element(root, ".cc-activity-dismiss").focus(); store.dismiss(id);
+    expect(fakeDocument.activeElement).toBe(options);
+  });
+
+  it("preserves unrelated focus when the last activity disappears", () => {
+    const root = new FakeElement(); root.addClass("cc-root"); root.addClass("cc-chat-root");
+    root.createEl("textarea", { cls: "cc-input" }); const other = new FakeElement("button"); const store = new ActivityStore();
+    mountActivityIndicator(root as never, { store, runRecovery: vi.fn(), dismiss: id => store.dismiss(id) });
+    const id = store.start({ id: "last", kind: "semantic-index", title: "Index" });
+    element(root, ".cc-activity-indicator").dispatchEvent({ type: "click" }); other.focus(); store.dismiss(id);
+    expect(fakeDocument.activeElement).toBe(other);
+  });
+
+  it("restores only the pane whose activity owned focus when a shared final record disappears", () => {
+    const first = new FakeElement(); first.addClass("cc-root"); first.addClass("cc-chat-root");
+    const firstInput = first.createEl("textarea", { cls: "cc-input" });
+    const second = new FakeElement(); second.addClass("cc-root"); second.addClass("cc-chat-root");
+    const secondInput = second.createEl("textarea", { cls: "cc-input" }); const store = new ActivityStore();
+    for (const root of [first, second]) mountActivityIndicator(root as never, { store, runRecovery: vi.fn(), dismiss: id => store.dismiss(id) });
+    const id = store.start({ id: "last", kind: "semantic-index", title: "Index" }); store.fail(id, { failed: 1 });
+    element(first, ".cc-activity-indicator").dispatchEvent({ type: "click" });
+    element(second, ".cc-activity-indicator").dispatchEvent({ type: "click" });
+    element(second, ".cc-activity-dismiss").focus(); store.dismiss(id);
+    expect(fakeDocument.activeElement).toBe(secondInput); expect(firstInput.getAttribute("data-focused")).toBeNull();
+  });
+
+  it.each(["indicator", "dismiss"])("keeps automatic completion cleanup and restores focus from its final %s", control => {
+    vi.useFakeTimers();
+    try {
+      const root = new FakeElement(); root.addClass("cc-root"); root.addClass("cc-chat-root");
+      const input = root.createEl("textarea", { cls: "cc-input" }); const store = new ActivityStore();
+      const unmount = mountActivityIndicator(root as never, { store, runRecovery: vi.fn(), dismiss: id => store.dismiss(id) });
+      const id = store.start({ id: "last", kind: "semantic-index", title: "Index", total: 1 }); store.finish(id, { completed: 1, succeeded: 1 });
+      const indicator = element(root, ".cc-activity-indicator");
+      if (control === "dismiss") { indicator.dispatchEvent({ type: "click" }); element(root, ".cc-activity-dismiss").focus(); }
+      else indicator.focus();
+      vi.advanceTimersByTime(3999); expect(store.snapshot().records).toHaveLength(1);
+      vi.advanceTimersByTime(1); expect(store.snapshot().records).toEqual([]);
+      expect(fakeDocument.activeElement).toBe(input); expect(root.querySelector(".cc-activity-indicator")).toBeNull();
+      unmount(); store.dispose();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("skips unavailable controls when restoring focus after the final activity", () => {
+    const root = new FakeElement(); root.addClass("cc-root"); root.addClass("cc-chat-root");
+    const input = root.createEl("textarea", { cls: "cc-input" }); input.disabled = true;
+    const hidden = root.createEl("button", { cls: "cc-companion-quick-options" }); Object.assign(hidden, { checkVisibility: () => false });
+    const control = root.createEl("button", { cls: "cc-model" }); const store = new ActivityStore();
+    mountActivityIndicator(root as never, { store, runRecovery: vi.fn(), dismiss: id => store.dismiss(id) });
+    const id = store.start({ id: "last", kind: "semantic-index", title: "Index" });
+    element(root, ".cc-activity-indicator").focus(); store.dismiss(id);
+    expect(fakeDocument.activeElement).toBe(control);
+  });
+
 });

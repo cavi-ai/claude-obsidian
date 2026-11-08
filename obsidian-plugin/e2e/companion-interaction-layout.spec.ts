@@ -94,3 +94,26 @@ test("pane surfaces keep bounds, state and focus while feedback and pane size ch
     await page.keyboard.press("Enter"); await expect(feedback).toHaveCount(0);
   } finally { await harness.close(); }
 });
+
+
+test("keyboard dismissal of the final activity returns focus to its chat composer", async ({ rig }, testInfo) => {
+  const harness = await rig.reset(); const { page } = harness;
+  try {
+    const chat = await openChat(page); const input = chat.locator("textarea.cc-input");
+    await input.fill("Continue after checking activity");
+    await page.evaluate(() => {
+      const plugin = (window as unknown as { app: { plugins: { plugins: Record<string, { activity: { start(input: unknown): string; fail(id: string, update: unknown): void } }> } } }).app.plugins.plugins["claude-companion"]!;
+      const id = plugin.activity.start({ id: "final-focus", kind: "semantic-index", title: "Final index", total: 1 });
+      plugin.activity.fail(id, { failed: 1 });
+    });
+    const trigger = chat.locator(".cc-activity-indicator"); await trigger.focus(); await page.keyboard.press("Enter");
+    const drawer = chat.locator(".cc-activity-drawer"); await expect(drawer).toBeVisible();
+    const summary = drawer.locator(".cc-activity-summary"); await summary.focus(); await page.keyboard.press("Enter");
+    await page.keyboard.press("Tab");
+    const dismiss = drawer.getByRole("button", { name: "Dismiss Final index activity", exact: true });
+    await expect(dismiss).toBeFocused(); await page.keyboard.press("Enter");
+    await expect(drawer).toHaveCount(0); await expect(trigger).toHaveCount(0);
+    await expect(input).toBeFocused(); await expect(input).toHaveValue("Continue after checking activity");
+    await page.screenshot({ path: testInfo.outputPath("final-activity-dismiss-focus.png") });
+  } finally { await harness.close(); }
+});

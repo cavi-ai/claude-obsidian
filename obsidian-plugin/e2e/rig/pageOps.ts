@@ -1,4 +1,4 @@
-import { assertOwnedVault, resetOwnedVault } from "./ownership.ts";
+import { assertOwnedVault, resetOwnedVault, type VaultDeletion } from "./ownership.ts";
 // CDP-driven page automation shared by the daemon (initial settle), the CLI's
 // `reload` command, and the Playwright fixture (per-test reset). Each caller
 // makes its own chromium.connectOverCDP() to the same live Obsidian instance;
@@ -6,15 +6,16 @@ import { assertOwnedVault, resetOwnedVault } from "./ownership.ts";
 
 import { chromium, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion } from "../coreAsar.ts";
-import { seedVault } from "./seed.ts";
+import { seedVault, type FixtureIO } from "./seed.ts";
 import { buildLaunchPlan } from "./launch.ts";
-import { vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
+import { markdownTextHash, vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
 import type { ScenarioOptions, StubPorts } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -258,33 +259,127 @@ export async function syncSecretStore(page: Page, settings: Record<string, unkno
 
 const MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "manifest.json");
 
-/** Observe the native vault, including bytes read through its public API. */
-async function waitForNativeVaultModel(page: Page, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
+/** Observe both native file bytes and the Markdown consumer's cached revision. */
+async function waitForNativeVaultModel(page: Page, vault: string, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
+  const expectedTextHashes: Record<string, string> = {};
+  if (phase === "seeded") {
+    for (const [path, rawHash] of Object.entries(expected.files)) {
+      if (!path.toLowerCase().endsWith(".md")) continue;
+      const bytes = await readFile(join(vault, path));
+      if (createHash("sha256").update(bytes).digest("hex") !== rawHash) throw new Error(`Owned fixture bytes changed before native text verification: ${path}`);
+      expectedTextHashes[path] = markdownTextHash(bytes);
+    }
+  }
   await expect.poll(async () => {
     const observed = await page.evaluate(async ({ filePaths, includeHashes }) => {
       const vault = (window as unknown as {
         app: { vault: {
           getAllLoadedFiles(): Array<{ path: string }>;
+          getMarkdownFiles(): Array<{ path: string }>;
           getAbstractFileByPath(path: string): { path: string } | null;
           readBinary(file: { path: string }): Promise<ArrayBuffer>;
+          cachedRead(file: { path: string }): Promise<string>;
         } };
       }).app.vault;
       const paths = vault.getAllLoadedFiles().map(file => file.path);
+      const markdownFiles = vault.getMarkdownFiles();
+      const markdownByPath = new Map(markdownFiles.map(file => [file.path, file]));
       const hashes: Record<string, string> = {};
+      const cachedHashes: Record<string, string> = {};
+      const hash = async (bytes: BufferSource): Promise<string> => {
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      };
       if (includeHashes) {
         await Promise.all(filePaths.map(async path => {
           const file = vault.getAbstractFileByPath(path);
           if (!file) return;
           try {
-            const digest = await crypto.subtle.digest("SHA-256", await vault.readBinary(file));
-            hashes[path] = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+            hashes[path] = await hash(await vault.readBinary(file));
           } catch { /* An unreadable file remains a content mismatch until the condition times out. */ }
+          const markdown = markdownByPath.get(path);
+          if (markdown) {
+            try { cachedHashes[path] = await hash(new TextEncoder().encode(await vault.cachedRead(markdown))); }
+            catch { /* The consumer must also acknowledge readable, current Markdown. */ }
+          }
         }));
       }
-      return { paths, hashes };
+      return { paths, hashes, markdownPaths: markdownFiles.map(file => file.path), cachedHashes };
     }, { filePaths: Object.keys(expected.files), includeHashes: phase === "seeded" });
-    return vaultModelIssues(phase, expected, observed);
+    return vaultModelIssues(phase, expected, observed, expectedTextHashes);
   }, { timeout: 30_000, message: `The native vault must acknowledge the ${phase} fixture.` }).toEqual([]);
+}
+
+/** Finish native editor unload/save before any fixture files can be replaced. */
+export async function closeResetViews(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const app = (window as unknown as {
+      app: { plugins: { disablePlugin(id: string): Promise<void> }; workspace: { getLeavesOfType(type: string): Array<{ detach(): void; setViewState(state: { type: string }): Promise<void> }> } };
+    }).app;
+    await Promise.all(app.workspace.getLeavesOfType("markdown").map(async leaf => {
+      await leaf.setViewState({ type: "empty" });
+      leaf.detach();
+    }));
+    for (const type of ["claude-companion-chat", "claude-research-desk", "claude-build-runner", "claude-source-inbox"]) {
+      for (const leaf of app.workspace.getLeavesOfType(type)) leaf.detach();
+    }
+    await app.plugins.disablePlugin("claude-companion");
+  });
+}
+
+/** Mutate live fixture files through the same public Vault API consumers use. */
+export function nativeFixtureIO(page: Page, expectedVault: string): FixtureIO & VaultDeletion {
+  const apply = async (operation: "mkdir" | "write" | "deleteFile" | "deleteDirectory", path: string, content?: string | Uint8Array): Promise<void> => {
+    await page.evaluate(async ({ operation, path, expectedVault, text, bytes }) => {
+      const vault = (window as unknown as { app: import("obsidian").App }).app.vault;
+      if ((vault.adapter as import("obsidian").FileSystemAdapter).getBasePath() !== expectedVault) {
+        throw new Error("Native fixture target does not match the owned vault.");
+      }
+      const parts = path.split("/");
+      if (path.includes("\\") || parts.some(part => !part || part === "." || part === "..") || parts[0] === ".obsidian") {
+        // The fixture's root directory is already present; mkdir('.') is a no-op.
+        if (operation === "mkdir" && path === ".") return;
+        throw new Error(`Invalid fixture path: ${path}`);
+      }
+      if (operation === "mkdir") {
+        for (let count = 1; count <= parts.length; count++) {
+          const folderPath = parts.slice(0, count).join("/");
+          const existing = vault.getAbstractFileByPath(folderPath);
+          if (!existing) await vault.createFolder(folderPath);
+          else if (!("children" in existing)) throw new Error(`Fixture folder is a file: ${folderPath}`);
+        }
+        return;
+      }
+      const existing = vault.getAbstractFileByPath(path);
+      if (operation === "write") {
+        if (existing && "children" in existing) throw new Error(`Fixture file is a folder: ${path}`);
+        const file = existing as import("obsidian").TFile | null;
+        if (text !== undefined) {
+          if (file) await vault.modify(file, text);
+          else await vault.create(path, text);
+        } else {
+          const data = new Uint8Array(bytes!).buffer;
+          if (file) await vault.modifyBinary(file, data);
+          else await vault.createBinary(path, data);
+        }
+        return;
+      }
+      if (!existing) throw new Error(`Owned native fixture entry is missing: ${path}`);
+      const isFolder = "children" in existing;
+      if (isFolder !== (operation === "deleteDirectory")) throw new Error(`Owned native fixture file/folder mismatch: ${path}`);
+      if (isFolder && (existing as import("obsidian").TFolder).children.length) throw new Error(`Owned fixture folder is not empty: ${path}`);
+      // Obsidian passes this flag to fs.rm's recursive option for directories.
+      // The explicit empty check above keeps deletion limited to this entry.
+      if (isFolder) await vault.delete(existing, true);
+      else await vault.delete(existing);
+    }, { operation, path, expectedVault, text: typeof content === "string" ? content : undefined, bytes: content instanceof Uint8Array ? Array.from(content) : undefined });
+  };
+  return {
+    mkdir: path => apply("mkdir", path),
+    writeFile: (path, content) => apply("write", path, content),
+    deleteFile: path => apply("deleteFile", path),
+    deleteDirectory: path => apply("deleteDirectory", path),
+  };
 }
 
 /**
@@ -310,23 +405,16 @@ export async function resetVaultState(
   for (let attempt = 0; attempt < 6 && await page.locator(".modal-container").count(); attempt += 1) {
     await page.keyboard.press("Escape");
   }
-  await page.evaluate(() => {
-    const app = (window as unknown as {
-      app: { plugins: { disablePlugin(id: string): Promise<void> }; workspace: { getLeavesOfType(type: string): Array<{ detach(): void }> } };
-    }).app;
-    for (const type of ["claude-companion-chat", "claude-research-desk", "claude-build-runner", "claude-source-inbox", "markdown"]) {
-      for (const leaf of app.workspace.getLeavesOfType(type)) leaf.detach();
-    }
-    return app.plugins.disablePlugin("claude-companion");
-  });
-  await resetOwnedVault(vault);
-  await waitForNativeVaultModel(page, owned, "removed");
+  await closeResetViews(page);
+  const fixtureIO = nativeFixtureIO(page, vault);
+  await resetOwnedVault(vault, fixtureIO);
+  await waitForNativeVaultModel(page, vault, owned, "removed");
   await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   for (const file of ["appearance.json", "workspace.json", "workspace-mobile.json"]) {
     await rm(join(vault, ".obsidian", file), { force: true });
   }
-  await seedVault(vault, ports, options, buildDir);
-  await waitForNativeVaultModel(page, await assertOwnedVault(vault), "seeded");
+  await seedVault(vault, ports, options, buildDir, fixtureIO);
+  await waitForNativeVaultModel(page, vault, await assertOwnedVault(vault), "seeded");
   const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
   const data = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
   // The store, not the file, is where a credential survives across resets —
