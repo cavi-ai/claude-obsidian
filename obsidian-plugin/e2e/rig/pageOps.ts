@@ -1,4 +1,4 @@
-import { assertOwnedVault, resetOwnedVault } from "./ownership.ts";
+import { assertOwnedVault, resetOwnedVault, type VaultDeletion } from "./ownership.ts";
 // CDP-driven page automation shared by the daemon (initial settle), the CLI's
 // `reload` command, and the Playwright fixture (per-test reset). Each caller
 // makes its own chromium.connectOverCDP() to the same live Obsidian instance;
@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion } from "../coreAsar.ts";
-import { seedVault } from "./seed.ts";
+import { seedVault, type FixtureIO } from "./seed.ts";
 import { buildLaunchPlan } from "./launch.ts";
 import { vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
 import type { ScenarioOptions, StubPorts } from "./types.ts";
@@ -317,6 +317,61 @@ export async function closeResetViews(page: Page): Promise<void> {
   });
 }
 
+/** Mutate live fixture files through the same public Vault API consumers use. */
+export function nativeFixtureIO(page: Page, expectedVault: string): FixtureIO & VaultDeletion {
+  const apply = async (operation: "mkdir" | "write" | "deleteFile" | "deleteDirectory", path: string, content?: string | Uint8Array): Promise<void> => {
+    await page.evaluate(async ({ operation, path, expectedVault, text, bytes }) => {
+      const vault = (window as unknown as { app: import("obsidian").App }).app.vault;
+      if ((vault.adapter as import("obsidian").FileSystemAdapter).getBasePath() !== expectedVault) {
+        throw new Error("Native fixture target does not match the owned vault.");
+      }
+      const parts = path.split("/");
+      if (path.includes("\\") || parts.some(part => !part || part === "." || part === "..") || parts[0] === ".obsidian") {
+        // The fixture's root directory is already present; mkdir('.') is a no-op.
+        if (operation === "mkdir" && path === ".") return;
+        throw new Error(`Invalid fixture path: ${path}`);
+      }
+      if (operation === "mkdir") {
+        for (let count = 1; count <= parts.length; count++) {
+          const folderPath = parts.slice(0, count).join("/");
+          const existing = vault.getAbstractFileByPath(folderPath);
+          if (!existing) await vault.createFolder(folderPath);
+          else if (!("children" in existing)) throw new Error(`Fixture folder is a file: ${folderPath}`);
+        }
+        return;
+      }
+      const existing = vault.getAbstractFileByPath(path);
+      if (operation === "write") {
+        if (existing && "children" in existing) throw new Error(`Fixture file is a folder: ${path}`);
+        const file = existing as import("obsidian").TFile | null;
+        if (text !== undefined) {
+          if (file) await vault.modify(file, text);
+          else await vault.create(path, text);
+        } else {
+          const data = new Uint8Array(bytes!).buffer;
+          if (file) await vault.modifyBinary(file, data);
+          else await vault.createBinary(path, data);
+        }
+        return;
+      }
+      if (!existing) throw new Error(`Owned native fixture entry is missing: ${path}`);
+      const isFolder = "children" in existing;
+      if (isFolder !== (operation === "deleteDirectory")) throw new Error(`Owned native fixture file/folder mismatch: ${path}`);
+      if (isFolder && (existing as import("obsidian").TFolder).children.length) throw new Error(`Owned fixture folder is not empty: ${path}`);
+      // Obsidian passes this flag to fs.rm's recursive option for directories.
+      // The explicit empty check above keeps deletion limited to this entry.
+      if (isFolder) await vault.delete(existing, true);
+      else await vault.delete(existing);
+    }, { operation, path, expectedVault, text: typeof content === "string" ? content : undefined, bytes: content instanceof Uint8Array ? Array.from(content) : undefined });
+  };
+  return {
+    mkdir: path => apply("mkdir", path),
+    writeFile: (path, content) => apply("write", path, content),
+    deleteFile: path => apply("deleteFile", path),
+    deleteDirectory: path => apply("deleteDirectory", path),
+  };
+}
+
 /**
  * Full per-scenario reset: close extra windows/modals, detach every Companion
  * leaf, disable the plugin, wipe the vault except `.obsidian`, reseed fixture
@@ -341,13 +396,14 @@ export async function resetVaultState(
     await page.keyboard.press("Escape");
   }
   await closeResetViews(page);
-  await resetOwnedVault(vault);
+  const fixtureIO = nativeFixtureIO(page, vault);
+  await resetOwnedVault(vault, fixtureIO);
   await waitForNativeVaultModel(page, owned, "removed");
   await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   for (const file of ["appearance.json", "workspace.json", "workspace-mobile.json"]) {
     await rm(join(vault, ".obsidian", file), { force: true });
   }
-  await seedVault(vault, ports, options, buildDir);
+  await seedVault(vault, ports, options, buildDir, fixtureIO);
   await waitForNativeVaultModel(page, await assertOwnedVault(vault), "seeded");
   const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
   const data = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
