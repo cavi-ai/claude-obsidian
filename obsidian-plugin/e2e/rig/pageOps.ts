@@ -258,33 +258,63 @@ export async function syncSecretStore(page: Page, settings: Record<string, unkno
 
 const MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "manifest.json");
 
-/** Observe the native vault, including bytes read through its public API. */
+/** Observe both native file bytes and the Markdown consumer's cached revision. */
 async function waitForNativeVaultModel(page: Page, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
   await expect.poll(async () => {
     const observed = await page.evaluate(async ({ filePaths, includeHashes }) => {
       const vault = (window as unknown as {
         app: { vault: {
           getAllLoadedFiles(): Array<{ path: string }>;
+          getMarkdownFiles(): Array<{ path: string }>;
           getAbstractFileByPath(path: string): { path: string } | null;
           readBinary(file: { path: string }): Promise<ArrayBuffer>;
+          cachedRead(file: { path: string }): Promise<string>;
         } };
       }).app.vault;
       const paths = vault.getAllLoadedFiles().map(file => file.path);
+      const markdownFiles = vault.getMarkdownFiles();
+      const markdownByPath = new Map(markdownFiles.map(file => [file.path, file]));
       const hashes: Record<string, string> = {};
+      const cachedHashes: Record<string, string> = {};
+      const hash = async (bytes: BufferSource): Promise<string> => {
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      };
       if (includeHashes) {
         await Promise.all(filePaths.map(async path => {
           const file = vault.getAbstractFileByPath(path);
           if (!file) return;
           try {
-            const digest = await crypto.subtle.digest("SHA-256", await vault.readBinary(file));
-            hashes[path] = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+            hashes[path] = await hash(await vault.readBinary(file));
           } catch { /* An unreadable file remains a content mismatch until the condition times out. */ }
+          const markdown = markdownByPath.get(path);
+          if (markdown) {
+            try { cachedHashes[path] = await hash(new TextEncoder().encode(await vault.cachedRead(markdown))); }
+            catch { /* The consumer must also acknowledge readable, current Markdown. */ }
+          }
         }));
       }
-      return { paths, hashes };
+      return { paths, hashes, markdownPaths: markdownFiles.map(file => file.path), cachedHashes };
     }, { filePaths: Object.keys(expected.files), includeHashes: phase === "seeded" });
     return vaultModelIssues(phase, expected, observed);
   }, { timeout: 30_000, message: `The native vault must acknowledge the ${phase} fixture.` }).toEqual([]);
+}
+
+/** Finish native editor unload/save before any fixture files can be replaced. */
+export async function closeResetViews(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const app = (window as unknown as {
+      app: { plugins: { disablePlugin(id: string): Promise<void> }; workspace: { getLeavesOfType(type: string): Array<{ detach(): void; setViewState(state: { type: string }): Promise<void> }> } };
+    }).app;
+    await Promise.all(app.workspace.getLeavesOfType("markdown").map(async leaf => {
+      await leaf.setViewState({ type: "empty" });
+      leaf.detach();
+    }));
+    for (const type of ["claude-companion-chat", "claude-research-desk", "claude-build-runner", "claude-source-inbox"]) {
+      for (const leaf of app.workspace.getLeavesOfType(type)) leaf.detach();
+    }
+    await app.plugins.disablePlugin("claude-companion");
+  });
 }
 
 /**
@@ -310,15 +340,7 @@ export async function resetVaultState(
   for (let attempt = 0; attempt < 6 && await page.locator(".modal-container").count(); attempt += 1) {
     await page.keyboard.press("Escape");
   }
-  await page.evaluate(() => {
-    const app = (window as unknown as {
-      app: { plugins: { disablePlugin(id: string): Promise<void> }; workspace: { getLeavesOfType(type: string): Array<{ detach(): void }> } };
-    }).app;
-    for (const type of ["claude-companion-chat", "claude-research-desk", "claude-build-runner", "claude-source-inbox", "markdown"]) {
-      for (const leaf of app.workspace.getLeavesOfType(type)) leaf.detach();
-    }
-    return app.plugins.disablePlugin("claude-companion");
-  });
+  await closeResetViews(page);
   await resetOwnedVault(vault);
   await waitForNativeVaultModel(page, owned, "removed");
   await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
