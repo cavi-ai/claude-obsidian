@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model selectors share backend choices and discovered models; the selected CLI is checked before first-send fallback.
 - Chat controls fit narrow panes, retain mobile touch targets, and clear Obsidian’s status bar.
 - Session and activity panels stay within the chat pane, and feedback provides an explicit dismiss action.
+- Dismissing the last activity returns keyboard focus to a control in the same pane.
 - Connection results, MCP snippets, and the system prompt editor use the available settings width.
 
 ## [0.50.0] — 2026-11-05
