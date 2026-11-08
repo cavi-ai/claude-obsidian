@@ -4,14 +4,17 @@ import { assertOwnedVault, resetOwnedVault } from "./ownership.ts";
 // makes its own chromium.connectOverCDP() to the same live Obsidian instance;
 // none of them ever call browser.close() — that would terminate the real app.
 
-import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { compareVersions, effectiveObsidianCoreVersion } from "../coreAsar.ts";
 import { seedVault } from "./seed.ts";
+import { buildLaunchPlan } from "./launch.ts";
+import { vaultModelIssues, type VaultSnapshot } from "./vaultModel.ts";
 import type { ScenarioOptions, StubPorts } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -43,12 +46,7 @@ export async function selectRigPage(pages: Page[], expectedVault: string): Promi
   return page;
 }
 
-/**
- * `open -a` never hands back the launched app's pid (LaunchServices spawns it,
- * not us), so find the real Electron main process by the --user-data-dir it was
- * launched with. Excludes Chromium's own renderer/GPU/utility helper processes,
- * which all carry a --type= flag that the main process never does.
- */
+/** Find the isolated Electron main process by its owned profile. */
 export async function findObsidianPid(userDataDir: string, timeoutMs = 30_000): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -69,6 +67,9 @@ export async function findObsidianPid(userDataDir: string, timeoutMs = 30_000): 
 
 /** Connect to the running Obsidian instance and find its vault window. Never disconnects the app — just drop the reference when done. */
 export async function connectRig(cdpPort: number, expectedVault: string): Promise<RigConnection> {
+  const root = dirname(expectedVault);
+  buildLaunchPlan({ platform: process.platform, containerized: existsSync("/.dockerenv"), env: process.env, root, cdpPort });
+  if (expectedVault !== join(root, "vault")) throw new Error("The rig may only attach to its dedicated fixture vault.");
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
   const context = browser.contexts()[0];
   if (!context) throw new Error("Obsidian browser context not found");
@@ -103,16 +104,6 @@ export async function assertSupportedObsidian(executable: string, manifestPath: 
   }
 }
 
-let hideWarned = false;
-/** Deactivate the Obsidian process without a real OS-level hide (that pauses the Chromium renderer and blanks screenshots); a failure is logged once and the run stays visible. */
-export async function hideAppWindow(pid: number): Promise<void> {
-  try {
-    await execFileAsync("osascript", ["-e", `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to false`]);
-  } catch (error) {
-    if (!hideWarned) { hideWarned = true; console.warn("rig: could not unfocus the Obsidian window, run stays visible:", error); }
-  }
-}
-
 /** The container Obsidian renders a settings tab into, whichever window holds it. */
 const SETTINGS_TAB = ".vertical-tab-content-container .vertical-tab-content";
 
@@ -141,9 +132,8 @@ export async function dismissSettingsSurface(settings: Page): Promise<void> {
   });
 }
 
-export async function settleObsidianPage(context: BrowserContext, page: Page, firstRun: boolean, hidden: boolean, pid?: number, checkTrust = true): Promise<void> {
+export async function settleObsidianPage(context: BrowserContext, page: Page, firstRun: boolean, _hidden: boolean, _pid?: number, checkTrust = true): Promise<void> {
   await page.waitForFunction(() => Boolean((window as unknown as { app?: unknown }).app));
-  if (hidden && pid) await hideAppWindow(pid);
   if (checkTrust) {
     const trustDeadline = Date.now() + 5_000;
     let trustAccepted = false;
@@ -180,8 +170,6 @@ export async function settleObsidianPage(context: BrowserContext, page: Page, fi
       const title = await candidate.title().catch(() => "");
       if (title.startsWith("Settings - ")) await candidate.close();
     }
-    await page.bringToFront();
-    if (hidden && pid) await hideAppWindow(pid);
   }
 }
 
@@ -270,6 +258,35 @@ export async function syncSecretStore(page: Page, settings: Record<string, unkno
 
 const MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "manifest.json");
 
+/** Observe the native vault, including bytes read through its public API. */
+async function waitForNativeVaultModel(page: Page, expected: VaultSnapshot, phase: "removed" | "seeded"): Promise<void> {
+  await expect.poll(async () => {
+    const observed = await page.evaluate(async ({ filePaths, includeHashes }) => {
+      const vault = (window as unknown as {
+        app: { vault: {
+          getAllLoadedFiles(): Array<{ path: string }>;
+          getAbstractFileByPath(path: string): { path: string } | null;
+          readBinary(file: { path: string }): Promise<ArrayBuffer>;
+        } };
+      }).app.vault;
+      const paths = vault.getAllLoadedFiles().map(file => file.path);
+      const hashes: Record<string, string> = {};
+      if (includeHashes) {
+        await Promise.all(filePaths.map(async path => {
+          const file = vault.getAbstractFileByPath(path);
+          if (!file) return;
+          try {
+            const digest = await crypto.subtle.digest("SHA-256", await vault.readBinary(file));
+            hashes[path] = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+          } catch { /* An unreadable file remains a content mismatch until the condition times out. */ }
+        }));
+      }
+      return { paths, hashes };
+    }, { filePaths: Object.keys(expected.files), includeHashes: phase === "seeded" });
+    return vaultModelIssues(phase, expected, observed);
+  }, { timeout: 30_000, message: `The native vault must acknowledge the ${phase} fixture.` }).toEqual([]);
+}
+
 /**
  * Full per-scenario reset: close extra windows/modals, detach every Companion
  * leaf, disable the plugin, wipe the vault except `.obsidian`, reseed fixture
@@ -285,7 +302,7 @@ export async function resetVaultState(
   originalEnv: Record<string, string>,
   processId: number,
 ): Promise<void> {
-  await assertOwnedVault(vault);
+  const owned = await assertOwnedVault(vault);
   const { context, page } = connection;
   for (const candidate of context.pages()) {
     if (candidate !== page && !candidate.isClosed()) await candidate.close();
@@ -303,11 +320,13 @@ export async function resetVaultState(
     return app.plugins.disablePlugin("claude-companion");
   });
   await resetOwnedVault(vault);
+  await waitForNativeVaultModel(page, owned, "removed");
   await rm(join(vault, ".obsidian", "plugins", "claude-companion"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   for (const file of ["appearance.json", "workspace.json", "workspace-mobile.json"]) {
     await rm(join(vault, ".obsidian", file), { force: true });
   }
   await seedVault(vault, ports, options, buildDir);
+  await waitForNativeVaultModel(page, await assertOwnedVault(vault), "seeded");
   const dataPath = join(vault, ".obsidian", "plugins", "claude-companion", "data.json");
   const data = JSON.parse(await readFile(dataPath, "utf8")) as { settings?: Record<string, unknown> };
   // The store, not the file, is where a credential survives across resets —

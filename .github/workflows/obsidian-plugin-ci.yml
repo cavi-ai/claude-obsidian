@@ -116,50 +116,28 @@ jobs:
         run: pnpm run verify:worker-bundle
 
   e2e:
-    name: e2e · real Obsidian (macOS)
+    name: e2e · real Obsidian (Linux)
     needs: verify
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+          persist-credentials: false
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6.1.0
-        with:
-          version: 10.32.1
-
-      - name: Use Node 22
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.x
-          cache: pnpm
-          cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # The runner image's Homebrew index is a stale snapshot; the harness needs the cask at or above manifest.minAppVersion.
-      # A quarantined app hits the Gatekeeper dialog on first launch and hangs the runner.
-      - name: Install Obsidian
-        run: |
-          brew update --quiet
-          brew install --cask obsidian
-          sudo xattr -dr com.apple.quarantine /Applications/Obsidian.app || true
-          installed=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Obsidian.app/Contents/Info.plist)
-          floor=$(node -p "require('./manifest.json').minAppVersion")
-          echo "Obsidian $installed installed; plugin floor $floor"
-          node -e "const c=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]??0)-(y[i]??0);if(d)return d}return 0};process.exit(c('$installed','$floor')<0?1:0)"
-
-      - name: Install Chromium for Web Clipper imports
-        run: pnpm exec playwright install chromium
+      - name: Build the Obsidian test image
+        run: docker build --file e2e/rig/Dockerfile --tag companion-e2e .
 
       - name: Run the Playwright suite against Obsidian
-        env:
-          CC_E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
-        run: pnpm run test:e2e
+        run: |
+          mkdir -p "${{ runner.temp }}/e2e"
+          docker run --rm --init \
+            --mount "type=bind,source=${{ github.workspace }},target=/workspace" \
+            --mount type=volume,target=/workspace/obsidian-plugin/node_modules \
+            --mount "type=bind,source=${{ runner.temp }}/e2e,target=/e2e-output" \
+            companion-e2e
 
       - name: Upload traces on failure
         if: failure()
