@@ -26,6 +26,7 @@ import { createBatchDiffState } from "../view/batchDiffState";
 import { DiffModal } from "../view/DiffModal";
 import { EnrichOptionsModal, EnrichReviewModal, type EnrichDecision, type EnrichOptions, type EnrichProposal } from "../view/EnrichModal";
 import { FrontmatterModal } from "../view/FrontmatterModal";
+import { stripFrontmatter } from "../markdown/frontmatter";
 import { LINT_SYSTEM, buildLintUser, lintMaxTokens, parseLintResponse } from "./noteEnrich";
 import { TIDY_HASH_KEY, TIDY_STEPS, TIDY_STEPS_KEY, planTidy, tidyBodyHash, type TidyStep } from "./tidyMarker";
 
@@ -173,6 +174,10 @@ export class NoteFlows {
     try {
       this.assertActive(abort.signal);
       const content = await this.app.vault.cachedRead(file);
+      if (!stripFrontmatter(content).trim()) {
+        new Notice(`${file.basename} is empty.`);
+        return;
+      }
       const tidy = planTidy(content, options, parseYaml);
       if (tidy.done) {
         new Notice(`${file.basename} is already tidied.`);
@@ -206,7 +211,7 @@ export class NoteFlows {
     }
   }
 
-  /** Batch variant for a folder: one step picker, then per-note runs; notes already tidied are skipped unread by the model. */
+  /** Batch variant for a folder: one step picker, then per-note runs; empty notes and notes already tidied are skipped unread by the model. */
   async enrichFolderFlow(folder: TFolder): Promise<void> {
     const files: TFile[] = [];
     const walk = (f: TFolder): void => {
@@ -223,8 +228,13 @@ export class NoteFlows {
     const options = await new Promise<EnrichOptions | null>((resolve) => new EnrichOptionsModal(this.app, files.length, resolve, this.settings.tidyAutoApply).open());
     if (!options) return;
     let skipped = 0;
+    let empty = 0;
     for (const file of files) {
       const content = await this.app.vault.cachedRead(file).catch(() => null);
+      if (content !== null && !stripFrontmatter(content).trim()) {
+        empty++;
+        continue;
+      }
       if (content !== null && planTidy(content, options, parseYaml).done) {
         skipped++;
         continue;
@@ -232,6 +242,7 @@ export class NoteFlows {
       await this.enrichNoteFlow(file, options);
     }
     if (skipped > 0) new Notice(`Skipped ${skipped} note${skipped === 1 ? "" : "s"} already tidied.`);
+    if (empty > 0) new Notice(`Skipped ${empty} empty note${empty === 1 ? "" : "s"}.`);
   }
 
   /** Compute everything an enrich pass can propose for one note (no writes), and the steps that failed. */

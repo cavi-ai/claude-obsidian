@@ -1,7 +1,7 @@
 import type { PluginSettings } from "../types";
 import type { EnrichDeps } from "./enrich";
 import { ClipPageError, enrichCapture } from "./enrich";
-import { isSourceEnriched, shouldEnrich } from "./watcher";
+import { isEmptySource, isSourceEnriched, shouldEnrich } from "./watcher";
 import { parseClipUrl } from "./detect";
 import { KeyedSerialQueue } from "./keyedSerialQueue";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
@@ -292,6 +292,7 @@ export class SourceEnrichmentController {
     if (!shouldEnrich({ path: file.path, ext: file.extension, content, inboxFolder: this.deps.settings().sourceInboxFolder, recentlyWritten: this.enrichRecentlyWritten })) {
       return { status: "skipped", reason: `${file.basename} is not eligible for source enrichment.` };
     }
+    if (isEmptySource(file, file.extension === "md" ? content : undefined)) return { status: "skipped", reason: `${file.basename} is empty.` };
     if (trigger === "automatic") {
       if (!this.deps.settings().sourceEnrichOnCreate || this.deps.settings().sourceCaptureConsent === "deny") {
         return { status: "skipped", reason: "Automatic source enrichment is set to manual only." };
@@ -357,7 +358,7 @@ export class SourceEnrichmentController {
     return consent;
   }
 
-  /** Enrich one file on request; a note that already carries `source_enriched` is skipped without a model call. */
+  /** Enrich one file on request; an already enriched note or an empty file is skipped without a model call. */
   runEnrich(file: FileRef, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
     const generation = this.deps.utilityLifecycleGeneration();
     const coordinator = this._coordinator ??= new KeyedSerialQueue<string, EnrichRunOutcome>();
@@ -369,10 +370,12 @@ export class SourceEnrichmentController {
       if (sizeFailure) return sizeFailure;
       // A failed read falls through so the enrichment run reports it on its activity.
       const content = file.extension === "md" ? prefetchedContent ?? await this.deps.vault.cachedRead(file.path).catch(() => undefined) : prefetchedContent;
-      if (content !== undefined && file.extension === "md" && isSourceEnriched(content)) {
-        const reason = `${file.basename} is already enriched.`;
-        if (notify) this.deps.notice(reason);
-        return { status: "skipped", reason };
+      const skip = content !== undefined && file.extension === "md" && isSourceEnriched(content)
+        ? `${file.basename} is already enriched.`
+        : isEmptySource(file, content) ? `${file.basename} is empty.` : undefined;
+      if (skip) {
+        if (notify) this.deps.notice(skip);
+        return { status: "skipped", reason: skip };
       }
       return this.performEnrich(file, notify, content);
     });

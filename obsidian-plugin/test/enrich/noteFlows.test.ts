@@ -366,8 +366,8 @@ describe("NoteFlows enrichFolderFlow", () => {
 
   it("walks subfolders and tidies each markdown note in order with the chosen steps", async () => {
     const { flows } = rig();
-    const a = new TFile("Notes/a.md", "", 0);
-    const b = new TFile("Notes/sub/b.md", "", 0);
+    const a = new TFile("Notes/a.md", "A.", 0);
+    const b = new TFile("Notes/sub/b.md", "B.", 0);
     const spy = vi.spyOn(flows, "enrichNoteFlow").mockResolvedValue(undefined);
     ui.options = OPTIONS;
     await flows.enrichFolderFlow(folder([a, new TFile("Notes/skip.txt", "", 0), folder([b], "Notes/sub")]));
@@ -394,6 +394,24 @@ describe("NoteFlows enrichFolderFlow", () => {
     expect(complete).toHaveBeenCalledTimes(2);
     expect(ui.proposals.map((p) => (p as { path: string }).path)).toEqual(["Notes/a.md", "Notes/b.md"]);
     expect(getNoticeMessages()).toContain("Skipped 1 note already tidied.");
+  });
+});
+
+describe("Tidy leaves empty notes alone", () => {
+  it("sends nothing to the model for a note without a body, alone or in a folder", async () => {
+    const { app, flows, complete } = rig();
+    const empty = app.vault.seed("Notes/Empty.md", "---\ntags: [draft]\n---\n");
+    const body = app.vault.seed("Notes/Body.md", "Original body.");
+    await flows.enrichNoteFlow(empty, { ...OPTIONS, frontmatter: true, lint: true });
+    expect(getNoticeMessages()).toEqual(["Empty is empty."]);
+
+    clearNotices();
+    ui.options = { ...OPTIONS, lint: true };
+    await flows.enrichFolderFlow(Object.assign(new TFolder("Notes"), { children: [empty, body] }));
+    expect(tagger.summarizeAndTag).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(getNoticeMessages()).toContain("Skipped 1 empty note.");
+    expect(empty._content).toBe("---\ntags: [draft]\n---\n");
   });
 });
 
