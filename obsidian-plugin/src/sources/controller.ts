@@ -1,7 +1,7 @@
 import type { PluginSettings } from "../types";
 import type { EnrichDeps } from "./enrich";
 import { ClipPageError, enrichCapture } from "./enrich";
-import { shouldEnrich } from "./watcher";
+import { isSourceEnriched, shouldEnrich } from "./watcher";
 import { parseClipUrl } from "./detect";
 import { KeyedSerialQueue } from "./keyedSerialQueue";
 import { errorHint, type ErrorHintProvider } from "../providers/errorHints";
@@ -357,12 +357,25 @@ export class SourceEnrichmentController {
     return consent;
   }
 
+  /** Enrich one file on request; a note that already carries `source_enriched` is skipped without a model call. */
   runEnrich(file: FileRef, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
     const generation = this.deps.utilityLifecycleGeneration();
     const coordinator = this._coordinator ??= new KeyedSerialQueue<string, EnrichRunOutcome>();
-    return coordinator.run(file.path, () => this.deps.isUtilityLifecycleActive(generation)
-      ? this.performEnrich(file, notify, prefetchedContent)
-      : Promise.resolve({ status: "failed", error: new Error("Companion unloaded before source enrichment started; no content was sent.") }));
+    return coordinator.run(file.path, async () => {
+      if (!this.deps.isUtilityLifecycleActive(generation)) {
+        return { status: "failed", error: new Error("Companion unloaded before source enrichment started; no content was sent.") };
+      }
+      const sizeFailure = this.mobileSourceSizeFailure(file);
+      if (sizeFailure) return sizeFailure;
+      // A failed read falls through so the enrichment run reports it on its activity.
+      const content = file.extension === "md" ? prefetchedContent ?? await this.deps.vault.cachedRead(file.path).catch(() => undefined) : prefetchedContent;
+      if (content !== undefined && file.extension === "md" && isSourceEnriched(content)) {
+        const reason = `${file.basename} is already enriched.`;
+        if (notify) this.deps.notice(reason);
+        return { status: "skipped", reason };
+      }
+      return this.performEnrich(file, notify, content);
+    });
   }
 
   private async performEnrich(file: FileRef, notify = true, prefetchedContent?: string): Promise<EnrichRunOutcome> {
