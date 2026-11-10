@@ -53,10 +53,6 @@ jobs:
   verify:
     name: typecheck · lint · test · build
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["20.x", "22.x"]
     steps:
       # The adapter drift test reads the pinned obsidian-agent registry; it skips
       # when the optional submodule is absent from a standalone plugin checkout.
@@ -69,10 +65,10 @@ jobs:
         with:
           version: 10.32.1
 
-      - name: Use Node ${{ matrix.node-version }}
+      - name: Use Node 22
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: "22.x"
           cache: pnpm
           cache-dependency-path: obsidian-plugin/pnpm-lock.yaml
 
@@ -88,16 +84,10 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: Test
-        if: matrix.node-version != '22.x'
-        run: pnpm test
-
       - name: Test with coverage thresholds
-        if: matrix.node-version == '22.x'
         run: pnpm run test:coverage
 
       - name: Audit dependencies
-        if: matrix.node-version == '22.x'
         run: pnpm run audit
 
       - name: Verify the docs artifact contract

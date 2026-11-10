@@ -4,6 +4,19 @@ All notable changes to **Companion for Claude** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.2] — 2026-11-09
+
+### Added
+- Tidy, organize, and Inbox link review can apply proposed changes without the review step.
+
+### Changed
+- Development and CI require Node 22.
+
+### Fixed
+- Tidy skips steps already finished on unchanged notes, and Enrich note as source skips enriched notes.
+- Source enrichment and Tidy keep summaries within 200 characters, ask again for a blank summary, and keep a note's own summary.
+- Source enrichment and Tidy skip empty notes and zero-byte files.
+
 ## [0.50.1] — 2026-11-08
 
 ### Fixed
