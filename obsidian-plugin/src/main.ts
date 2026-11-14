@@ -79,6 +79,7 @@ import type { ClippingsController } from "./sources/clippings";
 import { stripFrontmatter } from "./markdown/frontmatter";
 import { generateToken } from "./mcp/clientConfig";
 import type { BridgeSetupInput } from "./integrations/desktopRuntime";
+import type { ConnectionVault } from "./integrations/desktopExtension";
 import type { AgentTurnRunner } from "./agent/loop";
 import { CliSession } from "./cli/session";
 import { CliSessionPool, type PoolEntry } from "./cli/sessionPool";
@@ -233,7 +234,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   }
   private _cliRuntime: CliRuntime | null | undefined;
   private _desktopRuntimeLoader: () => Promise<{
-    createNodeDesktopRuntime(platform: DesktopPlatform, homeDir: string, env: Record<string, string | undefined>, bridge?: BridgeSetupInput): Promise<DesktopIntegrationRuntime>;
+    createNodeDesktopRuntime(platform: DesktopPlatform, homeDir: string, env: Record<string, string | undefined>, bridge?: BridgeSetupInput, vault?: ConnectionVault): Promise<DesktopIntegrationRuntime>;
     createNodeManagedProcessPort(): import("./build/desktopExecutor").ManagedProcessPort;
   }> = () => import("./integrations/desktopRuntime");
   private _externalMcp: ExternalMcpManager | null = null;
