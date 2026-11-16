@@ -153,7 +153,7 @@ export function connectionItems(ctx: ConnectionItemsContext): SettingGroupItem[]
         );
         setting.addText((text) => {
           text.inputEl.type = "password";
-          text.inputEl.setCssStyles({ width: "320px" });
+          text.inputEl.addClass("cc-input-width-320");
           text
             .setPlaceholder("sk-ant-oat…")
             .setValue(s.oauthToken)
