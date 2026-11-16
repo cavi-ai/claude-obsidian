@@ -242,6 +242,7 @@ This is the security-sensitive part of the plugin, and it's deliberately narrow:
 - **A non-empty bearer token is mandatory.** Startup fails outright without one. There is no tokenless mode.
 - **Constant-time token comparison**, so a wrong token leaks nothing through timing.
 - **Loopback `Host` enforcement.** Requests whose `Host` header isn't a loopback value are rejected with 403 — defense in depth against DNS rebinding, where a page on an attacker domain resolving to `127.0.0.1` would carry that domain as `Host`.
+- **Origin enforcement.** Native clients send no `Origin` and receive no CORS headers. A browser request is accepted only from an `http(s)` page on `localhost`, `127.0.0.1` or `[::1]`, whose origin is echoed back; any other `Origin`, including `null`, gets 403 before the token is checked, preflights included.
 - **Writes off by default**, and separately gated from reads.
 - **Only `/mcp` is routed**; any other path 404s. `POST` carries JSON-RPC,
   authenticated `DELETE` closes a known session, `OPTIONS` handles CORS, and
