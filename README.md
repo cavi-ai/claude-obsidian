@@ -1,11 +1,13 @@
 # Companion for Claude
 
-**Cowork with Claude inside your Obsidian vault.** Your notes stay the context,
-memory, and output while Claude searches, reasons, drafts, and helps you move
-work forward.
+Bring your notes, sources and AI into the same workspace.
+
+Companion helps you research, write and create inside [Obsidian](https://obsidian.md).
+Find relevant notes and PDF passages, develop a source-linked argument, turn it
+into a draft or interactive artifact, and review edits before they change your notes.
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
-[![Obsidian downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
+[![Obsidian plugin downloads, all time](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=Obsidian%20downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [**Install Companion for Claude**](https://obsidian.md/plugins?id=claude-companion)
@@ -17,7 +19,7 @@ with [CONTRIBUTING.md](CONTRIBUTING.md) and the [plugin source](obsidian-plugin/
 The public release repository is
 [companion-for-claude](https://github.com/cavi-ai/companion-for-claude).
 
-![Companion in Obsidian: onboarding interviews connected to a finding, proposal, and next research session beside Claude Opus 5.5 chat](assets/canvas-output.png)
+![Your vault has a research partner. A scholarly owl studies connected notes through an enormous magnifying glass, beside a yellow cavi-ai pencil.](assets/companion-hero.png)
 
 ## Quick start
 
@@ -25,33 +27,35 @@ The public release repository is
    **Companion for Claude**, then install and enable it.
 2. Open Companion and choose a signed-in Claude Code, Codex, or OpenCode CLI on
    desktop, an Anthropic API key on any device, or a local model.
-3. Open a note, turn on the **Note** context chip, and ask Claude what to work on
-   next.
+3. Open a project note, turn on the **Note** context chip and choose **Act**.
+   Start with a question worth answering:
+
+   > Find the notes and PDF passages that support or challenge this idea.
+   > Give me a source-linked outline before drafting.
 
 [Try a reviewed note edit →](obsidian-plugin/README.md#try-one-note-edit-you-control) ·
 [Full setup guide →](guides/getting-started.md)
 
-## One vault. One continuous workflow.
+## Put your notes to work
 
-Companion is built for work that develops across many notes and many sessions.
-It keeps the live vault at the center instead of copying your knowledge into a
-separate chat product.
+Work develops across many notes and many sessions. Companion keeps your sources,
+drafts and decisions together in the vault where you already think.
 
-### Understand the vault
+### Find the passage you remember
 
-Chat with the active note, a selection, linked notes, folders, PDFs, images, or
-the whole vault. In agent mode, Claude can search, read, and follow links as it
-works; every tool step stays visible. Keyword and on-device semantic search make
-the same material discoverable without sending an embedding index away.
+Combine keyword and on-device semantic search to find relevant notes and PDF
+passages, even when you do not remember the exact words. Bring the active note,
+selections, links, folders and images into the conversation. Agent mode can
+search, read and follow links, with every tool step visible.
 
 [Explore context and agent mode →](guides/agent-mode.md)
 
-### Research and write with continuity
+### Keep the argument connected to its sources
 
-The Research Desk shows one project's argument, the next steps Claude suggests,
-and its documents with References. Evidence keeps its source locator and
-fingerprint, and only reviewed, current evidence counts as trusted support. The
-vault remains the readable source of truth at every stage.
+Research Desk brings sources, passages, claims, outlines and drafts into one
+project. See what supports a claim, what challenges it and which section needs
+work. Review the evidence and preview a draft before accepting it. Research
+records remain ordinary Markdown notes in your vault.
 
 <p align="center">
   <img src="assets/research-desk.png" width="1000" alt="Research Desk showing source-linked evidence, a challenging passage, and document progress beside Companion chat">
@@ -59,17 +63,26 @@ vault remains the readable source of truth at every stage.
 
 [See the research workflow →](guides/research-workbench.md)
 
-### Review before Claude changes anything
+### Make something from what you find
 
-Claude can propose edits, create notes, build native Canvas and Bases files, or
-hand a plan to Claude Code. Write tools ask for confirmation unless you grant access for the session, and note edits are
-presented as reviewable hunks so you choose exactly what lands. If the app
-closes during a turn, the saved conversation restores the interrupted work as
-stopped with a **Retry** action.
+Turn your research into a draft, an interactive HTML artifact, a native Canvas
+or an Obsidian Base. Notes, artifacts and project records stay alongside the
+material that informed them.
+
+![Companion in Obsidian: interview notes connected to a finding, proposal and next research session on a native Canvas](assets/canvas-output.png)
+
+[Explore interactive artifacts →](guides/artifacts.md)
+
+### Keep the final word
+
+Review proposed note edits and accept or reject individual changes before
+applying them. Other write tools ask for confirmation unless you grant access
+for the session. Conversations persist across restarts; an interrupted turn
+returns as stopped work with a **Retry** action.
 
 [Learn about edits and guardrails →](guides/agent-mode.md#editing-notes-diffs-not-writes)
 
-## Choose how Claude runs
+## Choose your connection
 
 - **CLI sign-in** — desktop chat through an installed, signed-in Claude Code,
   Codex, or OpenCode command. Each CLI keeps its own credentials.
@@ -77,6 +90,9 @@ stopped with a **Retry** action.
   key, long-term OAuth token, or environment credential.
 - **Local models** — Ollama or an OpenAI-compatible endpoint for chat and
   utility work. Tool-capable Ollama models can run the vault agent locally.
+- **On-device GPU chat** — a downloaded model runs inside Obsidian on supported
+  hardware. See the [local model guide](guides/local-models.md) for setup and
+  backend capabilities.
 - **Auto** — start with Claude and fall back to a reachable local model when
   Claude is offline, rate-limited, or unavailable.
 
@@ -111,12 +127,7 @@ This repository contains two related products with separate jobs:
   OpenCode, and AgentSkills hosts using the official Obsidian CLI. It does not
   require Companion or MCP.
 
-To add the portable workflows in Claude Code:
-
-```text
-/plugin marketplace add cavi-ai/plugins
-/plugin install obsidian-agent@cavi-ai
-```
+[Explore portable workflows and supported hosts →](https://github.com/cavi-ai/obsidian-agent)
 
 ## Guides
 
