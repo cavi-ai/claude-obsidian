@@ -103,6 +103,8 @@ The chat header’s model picker groups choices by backend: Claude API and Auto,
 available desktop CLIs, configured local endpoints, and on-device models. The
 composer repeats the same choices on wide panes. Local endpoints and CLI backends
 can supply their own model lists; the current configured model remains available.
+With a direct API credential, the Claude choices also include the models the
+Models API reports for it.
 
 Use **Custom model id** in provider settings for a Claude or gateway model outside
 the built-in list. See [models and authentication](auth.md#models).
