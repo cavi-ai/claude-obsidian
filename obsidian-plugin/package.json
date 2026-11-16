@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
-    "typecheck": "tsc --noEmit --skipLibCheck",
+    "typecheck": "tsc --noEmit --skipLibCheck && tsc -p tsconfig.test.json --noEmit --skipLibCheck",
     "verify:version": "node tools/verifyVersion.mjs",
     "lint": "eslint src test",
     "audit": "pnpm dlx pnpm@11.7.0 --pm-on-fail=ignore audit --audit-level moderate",
