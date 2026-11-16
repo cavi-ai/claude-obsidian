@@ -475,7 +475,7 @@ export class Composer {
     const modelWrap = this.controlsEl.createDiv({ cls: "cc-ctl cc-ctl-model" });
     const select = modelWrap.createEl("select", { cls: "cc-ctl-select", attr: { "aria-label": "Model" } });
     this.modelCatalog?.dispose();
-    const catalog = new ModelCatalogSource(this.plugin, () => this.controls.model, Platform.isMobile);
+    const catalog = new ModelCatalogSource(this.plugin, () => this.controls.model, Platform.isMobile, this.plugin.claudeModels());
     this.modelCatalog = catalog;
     reconcileModelOptions(select, catalog.snapshot(), catalog.selected());
     select.addEventListener("change", () => void this.deps.onModelSelect(select.value));
