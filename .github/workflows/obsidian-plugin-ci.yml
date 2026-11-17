@@ -50,8 +50,36 @@ defaults:
     working-directory: obsidian-plugin
 
 jobs:
+  merged-pr:
+    # A main push whose exact tree passed this workflow on its merged pull request skips the suites.
+    # The job runs on every event so jobs that need the suites do not inherit a skip.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      tested: ${{ steps.pr.outputs.tested }}
+    steps:
+      - id: pr
+        if: github.event_name == 'push'
+        working-directory: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
+          [ -n "$head" ] || exit 0
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq .commit.tree.sha || true)
+          [ -n "$tree" ] && [ "$tree" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/$head" --jq .commit.tree.sha || true)" ] || exit 0
+          workflow=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=pull_request&status=success&head_sha=$head" --jq "[.workflow_runs[] | select(.path == \"${workflow%@*}\")] | length" || echo 0)
+          if [ "$passed" -gt 0 ]; then echo "tested=true" >> "$GITHUB_OUTPUT"; fi
+
   verify:
     name: typecheck · lint · test · build
+    needs: [merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     steps:
       # The adapter drift test reads the pinned obsidian-agent registry; it skips
