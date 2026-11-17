@@ -51,11 +51,12 @@ defaults:
 
 jobs:
   merged-pr:
-    # A main push from a merged pull request skips the suites that pull request already passed.
+    # A main push whose exact tree passed this workflow on its merged pull request skips the suites.
     # The job runs on every event so jobs that need the suites do not inherit a skip.
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
@@ -67,8 +68,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          merged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)] | length' || echo 0)
-          if [ "$merged" -gt 0 ]; then echo "tested=true" >> "$GITHUB_OUTPUT"; fi
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
+          [ -n "$head" ] || exit 0
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq .commit.tree.sha || true)
+          [ -n "$tree" ] && [ "$tree" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/$head" --jq .commit.tree.sha || true)" ] || exit 0
+          workflow=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=pull_request&status=success&head_sha=$head" --jq "[.workflow_runs[] | select(.path == \"${workflow%@*}\")] | length" || echo 0)
+          if [ "$passed" -gt 0 ]; then echo "tested=true" >> "$GITHUB_OUTPUT"; fi
 
   verify:
     name: typecheck · lint · test · build
