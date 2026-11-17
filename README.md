@@ -7,7 +7,6 @@ Find relevant notes and PDF passages, develop a source-linked argument, turn it
 into a draft or interactive artifact, and review edits before they change your notes.
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
-[![Obsidian plugin downloads, all time](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=Obsidian%20downloads&query=%24%5B%22claude-companion%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=claude-companion)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [**Install Companion for Claude**](https://obsidian.md/plugins?id=claude-companion)
