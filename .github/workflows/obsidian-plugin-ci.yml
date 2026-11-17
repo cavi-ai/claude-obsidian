@@ -50,8 +50,29 @@ defaults:
     working-directory: obsidian-plugin
 
 jobs:
+  merged-pr:
+    # A main push from a merged pull request skips the suites that pull request already passed.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tested: ${{ steps.pr.outputs.tested }}
+    steps:
+      - id: pr
+        working-directory: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          merged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)] | length' || echo 0)
+          if [ "$merged" -gt 0 ]; then echo "tested=true" >> "$GITHUB_OUTPUT"; fi
+
   verify:
     name: typecheck · lint · test · build
+    needs: [merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
     steps:
       # The adapter drift test reads the pinned obsidian-agent registry; it skips
