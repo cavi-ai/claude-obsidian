@@ -2,12 +2,14 @@
 
 Bring your notes, sources and AI into the same workspace.
 
-Companion helps you research, write and create inside [Obsidian](https://obsidian.md).
-Find relevant notes and PDF passages, develop a source-linked argument, turn it
-into a draft or interactive artifact, and review edits before they change your notes.
+![Your vault has a research partner. A scholarly owl studies connected notes through an enormous magnifying glass, beside a yellow cavi-ai pencil.](assets/companion-hero.png)
 
 [![CI](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml/badge.svg)](https://github.com/cavi-ai/claude-obsidian/actions/workflows/obsidian-plugin-ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Companion helps you research, write and create inside [Obsidian](https://obsidian.md).
+Find relevant notes and PDF passages, develop a source-linked argument, turn it
+into a draft or interactive artifact, and review edits before they change your notes.
 
 [**Install Companion for Claude**](https://obsidian.md/plugins?id=claude-companion)
 · [Quick start](#quick-start)
@@ -17,8 +19,6 @@ Install the plugin from the store link above. To build or contribute, start
 with [CONTRIBUTING.md](CONTRIBUTING.md) and the [plugin source](obsidian-plugin/).
 The public release repository is
 [companion-for-claude](https://github.com/cavi-ai/companion-for-claude).
-
-![Your vault has a research partner. A scholarly owl studies connected notes through an enormous magnifying glass, beside a yellow cavi-ai pencil.](assets/companion-hero.png)
 
 ## Quick start
 
