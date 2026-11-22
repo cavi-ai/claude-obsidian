@@ -14,9 +14,10 @@ import {
   type WizardProviderId,
 } from "../onboarding/providerWizard";
 import type { ConnectionController } from "../providers/connection";
-import type { CliBackendId, ProviderRouter } from "../providers/router";
+import { ProviderRouter, type CliBackendId } from "../providers/router";
 import type { ProviderStatus } from "../providers/types";
-import { setCredential } from "../settingsItems/actions";
+import { sanitizeEndpointForDisplay } from "../providers/endpointPolicy";
+import { OllamaProvider } from "../providers/ollama";
 import type { SecretStore } from "../secrets/store";
 import type { PluginSettings } from "../types";
 import { cliModelChoices } from "./cliModelChoices";
@@ -27,6 +28,8 @@ export interface ProviderSetupWizardDeps {
   router(): ProviderRouter;
   connection(): ConnectionController;
   secrets(): SecretStore;
+  testCandidate?(candidate: PluginSettings): Promise<ProviderStatus>;
+  detectOllamaModels?(host: string, model: string): Promise<string[]>;
   refreshViews?(): void;
   openDesktopIntegrations?(): void;
   activateChat?(): void;
@@ -48,6 +51,7 @@ interface WizardDrafts {
   epModel: string;
   epKey: string;
   deviceModel: string;
+  cliModelDraft: Record<string, string>;
   summary: string;
 }
 
@@ -106,6 +110,11 @@ export class ProviderSetupWizardModal extends Modal {
       epModel: s.openaiCompatModel,
       epKey: s.openaiCompatKey,
       deviceModel: s.deviceChatModel || DEVICE_MODELS[0].id,
+      cliModelDraft: {
+        "codex-cli": s.codexModel,
+        "agy-cli": s.agyModel,
+        "opencode-cli": s.opencodeModel,
+      },
       summary: "",
     };
   }
@@ -206,40 +215,37 @@ export class ProviderSetupWizardModal extends Modal {
       this.paint();
     };
 
+    const testCandidate = async (candidate: PluginSettings): Promise<ProviderStatus> => {
+      if (deps.testCandidate) return deps.testCandidate(candidate);
+      const router = new ProviderRouter(candidate);
+      if (candidate.chatBackend === "local") return router.ollama.test();
+      if (candidate.chatBackend === "custom") return router.openaiCompat.test();
+      if (candidate.chatBackend === "device") return router.device.test();
+      return router.anthropic.test();
+    };
+
     const testAndCommit = async (
       statusEl: HTMLElement,
-      apply: (s: PluginSettings) => void,
+      candidateOverrides: Partial<PluginSettings>,
       backend: PluginSettings["chatBackend"],
-      testFn: () => Promise<ProviderStatus>,
+      testCandidateFn: (candidate: PluginSettings) => Promise<ProviderStatus>,
       summaryMsg: string,
     ): Promise<void> => {
-      const s = deps.settings();
-      const prev = {
-        chatBackend: s.chatBackend,
-        authMode: s.authMode,
-        oauthToken: s.oauthToken,
-        ollamaHost: s.ollamaHost,
-        ollamaModel: s.ollamaModel,
-        openaiCompatHost: s.openaiCompatHost,
-        openaiCompatModel: s.openaiCompatModel,
-        openaiCompatKey: s.openaiCompatKey,
-        deviceChatModel: s.deviceChatModel,
+      const current = deps.settings();
+      const candidate: PluginSettings = {
+        ...current,
+        ...candidateOverrides,
+        chatBackend: backend,
       };
-      try {
-        apply(s);
-        const res = await testFn();
-        if (st.closed || !res.ok) {
-          Object.assign(s, prev);
-          if (!st.closed) fail(statusEl, res.detail);
-          return;
-        }
-        s.chatBackend = backend;
-        await deps.saveSettings();
-        if (!st.closed) done(summaryMsg);
-      } catch (e) {
-        Object.assign(s, prev);
-        throw e;
+      const res = await testCandidateFn(candidate);
+      if (st.closed) return;
+      if (!res.ok) {
+        fail(statusEl, res.detail);
+        return;
       }
+      Object.assign(current, candidateOverrides, { chatBackend: backend });
+      await deps.saveSettings();
+      if (!st.closed) done(summaryMsg);
     };
 
     if (isCliWizardProvider(st.selected)) {
@@ -255,12 +261,14 @@ export class ProviderSetupWizardModal extends Modal {
         statusEl.setText(probe?.version ? `✓ ${b.label} ${probe.version} is signed in and ready (${probe.executable}).` : `✓ ${b.label} is signed in and ready.`);
         if (id !== "claude-cli") {
           const key = id === "codex-cli" ? "codexModel" : id === "agy-cli" ? "agyModel" : "opencodeModel";
-          const sel = makeSel(body, `${b.label} model`, "cc-wizard-model-select", cliModelChoices([], deps.settings()[key], b.label), deps.settings()[key], (v) => { deps.settings()[key] = v; });
+          const currentVal = st.cliModelDraft[id] ?? deps.settings()[key];
+          const sel = makeSel(body, `${b.label} model`, "cc-wizard-model-select", cliModelChoices([], currentVal, b.label), currentVal, (v) => { st.cliModelDraft[id] = v; });
           void p?.listModels?.().then((m) => {
             if (st.closed || st.step !== 2 || st.selected !== id) return;
             sel.empty();
-            for (const ch of cliModelChoices(m, deps.settings()[key], b.label)) sel.createEl("option", { text: ch.label, attr: { value: ch.id } });
-            sel.value = deps.settings()[key];
+            const valNow = st.cliModelDraft[id] ?? deps.settings()[key];
+            for (const ch of cliModelChoices(m, valNow, b.label)) sel.createEl("option", { text: ch.label, attr: { value: ch.id } });
+            sel.value = valNow;
           }).catch(() => undefined);
         }
       } else {
@@ -270,13 +278,27 @@ export class ProviderSetupWizardModal extends Modal {
         const copyBtn = makeBtn(box, "cc-wizard-copy-cmd", "Copy command", () => {
           void navigator.clipboard?.writeText?.(cmd);
           copyBtn.setText("Copied");
-          window.setTimeout(() => { if (!st.closed) copyBtn.setText("Copy command"); }, 1200);
+          window.setTimeout(() => { if (!st.closed && copyBtn.isConnected) copyBtn.setText("Copy command"); }, 1200);
         }, `Copy ${b.label} command`);
       }
 
       const connectCli = async (): Promise<void> => {
         const res = await deps.connection().connect({ backend: id });
-        if (!st.closed) { if (res.ok) done(`${b.label} connected.`); else fail(statusEl, res.detail); }
+        if (!st.closed) {
+          if (res.ok) {
+            if (id !== "claude-cli") {
+              const key = id === "codex-cli" ? "codexModel" : id === "agy-cli" ? "agyModel" : "opencodeModel";
+              const draftModel = st.cliModelDraft[id];
+              if (draftModel !== undefined) {
+                deps.settings()[key] = draftModel;
+                await deps.saveSettings();
+              }
+            }
+            done(`${b.label} connected.`);
+          } else {
+            fail(statusEl, res.detail);
+          }
+        }
       };
 
       const recheckBtn = makeBtn(footer, ok ? "cc-wizard-recheck" : "mod-cta cc-wizard-recheck", "Re-check", () => {
@@ -317,12 +339,11 @@ export class ProviderSetupWizardModal extends Modal {
         const val = inp.value.trim();
         if (!val) { fail(statusEl, isOAuth ? "Enter an OAuth token." : "Enter an API key."); inp.focus(); return; }
         runAction(connectBtn, statusEl, "Verifying…", async () => {
-          if (!isOAuth) {
-            const res = await deps.connection().connect({ backend: "claude", apiKey: val });
-            if (!st.closed) { if (res.ok) done("Claude API connected."); else fail(statusEl, res.detail); }
-            return;
+          const res = await deps.connection().connect({ backend: "claude", ...(isOAuth ? { oauthToken: val } : { apiKey: val }) });
+          if (!st.closed) {
+            if (res.ok) done(isOAuth ? "Claude OAuth token connected." : "Claude API connected.");
+            else fail(statusEl, res.detail);
           }
-          await testAndCommit(statusEl, (s) => { setCredential(s, "oauthToken", val); s.authMode = "oauthToken"; s.chatBackend = "claude"; }, "claude", () => deps.connection().connect({ backend: "claude" }), "Claude OAuth token connected.");
         });
       };
       const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Verify & connect", submit);
@@ -337,22 +358,36 @@ export class ProviderSetupWizardModal extends Modal {
       const statusEl = div(body, "cc-wizard-status", { role: "status" });
       const detectBtn = makeBtn(footer, "cc-wizard-detect", "Detect models", () => {
         runAction(detectBtn, statusEl, "Detecting Ollama models…", async () => {
-          const s = deps.settings();
-          const prevHost = s.ollamaHost;
-          try {
-            s.ollamaHost = st.ollamaHost.trim() || "http://localhost:11434";
-            const models = await deps.router().ollama.listModels();
-            if (st.closed) { s.ollamaHost = prevHost; return; }
-            if (!models.length) { s.ollamaHost = prevHost; fail(statusEl, "No models detected. Start Ollama (`ollama serve`) and pull a model."); return; }
-            if (!models.includes(st.ollamaModel.trim())) { st.ollamaModel = models[0]!; modelInp.value = st.ollamaModel; }
-            statusEl.addClass("is-ok");
-            statusEl.setText(`Detected ${models.length} model(s): ${models.join(", ")}`);
-          } catch (e) { s.ollamaHost = prevHost; throw e; }
+          const host = st.ollamaHost.trim() || "http://localhost:11434";
+          const model = st.ollamaModel.trim() || "llama3.1";
+          const models = deps.detectOllamaModels
+            ? await deps.detectOllamaModels(host, model)
+            : await new OllamaProvider(host, model).listModels();
+          if (st.closed) return;
+          if (!models.length) {
+            fail(statusEl, "No models detected. Start Ollama (`ollama serve`) and pull a model.");
+            return;
+          }
+          if (!models.includes(st.ollamaModel.trim())) {
+            st.ollamaModel = models[0]!;
+            modelInp.value = st.ollamaModel;
+          }
+          statusEl.addClass("is-ok");
+          statusEl.setText(`Detected ${models.length} model(s): ${models.join(", ")}`);
         });
       });
       const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Test & connect", () => {
         runAction(connectBtn, statusEl, "Testing Ollama connection…", () =>
-          testAndCommit(statusEl, (s) => { s.ollamaHost = st.ollamaHost.trim() || "http://localhost:11434"; s.ollamaModel = st.ollamaModel.trim() || "llama3.1"; }, "local", () => deps.router().ollama.test(), `Ollama connected (${st.ollamaModel.trim() || "llama3.1"}).`),
+          testAndCommit(
+            statusEl,
+            {
+              ollamaHost: st.ollamaHost.trim() || "http://localhost:11434",
+              ollamaModel: st.ollamaModel.trim() || "llama3.1",
+            },
+            "local",
+            testCandidate,
+            `Ollama connected (${st.ollamaModel.trim() || "llama3.1"}).`,
+          ),
         );
       });
       return;
@@ -367,7 +402,17 @@ export class ProviderSetupWizardModal extends Modal {
       const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Test & connect", () => {
         if (!st.epHost.trim()) { fail(statusEl, "Enter an endpoint host URL."); hostInp.focus(); return; }
         runAction(connectBtn, statusEl, "Testing endpoint…", () =>
-          testAndCommit(statusEl, (s) => { s.openaiCompatHost = st.epHost.trim(); s.openaiCompatModel = st.epModel.trim(); s.openaiCompatKey = st.epKey.trim(); }, "custom", () => deps.router().openaiCompat.test(), `Endpoint connected (${st.epHost.trim()}).`),
+          testAndCommit(
+            statusEl,
+            {
+              openaiCompatHost: st.epHost.trim(),
+              openaiCompatModel: st.epModel.trim(),
+              openaiCompatKey: st.epKey.trim(),
+            },
+            "custom",
+            testCandidate,
+            `Endpoint connected (${sanitizeEndpointForDisplay(st.epHost.trim())}).`,
+          ),
         );
       });
       return;
@@ -378,7 +423,13 @@ export class ProviderSetupWizardModal extends Modal {
     const statusEl = div(body, "cc-wizard-status", { role: "status" });
     const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Check GPU & connect", () => {
       runAction(connectBtn, statusEl, "Checking WebGPU support…", () =>
-        testAndCommit(statusEl, (s) => { s.deviceChatModel = st.deviceModel; }, "device", () => deps.router().device.test(), "On-device GPU selected."),
+        testAndCommit(
+          statusEl,
+          { deviceChatModel: st.deviceModel },
+          "device",
+          testCandidate,
+          "On-device GPU selected.",
+        ),
       );
     });
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, codexCommand, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
 
 describe("maskToken", () => {
   it("keeps a short prefix/suffix and masks the middle", () => {
@@ -62,5 +62,22 @@ describe("claudeDesktopConfig", () => {
   });
   it("requires a bearer token", () => {
     expect(() => claudeDesktopConfig({ port: 22360, token: "" })).toThrow(/token/i);
+  });
+});
+
+describe("codexCommand", () => {
+  it("configures bearer auth with env reference for display and shared configs", () => {
+    const cmd = codexCommand({ port: 22360, token: mcpTokenEnvRef() });
+    expect(cmd).toBe("codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp --bearer-token-env-var OBSIDIAN_COMPANION_MCP_TOKEN");
+  });
+
+  it("prefixes env assignment when configured with a concrete bearer marker", () => {
+    const sampleBridgeMarker = "marker-xyz-987";
+    const cmd = codexCommand({ port: 22360, token: sampleBridgeMarker });
+    expect(cmd).toBe(`OBSIDIAN_COMPANION_MCP_TOKEN="${sampleBridgeMarker}" codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp --bearer-token-env-var OBSIDIAN_COMPANION_MCP_TOKEN`);
+  });
+
+  it("requires a non-empty bearer marker", () => {
+    expect(() => codexCommand({ port: 22360, token: "   " })).toThrow(/token/i);
   });
 });

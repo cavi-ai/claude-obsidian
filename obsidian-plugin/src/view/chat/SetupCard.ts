@@ -82,7 +82,7 @@ export class SetupCard {
         copyBtn.addEventListener("click", () => {
           void navigator.clipboard?.writeText?.(command);
           copyBtn.setText("Copied");
-          window.setTimeout(() => copyBtn.setText("Copy command"), 1200);
+          window.setTimeout(() => { if (copyBtn.isConnected) copyBtn.setText("Copy command"); }, 1200);
         });
         const recheckBtn = actions.createEl("button", { cls: "cc-setup-cli-recheck", text: "Re-check", attr: { type: "button", "aria-label": `Re-check ${backend.label} sign-in` } });
         recheckBtn.addEventListener("click", () => {

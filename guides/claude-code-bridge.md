@@ -129,7 +129,7 @@ For an advanced CLI MCP connection instead of the default workspace connector:
 ```bash
 claude mcp add --transport http obsidian-vault http://127.0.0.1:22360/mcp --header "Authorization: Bearer <token>"
 agy mcp add --header "Authorization: Bearer <token>" obsidian-vault http://127.0.0.1:22360/mcp
-codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp
+codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp --bearer-token-env-var OBSIDIAN_COMPANION_MCP_TOKEN
 ```
 
 ## 4. Portable workflow boundary

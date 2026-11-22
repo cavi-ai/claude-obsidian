@@ -1,4 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+
+const { requestUrlMock } = vi.hoisted(() => ({
+  requestUrlMock: vi.fn(async (options: { url: string }) => {
+    if (options.url.includes("/api/tags")) {
+      return { status: 200, json: { models: [{ name: "llama3.1" }] }, text: "" };
+    }
+    return { status: 200, json: { data: [{ id: "model-abc" }] }, text: "" };
+  }),
+}));
+
+vi.mock("obsidian", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  requestUrl: requestUrlMock,
+}));
+
 import {
   App,
   ButtonComponent,
@@ -20,6 +35,8 @@ import { ChatView } from "../../src/view/ChatView";
 import { SetupCard, type SetupCardDeps } from "../../src/view/chat/SetupCard";
 import { ProviderSetupWizardModal, type ProviderSetupWizardDeps } from "../../src/view/ProviderSetupWizardModal";
 import { QuickOptionsModal } from "../../src/view/QuickOptionsModal";
+import { ProviderRouter } from "../../src/providers/router";
+import { OllamaProvider } from "../../src/providers/ollama";
 import { conversationFakes } from "../fakes/conversations";
 import { curatedModels } from "../fakes/curatedModels";
 import { fakeSemantic } from "../fakes/semantic";
@@ -145,6 +162,19 @@ function createWizardEnv(overrides: {
     router: () => router as never,
     connection: () => connection,
     secrets: () => store,
+    testCandidate: async (candidate: PluginSettings) => {
+      if (overrides.endpointTest && candidate.chatBackend === "custom") return overrides.endpointTest();
+      if (overrides.ollamaTest && candidate.chatBackend === "local") return overrides.ollamaTest();
+      if (overrides.anthropicTest && candidate.chatBackend === "claude") return overrides.anthropicTest(candidate);
+      const r = new ProviderRouter(candidate);
+      if (candidate.chatBackend === "local") return r.ollama.test();
+      if (candidate.chatBackend === "custom") return r.openaiCompat.test();
+      if (candidate.chatBackend === "device") return r.device.test();
+      return r.anthropic.test();
+    },
+    detectOllamaModels: overrides.ollamaModels
+      ? async () => overrides.ollamaModels!()
+      : async (h, m) => new OllamaProvider(h, m).listModels(),
     refreshViews,
     openDesktopIntegrations,
     activateChat,
@@ -287,6 +317,95 @@ describe("ProviderSetupWizardModal 3-step guided flows & adversarial edge cases"
     await Promise.resolve();
     expect(env.settings.chatBackend).toBe("claude");
     expect(content.children).toHaveLength(0);
+  });
+
+  it("probes newly entered epHost and ollamaHost with a real ProviderRouter rather than stale initial settings", async () => {
+    requestUrlMock.mockClear();
+    const env = createWizardEnv({
+      settings: {
+        chatBackend: "claude",
+        openaiCompatHost: "http://initial-custom-host:1234",
+        openaiCompatModel: "model-init",
+        ollamaHost: "http://initial-ollama-host:11434",
+        ollamaModel: "llama3.1",
+      },
+    });
+
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+
+    // 1. Test custom endpoint with newly entered host
+    content.querySelectorAll(".cc-wizard-provider-card").find((el) => el.getAttribute("data-provider") === "custom")!.dispatchEvent({ type: "click" });
+    const hostInput = content.querySelector(".cc-wizard-host-input")!;
+    hostInput.value = "http://freshly-typed-custom:8080";
+    hostInput.dispatchEvent({ type: "input" });
+
+    // Initial settings must NOT be mutated before test succeeds
+    expect(env.settings.openaiCompatHost).toBe("http://initial-custom-host:1234");
+
+    content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+
+    // Verify requestUrl was invoked with the newly typed candidate host, not the stale initial host
+    await vi.waitFor(() => {
+      const calls = requestUrlMock.mock.calls;
+      const lastCall = calls[calls.length - 1]?.[0] as { url: string } | undefined;
+      expect(lastCall?.url).toContain("http://freshly-typed-custom:8080/v1/models");
+    });
+    await vi.waitFor(() => expect(env.settings.chatBackend).toBe("custom"));
+    expect(env.settings.openaiCompatHost).toBe("http://freshly-typed-custom:8080");
+
+    modal.close();
+
+    // 2. Test Ollama endpoint with newly entered host in a fresh modal
+    const modal2 = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal2.open();
+    const content2 = modal2.contentEl as unknown as FakeElement;
+
+    content2.querySelectorAll(".cc-wizard-provider-card").find((el) => el.getAttribute("data-provider") === "local")!.dispatchEvent({ type: "click" });
+    const ollamaInput = content2.querySelector(".cc-wizard-host-input")!;
+    ollamaInput.value = "http://freshly-typed-ollama:11435";
+    ollamaInput.dispatchEvent({ type: "input" });
+
+    expect(env.settings.ollamaHost).toBe("http://initial-ollama-host:11434");
+
+    content2.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+
+    await vi.waitFor(() => {
+      const calls = requestUrlMock.mock.calls;
+      const lastCall = calls[calls.length - 1]?.[0] as { url: string } | undefined;
+      expect(lastCall?.url).toContain("http://freshly-typed-ollama:11435/api/tags");
+    });
+    await vi.waitFor(() => expect(env.settings.chatBackend).toBe("local"));
+    expect(env.settings.ollamaHost).toBe("http://freshly-typed-ollama:11435");
+    modal2.close();
+  });
+
+  it("buffers CLI model edits in draft state and only commits to settings on connect", async () => {
+    const env = createWizardEnv({
+      settings: { chatBackend: "claude", agyModel: "gemini-2.5-flash" },
+      agySignedIn: true,
+      agyInstalled: true,
+    });
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+
+    const agyCard = content.querySelectorAll(".cc-wizard-provider-card").find((el) => el.getAttribute("data-provider") === "agy-cli")!;
+    agyCard.dispatchEvent({ type: "click" });
+
+    const modelSelect = content.querySelector(".cc-wizard-model-select")!;
+    modelSelect.value = "gemini-2.5-pro";
+    modelSelect.dispatchEvent({ type: "change" });
+
+    // Settings must not be mutated yet while still in draft mode
+    expect(env.settings.agyModel).toBe("gemini-2.5-flash");
+
+    // Click "Use Antigravity"
+    content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+
+    await vi.waitFor(() => expect(env.settings.chatBackend).toBe("agy-cli"));
+    expect(env.settings.agyModel).toBe("gemini-2.5-pro");
   });
 });
 

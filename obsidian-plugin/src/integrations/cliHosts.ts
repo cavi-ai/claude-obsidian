@@ -37,7 +37,7 @@ export function cliHostCandidates(host: CliHost, platform: DesktopPlatform, home
   if (platform === "win32") {
     return host === "agy"
       ? ["agy", `${homeDir}\\AppData\\Local\\agy\\bin\\agy.exe`, `${homeDir}\\.local\\bin\\agy.exe`]
-      : ["codex", `${homeDir}\\AppData\\Roaming\\npm\\codex.cmd`, `${homeDir}\\.local\\bin\\codex.exe`];
+      : ["codex", `${homeDir}\\.local\\bin\\codex.exe`];
   }
   return [host, `${homeDir}/.local/bin/${host}`, `/opt/homebrew/bin/${host}`, `/usr/local/bin/${host}`];
 }

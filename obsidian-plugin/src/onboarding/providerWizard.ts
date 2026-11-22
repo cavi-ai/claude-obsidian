@@ -7,6 +7,7 @@ import { opencodeBackend } from "../cli/backends/opencode";
 import type { CliBackend } from "../cli/backends/types";
 import type { CliProvider } from "../providers/cliProvider";
 import type { CliBackendId, ProviderRouter } from "../providers/router";
+import { sanitizeEndpointForDisplay } from "../providers/endpointPolicy";
 import type { PluginSettings } from "../types";
 
 export type WizardProviderId = CliBackendId | "claude" | "local" | "custom" | "device";
@@ -107,7 +108,7 @@ export function buildWizardProviderCards(settings: PluginSettings, router: Provi
       subtitle: "Private local models on this machine or LAN",
       badgeText: settings.chatBackend === "local" ? "Active" : "Local server",
       badgeState: settings.chatBackend === "local" ? "ready" : "neutral",
-      detail: `${host} · ${settings.ollamaModel || "llama3.1"}`,
+      detail: `${sanitizeEndpointForDisplay(host)} · ${settings.ollamaModel || "llama3.1"}`,
     },
     {
       id: "custom",
@@ -115,7 +116,7 @@ export function buildWizardProviderCards(settings: PluginSettings, router: Provi
       subtitle: "LM Studio, mlx-lm, vLLM, Jan, or custom gateway",
       badgeText: epOk ? "Configured" : "Endpoint URL",
       badgeState: epOk ? "ready" : "neutral",
-      detail: epOk ? `${settings.openaiCompatHost} · ${settings.openaiCompatModel}` : "Connect any /v1/chat/completions server.",
+      detail: epOk ? `${sanitizeEndpointForDisplay(settings.openaiCompatHost)} · ${settings.openaiCompatModel}` : "Connect any /v1/chat/completions server.",
     },
     {
       id: "device",
