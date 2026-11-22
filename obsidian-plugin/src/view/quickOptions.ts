@@ -29,7 +29,8 @@ export interface QuickOptionDefinition {
 
 export interface QuickOptionsState {
   isMobile?: boolean;
-  chatBackend: "claude" | "local" | "auto" | "custom" | "device" | "claude-cli" | "codex-cli" | "opencode-cli";
+  needsConnection?: boolean;
+  chatBackend: "claude" | "local" | "auto" | "custom" | "device" | "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
   chatModel: string;
   agentModeEnabled: boolean;
   vaultContextEnabled: boolean;
@@ -86,6 +87,7 @@ const researchModels: QuickOptionChoice[] = [
 
 const allSettings = (): QuickOptionDefinition => ({ id: "all-settings", label: "Open all settings", kind: "action" });
 const desktopIntegrations = (): QuickOptionDefinition => ({ id: "desktop-integrations", label: "Desktop integrations", kind: "action" });
+const connectCompanion = (): QuickOptionDefinition => ({ id: "connect-companion", label: "Connect Companion…", kind: "action" });
 
 const utilityBackend = (state: QuickOptionsState): QuickOptionDefinition => ({
   id: "utility-backend",
@@ -116,6 +118,7 @@ export function quickOptionsFor(page: CompanionPage, state: QuickOptionsState): 
   switch (page) {
     case "chat":
       return [
+        ...(state.needsConnection ? [connectCompanion()] : []),
         { id: "chat-backend", label: "Chat backend", kind: "select", value: chatBackendForRuntime(state.chatBackend, state.isMobile ?? false), choices: Object.entries(chatBackendOptions(state.isMobile ?? false)).map(([value, label]) => ({ value, label })), description: state.chatModel },
         { id: "agent-mode", label: "Agent mode", kind: "toggle", value: state.agentModeEnabled },
         { id: "vault-context", label: "Vault search in new chats", kind: "toggle", value: state.vaultContextEnabled },

@@ -14,6 +14,7 @@ export interface QuickOptionsModalDependencies {
   run(action: QuickOptionAction): void | Promise<void>;
   openAllSettings(): void;
   openDesktopIntegrations(): void;
+  openSetupWizard?(): void;
 }
 
 const pageLabel = (page: CompanionPage): string => ({
@@ -53,6 +54,18 @@ export class QuickOptionsModal extends Modal {
   }
 
   private renderOption(option: QuickOptionDefinition, error: HTMLElement): void {
+    if (option.id === "connect-companion") {
+      const button = this.contentEl.createEl("button", {
+        cls: "mod-cta cc-quick-options-connect",
+        text: option.label,
+      });
+      button.addEventListener("click", () => {
+        this.close();
+        if (this.deps.openSetupWizard) this.deps.openSetupWizard();
+        else this.run(option.id, error);
+      });
+      return;
+    }
     if (option.id === "desktop-integrations") {
       const button = this.contentEl.createEl("button", {
         cls: "cc-quick-options-desktop-integrations",

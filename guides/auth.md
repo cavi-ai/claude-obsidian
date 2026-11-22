@@ -1,17 +1,17 @@
 # Authentication & cost
 
-Companion can run desktop chat through an installed Claude Code, Codex, or
-OpenCode CLI, or talk directly to Anthropic with a credential you provide. There is no Companion
+Companion can run desktop chat through an installed Claude Code, Codex,
+OpenCode, or Antigravity CLI, or talk directly to Anthropic with a credential you provide. There is no Companion
 service or account in between.
 
 *Settings → Companion for Claude → Chat & models → Provider & model*
 
 ## CLI backends (desktop)
 
-Choose Claude Code, Codex, or OpenCode in the chat header’s model picker or the
-provider settings. Companion runs the installed command and leaves its sign-in
+Choose Claude Code, Codex, OpenCode, or Antigravity in the chat header’s model picker, the
+guided setup wizard, or provider settings. Companion runs the installed command and leaves its sign-in
 credentials with the CLI. If needed, sign in through that command’s own interface:
-`claude auth login`, `codex login`, or `opencode auth login`.
+`claude auth login`, `codex login`, `opencode auth login`, or `agy`.
 
 Conversations retain their own CLI session state. Vault writes use Companion’s
 confirmation flow, including an explicit grant for the current chat session.

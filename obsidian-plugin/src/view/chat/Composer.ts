@@ -19,7 +19,7 @@ import type { ComposerHost } from "./hosts";
 import type { ContextToggles } from "../../types";
 import { applyMention, initialToggles } from "./contextScope";
 import { reconcileModelOptions, syncModelSelection } from "./cliModelOptions";
-import { ModelCatalogSource } from "./modelCatalog";
+import { MODEL_BACKEND_LABELS, ModelCatalogSource } from "./modelCatalog";
 import { loadMediaBlocks } from "./mediaBlocks";
 import { loadAttachedNotes, type PreparedAttachedNote } from "../../context/attachedNotes";
 import { cancelPastedImages, PastedImagePreparation } from "./pastedImage";
@@ -553,7 +553,8 @@ export class Composer {
 
     const controlCaps = this.plugin.router().chatCapabilities();
     if (!controlCaps.claudeControls) {
-      parent.createSpan({ cls: "cc-ctl-note", text: controlCaps.cli ? "Claude Code owns thinking and effort for this backend" : "local model · Claude controls apply when routed to Claude" });
+      const cliLabel = MODEL_BACKEND_LABELS[controlCaps.cliBackend ?? "claude-cli"];
+      parent.createSpan({ cls: "cc-ctl-note", text: controlCaps.cli ? `${cliLabel} owns thinking and effort for this backend` : "local model · Claude controls apply when routed to Claude" });
       return;
     }
 

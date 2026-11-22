@@ -2,7 +2,7 @@
 
 import type { SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, antigravityCommand, codexCommand, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../mcp/clientConfig";
 import { regenerateMcpToken, setCredential, setMcpEnabled } from "./actions";
 
 export interface McpBridgeItemsContext {
@@ -125,6 +125,8 @@ export function mcpItems(ctx: McpBridgeItemsContext): SettingGroupItem[] {
         detail.empty();
         codeBlock(detail, "Claude Code", claudeCodeCommand(display), claudeCodeCommand(copyInfo));
         codeBlock(detail, "Claude Desktop", claudeDesktopConfig(display), claudeDesktopConfig(copyInfo));
+        codeBlock(detail, "Antigravity", antigravityCommand(display), antigravityCommand(copyInfo));
+        codeBlock(detail, "Codex", codexCommand(display), codexCommand(copyInfo));
       },
     },
   ];

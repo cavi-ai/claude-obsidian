@@ -23,6 +23,7 @@ function stubPlugin(): ClaudeCompanionPlugin & { settings: Record<string, unknow
       claudeCli: { probe: () => null, hasCredentials: () => false, test: async () => ({ ok: false, detail: "" }), refresh: async () => ({ ok: false, detail: "" }) },
       codexCli: { probe: () => null, hasCredentials: () => false, test: async () => ({ ok: false, detail: "" }), refresh: async () => ({ ok: false, detail: "" }) },
       opencodeCli: { probe: () => null, hasCredentials: () => false, test: async () => ({ ok: false, detail: "" }), refresh: async () => ({ ok: false, detail: "" }) },
+      agyCli: { probe: () => null, hasCredentials: () => false, test: async () => ({ ok: false, detail: "" }), refresh: async () => ({ ok: false, detail: "" }) },
     }),
     secrets: () => unavailableStore(),
     secretsWriteFailures: () => [],
@@ -294,8 +295,8 @@ describe("rich settings details", () => {
     row.render!(setting, undefined);
     const detail = setting.settingEl.querySelector(".cc-setting-detail")!;
     expect(detail.parent).toBe(setting.settingEl);
-    expect(detail.querySelectorAll(".cc-snippet")).toHaveLength(2);
-    expect(detail.querySelectorAll(".cc-snippet-copy").map((button) => button.getAttribute("aria-label"))).toEqual(["Copy Claude Code", "Copy Claude Desktop"]);
+    expect(detail.querySelectorAll(".cc-snippet")).toHaveLength(4);
+    expect(detail.querySelectorAll(".cc-snippet-copy").map((button) => button.getAttribute("aria-label"))).toEqual(["Copy Claude Code", "Copy Claude Desktop", "Copy Antigravity", "Copy Codex"]);
     const code = detail.querySelectorAll("code").map((element) => element.textContent).join("\n");
     expect(code).not.toContain("test-secret-token-never-rendered");
     expect(code).toContain("127.0.0.1");
@@ -313,7 +314,7 @@ describe("rich settings details", () => {
     row.render!(setting, undefined);
     expect(setting.settingEl.querySelectorAll(".cc-setting-snippets")).toHaveLength(1);
     expect(setting.settingEl.querySelector(".cc-setting-snippets")).toBe(first);
-    expect(setting.settingEl.querySelectorAll(".cc-snippet")).toHaveLength(2);
+    expect(setting.settingEl.querySelectorAll(".cc-snippet")).toHaveLength(4);
     plugin.settings.mcpToken = "";
     row.render!(setting, undefined);
     expect(setting.settingEl.querySelectorAll(".cc-snippet")).toHaveLength(0);

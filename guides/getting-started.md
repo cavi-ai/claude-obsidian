@@ -2,7 +2,7 @@
 
 Install Companion for Claude, connect Claude, and get to a useful first answer.
 The API-key path takes no terminal; desktop subscribers can instead use an
-already installed and signed-in Claude Code, Codex, or OpenCode CLI.
+already installed and signed-in Claude Code, Codex, OpenCode, or Antigravity CLI.
 
 ## 1. Install
 
@@ -18,7 +18,7 @@ repo; the store listing tracks it.
 ## 2. Connect Claude
 
 On desktop, the first-run card offers **Use Claude Code sign-in**, **Use Codex
-sign-in**, or **Use OpenCode sign-in** for installed, signed-in commands. Each CLI
+sign-in**, **Use OpenCode sign-in**, or **Use Antigravity sign-in** for installed, signed-in commands. If a CLI is installed but signed out, the card offers **Copy command** and **Re-check** inline. Each CLI
 keeps its own credentials. These connections are desktop-only and cover chat;
 utility work such as source enrichment uses its separately configured provider.
 
@@ -30,8 +30,7 @@ The simple path on every device is an Anthropic API key:
 3. Click **Connect** or press **Enter**, then read the connection result. A failed
    check leaves the card visible with its error.
 
-Use **Other connections…** for local models or advanced connection settings.
-The first connection does not require the setup wizard.
+Use **Guided setup…** to walk through provider selection and live verification, or **Other connections…** for advanced connection settings.
 
 You pay Anthropic for usage; nothing is billed by this plugin, and there is no
 account to create with us.

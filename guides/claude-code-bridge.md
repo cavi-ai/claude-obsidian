@@ -5,8 +5,8 @@ with the open vault.
 
 On desktop, use the integration that matches the client:
 
-- **Claude Code inside Companion chat:** choose the Claude Code backend. It runs
-  the installed, signed-in `claude` command and does not require the background
+- **Claude Code, Codex, OpenCode, or Antigravity inside Companion chat:** choose the CLI backend in the model picker or guided setup. It runs
+  the installed, signed-in command (`claude`, `codex`, `opencode`, or `agy`) and does not require the background
   MCP bridge.
 - **Claude Code and other terminal agents:** use the official Obsidian CLI and
   the portable `obsidian-agent` workflows by default.
@@ -124,10 +124,12 @@ secret storage, not in the vault — see [auth.md](auth.md). Setting
 any version. Connection snippets are masked by default; copy buttons still copy
 the working value.
 
-For an advanced Claude Code MCP connection instead of the default CLI path:
+For an advanced CLI MCP connection instead of the default workspace connector:
 
 ```bash
 claude mcp add --transport http obsidian-vault http://127.0.0.1:22360/mcp --header "Authorization: Bearer <token>"
+agy mcp add --header "Authorization: Bearer <token>" obsidian-vault http://127.0.0.1:22360/mcp
+codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp
 ```
 
 ## 4. Portable workflow boundary

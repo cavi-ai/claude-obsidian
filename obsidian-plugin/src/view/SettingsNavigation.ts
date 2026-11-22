@@ -104,7 +104,16 @@ export class SettingsNavigation {
       }
     } }];
     const intro = catalog.find((definition) => "type" in definition && definition.type === "group" && !definition.heading);
-    if (intro && "items" in intro) items.push(...(intro.items ?? []).filter((item) => "name" in item && item.name === "Credentials are stored in this vault") as SettingGroupItem[]);
+    if (intro && "items" in intro) {
+      items.push(
+        ...(intro.items ?? []).filter((item) => {
+          if (!("name" in item)) return false;
+          if (item.name === "Credentials are stored in this vault") return true;
+          if (!searching && this.category === "chat" && item.name === "Step 1 — connect to Claude") return settingVisible(item);
+          return false;
+        }) as SettingGroupItem[],
+      );
+    }
     for (const section of selected) {
       if (!section.items.some(settingVisible)) continue;
       items.push({ name: section.title, searchable: false, render: (setting) => {

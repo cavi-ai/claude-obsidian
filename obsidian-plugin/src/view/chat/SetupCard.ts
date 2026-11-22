@@ -13,6 +13,12 @@ export interface SetupCardDeps {
   renderEmptyState(): void;
   refreshModelLabel(): void;
   openSettings(): void;
+  openWizard?(): void;
+}
+
+export function extractSignInCommand(backend: CliBackend): string {
+  const match = /`([^`]+)`/.exec(backend.signInHint);
+  return match?.[1] ?? backend.binary;
 }
 
 export class SetupCard {
@@ -36,8 +42,14 @@ export class SetupCard {
     const cli = card.createDiv({ cls: "cc-setup-cli" });
     const separator = card.createDiv({ cls: "cc-setup-or", text: "or" });
     const choices = new Map<CliBackend["id"], HTMLButtonElement>();
+    const signedOutRows = new Map<CliBackend["id"], HTMLElement>();
     const updateConnections = (): void => {
       const signedIn = entries.filter(entry => entry.provider.hasCredentials());
+      const signedOut = entries.filter(entry => {
+        if (entry.provider.hasCredentials()) return false;
+        const probe = entry.provider.probe?.();
+        return probe !== null && probe !== undefined && !probe.loggedIn;
+      });
       const lead = signedIn[0]?.backend;
       subtitle.setText(lead
         ? `${lead.label} is signed in on this computer. Use it for chat on your subscription, or add an Anthropic API key. ${storage}`
@@ -54,8 +66,39 @@ export class SetupCard {
         useCli.addEventListener("click", () => void this.submit(card, useCli, async () => this.deps.plugin.connection().connect({ backend: backend.id })));
         choices.set(backend.id, useCli);
       }
-      cli.toggle(signedIn.length > 0);
-      separator.toggle(signedIn.length > 0);
+      const signedOutIds = new Set(signedOut.map(entry => entry.backend.id));
+      for (const [id, rowEl] of signedOutRows) {
+        if (signedOutIds.has(id)) continue;
+        rowEl.remove();
+        signedOutRows.delete(id);
+      }
+      for (const { backend, provider } of signedOut) {
+        if (signedOutRows.has(backend.id)) continue;
+        const rowEl = cli.createDiv({ cls: "cc-setup-cli-signedout", attr: { "data-backend": backend.id } });
+        rowEl.createSpan({ cls: "cc-setup-cli-signedout-text", text: `${backend.label} is installed — ${backend.signInHint} in a terminal.` });
+        const actions = rowEl.createDiv({ cls: "cc-setup-cli-signedout-actions" });
+        const command = extractSignInCommand(backend);
+        const copyBtn = actions.createEl("button", { cls: "cc-setup-cli-copy", text: "Copy command", attr: { type: "button", "aria-label": `Copy ${backend.label} sign-in command` } });
+        copyBtn.addEventListener("click", () => {
+          void navigator.clipboard?.writeText?.(command);
+          copyBtn.setText("Copied");
+          window.setTimeout(() => copyBtn.setText("Copy command"), 1200);
+        });
+        const recheckBtn = actions.createEl("button", { cls: "cc-setup-cli-recheck", text: "Re-check", attr: { type: "button", "aria-label": `Re-check ${backend.label} sign-in` } });
+        recheckBtn.addEventListener("click", () => {
+          recheckBtn.disabled = true;
+          recheckBtn.setText("Checking…");
+          void Promise.resolve(provider.refresh()).catch(() => undefined).finally(() => {
+            recheckBtn.disabled = false;
+            recheckBtn.setText("Re-check");
+            this.refreshConnections?.();
+          });
+        });
+        signedOutRows.set(backend.id, rowEl);
+      }
+      const hasAnyCli = signedIn.length > 0 || signedOut.length > 0;
+      cli.toggle(hasAnyCli);
+      separator.toggle(hasAnyCli);
     };
     updateConnections();
     this.refreshConnections = () => {
@@ -87,18 +130,25 @@ export class SetupCard {
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); connect(); }
     });
-    const settingsBtn = card.createEl("button", { cls: "cc-setup-settings", text: "Other connections…" });
+    const footer = card.createDiv({ cls: "cc-setup-actions" });
+    const wizardBtn = footer.createEl("button", { cls: "cc-setup-wizard", text: "Guided setup…" });
+    wizardBtn.addEventListener("click", () => {
+      if (this.deps.openWizard) this.deps.openWizard();
+      else this.deps.openSettings();
+    });
+    const settingsBtn = footer.createEl("button", { cls: "cc-setup-settings", text: "Other connections…" });
     settingsBtn.addEventListener("click", () => this.deps.openSettings());
     for (const { backend, provider } of entries) {
       if (!provider.hasCredentials() && provider.available() && !this.probeInFlight.has(backend.id)) {
         this.probeInFlight.add(backend.id);
         void provider.refresh().catch(() => undefined).finally(() => {
           this.probeInFlight.delete(backend.id);
-          if (provider.hasCredentials()) this.refreshConnections?.();
+          if (provider.hasCredentials() || provider.probe?.()) this.refreshConnections?.();
         });
       }
     }
   }
+
   private async submit(card: HTMLElement, button: HTMLButtonElement, connect: () => Promise<{ ok: boolean; detail: string }>, status = card.createDiv({ cls: "cc-setup-status" })): Promise<void> {
     if (this.submitting) return;
     this.submitting = true;
@@ -120,5 +170,4 @@ export class SetupCard {
       status.setText(error instanceof Error ? error.message : String(error));
     } finally { this.submitting = false; button.disabled = false; }
   }
-
 }

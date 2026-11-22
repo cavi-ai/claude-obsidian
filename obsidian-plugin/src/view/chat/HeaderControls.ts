@@ -9,6 +9,7 @@ import { DEVICE_MODELS, DEVICE_MAX_INPUT_TOKENS, DEVICE_MAX_OUTPUT_TOKENS } from
 import { MODEL_BACKEND_LABELS, ModelCatalogSource } from "./modelCatalog";
 import { ModelPickerModal } from "../ModelPickerModal";
 import { chatBackendForRuntime } from "../../providers/runtimeBackend";
+import { credentialSetupInputs, needsCredentialSetup } from "../../providers/setupState";
 import type { ChatControls } from "../../claude/chatControls";
 import type { ChatSession } from "./chatSession";
 import { contextGauge, estimateTokens, estimateTokensForChars, formatCost, formatTokens, sessionCost, type SessionUsage } from "../../usage/tokens";
@@ -202,10 +203,11 @@ export class HeaderControls {
     const backend = chatBackendForRuntime(this.plugin.settings.chatBackend, Platform.isMobile);
     const router = this.plugin.router();
     const resolved = router.chatProvider();
-    const servingBackend = ({ anthropic: "claude", "claude-cli": "claude-cli", "codex-cli": "codex-cli", "opencode-cli": "opencode-cli", ollama: "local", "openai-compat": "custom", device: "device" } as const)[resolved.provider.id];
+    const servingBackend = ({ anthropic: "claude", "claude-cli": "claude-cli", "codex-cli": "codex-cli", "opencode-cli": "opencode-cli", "agy-cli": "agy-cli", ollama: "local", "openai-compat": "custom", device: "device" } as const)[resolved.provider.id];
     const model = servingBackend === "claude" ? this.controls?.model ?? resolved.model : resolved.model;
     const label = servingBackend === "codex-cli" ? router.codexCli.modelLabel(model)
       : servingBackend === "opencode-cli" ? router.opencodeCli.modelLabel(model)
+      : servingBackend === "agy-cli" ? router.agyCli.modelLabel(model)
       : servingBackend === "device" ? DEVICE_MODELS.find(entry => entry.id === model)?.name ?? model
       : modelLabel(model, this.plugin.claudeModels().models());
     const serving = HEADER_BACKEND_LABELS[servingBackend];
@@ -322,6 +324,18 @@ export class HeaderControls {
     const cloudReplies = this.plugin.settings.cloudReplyRepo.trim().length > 0;
     if (cloudDispatch) items.push({ title: "Send to cloud session", icon: "cloud", separatorBefore: true, run: () => void this.plugin.publishing().dispatchCloudSession() });
     if (cloudReplies) items.push({ title: "Pull cloud replies", icon: "cloud-download", separatorBefore: !cloudDispatch, run: () => void this.plugin.publishing().pullCloudReplies() });
+    if (needsCredentialSetup(credentialSetupInputs(this.plugin.router()))) {
+      items.push({
+        title: "Connect Companion…",
+        icon: "plug",
+        separatorBefore: true,
+        run: () => {
+          const onboarding = (this.plugin as { onboarding?: () => { openSetupWizard?: () => void } }).onboarding?.();
+          if (onboarding?.openSetupWizard) onboarding.openSetupWizard();
+          else this.deps.openSettings();
+        },
+      });
+    }
     items.push({ title: "Settings", icon: "settings", separatorBefore: true, run: () => this.deps.openSettings() });
     new ActionModal(this.app, "Companion actions", items).open();
   }
@@ -357,6 +371,9 @@ export class HeaderControls {
     } else if (!Platform.isMobile && value.startsWith("opencode-cli:")) {
       this.plugin.settings.opencodeModel = value.slice("opencode-cli:".length);
       this.plugin.settings.chatBackend = "opencode-cli";
+    } else if (!Platform.isMobile && value.startsWith("agy-cli:")) {
+      this.plugin.settings.agyModel = value.slice("agy-cli:".length);
+      this.plugin.settings.chatBackend = "agy-cli";
     } else if (value.startsWith("device:")) {
       const model = DEVICE_MODELS.find((m) => m.id === value.slice("device:".length));
       if (!model) return;
@@ -372,9 +389,24 @@ export class HeaderControls {
       this.plugin.settings.chatBackend = "custom";
     } else {
       this.controls.model = value;
-      if (this.plugin.settings.chatBackend === "local" || this.plugin.settings.chatBackend === "custom" || this.plugin.settings.chatBackend === "device" || this.plugin.settings.chatBackend === "codex-cli" || this.plugin.settings.chatBackend === "opencode-cli") this.plugin.settings.chatBackend = "auto";
+      if (this.plugin.settings.chatBackend === "local" || this.plugin.settings.chatBackend === "custom" || this.plugin.settings.chatBackend === "device" || this.plugin.settings.chatBackend === "codex-cli" || this.plugin.settings.chatBackend === "opencode-cli" || this.plugin.settings.chatBackend === "agy-cli") this.plugin.settings.chatBackend = "auto";
     }
     await this.plugin.saveSettings();
+    const router = this.plugin.router();
+    const activeBackend = this.plugin.settings.chatBackend;
+    const cli = activeBackend === "claude-cli" ? router.claudeCli
+      : activeBackend === "codex-cli" ? router.codexCli
+      : activeBackend === "opencode-cli" ? router.opencodeCli
+      : activeBackend === "agy-cli" ? router.agyCli
+      : null;
+    if (cli && !cli.hasCredentials?.() && cli.available?.() && cli.refresh) {
+      void cli.refresh().then(() => {
+        this.deps.renderKnobs();
+        this.refreshModelLabel();
+        this.refreshCapabilityIndicators();
+        if (this.usageEl) this.updateUsageBar();
+      });
+    }
     this.deps.renderKnobs(); // capabilities/provider changed → rebuild dependent knobs
     this.refreshModelLabel();
     this.refreshCapabilityIndicators(); // provider changed → gates + reasoning
@@ -389,13 +421,14 @@ export class HeaderControls {
       this.chat.mode.setCapable(this.plugin.settings.agentModeEnabled && (await router.chatToolCapable()));
       const reasoning = await router.chatReasoningActive(this.controls.thinking);
       const { provider, model } = router.chatProvider();
+      const modelName = model || `${provider.label} default`;
       this.deps.showReasoning(
         reasoning,
         reasoning
           ? "Reasoning on — this model thinks before answering"
           : provider.id === "anthropic"
             ? "Reasoning off — enable thinking in model controls (the tune button)"
-            : `Reasoning off — ${model} doesn't report a thinking capability`,
+            : `Reasoning off — ${modelName} doesn't report a thinking capability`,
       );
     })();
   }
