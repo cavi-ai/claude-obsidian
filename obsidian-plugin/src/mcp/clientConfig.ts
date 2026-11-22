@@ -73,6 +73,18 @@ export function claudeCodeCommand(info: BridgeInfo): string {
   return `claude mcp add --transport http obsidian-vault ${bridgeUrl(info.port)} --header "Authorization: Bearer ${token}"`;
 }
 
+/** The `agy mcp add` command for Antigravity (HTTP transport). */
+export function antigravityCommand(info: BridgeInfo): string {
+  const token = requireToken(info.token);
+  return `agy mcp add --header "Authorization: Bearer ${token}" obsidian-vault ${bridgeUrl(info.port)}`;
+}
+
+/** The `codex mcp add` command for Codex (HTTP transport). */
+export function codexCommand(info: BridgeInfo): string {
+  requireToken(info.token);
+  return `codex mcp add obsidian-vault --url ${bridgeUrl(info.port)}`;
+}
+
 /** A claude_desktop_config.json fragment (uses mcp-remote to bridge HTTP→stdio). */
 export function claudeDesktopConfig(info: BridgeInfo): string {
   const token = requireToken(info.token);

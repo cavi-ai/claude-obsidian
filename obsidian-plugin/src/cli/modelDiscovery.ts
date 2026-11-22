@@ -2,6 +2,49 @@ import type { CliChild } from "./session";
 
 export interface CliModel { id: string; label: string }
 
+export function parseAgyModels(stdout: string): CliModel[] {
+  const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+  const clean = stdout.replace(ansi, "").trim();
+  if (!clean) return [];
+  const seen = new Map<string, CliModel>();
+  const add = (idRaw: unknown, labelRaw?: unknown): void => {
+    const id = typeof idRaw === "string" ? idRaw.trim() : "";
+    if (!id || /^fetching available models/i.test(id)) return;
+    const label = typeof labelRaw === "string" && labelRaw.trim() ? labelRaw.trim() : id;
+    if (!seen.has(id)) seen.set(id, { id, label });
+  };
+  try {
+    const parsed = JSON.parse(clean) as Record<string, unknown>;
+    const cmd = parsed.command && typeof parsed.command === "object" ? (parsed.command as Record<string, unknown>) : parsed;
+    const data = cmd.data && typeof cmd.data === "object" ? (cmd.data as Record<string, unknown>) : cmd;
+    const list = Array.isArray(data.models) ? data.models : Array.isArray(parsed.models) ? parsed.models : Array.isArray(parsed) ? parsed : null;
+    if (list) {
+      for (const item of list) {
+        if (typeof item === "string") add(item, item);
+        else if (item && typeof item === "object") {
+          const rec = item as Record<string, unknown>;
+          add(rec.id ?? rec.model ?? rec.name, rec.label ?? rec.displayName ?? rec.display_name ?? rec.name);
+        }
+      }
+      return [...seen.values()];
+    }
+  } catch {
+    // Fall through to line/TSV parsing.
+  }
+  for (const rawLine of clean.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || /^fetching available models/i.test(line) || /^(?:id|model)(?:\s+|\t)/i.test(line) || /^[-=\s]+$/.test(line)) continue;
+    const tabParts = line.split("\t").map((s) => s.trim()).filter(Boolean);
+    if (tabParts.length >= 2) {
+      add(tabParts[0], tabParts[1]);
+      continue;
+    }
+    const spaceMatch = /^([a-z0-9._/-]+)(?:\s{2,}(.+))?$/i.exec(line);
+    if (spaceMatch) add(spaceMatch[1], spaceMatch[2] ?? spaceMatch[1]);
+  }
+  return [...seen.values()];
+}
+
 export function parseOpenCodeModels(stdout: string): CliModel[] {
   const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
   const ids = stdout.replace(ansi, "").split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[^\s/]+\/[^\s]+$/.test(line));

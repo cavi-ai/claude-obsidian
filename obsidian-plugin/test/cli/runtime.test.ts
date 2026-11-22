@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseAuthStatus, parseShellPath, parseVersion, searchDirs, executableCandidates } from "../../src/cli/runtime";
+import { agyExecutableCandidates, parseAuthStatus, parseShellPath, parseVersion, searchDirs, executableCandidates } from "../../src/cli/runtime";
+import { agyBackend } from "../../src/cli/backends/agy";
 import { codexBackend } from "../../src/cli/backends/codex";
 import { claudeBackend } from "../../src/cli/backends/claude";
 import { claudeExecutableCandidates } from "../../src/integrations/desktopRuntime";
@@ -49,13 +50,20 @@ describe("searchDirs", () => {
   });
 });
 
-describe("executableCandidates", () => {
+describe("executableCandidates and win32 searchDirs", () => {
   it("tries the bare name, then the binary in every search dir (GUI apps on macOS get only /usr/bin:/bin:/usr/sbin:/sbin)", () => {
     expect(executableCandidates(codexBackend, "darwin", "/Users/x", ["/a", "/b"])).toEqual(["codex", "/a/codex", "/b/codex"]);
   });
-  it("keeps Claude's documented locations first", () => {
+  it("keeps Claude's and Antigravity's documented locations first, including .exe on win32", () => {
     expect(executableCandidates(claudeBackend, "darwin", "/Users/x", ["/a"]).slice(0, 5)).toEqual([
       "claude", "/Users/x/.local/bin/claude", "/usr/local/bin/claude", "/opt/homebrew/bin/claude", "/a/claude",
     ]);
+    expect(agyExecutableCandidates("win32", "C:\\Users\\x")).toEqual([
+      "agy", "C:\\Users\\x\\AppData\\Local\\agy\\bin\\agy.exe", "C:\\Users\\x\\.local\\bin\\agy.exe",
+    ]);
+    expect(executableCandidates(agyBackend, "win32", "C:\\Users\\x", ["C:\\Tools"])).toEqual([
+      "agy", "C:\\Users\\x\\AppData\\Local\\agy\\bin\\agy.exe", "C:\\Users\\x\\.local\\bin\\agy.exe", "C:\\Tools\\agy.exe",
+    ]);
+    expect(searchDirs("win32", "C:\\Users\\x", [], "C:\\Windows\\System32;C:\\Tools")).toContain("C:\\Tools");
   });
 });

@@ -12,7 +12,8 @@ const connector = { scriptPath: "/c/server/index.js", connectionPath: "/c/vaults
 describe("agent CLI hosts", () => {
   it("looks for each CLI on PATH and in its documented install folders", () => {
     expect(cliHostCandidates("agy", "darwin", "/Users/me")).toEqual(["agy", "/Users/me/.local/bin/agy", "/opt/homebrew/bin/agy", "/usr/local/bin/agy"]);
-    expect(cliHostCandidates("codex", "win32", "C:\\Users\\me")).toEqual(["codex"]);
+    expect(cliHostCandidates("agy", "win32", "C:\\Users\\me")).toEqual(["agy", "C:\\Users\\me\\AppData\\Local\\agy\\bin\\agy.exe", "C:\\Users\\me\\.local\\bin\\agy.exe"]);
+    expect(cliHostCandidates("codex", "win32", "C:\\Users\\me")).toEqual(["codex", "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd", "C:\\Users\\me\\.local\\bin\\codex.exe"]);
   });
 
   it("reads the version each CLI prints", () => {

@@ -96,19 +96,16 @@ interface ActiveTurn {
 
 export class CliSession implements AgentTurnRunner {
   private child: CliChild | null = null;
-  private parser: StreamJsonParser;
   private stderrTail = "";
   private id: string | null;
   private active: ActiveTurn | null = null;
   private closed = false;
   private firstMessage = true;
-  private exitWaiters: Array<() => void> = [];
   private shutdownTimers: number[] = [];
   private idleNoticeTimer: number | null = null;
   private idleAbortTimer: number | null = null;
 
   constructor(private readonly deps: CliSessionDeps) {
-    this.parser = new StreamJsonParser((line) => deps.backend.parseLine(line));
     this.id = deps.initialSessionId ?? null;
   }
 
@@ -156,6 +153,7 @@ export class CliSession implements AgentTurnRunner {
       ...(resuming ? { resumeSessionId: this.id! } : {}),
       ...(prefix ? { systemPromptText: prefix } : {}),
     };
+    this.stderrTail = "";
     const argv = backend.buildArgv(input);
     const env = backend.env?.(input);
     this.child = this.attach(spawnTurn(argv, env));
@@ -199,7 +197,10 @@ export class CliSession implements AgentTurnRunner {
     this.clearShutdownTimers();
     this.child = null;
     if (this.active) this.active.settle({ text: this.text(this.active), trace: this.active.trace, aborted: true });
-    const exited = new Promise<void>((resolve) => this.exitWaiters.push(resolve));
+    const exited = new Promise<void>((resolve) => {
+      child.on("exit", () => resolve());
+      child.on("error", () => resolve());
+    });
     child.stdin.end();
     child.kill("SIGTERM");
     const timer = window.setTimeout(() => child.kill("SIGKILL"), CLOSE_GRACE_MS);
@@ -208,23 +209,33 @@ export class CliSession implements AgentTurnRunner {
   }
 
   private attach(child: CliChild): CliChild {
+    const parser = new StreamJsonParser((line) => this.deps.backend.parseLine(line));
     child.stdout.on("data", (chunk) => {
-      for (const ev of this.parser.push(String(chunk))) this.onEvent(ev);
+      if (this.child !== child) return;
+      for (const ev of parser.push(String(chunk))) this.onEvent(ev);
       this.armIdleWatchdog(); // any bytes are life, including lines the parser drops
     });
     child.stderr.on("data", (chunk) => {
+      if (this.child !== child) return;
       this.stderrTail = `${this.stderrTail}${String(chunk)}`.slice(-STDERR_TAIL);
       this.armIdleWatchdog();
     });
-    child.on("error", (err) => this.onChildExit(child, `${this.deps.backend.label} failed to start: ${err.message}`, null));
-    child.on("exit", (code) => this.onChildExit(child, `${this.deps.backend.label} exited (code ${code ?? "?"}).${this.stderrTail.trim() ? ` ${this.stderrTail.trim()}` : ""}`, code ?? null));
+    child.on("error", (err) => {
+      if (this.child !== child) return;
+      this.onChildExit(child, `${this.deps.backend.label} failed to start: ${err.message}`, null);
+    });
+    child.on("exit", (code) => {
+      if (this.child !== child) return;
+      for (const ev of parser.flush()) this.onEvent(ev);
+      this.onChildExit(child, `${this.deps.backend.label} exited (code ${code ?? "?"}).${this.stderrTail.trim() ? ` ${this.stderrTail.trim()}` : ""}`, code ?? null);
+    });
     return child;
   }
 
   private onChildExit(child: CliChild, message: string, code: number | null): void {
-    if (this.child === child) this.child = null; // only clear if this exit belongs to the current process
+    if (this.child !== child) return;
+    this.child = null;
     this.clearShutdownTimers();
-    for (const w of this.exitWaiters.splice(0)) w();
     const turn = this.active;
     if (this.deps.backend.processModel !== "per-turn") {
       // A persistent process that died for any reason ends the session.
@@ -286,10 +297,12 @@ export class CliSession implements AgentTurnRunner {
       case "retry":
         turn.handlers.onNotice?.(`Retrying (${ev.attempt}) — ${ev.error}`);
         return;
-      case "toolUse":
+      case "toolUse": {
+        const seen = turn.pending.has(ev.block.id);
         turn.pending.set(ev.block.id, ev.block);
-        turn.handlers.onToolStart?.(ev.block);
+        if (!seen) turn.handlers.onToolStart?.(ev.block);
         return;
+      }
       case "toolResult": {
         const block = turn.pending.get(ev.id);
         if (!block) return;

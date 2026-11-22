@@ -38,7 +38,7 @@ describe("preflightTurn", () => {
     expect(result.ok && result.provider.id).toBe("claude-cli");
   });
 
-  it.each(["claude-cli", "codex-cli", "opencode-cli"])("blocks a %s send with the not-signed-in notice when refresh does not flip, refreshing once", async (backend) => {
+  it.each(["claude-cli", "codex-cli", "opencode-cli", "agy-cli"])("blocks a %s send with the not-signed-in notice when refresh does not flip, refreshing once", async (backend) => {
     const { deps, refresh } = cliGate({ backend, signedIn: false, refreshSignsIn: false });
     const result = await preflightTurn(deps);
     expect(refresh).toHaveBeenCalledTimes(1);
@@ -65,11 +65,14 @@ describe("preflightTurn", () => {
     expect(result).toMatchObject({ ok: true, reprobed: false });
   });
 
-  it("keeps the API fallback after checking that the selected CLI is signed out", async () => {
+  it("blocks silent metered API fallback when an explicitly selected desktop CLI is signed out", async () => {
     const { deps, refresh } = cliGate({ signedIn: false, anthropic: true });
-    const result = await preflightTurn({ ...deps, chatProvider: () => ({ provider: provider("anthropic", true), model: "m" }) });
+    const result = await preflightTurn(deps);
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({ ok: true, reprobed: false });
+    expect(result).toEqual({
+      ok: false,
+      notice: "Claude Code is not signed in — run `claude auth login`, or add an API key in Companion settings.",
+    });
   });
 
   it("waits for the selected CLI before using an available API fallback", async () => {
@@ -301,7 +304,7 @@ describe("turnPersistence", () => {
 
 describe("media preflight", () => {
   const deps = (id: string) => ({ backend: id, chatProvider: () => ({ provider: provider(id, true), model: "m" }), chatCapabilities: () => ({ cli: id.endsWith("-cli"), local: id === "ollama" || id === "openai-compat" || id === "device" }), anthropicHasCredentials: () => true, cliSignIn: () => null });
-  it.each(["openai-compat", "ollama", "device", "codex-cli", "opencode-cli"])("refuses image/PDF attachments on the text-only %s transport", async id => {
+  it.each(["openai-compat", "ollama", "device", "codex-cli", "opencode-cli", "agy-cli"])("refuses image/PDF attachments on the text-only %s transport", async id => {
     const result = await preflightTurn({ ...deps(id), hasMedia: true });
     expect(result).toMatchObject({ ok: false, notice: expect.stringContaining("sends text only") });
     expect(await preflightTurn(deps(id))).toMatchObject({ ok: true });

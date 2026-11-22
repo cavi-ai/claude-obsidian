@@ -159,8 +159,14 @@ export class ConversationsController {
     const activityId = this.activityId(id);
     const activity = this.deps.activity();
     activity.start({ id: activityId, kind: "chat-turn", title });
+    const cliWorking: Record<string, string> = {
+      "claude-cli": "Claude Code is working",
+      "codex-cli": "Codex is working",
+      "opencode-cli": "OpenCode is working",
+      "agy-cli": "Antigravity is working",
+    };
     activity.update(activityId, {
-      currentItem: input.backend === "claude-cli" ? "Claude Code is working" : "Response is running",
+      currentItem: cliWorking[input.backend] ?? "Response is running",
       recovery: [
         { id: "open-chat", label: "Open Chat", kind: "open" },
         { id: "stop-chat-turn", label: "Stop", kind: "stop" },

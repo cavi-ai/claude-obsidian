@@ -29,7 +29,7 @@ function routerWithAnthropicEnv(overrides: Partial<PluginSettings>, env: Record<
 }
 
 describe("ProviderRouter.resolve", () => {
-  it.each(["claude-cli", "codex-cli", "opencode-cli"] as const)("uses the API on mobile while preserving synced %s", (backend) => {
+  it.each(["claude-cli", "codex-cli", "opencode-cli", "agy-cli"] as const)("uses the API on mobile while preserving synced %s", (backend) => {
     const s = settings({ chatBackend: backend });
     const mobile = new ProviderRouter(s, undefined, { isMobile: true });
     expect(mobile.chatBackend).toBe("claude");
@@ -378,11 +378,13 @@ const cliRuntime = (loggedIn: boolean, method = "claude.ai") => ({
 });
 
 describe("ProviderRouter — claude-cli backend", () => {
-  it("routes chat to the CLI provider once it is signed in", async () => {
+  it("routes chat to the CLI provider on desktop and flips capabilities.cli once signed in", async () => {
     const r = new ProviderRouter(settings({ chatBackend: "claude-cli", apiKey: "" }), undefined, { cliRuntime: cliRuntime(true) });
-    expect(r.chatProvider().provider.id).toBe("anthropic");
+    expect(r.chatProvider().provider.id).toBe("claude-cli");
+    expect(r.chatCapabilities().cli).toBe(false);
     await r.claudeCli.refresh();
     expect(r.chatProvider().provider.id).toBe("claude-cli");
+    expect(r.chatCapabilities().cli).toBe(true);
     expect(r.chatProvider().model).toBe(DEFAULT_SETTINGS.model);
     expect(r.get("claude-cli")).toBeInstanceOf(CliProvider);
   });
@@ -401,10 +403,11 @@ describe("ProviderRouter — claude-cli backend", () => {
     (children[0] as unknown as { stdout: EventEmitter }).stdout.emit("data", Buffer.from('{"type":"result","subtype":"success","result":"cli text","session_id":"s","is_error":false}\n'));
     await expect(done).resolves.toMatchObject({ text: "cli text" });
   });
-  it("falls back to the API key when the CLI is signed out or the runtime is absent (mobile)", async () => {
+  it("keeps the explicit desktop CLI provider when signed out (never silently billing the API key), and falls back only when runtime is absent (mobile)", async () => {
     const out = new ProviderRouter(settings({ chatBackend: "claude-cli" }), undefined, { cliRuntime: cliRuntime(false) });
     await out.claudeCli.refresh();
-    expect(out.chatProvider().provider.id).toBe("anthropic");
+    expect(out.chatProvider().provider.id).toBe("claude-cli");
+    expect(out.chatCapabilities().cli).toBe(false);
     const mobile = new ProviderRouter(settings({ chatBackend: "claude-cli" }), undefined, { cliRuntime: null });
     expect(mobile.claudeCli.available()).toBe(false);
     expect(mobile.chatProvider().provider.id).toBe("anthropic");
@@ -435,17 +438,25 @@ describe("ProviderRouter — codex-cli and opencode-cli backends", () => {
     expect(r.codexCli.id).toBe("codex-cli");
     expect(r.opencodeCli.id).toBe("opencode-cli");
   });
-  it("chatProvider() picks codex once signed in, using the configured codexModel", async () => {
+  it("chatProvider() picks codex and agy with their configured models and flips capabilities.cli once signed in", async () => {
     const r = new ProviderRouter(settings({ chatBackend: "codex-cli", codexModel: "gpt-5.1-codex", apiKey: "" }), undefined, { cliRuntime: cliRuntime(true, "ChatGPT") });
-    expect(r.chatProvider().provider.id).toBe("anthropic");
+    expect(r.chatProvider().provider.id).toBe("codex-cli");
+    expect(r.chatCapabilities().cli).toBe(false);
     await r.codexCli.refresh();
     expect(r.chatProvider()).toEqual({ provider: r.codexCli, model: "gpt-5.1-codex" });
     expect(r.chatCapabilities()).toEqual({ agentActions: true, claudeControls: false, metered: false, local: false, cli: true, cliBackend: "codex-cli" });
+
+    const agy = new ProviderRouter(settings({ chatBackend: "agy-cli", agyModel: "gemini-2.5-pro", apiKey: "" }), undefined, { cliRuntime: cliRuntime(true, "Antigravity") });
+    await agy.agyCli.refresh();
+    expect(agy.get("agy-cli")).toBe(agy.agyCli);
+    expect(agy.chatProvider()).toEqual({ provider: agy.agyCli, model: "gemini-2.5-pro" });
+    expect(agy.chatCapabilities()).toEqual({ agentActions: true, claudeControls: false, metered: false, local: false, cli: true, cliBackend: "agy-cli" });
   });
-  it("chatProvider() falls back to Anthropic when opencode is signed out, same as claude-cli today", async () => {
+  it("chatProvider() stays on opencode-cli with cli:false when signed out on desktop instead of silently using the API key", async () => {
     const r = new ProviderRouter(settings({ chatBackend: "opencode-cli", apiKey: "sk-ant-api-test" }), undefined, { cliRuntime: cliRuntime(false) });
     await r.opencodeCli.refresh();
-    expect(r.chatProvider().provider.id).toBe("anthropic");
+    expect(r.chatProvider().provider.id).toBe("opencode-cli");
+    expect(r.chatCapabilities().cli).toBe(false);
   });
   it("builds providers from the given backend module (labels, sign-in hints)", () => {
     const r = new ProviderRouter(settings({}));
@@ -471,7 +482,7 @@ describe("ProviderRouter research model", () => {
 
   it("labels status for Claude Code and the API", async () => {
     const r = new ProviderRouter(settings({ chatBackend: "claude-cli", apiKey: "", researchModel: "chat" }), undefined, { cliRuntime: cliRuntime(true) });
-    expect(r.researchStatus()).toMatchObject({ providerLabel: "Claude API", available: false });
+    expect(r.researchStatus()).toMatchObject({ providerLabel: "Claude Code", available: false });
     await r.claudeCli.refresh();
     expect(r.researchStatus()).toEqual({ model: "chat", providerLabel: "Claude Code", modelId: DEFAULT_SETTINGS.model, available: true });
     const api = new ProviderRouter(settings({ researchModel: "claude", model: "claude-sonnet-4-6" }));

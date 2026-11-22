@@ -399,6 +399,44 @@ describe("CliSession per-turn (codex, opencode)", () => {
     expect(s.isClosed()).toBe(false);
   });
 
+it("flushes an unterminated trailing NDJSON line on child exit, ignores stale child exits, and deduplicates repeated toolUse IDs", async () => {
+    const { s, children } = perTurnSession();
+    const started: string[] = [];
+    const finished: string[] = [];
+    const firstTurn = s.run(req, {
+      onText: () => undefined,
+      onToolStart: (b) => started.push(`${b.id}:${b.name}`),
+      onToolResult: (b) => finished.push(`${b.id}:${b.name}`),
+    });
+    const child1 = children[0]!;
+    // Emit duplicate toolUse with the same id before toolResult
+    feed(
+      child1,
+      '{"type":"thread.started","thread_id":"th1"}\n' +
+        '{"type":"item.started","item":{"id":"dup_1","type":"command_execution","command":"ls"}}\n' +
+        '{"type":"item.started","item":{"id":"dup_1","type":"command_execution","command":"ls -la"}}\n' +
+        '{"type":"item.completed","item":{"id":"dup_1","type":"command_execution","aggregated_output":"ok","exit_code":0}}\n',
+    );
+    // Unterminated final line (no trailing \n) flushed on exit
+    feed(child1, '{"type":"item.completed","item":{"type":"agent_message","text":"flushed-on-exit"}}');
+    child1.emit("exit", 0);
+    const res1 = await firstTurn;
+    expect(res1.text).toBe("flushed-on-exit");
+    expect(started).toEqual(["dup_1:shell"]);
+    expect(finished).toEqual(["dup_1:shell"]);
+
+    // Second turn: stale exit from child1 must not abort or corrupt child2
+    const secondTurn = s.run(req, { onText: () => undefined });
+    const child2 = children[1]!;
+    child1.stderr.emit("data", Buffer.from("stale stderr"));
+    child1.emit("exit", 1);
+    feed(child2, '{"type":"item.completed","item":{"type":"agent_message","text":"turn2-ok"}}\n');
+    child2.emit("exit", 0);
+    const res2 = await secondTurn;
+    expect(res2.text).toBe("turn2-ok");
+    expect(res2.error).toBeUndefined();
+  });
+
   it("resumes immediately when constructed with an initialSessionId, without prepending the system prompt", async () => {
     const { s, children, calls } = perTurnSession({ initialSessionId: "th-existing" });
     const turn = s.run(req, { onText: () => undefined });

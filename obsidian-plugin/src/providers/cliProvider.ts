@@ -21,7 +21,7 @@ function capitalize(s: string): string {
 }
 
 export class CliProvider implements Provider {
-  readonly id: "claude-cli" | "codex-cli" | "opencode-cli";
+  readonly id: "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
   readonly label: string;
   readonly supportsTools = true;
   private cached: CliProbe | null = null;
