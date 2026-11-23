@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, codexCommand, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, codexConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
 
 describe("maskToken", () => {
   it("keeps a short prefix/suffix and masks the middle", () => {
@@ -65,19 +65,19 @@ describe("claudeDesktopConfig", () => {
   });
 });
 
-describe("codexCommand", () => {
+describe("codexConfig", () => {
   it("configures bearer auth with env reference for display and shared configs", () => {
-    const cmd = codexCommand({ port: 22360, token: mcpTokenEnvRef() });
-    expect(cmd).toBe("codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp --bearer-token-env-var OBSIDIAN_COMPANION_MCP_TOKEN");
+    const cmd = codexConfig({ port: 22360, token: mcpTokenEnvRef() });
+    expect(cmd).toBe('[mcp_servers.obsidian-vault]\nurl = "http://127.0.0.1:22360/mcp"\nbearer_token_env_var = "OBSIDIAN_COMPANION_MCP_TOKEN"');
   });
 
-  it("prefixes env assignment when configured with a concrete bearer marker", () => {
-    const sampleBridgeMarker = "marker-xyz-987";
-    const cmd = codexCommand({ port: 22360, token: sampleBridgeMarker });
-    expect(cmd).toBe(`OBSIDIAN_COMPANION_MCP_TOKEN="${sampleBridgeMarker}" codex mcp add obsidian-vault --url http://127.0.0.1:22360/mcp --bearer-token-env-var OBSIDIAN_COMPANION_MCP_TOKEN`);
+  it("persists a concrete bearer marker as an escaped static HTTP header", () => {
+    const sampleBridgeMarker = 'marker-"xyz"\\987';
+    const cmd = codexConfig({ port: 22360, token: sampleBridgeMarker });
+    expect(cmd).toBe(`[mcp_servers.obsidian-vault]\nurl = "http://127.0.0.1:22360/mcp"\nhttp_headers = { Authorization = ${JSON.stringify(`Bearer ${sampleBridgeMarker}`)} }`);
   });
 
   it("requires a non-empty bearer marker", () => {
-    expect(() => codexCommand({ port: 22360, token: "   " })).toThrow(/token/i);
+    expect(() => codexConfig({ port: 22360, token: "   " })).toThrow(/token/i);
   });
 });

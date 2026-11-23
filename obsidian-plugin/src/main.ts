@@ -1073,7 +1073,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     { backend, executable, runtime, cwd, allowedTools }: { backend: CliBackend; executable: string; runtime: CliRuntime; cwd: string; allowedTools: string[] },
   ): Promise<PoolEntry<CliSession>> {
     const project = await this.chatProjectFor(opts.conversationId);
-    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.run === "plan", project });
+    const systemPrompt = this.composeSystemPrompt({ agent: backend.supportsMcp, plan: backend.supportsMcp && opts.run === "plan", project });
     const promptFile = backend.processModel === "persistent" ? await runtime.writeSystemPromptFile(systemPrompt) : "";
     let bridge: McpHttpServer | null = null;
     const release = async (): Promise<void> => {

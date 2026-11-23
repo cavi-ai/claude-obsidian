@@ -368,13 +368,15 @@ export class ProviderRouter {
   }
 
   /**
-   * Whether the current chat backend can run tool-driven agent turns. Claude
-   * always can; local providers must report "tools" for the selected model
-   * (unqueryable → not capable, so the UI never offers a broken agent).
+   * The API supports tools directly. CLI backends need the chat MCP bridge.
+   * Local providers must report tool support for the selected model.
    */
   async chatToolCapable(): Promise<boolean> {
     const { provider, model } = this.chatProvider();
-    if (provider.id === "anthropic" || provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli" || provider.id === "agy-cli") return true;
+    if (provider.id === "anthropic") return true;
+    if (provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli" || provider.id === "agy-cli") {
+      return ProviderRouter.cliBackends[provider.id].supportsMcp;
+    }
     if (provider.supportsTools !== true || !provider.capabilities) return provider.supportsTools === true;
     try {
       return (await provider.capabilities(model)).includes("tools");
@@ -389,7 +391,7 @@ export class ProviderRouter {
     if (provider.id === "anthropic") return { agentActions: true, claudeControls: true, metered: !this.anthropic.isOAuth(), local: false, cli: false };
     if (provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli" || provider.id === "agy-cli") {
       const signedIn = provider.hasCredentials();
-      return { agentActions: true, claudeControls: false, metered: false, local: false, cli: signedIn, ...(signedIn ? { cliBackend: provider.id } : {}) };
+      return { agentActions: ProviderRouter.cliBackends[provider.id].supportsMcp, claudeControls: false, metered: false, local: false, cli: signedIn, ...(signedIn ? { cliBackend: provider.id } : {}) };
     }
     return { agentActions: false, claudeControls: false, metered: false, local: true, cli: false };
   }

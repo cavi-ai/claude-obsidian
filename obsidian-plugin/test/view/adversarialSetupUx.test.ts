@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const { requestUrlMock } = vi.hoisted(() => ({
   requestUrlMock: vi.fn(async (options: { url: string }) => {
     if (options.url.includes("/api/tags")) {
-      return { status: 200, json: { models: [{ name: "llama3.1" }] }, text: "" };
+      return { status: 200, json: { models: [{ name: "llama3.1:latest" }] }, text: "" };
     }
     return { status: 200, json: { data: [{ id: "model-abc" }] }, text: "" };
   }),
@@ -37,6 +37,7 @@ import { ProviderSetupWizardModal, type ProviderSetupWizardDeps } from "../../sr
 import { QuickOptionsModal } from "../../src/view/QuickOptionsModal";
 import { ProviderRouter } from "../../src/providers/router";
 import { OllamaProvider } from "../../src/providers/ollama";
+import { secretIdFor } from "../../src/secrets/store";
 import { conversationFakes } from "../fakes/conversations";
 import { curatedModels } from "../fakes/curatedModels";
 import { fakeSemantic } from "../fakes/semantic";
@@ -162,16 +163,14 @@ function createWizardEnv(overrides: {
     router: () => router as never,
     connection: () => connection,
     secrets: () => store,
-    testCandidate: async (candidate: PluginSettings) => {
-      if (overrides.endpointTest && candidate.chatBackend === "custom") return overrides.endpointTest();
-      if (overrides.ollamaTest && candidate.chatBackend === "local") return overrides.ollamaTest();
-      if (overrides.anthropicTest && candidate.chatBackend === "claude") return overrides.anthropicTest(candidate);
-      const r = new ProviderRouter(candidate);
-      if (candidate.chatBackend === "local") return r.ollama.test();
-      if (candidate.chatBackend === "custom") return r.openaiCompat.test();
-      if (candidate.chatBackend === "device") return r.device.test();
-      return r.anthropic.test();
-    },
+    ...(overrides.ollamaTest || overrides.endpointTest || overrides.deviceTest ? {
+      testCandidate: async (candidate: PluginSettings) => {
+        const r = new ProviderRouter(candidate);
+        if (candidate.chatBackend === "local") return overrides.ollamaTest?.() ?? r.ollama.test(candidate.ollamaModel);
+        if (candidate.chatBackend === "custom") return overrides.endpointTest?.() ?? r.openaiCompat.test(candidate.openaiCompatModel);
+        return overrides.deviceTest?.() ?? r.device.test();
+      },
+    } : {}),
     detectOllamaModels: overrides.ollamaModels
       ? async () => overrides.ollamaModels!()
       : async (h, m) => new OllamaProvider(h, m).listModels(),
@@ -187,12 +186,19 @@ function createWizardEnv(overrides: {
     state,
     router,
     connection,
+    store,
     saveSettings,
     openDesktopIntegrations,
     activateChat,
     refreshViews,
     deps,
   };
+}
+
+function selectProvider(content: FakeElement, backend: string): void {
+  content.querySelectorAll(".cc-wizard-provider-card")
+    .find((el) => el.getAttribute("data-provider") === backend)!
+    .dispatchEvent({ type: "click" });
 }
 
 describe("ProviderSetupWizardModal 3-step guided flows & adversarial edge cases", () => {
@@ -319,13 +325,118 @@ describe("ProviderSetupWizardModal 3-step guided flows & adversarial edge cases"
     expect(content.children).toHaveLength(0);
   });
 
+  it("keeps Back and provider fields disabled until verification returns", async () => {
+    let finishCheck!: (res: { ok: boolean; detail: string }) => void;
+    const env = createWizardEnv({ ollamaTest: () => new Promise((resolve) => { finishCheck = resolve; }) });
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+    selectProvider(content, "local");
+    const back = content.querySelector(".cc-wizard-back")!;
+    const host = content.querySelector(".cc-wizard-host-input")!;
+    content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+    expect(back.disabled).toBe(true);
+    expect(host.disabled).toBe(true);
+    back.dispatchEvent({ type: "click" });
+    expect(content.querySelector(".cc-wizard-host-input")).toBe(host);
+    finishCheck({ ok: false, detail: "Connection refused" });
+    await vi.waitFor(() => expect(back.disabled).toBe(false));
+    expect(host.disabled).toBe(false);
+    expect(env.settings.chatBackend).toBe("claude");
+    expect(env.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("restores previous endpoint settings and stored key after a save rejects", async () => {
+    const env = createWizardEnv({
+      settings: { openaiCompatHost: "http://previous:1234", openaiCompatModel: "previous-model", openaiCompatKey: "previous-key" },
+      endpointTest: async () => ({ ok: true, detail: "Connected" }),
+    });
+    const id = secretIdFor("openaiCompatKey");
+    env.store.set(id, env.settings.openaiCompatKey);
+    env.saveSettings.mockImplementationOnce(async () => {
+      env.store.set(id, env.settings.openaiCompatKey);
+      throw new Error("Disk full");
+    });
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+    selectProvider(content, "custom");
+    const input = content.querySelector(".cc-wizard-key-input")!;
+    input.value = "replacement-key";
+    input.dispatchEvent({ type: "input" });
+    content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+    await vi.waitFor(() => expect(content.querySelector(".cc-wizard-status")?.textContent).toContain("Disk full"));
+    expect(env.settings).toMatchObject({
+      chatBackend: "claude", openaiCompatHost: "http://previous:1234", openaiCompatModel: "previous-model", openaiCompatKey: "previous-key",
+    });
+    expect(env.store.get(id)).toBe("previous-key");
+    expect(env.saveSettings).toHaveBeenCalledTimes(2);
+    expect(content.querySelector(".cc-wizard-summary")).toBeNull();
+  });
+
+  it.each([
+    { backend: "local", json: { models: [] }, detail: /no models pulled/i },
+    { backend: "custom", json: { data: [{ id: "other-model" }] }, detail: /missing-model.*not listed/i },
+  ])("rejects an unavailable selected model for $backend", async ({ backend, json, detail }) => {
+    requestUrlMock.mockResolvedValueOnce({ status: 200, json, text: "" } as Awaited<ReturnType<typeof requestUrlMock>>);
+    const env = createWizardEnv({
+      settings: { ollamaModel: "missing-model", openaiCompatHost: "http://localhost:1234", openaiCompatModel: "missing-model" },
+    });
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+    selectProvider(content, backend);
+    content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+    await vi.waitFor(() => expect(content.querySelector(".cc-wizard-status")?.textContent ?? "").toMatch(detail));
+    expect(env.settings.chatBackend).toBe("claude");
+    expect(env.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("requires the on-device model download even when the GPU is available", async () => {
+    const env = createWizardEnv({ deviceTest: async () => ({ ok: true, detail: "GPU ready" }) });
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+    selectProvider(content, "device");
+    const cache = { open: async () => ({ match: async () => undefined as Response | undefined }) };
+    vi.stubGlobal("caches", cache);
+    try {
+      content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+      await vi.waitFor(() => expect(content.querySelector(".cc-wizard-status")?.textContent ?? "").toMatch(/download.*model/i));
+      expect(env.saveSettings).not.toHaveBeenCalled();
+      cache.open = async () => ({ match: async () => new Response() });
+      content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+      await vi.waitFor(() => expect(content.querySelector(".cc-wizard-summary")).not.toBeNull());
+      expect(env.settings.chatBackend).toBe("device");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("verifies Claude environment credentials without asking for another credential", async () => {
+    const test = vi.fn(async () => ({ ok: true, detail: "Connected" }));
+    const env = createWizardEnv({ settings: { authMode: "oauthToken", oauthToken: "previous-token" }, anthropicTest: test });
+    const modal = new ProviderSetupWizardModal(env.app as never, env.deps);
+    modal.open();
+    const content = modal.contentEl as unknown as FakeElement;
+    selectProvider(content, "claude");
+    const mode = content.querySelector(".cc-wizard-auth-mode")!;
+    expect(mode.querySelectorAll("option").map((el) => el.getAttribute("value"))).toContain("environment");
+    mode.value = "environment";
+    mode.dispatchEvent({ type: "change" });
+    expect(content.querySelector(".cc-wizard-input")).toBeNull();
+    content.querySelector(".cc-wizard-connect")!.dispatchEvent({ type: "click" });
+    await vi.waitFor(() => expect(env.settings.authMode).toBe("environment"));
+    expect(test).toHaveBeenCalledWith(expect.objectContaining({ authMode: "environment", oauthToken: "previous-token" }));
+  });
+
   it("probes newly entered epHost and ollamaHost with a real ProviderRouter rather than stale initial settings", async () => {
     requestUrlMock.mockClear();
     const env = createWizardEnv({
       settings: {
         chatBackend: "claude",
         openaiCompatHost: "http://initial-custom-host:1234",
-        openaiCompatModel: "model-init",
+        openaiCompatModel: "model-abc",
         ollamaHost: "http://initial-ollama-host:11434",
         ollamaModel: "llama3.1",
       },

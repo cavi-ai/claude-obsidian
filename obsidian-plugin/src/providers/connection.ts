@@ -4,8 +4,10 @@ import type { ProviderStatus } from "./types";
 
 export interface ConnectionChoice {
   backend: PluginSettings["chatBackend"];
+  authMode?: "environment";
   apiKey?: string;
   oauthToken?: string;
+  canCommit?: () => boolean;
 }
 
 /** One transaction for the setup card and settings: verify before replacing a working connection. */
@@ -26,8 +28,10 @@ export class ConnectionController {
     if (this.pending) {
       if (
         this.pendingChoice?.backend === choice.backend &&
+        this.pendingChoice.authMode === choice.authMode &&
         this.pendingChoice.apiKey === choice.apiKey &&
-        this.pendingChoice.oauthToken === choice.oauthToken
+        this.pendingChoice.oauthToken === choice.oauthToken &&
+        this.pendingChoice.canCommit === choice.canCommit
       ) return this.pending;
       return Promise.resolve({ ok: false, detail: "A different connection is being checked. Try again when it finishes." });
     }
@@ -50,6 +54,7 @@ export class ConnectionController {
     };
     const checked = { ...previous, baseUrl: settings.baseUrl };
     const next = { ...settings, chatBackend: choice.backend };
+    if (choice.authMode === "environment") next.authMode = choice.authMode;
     if (choice.apiKey !== undefined) {
       if (!choice.apiKey.trim()) return { ok: false, detail: "Enter an API key." };
       next.apiKey = choice.apiKey.trim();
@@ -60,10 +65,10 @@ export class ConnectionController {
       next.oauthToken = choice.oauthToken.trim();
       next.authMode = "oauthToken";
     }
-    if (this.disposed) throw new Error("Connection setup was closed. Try again.");
+    if (this.disposed || choice.canCommit?.() === false) throw new Error("Connection setup was closed. Try again.");
     const result = await this.deps.test(next);
     if (!result.ok) return result;
-    if (this.disposed) throw new Error("Connection setup was closed. Try again.");
+    if (this.disposed || choice.canCommit?.() === false) throw new Error("Connection setup was closed. Try again.");
     if (Object.entries(checked).some(([key, value]) => settings[key as keyof typeof checked] !== value)) {
       throw new Error("The connection changed while checking it. Try again.");
     }

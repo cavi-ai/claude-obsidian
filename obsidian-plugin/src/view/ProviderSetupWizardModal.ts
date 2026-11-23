@@ -1,7 +1,7 @@
 // Guided 3-step Provider Setup Wizard: choose provider, verify/configure with rollback safety, and finish.
 
 import { App, Modal } from "obsidian";
-import { DEVICE_MODELS } from "../device/models";
+import { DEVICE_MODELS, deviceModelCached } from "../device/models";
 import {
   buildWizardProviderCards,
   CLI_IDS,
@@ -18,7 +18,7 @@ import { ProviderRouter, type CliBackendId } from "../providers/router";
 import type { ProviderStatus } from "../providers/types";
 import { sanitizeEndpointForDisplay } from "../providers/endpointPolicy";
 import { OllamaProvider } from "../providers/ollama";
-import type { SecretStore } from "../secrets/store";
+import { secretIdFor, type SecretStore } from "../secrets/store";
 import type { PluginSettings } from "../types";
 import { cliModelChoices } from "./cliModelChoices";
 
@@ -44,7 +44,7 @@ interface WizardDrafts {
   probes: Set<string>;
   apiKey: string;
   oauth: string;
-  authMode: "apiKey" | "oauthToken";
+  authMode: PluginSettings["authMode"];
   ollamaHost: string;
   ollamaModel: string;
   epHost: string;
@@ -103,7 +103,7 @@ export class ProviderSetupWizardModal extends Modal {
       probes: new Set(),
       apiKey: s.apiKey,
       oauth: s.oauthToken,
-      authMode: s.authMode === "oauthToken" ? "oauthToken" : "apiKey",
+      authMode: s.authMode,
       ollamaHost: s.ollamaHost || "http://localhost:11434",
       ollamaModel: s.ollamaModel || "llama3.1",
       epHost: s.openaiCompatHost,
@@ -192,19 +192,29 @@ export class ProviderSetupWizardModal extends Modal {
 
     const body = div(contentEl, "cc-wizard-body");
     const footer = div(contentEl, "cc-wizard-footer");
-    makeBtn(footer, "cc-wizard-back", "Back", () => { st.step = 1; this.paint(); });
-
-    const runAction = (btn: HTMLButtonElement, statusEl: HTMLElement, waiting: string, work: () => Promise<void>): void => {
+    makeBtn(footer, "cc-wizard-back", "Back", () => {
       if (st.busy) return;
+      st.step = 1;
+      this.paint();
+    });
+
+    const canCommit = (): boolean => !st.closed;
+    const runAction = (statusEl: HTMLElement, waiting: string, work: () => Promise<void>): void => {
+      if (st.busy || st.closed) return;
+      const controls = [
+        ...body.querySelectorAll<HTMLInputElement>("input"),
+        ...body.querySelectorAll<HTMLSelectElement>("select"),
+        ...footer.querySelectorAll<HTMLButtonElement>("button"),
+      ];
       st.busy = true;
-      btn.disabled = true;
+      for (const control of controls) control.disabled = true;
       statusEl.removeClass("is-ok", "is-err");
       statusEl.setText(waiting);
       void work().catch((e: unknown) => {
         if (!st.closed) fail(statusEl, e instanceof Error ? e.message : String(e));
       }).finally(() => {
         st.busy = false;
-        if (!st.closed) btn.disabled = false;
+        if (!st.closed) for (const control of controls) control.disabled = false;
       });
     };
 
@@ -218,33 +228,55 @@ export class ProviderSetupWizardModal extends Modal {
     const testCandidate = async (candidate: PluginSettings): Promise<ProviderStatus> => {
       if (deps.testCandidate) return deps.testCandidate(candidate);
       const router = new ProviderRouter(candidate);
-      if (candidate.chatBackend === "local") return router.ollama.test();
-      if (candidate.chatBackend === "custom") return router.openaiCompat.test();
-      if (candidate.chatBackend === "device") return router.device.test();
-      return router.anthropic.test();
+      if (candidate.chatBackend === "local") return router.ollama.test(candidate.ollamaModel);
+      if (candidate.chatBackend === "custom") return router.openaiCompat.test(candidate.openaiCompatModel);
+      return router.device.test();
     };
 
     const testAndCommit = async (
       statusEl: HTMLElement,
       candidateOverrides: Partial<PluginSettings>,
       backend: PluginSettings["chatBackend"],
-      testCandidateFn: (candidate: PluginSettings) => Promise<ProviderStatus>,
       summaryMsg: string,
     ): Promise<void> => {
       const current = deps.settings();
-      const candidate: PluginSettings = {
-        ...current,
-        ...candidateOverrides,
-        chatBackend: backend,
-      };
-      const res = await testCandidateFn(candidate);
+      const changes = { ...candidateOverrides, chatBackend: backend };
+      const keys = Object.keys(changes) as Array<keyof PluginSettings>;
+      const previous = Object.fromEntries(keys.map((key) => [key, current[key]]));
+      const candidate = { ...current, ...changes };
+      const res = await testCandidate(candidate);
       if (st.closed) return;
       if (!res.ok) {
         fail(statusEl, res.detail);
         return;
       }
-      Object.assign(current, candidateOverrides, { chatBackend: backend });
-      await deps.saveSettings();
+      if (backend === "device" && !await deviceModelCached(candidate.deviceChatModel, window.caches)) {
+        if (!st.closed) fail(statusEl, "In Companion settings → Connection, choose On-device GPU as the chat backend, then select and download this model.");
+        return;
+      }
+      if (st.closed) return;
+      if (current !== deps.settings() || keys.some((key) => current[key] !== previous[key])) {
+        fail(statusEl, "The connection changed while checking it. Try again.");
+        return;
+      }
+      const store = deps.secrets();
+      const keyId = secretIdFor("openaiCompatKey");
+      const restoreKey = changes.openaiCompatKey !== undefined && store.available();
+      const storedBefore = restoreKey ? store.get(keyId) ?? "" : "";
+      Object.assign(current, changes);
+      try {
+        await deps.saveSettings();
+      } catch (error) {
+        Object.assign(current, previous);
+        const restoredSettings = await deps.saveSettings().then(() => true, () => false);
+        if (restoreKey && (store.get(keyId) ?? "") !== storedBefore && !store.set(keyId, storedBefore)) {
+          throw new Error("Could not restore the previous endpoint key. Check Obsidian secret storage.", { cause: error });
+        }
+        if (!restoredSettings) {
+          throw new Error("Could not save or restore the connection settings. Check storage and retry.", { cause: error });
+        }
+        throw error;
+      }
       if (!st.closed) done(summaryMsg);
     };
 
@@ -283,7 +315,7 @@ export class ProviderSetupWizardModal extends Modal {
       }
 
       const connectCli = async (): Promise<void> => {
-        const res = await deps.connection().connect({ backend: id });
+        const res = await deps.connection().connect({ backend: id, canCommit });
         if (!st.closed) {
           if (res.ok) {
             if (id !== "claude-cli") {
@@ -294,16 +326,16 @@ export class ProviderSetupWizardModal extends Modal {
                 await deps.saveSettings();
               }
             }
-            done(`${b.label} connected.`);
+            if (!st.closed) done(`${b.label} connected.`);
           } else {
             fail(statusEl, res.detail);
           }
         }
       };
 
-      const recheckBtn = makeBtn(footer, ok ? "cc-wizard-recheck" : "mod-cta cc-wizard-recheck", "Re-check", () => {
+      makeBtn(footer, ok ? "cc-wizard-recheck" : "mod-cta cc-wizard-recheck", "Re-check", () => {
         if (!p) return;
-        runAction(recheckBtn, statusEl, `Checking ${b.label}…`, async () => {
+        runAction(statusEl, `Checking ${b.label}…`, async () => {
           const check: ProviderStatus = await p.refresh();
           if (st.closed) return;
           if (p.hasCredentials()) await connectCli();
@@ -317,8 +349,8 @@ export class ProviderSetupWizardModal extends Modal {
       });
 
       if (ok) {
-        const useBtn = makeBtn(footer, "mod-cta cc-wizard-connect", `Use ${b.label}`, () => {
-          runAction(useBtn, statusEl, "Connecting…", connectCli);
+        makeBtn(footer, "mod-cta cc-wizard-connect", `Use ${b.label}`, () => {
+          runAction(statusEl, "Connecting…", connectCli);
         });
       }
       return;
@@ -329,25 +361,36 @@ export class ProviderSetupWizardModal extends Modal {
       makeSel(body, "Authentication mode", "cc-wizard-auth-mode", [
         { id: "apiKey", label: "API key (recommended)" },
         { id: "oauthToken", label: "Long-term OAuth token (subscription)" },
-      ], st.authMode, (v) => { st.authMode = v === "oauthToken" ? "oauthToken" : "apiKey"; this.paint(); });
+        { id: "environment", label: "Import from environment" },
+      ], st.authMode, (mode) => {
+        if (st.busy || (mode !== "apiKey" && mode !== "oauthToken" && mode !== "environment")) return;
+        st.authMode = mode;
+        this.paint();
+      });
       const isOAuth = st.authMode === "oauthToken";
-      const inp = makeInp(body, isOAuth ? "OAuth token" : "Anthropic API key", "cc-wizard-input", "password", isOAuth ? "sk-ant-oat…" : "sk-ant-api…", isOAuth ? st.oauth : st.apiKey, (v) => {
+      const isEnvironment = st.authMode === "environment";
+      if (isEnvironment) {
+        body.createEl("p", { text: "Uses ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN from Obsidian’s process environment." });
+      }
+      const inp = isEnvironment ? null : makeInp(body, isOAuth ? "OAuth token" : "Anthropic API key", "cc-wizard-input", "password", isOAuth ? "sk-ant-oat…" : "sk-ant-api…", isOAuth ? st.oauth : st.apiKey, (v) => {
         if (isOAuth) st.oauth = v; else st.apiKey = v;
       });
       const statusEl = div(body, "cc-wizard-status", { role: "status" });
       const submit = (): void => {
-        const val = inp.value.trim();
-        if (!val) { fail(statusEl, isOAuth ? "Enter an OAuth token." : "Enter an API key."); inp.focus(); return; }
-        runAction(connectBtn, statusEl, "Verifying…", async () => {
-          const res = await deps.connection().connect({ backend: "claude", ...(isOAuth ? { oauthToken: val } : { apiKey: val }) });
+        if (st.busy) return;
+        const val = inp?.value.trim() ?? "";
+        if (inp && !val) { fail(statusEl, isOAuth ? "Enter an OAuth token." : "Enter an API key."); inp.focus(); return; }
+        runAction(statusEl, "Verifying…", async () => {
+          const credential = isEnvironment ? { authMode: "environment" as const } : isOAuth ? { oauthToken: val } : { apiKey: val };
+          const res = await deps.connection().connect({ backend: "claude", canCommit, ...credential });
           if (!st.closed) {
-            if (res.ok) done(isOAuth ? "Claude OAuth token connected." : "Claude API connected.");
+            if (res.ok) done(isEnvironment ? "Claude connected using environment credentials." : isOAuth ? "Claude OAuth token connected." : "Claude API connected.");
             else fail(statusEl, res.detail);
           }
         });
       };
-      const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Verify & connect", submit);
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); submit(); } });
+      makeBtn(footer, "mod-cta cc-wizard-connect", "Verify & connect", submit);
+      inp?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); submit(); } });
       return;
     }
 
@@ -356,8 +399,8 @@ export class ProviderSetupWizardModal extends Modal {
       makeInp(body, "Ollama host", "cc-wizard-host-input", "text", "http://localhost:11434", st.ollamaHost, (v) => { st.ollamaHost = v; });
       const modelInp = makeInp(body, "Ollama model", "cc-wizard-model-input", "text", "llama3.1", st.ollamaModel, (v) => { st.ollamaModel = v; });
       const statusEl = div(body, "cc-wizard-status", { role: "status" });
-      const detectBtn = makeBtn(footer, "cc-wizard-detect", "Detect models", () => {
-        runAction(detectBtn, statusEl, "Detecting Ollama models…", async () => {
+      makeBtn(footer, "cc-wizard-detect", "Detect models", () => {
+        runAction(statusEl, "Detecting Ollama models…", async () => {
           const host = st.ollamaHost.trim() || "http://localhost:11434";
           const model = st.ollamaModel.trim() || "llama3.1";
           const models = deps.detectOllamaModels
@@ -376,8 +419,8 @@ export class ProviderSetupWizardModal extends Modal {
           statusEl.setText(`Detected ${models.length} model(s): ${models.join(", ")}`);
         });
       });
-      const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Test & connect", () => {
-        runAction(connectBtn, statusEl, "Testing Ollama connection…", () =>
+      makeBtn(footer, "mod-cta cc-wizard-connect", "Test & connect", () => {
+        runAction(statusEl, "Testing Ollama connection…", () =>
           testAndCommit(
             statusEl,
             {
@@ -385,7 +428,6 @@ export class ProviderSetupWizardModal extends Modal {
               ollamaModel: st.ollamaModel.trim() || "llama3.1",
             },
             "local",
-            testCandidate,
             `Ollama connected (${st.ollamaModel.trim() || "llama3.1"}).`,
           ),
         );
@@ -399,9 +441,9 @@ export class ProviderSetupWizardModal extends Modal {
       makeInp(body, "Endpoint model", "cc-wizard-model-input", "text", "Model ID", st.epModel, (v) => { st.epModel = v; });
       makeInp(body, "Endpoint API key", "cc-wizard-key-input", "password", "Optional bearer key", st.epKey, (v) => { st.epKey = v; });
       const statusEl = div(body, "cc-wizard-status", { role: "status" });
-      const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Test & connect", () => {
+      makeBtn(footer, "mod-cta cc-wizard-connect", "Test & connect", () => {
         if (!st.epHost.trim()) { fail(statusEl, "Enter an endpoint host URL."); hostInp.focus(); return; }
-        runAction(connectBtn, statusEl, "Testing endpoint…", () =>
+        runAction(statusEl, "Testing endpoint…", () =>
           testAndCommit(
             statusEl,
             {
@@ -410,7 +452,6 @@ export class ProviderSetupWizardModal extends Modal {
               openaiCompatKey: st.epKey.trim(),
             },
             "custom",
-            testCandidate,
             `Endpoint connected (${sanitizeEndpointForDisplay(st.epHost.trim())}).`,
           ),
         );
@@ -421,13 +462,12 @@ export class ProviderSetupWizardModal extends Modal {
     body.createEl("h3", { text: "On-device GPU" });
     makeSel(body, "On-device model", "cc-wizard-model-select", DEVICE_MODELS.map((m) => ({ id: m.id, label: m.label })), st.deviceModel, (v) => { st.deviceModel = v; });
     const statusEl = div(body, "cc-wizard-status", { role: "status" });
-    const connectBtn = makeBtn(footer, "mod-cta cc-wizard-connect", "Check GPU & connect", () => {
-      runAction(connectBtn, statusEl, "Checking WebGPU support…", () =>
+    makeBtn(footer, "mod-cta cc-wizard-connect", "Check GPU & connect", () => {
+      runAction(statusEl, "Checking WebGPU support…", () =>
         testAndCommit(
           statusEl,
           { deviceChatModel: st.deviceModel },
           "device",
-          testCandidate,
           "On-device GPU selected.",
         ),
       );

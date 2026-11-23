@@ -446,11 +446,12 @@ describe("ProviderRouter — codex-cli and opencode-cli backends", () => {
     expect(r.chatProvider()).toEqual({ provider: r.codexCli, model: "gpt-5.1-codex" });
     expect(r.chatCapabilities()).toEqual({ agentActions: true, claudeControls: false, metered: false, local: false, cli: true, cliBackend: "codex-cli" });
 
-    const agy = new ProviderRouter(settings({ chatBackend: "agy-cli", agyModel: "gemini-2.5-pro", apiKey: "" }), undefined, { cliRuntime: cliRuntime(true, "Antigravity") });
+    const agy = new ProviderRouter(settings({ chatBackend: "agy-cli", agyModel: "gemini-2.5-pro", apiKey: "", mcpEnabled: true }), undefined, { cliRuntime: cliRuntime(true, "Antigravity") });
     await agy.agyCli.refresh();
     expect(agy.get("agy-cli")).toBe(agy.agyCli);
     expect(agy.chatProvider()).toEqual({ provider: agy.agyCli, model: "gemini-2.5-pro" });
-    expect(agy.chatCapabilities()).toEqual({ agentActions: true, claudeControls: false, metered: false, local: false, cli: true, cliBackend: "agy-cli" });
+    expect(await agy.chatToolCapable()).toBe(false);
+    expect(agy.chatCapabilities()).toEqual({ agentActions: false, claudeControls: false, metered: false, local: false, cli: true, cliBackend: "agy-cli" });
   });
   it("chatProvider() stays on opencode-cli with cli:false when signed out on desktop instead of silently using the API key", async () => {
     const r = new ProviderRouter(settings({ chatBackend: "opencode-cli", apiKey: "sk-ant-api-test" }), undefined, { cliRuntime: cliRuntime(false) });

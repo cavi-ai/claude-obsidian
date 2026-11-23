@@ -79,13 +79,13 @@ export function antigravityCommand(info: BridgeInfo): string {
   return `agy mcp add --header "Authorization: Bearer ${token}" obsidian-vault ${bridgeUrl(info.port)}`;
 }
 
-/** The `codex mcp add` command for Codex (HTTP transport). */
-export function codexCommand(info: BridgeInfo): string {
+/** User configuration for Codex's streamable HTTP transport. */
+export function codexConfig(info: BridgeInfo): string {
   const token = requireToken(info.token);
-  if (token === mcpTokenEnvRef()) {
-    return `codex mcp add obsidian-vault --url ${bridgeUrl(info.port)} --bearer-token-env-var ${MCP_TOKEN_ENV}`;
-  }
-  return `${MCP_TOKEN_ENV}="${token}" codex mcp add obsidian-vault --url ${bridgeUrl(info.port)} --bearer-token-env-var ${MCP_TOKEN_ENV}`;
+  const auth = token === mcpTokenEnvRef()
+    ? `bearer_token_env_var = "${MCP_TOKEN_ENV}"`
+    : `http_headers = { Authorization = ${JSON.stringify(`Bearer ${token}`).replaceAll(String.fromCharCode(127), "\\u007F")} }`;
+  return `[mcp_servers.obsidian-vault]\nurl = "${bridgeUrl(info.port)}"\n${auth}`;
 }
 
 /** A claude_desktop_config.json fragment (uses mcp-remote to bridge HTTP→stdio). */

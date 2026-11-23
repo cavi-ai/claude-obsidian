@@ -136,8 +136,9 @@ describe("CliSession", () => {
   it("fails a turn when the process exits mid-stream, with the stderr tail", async () => {
     const { s, children } = session();
     const turn = s.run(req, { onText: () => undefined });
-    children[0]!.stderr.emit("data", Buffer.from("boom: not logged in"));
     children[0]!.emit("exit", 1);
+    children[0]!.stderr.emit("data", Buffer.from("boom: not logged in"));
+    children[0]!.emit("close", 1);
     const r = await turn;
     expect(r.error?.message).toMatch(/exited \(code 1\).*not logged in/);
     expect(s.isClosed()).toBe(true);
@@ -171,6 +172,7 @@ describe("CliSession", () => {
     expect(r.error).toBeUndefined();
     feed(children[0]!, result("late"));
     children[0]!.emit("exit", 0);
+    children[0]!.emit("close", 0);
     await expect(s.run(req, { onText: () => {} })).rejects.toThrow(/closed/);
     expect(children).toHaveLength(1);
   });
@@ -197,7 +199,7 @@ describe("CliSession", () => {
     const { s, children } = session();
     const turn = s.run(req, { onText: () => {} });
     feed(children[0]!, init + text("par"));
-    children[0]!.emit("exit", 0);
+    children[0]!.emit("close", 0);
     const r = await turn;
     expect(r.error?.message).toContain("exited (code 0)");
     expect(s.isClosed()).toBe(true);
@@ -371,6 +373,7 @@ describe("CliSession per-turn (codex, opencode)", () => {
     const turn = s.run(req, { onText: () => undefined });
     feed(children[0]!, '{"type":"thread.started","thread_id":"th1"}\n{"type":"item.completed","item":{"type":"agent_message","text":"partial"}}\n');
     children[0]!.emit("exit", 0);
+    children[0]!.emit("close", 0);
     const r = await turn;
     expect(r.text).toBe("partial");
     expect(r.error).toBeUndefined();
@@ -382,6 +385,7 @@ describe("CliSession per-turn (codex, opencode)", () => {
     const turn = s.run(req, { onText: () => undefined });
     children[0]!.stderr.emit("data", Buffer.from("boom"));
     children[0]!.emit("exit", 1);
+    children[0]!.emit("close", 1);
     const r = await turn;
     expect(r.error?.message).toMatch(/exited \(code 1\).*boom/);
     expect(s.isClosed()).toBe(false);
@@ -399,7 +403,7 @@ describe("CliSession per-turn (codex, opencode)", () => {
     expect(s.isClosed()).toBe(false);
   });
 
-it("flushes an unterminated trailing NDJSON line on child exit, ignores stale child exits, and deduplicates repeated toolUse IDs", async () => {
+  it("flushes late NDJSON on close, ignores stale children, and deduplicates tool IDs", async () => {
     const { s, children } = perTurnSession();
     const started: string[] = [];
     const finished: string[] = [];
@@ -409,7 +413,6 @@ it("flushes an unterminated trailing NDJSON line on child exit, ignores stale ch
       onToolResult: (b) => finished.push(`${b.id}:${b.name}`),
     });
     const child1 = children[0]!;
-    // Emit duplicate toolUse with the same id before toolResult
     feed(
       child1,
       '{"type":"thread.started","thread_id":"th1"}\n' +
@@ -417,11 +420,12 @@ it("flushes an unterminated trailing NDJSON line on child exit, ignores stale ch
         '{"type":"item.started","item":{"id":"dup_1","type":"command_execution","command":"ls -la"}}\n' +
         '{"type":"item.completed","item":{"id":"dup_1","type":"command_execution","aggregated_output":"ok","exit_code":0}}\n',
     );
-    // Unterminated final line (no trailing \n) flushed on exit
-    feed(child1, '{"type":"item.completed","item":{"type":"agent_message","text":"flushed-on-exit"}}');
+    // The final line arrives after exit without a newline.
     child1.emit("exit", 0);
+    feed(child1, '{"type":"item.completed","item":{"type":"agent_message","text":"flushed-on-close"}}');
+    child1.emit("close", 0);
     const res1 = await firstTurn;
-    expect(res1.text).toBe("flushed-on-exit");
+    expect(res1.text).toBe("flushed-on-close");
     expect(started).toEqual(["dup_1:shell"]);
     expect(finished).toEqual(["dup_1:shell"]);
 
@@ -430,8 +434,10 @@ it("flushes an unterminated trailing NDJSON line on child exit, ignores stale ch
     const child2 = children[1]!;
     child1.stderr.emit("data", Buffer.from("stale stderr"));
     child1.emit("exit", 1);
+    child1.emit("close", 1);
     feed(child2, '{"type":"item.completed","item":{"type":"agent_message","text":"turn2-ok"}}\n');
     child2.emit("exit", 0);
+    child2.emit("close", 0);
     const res2 = await secondTurn;
     expect(res2.text).toBe("turn2-ok");
     expect(res2.error).toBeUndefined();
@@ -445,5 +451,19 @@ it("flushes an unterminated trailing NDJSON line on child exit, ignores stale ch
     expect(argv[argv.length - 1]).toBe("hello");
     feed(children[0]!, '{"type":"turn.completed","usage":{}}\n');
     await turn;
+  });
+
+  it("interrupt during drain settles the turn as aborted without waiting for close", async () => {
+    const { s, children } = perTurnSession();
+    const turn = s.run(req, { onText: () => undefined });
+    feed(children[0]!, '{"type":"thread.started","thread_id":"th1"}\n{"type":"item.completed","item":{"type":"agent_message","text":"partial"}}\n');
+    children[0]!.emit("exit", 0);
+    // draining now — interrupt must resolve the turn immediately
+    s.interrupt();
+    const r = await turn;
+    expect(r.aborted).toBe(true);
+    expect(r.text).toBe("partial");
+    // late close after drain was cancelled — must not throw or re-settle
+    children[0]!.emit("close", 0);
   });
 });

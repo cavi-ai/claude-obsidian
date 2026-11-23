@@ -17,6 +17,7 @@ export interface CliChild {
   stdout: CliChildStream;
   stderr: CliChildStream;
   on(event: "exit", listener: (code: number | null) => void): unknown;
+  on(event: "close", listener: (code: number | null) => void): unknown;
   on(event: "error", listener: (err: Error) => void): unknown;
   kill(signal?: string): boolean;
 }
@@ -199,6 +200,7 @@ export class CliSession implements AgentTurnRunner {
     if (this.active) this.active.settle({ text: this.text(this.active), trace: this.active.trace, aborted: true });
     const exited = new Promise<void>((resolve) => {
       child.on("exit", () => resolve());
+      child.on("close", () => resolve());
       child.on("error", () => resolve());
     });
     child.stdin.end();
@@ -224,7 +226,8 @@ export class CliSession implements AgentTurnRunner {
       if (this.child !== child) return;
       this.onChildExit(child, `${this.deps.backend.label} failed to start: ${err.message}`, null);
     });
-    child.on("exit", (code) => {
+    // Child exit can precede the last chunks on stdout and stderr.
+    child.on("close", (code) => {
       if (this.child !== child) return;
       for (const ev of parser.flush()) this.onEvent(ev);
       this.onChildExit(child, `${this.deps.backend.label} exited (code ${code ?? "?"}).${this.stderrTail.trim() ? ` ${this.stderrTail.trim()}` : ""}`, code ?? null);
@@ -244,7 +247,7 @@ export class CliSession implements AgentTurnRunner {
       if (turn) turn.settle({ text: this.text(turn), trace: turn.trace, error: new Error(message) });
       return;
     }
-    // Per-turn: exit is the normal way a turn ends. A turn already settled by
+    // Per-turn: process close is the normal way a turn ends. A turn already settled by
     // a result event leaves `active` null here — nothing left to do.
     if (!turn) return;
     this.clearIdleTimers();

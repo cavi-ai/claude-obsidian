@@ -15,8 +15,6 @@ import { ResearchFeature, type ResearchFeatureDeps } from "../research/researchF
 import { ClipperFeature } from "../sources/clipperFeature";
 import { CompanionShell } from "../view/companionShell";
 import { ProviderSetupWizardModal } from "../view/ProviderSetupWizardModal";
-import { ProviderRouter } from "../providers/router";
-import { OllamaProvider } from "../providers/ollama";
 import { ARTIFACT_MAX_TOKENS, WorkspaceViews } from "../view/workspaceViews";
 
 export type UtilityRoutingHost = Pick<ClaudeCompanionPlugin, "app" | "router" | "settings">;
@@ -64,14 +62,6 @@ export function buildOnboarding(host: OnboardingHost): Onboarding {
         router: () => host.router(),
         connection: () => host.connection(),
         secrets: () => host.secrets(),
-        testCandidate: (candidate) => {
-          const router = new ProviderRouter(candidate);
-          if (candidate.chatBackend === "local") return router.ollama.test();
-          if (candidate.chatBackend === "custom") return router.openaiCompat.test();
-          if (candidate.chatBackend === "device") return router.device.test();
-          return router.anthropic.test();
-        },
-        detectOllamaModels: (hostUrl, model) => new OllamaProvider(hostUrl, model).listModels(),
         refreshViews: () => host.refreshViews(),
         openDesktopIntegrations: () => host.desktopIntegrations().open(),
         activateChat: () => { void host.views().activateView(); },
