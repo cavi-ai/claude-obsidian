@@ -28,7 +28,9 @@ describe("credentialSetupInputs", () => {
 
   it("reads each provider and treats a missing CLI provider as signed out", () => {
     const inputs = credentialSetupInputs({ chatBackend: "claude-cli", anthropic: signed(false), claudeCli: signed(true) });
-    expect(inputs).toEqual({ backend: "claude-cli", hasAnthropicCredential: false, hasClaudeCli: true, hasCodexCli: false, hasOpencodeCli: false });
+    expect(inputs).toEqual({ backend: "claude-cli", hasAnthropicCredential: false, hasClaudeCli: true, hasCodexCli: false, hasOpencodeCli: false, hasAgyCli: false });
+    expect(needsCredentialSetup({ backend: "agy-cli", hasAnthropicCredential: true, hasAgyCli: false })).toBe(true);
+    expect(needsCredentialSetup({ backend: "agy-cli", hasAnthropicCredential: false, hasAgyCli: true })).toBe(false);
     expect(needsCredentialSetup(inputs)).toBe(false);
     expect(needsCredentialSetup(credentialSetupInputs({ chatBackend: "codex-cli", anthropic: signed(true) }))).toBe(true);
   });

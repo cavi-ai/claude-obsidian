@@ -11,10 +11,10 @@ import type { ComposerHost } from "./hosts";
 
 export interface ModelChoice { value: string; label: string }
 export interface ModelChoiceGroup { backend: PluginSettings["chatBackend"]; label: string; choices: ModelChoice[] }
-export interface ModelDiscovery { ollama?: string[]; endpoint?: string[]; codex?: CliModel[]; opencode?: CliModel[] }
+export interface ModelDiscovery { ollama?: string[]; endpoint?: string[]; codex?: CliModel[]; opencode?: CliModel[]; agy?: CliModel[] }
 
 export const MODEL_BACKEND_LABELS: Record<PluginSettings["chatBackend"], string> = {
-  auto: "Auto", claude: "Claude API", "claude-cli": "Claude Code", "codex-cli": "Codex", "opencode-cli": "OpenCode",
+  auto: "Auto", claude: "Claude API", "claude-cli": "Claude Code", "codex-cli": "Codex", "opencode-cli": "OpenCode", "agy-cli": "Antigravity",
   local: "Ollama", custom: "Endpoint", device: "On-device GPU",
 };
 
@@ -23,6 +23,7 @@ export function selectedModelValue(settings: PluginSettings, claudeModel: string
   switch (backend) {
     case "codex-cli": return `codex-cli:${settings.codexModel}`;
     case "opencode-cli": return `opencode-cli:${settings.opencodeModel}`;
+    case "agy-cli": return `agy-cli:${settings.agyModel}`;
     case "device": return `device:${settings.deviceChatModel}`;
     case "local": return `ollama:${settings.ollamaModel}`;
     case "custom": return `custom:${settings.openaiCompatModel}`;
@@ -46,11 +47,13 @@ export function modelCatalog(input: {
   const claudeChoices = (backend: "auto" | "claude" | "claude-cli"): ModelChoice[] => [...claude].map(([id, label]) => ({ value: `${backend}:${id}`, label }));
   const groups = [group("auto", claudeChoices("auto")), group("claude", claudeChoices("claude"))];
   if (!isMobile) {
-    for (const backend of ["claude-cli", "codex-cli", "opencode-cli"] as const) {
+    for (const backend of ["claude-cli", "codex-cli", "opencode-cli", "agy-cli"] as const) {
       if (!input.availableCli?.includes(backend) && settings.chatBackend !== backend) continue;
+      const detectedFor = backend === "codex-cli" ? detected.codex ?? [] : backend === "agy-cli" ? detected.agy ?? [] : detected.opencode ?? [];
+      const configuredFor = backend === "codex-cli" ? settings.codexModel : backend === "agy-cli" ? settings.agyModel : settings.opencodeModel;
       groups.push(group(backend, backend === "claude-cli" ? claudeChoices(backend) : cliModelChoices(
-        backend === "codex-cli" ? detected.codex ?? [] : detected.opencode ?? [],
-        backend === "codex-cli" ? settings.codexModel : settings.opencodeModel,
+        detectedFor,
+        configuredFor,
         MODEL_BACKEND_LABELS[backend],
       ).map(model => ({ value: `${backend}:${model.id}`, label: model.label }))));
     }
@@ -83,7 +86,7 @@ export class ModelCatalogSource {
   snapshot(): ModelChoiceGroup[] {
     const router = this.plugin.router();
     const availableCli = ([
-      ["claude-cli", router.claudeCli], ["codex-cli", router.codexCli], ["opencode-cli", router.opencodeCli],
+      ["claude-cli", router.claudeCli], ["codex-cli", router.codexCli], ["opencode-cli", router.opencodeCli], ["agy-cli", router.agyCli],
     ] as const).filter(([, provider]) => provider?.available?.()).map(([id]) => id);
     return modelCatalog({ settings: this.plugin.settings, claudeModel: this.claudeModel(), isMobile: this.isMobile, availableCli, detected: this.detected, ...(this.claudeModels ? { claudeModels: this.claudeModels.models() } : {}) });
   }
@@ -113,6 +116,7 @@ export class ModelCatalogSource {
     if (!this.isMobile) {
       if (router.codexCli?.available?.()) load("codex", () => router.codexCli.listModels());
       if (router.opencodeCli?.available?.()) load("opencode", () => router.opencodeCli.listModels());
+      if (router.agyCli?.available?.()) load("agy", () => router.agyCli.listModels());
     }
     await Promise.all(jobs);
   }

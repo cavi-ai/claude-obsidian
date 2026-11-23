@@ -2,10 +2,15 @@
 
 import { sanitizeEndpointForDisplay } from "./endpointPolicy";
 
-export type ErrorHintProvider = "anthropic" | "ollama" | "openai-compat" | "device" | "claude-cli" | "codex-cli" | "opencode-cli";
+export type ErrorHintProvider = "anthropic" | "ollama" | "openai-compat" | "device" | "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
 
-const CLI_LABELS: Record<"claude-cli" | "codex-cli" | "opencode-cli", string> = { "claude-cli": "Claude Code", "codex-cli": "Codex", "opencode-cli": "OpenCode" };
-const CLI_SIGN_IN: Record<"claude-cli" | "codex-cli" | "opencode-cli", string> = { "claude-cli": "run `claude auth login`", "codex-cli": "run `codex login`", "opencode-cli": "run `opencode auth login`" };
+type CliHintProvider = "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
+const CLI_LABELS: Record<CliHintProvider, string> = { "claude-cli": "Claude Code", "codex-cli": "Codex", "opencode-cli": "OpenCode", "agy-cli": "Antigravity" };
+const CLI_SIGN_IN: Record<CliHintProvider, string> = { "claude-cli": "run `claude auth login`", "codex-cli": "run `codex login`", "opencode-cli": "run `opencode auth login`", "agy-cli": "run `agy` and sign in" };
+
+function isCliHintProvider(provider: ErrorHintProvider): provider is CliHintProvider {
+  return provider === "claude-cli" || provider === "codex-cli" || provider === "opencode-cli" || provider === "agy-cli";
+}
 
 function redactUrlUserinfo(message: string): string {
   return message.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^/\s?#]*@/gi, "$1");
@@ -17,14 +22,14 @@ function endpointName(provider: ErrorHintProvider, endpoint?: string): string {
   if (provider === "ollama") return `Ollama${at}`;
   if (provider === "device") return "the on-device GPU model";
   if (provider === "openai-compat") return `the OpenAI-compatible endpoint${at}`;
-  if (provider === "claude-cli" || provider === "codex-cli" || provider === "opencode-cli") return CLI_LABELS[provider];
+  if (isCliHintProvider(provider)) return CLI_LABELS[provider];
   return `Anthropic${at}`;
 }
 
 export function errorHint(message: string, provider: ErrorHintProvider = "anthropic", endpoint?: string): string | null {
   if (provider === "device") return null; // bounded worker failures already include a recovery action
   const m = message.toLowerCase();
-  if (provider === "claude-cli" || provider === "codex-cli" || provider === "opencode-cli") {
+  if (isCliHintProvider(provider)) {
     const label = CLI_LABELS[provider];
     const signIn = CLI_SIGN_IN[provider];
     if (m.includes("not found")) return `${label} was not found on this machine. Install it, then ${signIn}, or pick another chat backend in Companion settings.`;

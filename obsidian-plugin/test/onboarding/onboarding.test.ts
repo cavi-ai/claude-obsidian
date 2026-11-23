@@ -200,7 +200,7 @@ describe("Onboarding.credentialSetupInputs", () => {
   it("reads the current router", () => {
     const { onboarding } = setup({ router: { backend: "codex-cli", codexCli: true } });
     expect(onboarding.credentialSetupInputs()).toEqual({
-      backend: "codex-cli", hasAnthropicCredential: true, hasClaudeCli: false, hasCodexCli: true, hasOpencodeCli: false,
+      backend: "codex-cli", hasAnthropicCredential: true, hasClaudeCli: false, hasCodexCli: true, hasOpencodeCli: false, hasAgyCli: false,
     });
   });
 });

@@ -3909,3 +3909,150 @@ body .cc-canvas-result button.cc-canvas-open { background: var(--cc-accent); col
   .cc-pane-popover-close, .cc-pane-popover .cc-activity-actions button, .cc-snippet-copy, .cc-feedback-dismiss { min-height: 44px; }
   .cc-chat-root .cc-tune-btn { min-width: 44px; }
 }
+
+/* ---------- setup card signed-out CLI & guided provider wizard ---------- */
+.cc-setup-cli-signedout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+}
+.cc-setup-cli-signedout-actions,
+.cc-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.cc-provider-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cc-wizard-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.cc-wizard-step-pill {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+}
+.cc-wizard-step-pill.is-active {
+  color: var(--text-normal);
+  font-weight: 600;
+  background: var(--background-modifier-hover);
+}
+.cc-wizard-step-pill.is-done {
+  color: var(--color-green, #1e5631);
+}
+.cc-wizard-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.cc-wizard-provider-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: start;
+  gap: 4px;
+  padding: 12px;
+  height: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  cursor: pointer;
+}
+.cc-wizard-provider-card:hover,
+.cc-wizard-provider-card.is-selected {
+  border-color: var(--cc-accent);
+  background: var(--background-secondary);
+}
+.cc-wizard-card-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cc-wizard-card-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.cc-wizard-card-sub {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  white-space: normal;
+}
+.cc-wizard-card-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  white-space: normal;
+}
+.cc-wizard-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.cc-wizard-badge.is-ready {
+  color: var(--cc-olive, var(--color-green));
+  background: color-mix(in srgb, var(--cc-olive, var(--color-green)) 14%, transparent);
+}
+.cc-wizard-badge.is-warning {
+  color: var(--text-warning);
+  background: color-mix(in srgb, var(--text-warning) 14%, transparent);
+}
+.cc-wizard-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.cc-wizard-cmd-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  margin: 8px 0;
+}
+.cc-wizard-status {
+  font-size: var(--font-ui-small);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.cc-wizard-status:empty {
+  display: none;
+}
+.cc-wizard-status.is-ok {
+  color: var(--cc-olive, var(--color-green));
+  background: color-mix(in srgb, var(--cc-olive, var(--color-green)) 14%, transparent);
+}
+.cc-wizard-status.is-err {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 14%, transparent);
+}
+.cc-wizard-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}

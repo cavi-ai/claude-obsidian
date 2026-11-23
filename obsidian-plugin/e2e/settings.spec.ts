@@ -116,7 +116,7 @@ for (const { width, zoom, theme } of [
 
       await tab.getByRole("button", { name: "Connections", exact: true }).click();
       const snippets = tab.locator('.setting-item:has(.setting-item-name:text-is("Connection snippets"))');
-      await expect(snippets.locator(".cc-snippet")).toHaveCount(2);
+      await expect(snippets.locator(".cc-snippet")).toHaveCount(4);
       await snippets.scrollIntoViewIfNeeded();
       await expect(snippets.getByRole("button", { name: "Copy Claude Code", exact: true })).toBeVisible();
       const snippetBounds = await snippets.evaluate((element) => {

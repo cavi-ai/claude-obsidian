@@ -41,6 +41,7 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
   deviceChatModel: "basic",
   codexModel: "advanced",
   opencodeModel: "advanced",
+  agyModel: "advanced",
   researchModel: "basic",
   openaiCompatHost: "advanced",
   openaiCompatModel: "advanced",
@@ -119,6 +120,7 @@ const SETTING_TIERS: Record<keyof PluginSettings, SettingsTier> = {
 const BASIC_ACTION_NAMES: ReadonlySet<string> = new Set([
   "Codex model",
   "OpenCode model",
+  "Antigravity model",
   "On-device model download",
   "Desktop integrations", // "vault tools connect"
   "Embedding model", // "semantic on/off + download"

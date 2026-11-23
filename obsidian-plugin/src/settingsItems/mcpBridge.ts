@@ -2,7 +2,7 @@
 
 import type { SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, antigravityCommand, codexConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../mcp/clientConfig";
 import { regenerateMcpToken, setCredential, setMcpEnabled } from "./actions";
 
 export interface McpBridgeItemsContext {
@@ -13,7 +13,7 @@ export interface McpBridgeItemsContext {
   tokenReveal: { shown: boolean };
 }
 
-function codeBlock(containerEl: HTMLElement, label: string, code: string, copyText: string = code): void {
+function codeBlock(containerEl: HTMLElement, label: string, code: string, copyText: string, instructions?: string): void {
   const wrap = containerEl.createDiv({ cls: "cc-snippet" });
   const head = wrap.createDiv({ cls: "cc-snippet-head" });
   head.createSpan({ text: label });
@@ -23,6 +23,7 @@ function codeBlock(containerEl: HTMLElement, label: string, code: string, copyTe
     copy.setText("Copied");
     window.setTimeout(() => copy.setText("Copy"), 1200);
   });
+  if (instructions) wrap.createEl("p", { text: instructions });
   wrap.createEl("pre", { cls: "cc-snippet-pre" }).createEl("code", { text: code });
 }
 
@@ -91,7 +92,7 @@ export function mcpItems(ctx: McpBridgeItemsContext): SettingGroupItem[] {
     },
     {
       name: "Show token in snippets",
-      desc: "Off by default so the snippets are safe to screen-share. Copy always copies the real, working command.",
+      desc: "Off by default so the snippets are safe to screen-share. Copy includes the real token.",
       visible: () => s.mcpEnabled && resolved().source === "stored",
       render: (setting) => {
         setting.addToggle((t) =>
@@ -113,7 +114,7 @@ export function mcpItems(ctx: McpBridgeItemsContext): SettingGroupItem[] {
           setting.setDesc(`Set an access token (or $${MCP_TOKEN_ENV}) to get connection snippets.`);
           return;
         }
-        // Display is share-safe (env ref or masked); Copy is the real command.
+        // Display is share-safe (env ref or masked); Copy includes the real token.
         const real = { port: s.mcpPort, token: r.token };
         const display = r.source === "env"
           ? { port: s.mcpPort, token: mcpTokenEnvRef() } // expands in the user's shell
@@ -125,6 +126,9 @@ export function mcpItems(ctx: McpBridgeItemsContext): SettingGroupItem[] {
         detail.empty();
         codeBlock(detail, "Claude Code", claudeCodeCommand(display), claudeCodeCommand(copyInfo));
         codeBlock(detail, "Claude Desktop", claudeDesktopConfig(display), claudeDesktopConfig(copyInfo));
+        codeBlock(detail, "Antigravity", antigravityCommand(display), antigravityCommand(copyInfo));
+        codeBlock(detail, "Codex", codexConfig(display), codexConfig(copyInfo),
+          "Paste into ~/.codex/config.toml. Replace any existing obsidian-vault entry.");
       },
     },
   ];

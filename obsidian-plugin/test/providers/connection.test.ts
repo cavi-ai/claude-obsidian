@@ -15,6 +15,21 @@ function rig() {
 }
 
 describe("connection transaction", () => {
+  it("validates, securely stores and selects the same OAuth connection", async () => {
+    const r = rig();
+    expect((await r.controller.connect({ backend: "claude", oauthToken: "audit-token" })).ok).toBe(true);
+    expect(r.test.mock.calls[0]![0]).toMatchObject({ chatBackend: "claude", authMode: "oauthToken", oauthToken: "audit-token" });
+    expect(r.settings.chatBackend).toBe("claude");
+    expect(r.saved.get(secretIdFor("oauthToken"))).toBe("audit-token");
+  });
+  it("restores the previous connection on an oauthToken settings write failure", async () => {
+    const r = rig();
+    r.save.mockRejectedValueOnce(new Error("Disk full"));
+    expect(await r.controller.connect({ backend: "claude", oauthToken: "audit-token" })).toMatchObject({ ok: false });
+    expect(r.settings.chatBackend).toBe("claude-cli");
+    expect(r.settings.oauthToken).toBe("");
+    expect(r.saved.get(secretIdFor("oauthToken")) ?? "").toBe("");
+  });
   it("validates, securely stores and selects the same API connection", async () => {
     const r = rig();
     expect((await r.controller.connect({ backend: "claude", apiKey: "audit-key" })).ok).toBe(true);

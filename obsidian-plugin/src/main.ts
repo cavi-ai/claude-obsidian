@@ -89,6 +89,7 @@ import { mcpConfigJson } from "./cli/argv";
 import { bridgeTools, CLI_HIDDEN_TOOLS, cliAllowedTools, type InteractiveToolDeps } from "./cli/bridgeTools";
 import { createNodeCliRuntime, type CliRuntime } from "./cli/runtime";
 import { CliProvider } from "./providers/cliProvider";
+import { agyBackend } from "./cli/backends/agy";
 import { claudeBackend } from "./cli/backends/claude";
 import { codexBackend } from "./cli/backends/codex";
 import { opencodeBackend } from "./cli/backends/opencode";
@@ -230,6 +231,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private _cliProvider: CliProvider | null = null;
   private _codexProvider: CliProvider | null = null;
   private _opencodeProvider: CliProvider | null = null;
+  private _agyProvider: CliProvider | null = null;
   private _cliPool?: CliSessionPool<CliSession>;
   private get cliPool(): CliSessionPool<CliSession> {
     return (this._cliPool ??= new CliSessionPool<CliSession>(3));
@@ -293,6 +295,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         if (backend === "claude-cli") return this.router().claudeCli.test();
         if (backend === "codex-cli") return this.router().codexCli.test();
         if (backend === "opencode-cli") return this.router().opencodeCli.test();
+        if (backend === "agy-cli") return this.router().agyCli.test();
         return new ProviderRouter(candidate).resolve("chat").provider.test();
       },
     }));
@@ -728,7 +731,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this.disposables = [];
     this.settingsListeners?.clear();
     void this.closeCliSessions();
-    for (const cli of [this._cliProvider, this._codexProvider, this._opencodeProvider]) cli?.cancelAll();
+    for (const cli of [this._cliProvider, this._codexProvider, this._opencodeProvider, this._agyProvider]) cli?.cancelAll();
     this._activity?.dispose();
     this.utilityRouting().end();
     this._enrichment?.destroy();
@@ -923,6 +926,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     switch (this.settings.chatBackend) {
       case "codex-cli": return router.codexCli;
       case "opencode-cli": return router.opencodeCli;
+      case "agy-cli": return router.agyCli;
       default: return router.claudeCli;
     }
   }
@@ -933,6 +937,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     this._cliProvider ??= new CliProvider(claudeBackend, runtime, () => this.vaultBasePath());
     this._codexProvider ??= new CliProvider(codexBackend, runtime, () => this.vaultBasePath());
     this._opencodeProvider ??= new CliProvider(opencodeBackend, runtime, () => this.vaultBasePath());
+    this._agyProvider ??= new CliProvider(agyBackend, runtime, () => this.vaultBasePath());
     if (!this._router) {
       this._router = new ProviderRouter(this.settings, () => this.utilityRouting().resolveSession(), {
         cliRuntime: runtime,
@@ -940,6 +945,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
         cliProvider: this._cliProvider,
         codexProvider: this._codexProvider,
         opencodeProvider: this._opencodeProvider,
+        agyProvider: this._agyProvider,
         deviceProvider: new DeviceProvider(this.settings.chatBackend === "device" ? this.deviceChat() : null),
       });
     }
@@ -1042,6 +1048,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
   private cliBackendFor(chatBackend: PluginSettings["chatBackend"]): CliBackend {
     if (chatBackend === "codex-cli") return codexBackend;
     if (chatBackend === "opencode-cli") return opencodeBackend;
+    if (chatBackend === "agy-cli") return agyBackend;
     return claudeBackend;
   }
 
@@ -1066,7 +1073,7 @@ export default class ClaudeCompanionPlugin extends Plugin {
     { backend, executable, runtime, cwd, allowedTools }: { backend: CliBackend; executable: string; runtime: CliRuntime; cwd: string; allowedTools: string[] },
   ): Promise<PoolEntry<CliSession>> {
     const project = await this.chatProjectFor(opts.conversationId);
-    const systemPrompt = this.composeSystemPrompt({ agent: true, plan: opts.run === "plan", project });
+    const systemPrompt = this.composeSystemPrompt({ agent: backend.supportsMcp, plan: backend.supportsMcp && opts.run === "plan", project });
     const promptFile = backend.processModel === "persistent" ? await runtime.writeSystemPromptFile(systemPrompt) : "";
     let bridge: McpHttpServer | null = null;
     const release = async (): Promise<void> => {
@@ -1074,9 +1081,9 @@ export default class ClaudeCompanionPlugin extends Plugin {
       if (promptFile) await runtime.removeFile(promptFile);
     };
     try {
-      const started = await this.createChatBridge({ deps: opts.deps, run: opts.run, backend });
-      bridge = started.server;
-      const mcpConfig = mcpConfigJson(started.port, started.token);
+      const started = backend.supportsMcp ? await this.createChatBridge({ deps: opts.deps, run: opts.run, backend }) : null;
+      bridge = started?.server ?? null;
+      const mcpConfig = started ? mcpConfigJson(started.port, started.token) : "";
       let session: CliSession;
       let sessionIdToPersist: string | undefined;
       if (backend.processModel === "persistent") {

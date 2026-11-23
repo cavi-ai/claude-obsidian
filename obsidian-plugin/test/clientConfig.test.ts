@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
+import { generateToken, bridgeUrl, claudeCodeCommand, claudeDesktopConfig, codexConfig, maskToken, resolveMcpToken, mcpTokenEnvRef, MCP_TOKEN_ENV } from "../src/mcp/clientConfig";
 
 describe("maskToken", () => {
   it("keeps a short prefix/suffix and masks the middle", () => {
@@ -62,5 +62,22 @@ describe("claudeDesktopConfig", () => {
   });
   it("requires a bearer token", () => {
     expect(() => claudeDesktopConfig({ port: 22360, token: "" })).toThrow(/token/i);
+  });
+});
+
+describe("codexConfig", () => {
+  it("configures bearer auth with env reference for display and shared configs", () => {
+    const cmd = codexConfig({ port: 22360, token: mcpTokenEnvRef() });
+    expect(cmd).toBe('[mcp_servers.obsidian-vault]\nurl = "http://127.0.0.1:22360/mcp"\nbearer_token_env_var = "OBSIDIAN_COMPANION_MCP_TOKEN"');
+  });
+
+  it("persists a concrete bearer marker as an escaped static HTTP header", () => {
+    const sampleBridgeMarker = 'marker-"xyz"\\987';
+    const cmd = codexConfig({ port: 22360, token: sampleBridgeMarker });
+    expect(cmd).toBe(`[mcp_servers.obsidian-vault]\nurl = "http://127.0.0.1:22360/mcp"\nhttp_headers = { Authorization = ${JSON.stringify(`Bearer ${sampleBridgeMarker}`)} }`);
+  });
+
+  it("requires a non-empty bearer marker", () => {
+    expect(() => codexConfig({ port: 22360, token: "   " })).toThrow(/token/i);
   });
 });

@@ -129,14 +129,16 @@ export interface PluginSettings {
   classifierModel: string;
   /** Chat backend: always Claude, always local, auto (Claude with local
    *  fallback), custom (an OpenAI-compatible endpoint), or the user's
-   *  Claude Code / Codex / OpenCode CLI sign-in (desktop only). */
-  chatBackend: "claude" | "local" | "auto" | "custom" | "device" | "claude-cli" | "codex-cli" | "opencode-cli";
+   *  Claude Code / Codex / OpenCode / Antigravity CLI sign-in (desktop only). */
+  chatBackend: "claude" | "local" | "auto" | "custom" | "device" | "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
   /** Pinned on-device GPU model. Assets are cached separately on each device. */
   deviceChatModel: string;
   /** Codex CLI model id passed as `-m`; empty lets the CLI pick its own default. */
   codexModel: string;
   /** OpenCode CLI model id passed as `-m` (e.g. "anthropic/claude-sonnet-5"); empty lets the CLI pick its own default. */
   opencodeModel: string;
+  /** Antigravity CLI model id passed as `--model`; empty lets the CLI pick its own default. */
+  agyModel: string;
   /** Model behind every explicit research action. */
   researchModel: ResearchModel;
 
@@ -345,6 +347,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   chatBackend: "claude",
   codexModel: "",
   opencodeModel: "",
+  agyModel: "",
   researchModel: "chat",
 
   openaiCompatHost: "",

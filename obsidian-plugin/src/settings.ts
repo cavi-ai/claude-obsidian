@@ -85,7 +85,8 @@ export class ClaudeCompanionSettingTab extends PluginSettingTab {
       case "openaiCompatModel":
         if (key === "chatBackend") {
           const backend = this.plugin.settings.chatBackend;
-          const cli = backend === "claude-cli" ? this.plugin.router().claudeCli : backend === "codex-cli" ? this.plugin.router().codexCli : backend === "opencode-cli" ? this.plugin.router().opencodeCli : null;
+          const r = this.plugin.router();
+          const cli = backend === "claude-cli" ? r.claudeCli : backend === "codex-cli" ? r.codexCli : backend === "opencode-cli" ? r.opencodeCli : backend === "agy-cli" ? r.agyCli : null;
           if (cli) void cli.refresh().then(() => this.plugin.refreshViews());
         }
         this.plugin.refreshViews();

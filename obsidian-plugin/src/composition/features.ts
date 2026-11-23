@@ -14,6 +14,7 @@ import { PublishFeature } from "../publish/publishFeature";
 import { ResearchFeature, type ResearchFeatureDeps } from "../research/researchFeature";
 import { ClipperFeature } from "../sources/clipperFeature";
 import { CompanionShell } from "../view/companionShell";
+import { ProviderSetupWizardModal } from "../view/ProviderSetupWizardModal";
 import { ARTIFACT_MAX_TOKENS, WorkspaceViews } from "../view/workspaceViews";
 
 export type UtilityRoutingHost = Pick<ClaudeCompanionPlugin, "app" | "router" | "settings">;
@@ -41,7 +42,7 @@ export function buildClipperSetup(host: ClipperSetupHost): ClipperFeature {
 
 export type OnboardingHost = Pick<
   ClaudeCompanionPlugin,
-  "app" | "desktopIntegrations" | "ontology" | "router" | "saveSettings" | "secrets" | "semantic" | "settings" | "views"
+  "app" | "connection" | "desktopIntegrations" | "ontology" | "refreshViews" | "router" | "saveSettings" | "secrets" | "semantic" | "settings" | "views"
 >;
 
 export function buildOnboarding(host: OnboardingHost): Onboarding {
@@ -54,7 +55,19 @@ export function buildOnboarding(host: OnboardingHost): Onboarding {
     ontology: () => host.ontology(),
     semantic: () => host.semantic(),
     openDesktopIntegrations: () => host.desktopIntegrations().open(),
-    openConnection: () => { void host.views().activateView(); },
+    openConnection: () => {
+      new ProviderSetupWizardModal(host.app, {
+        settings: () => host.settings,
+        saveSettings: () => host.saveSettings(),
+        router: () => host.router(),
+        connection: () => host.connection(),
+        secrets: () => host.secrets(),
+        refreshViews: () => host.refreshViews(),
+        openDesktopIntegrations: () => host.desktopIntegrations().open(),
+        activateChat: () => { void host.views().activateView(); },
+        isMobile: () => Platform.isMobile,
+      }).open();
+    },
     isMobile: () => Platform.isMobile,
   });
 }
@@ -93,6 +106,7 @@ export type ShellHost = Pick<
   | "desktopIntegrations"
   | "memory"
   | "noteFlows"
+  | "onboarding"
   | "router"
   | "saveSettings"
   | "semantic"
@@ -116,6 +130,7 @@ export function buildShell(host: ShellHost): CompanionShell {
     standingOrders: () => host.standingOrders(),
     conversations: () => host.conversations(),
     views: () => host.views(),
+    openSetupWizard: () => host.onboarding().openSetupWizard(),
     chatLeafFor: (conversationId) => host.chatLeafFor(conversationId),
   });
 }

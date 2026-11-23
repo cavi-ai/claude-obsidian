@@ -173,6 +173,11 @@ export class ChatView extends ItemView {
       renderEmptyState: () => this.renderEmptyState(),
       refreshModelLabel: () => this.refreshModelLabel(),
       openSettings: () => this.openSettings(),
+      openWizard: () => {
+        const onboarding = (plugin as { onboarding?: () => { openSetupWizard?: () => void } }).onboarding?.();
+        if (onboarding?.openSetupWizard) onboarding.openSetupWizard();
+        else this.openSettings();
+      },
     });
     this.renderer = new VersionedMarkdownRenderer(this.app, this);
     this.slash = new SlashRunner(this.app, plugin, {

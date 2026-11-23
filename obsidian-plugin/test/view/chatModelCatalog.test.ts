@@ -6,10 +6,10 @@ import { ModelPickerModal } from "../../src/view/ModelPickerModal";
 import { reconcileModelOptions } from "../../src/view/chat/cliModelOptions";
 import type { ComposerHost } from "../../src/view/chat/hosts";
 
-const cli = ["claude-cli", "codex-cli", "opencode-cli"] as const;
+const cli = ["claude-cli", "codex-cli", "opencode-cli", "agy-cli"] as const;
 
 describe("shared backend and model catalog", () => {
-  it.each(["auto", "claude", "claude-cli", "codex-cli", "opencode-cli", "local", "custom", "device"] as const)("keeps all configured routes reachable from %s", (chatBackend) => {
+  it.each(["auto", "claude", "claude-cli", "codex-cli", "opencode-cli", "agy-cli", "local", "custom", "device"] as const)("keeps all configured routes reachable from %s", (chatBackend) => {
     const settings = { ...structuredClone(DEFAULT_SETTINGS), chatBackend, openaiCompatHost: "http://model.example/v1", openaiCompatModel: "my/endpoint", codexModel: "my-codex", opencodeModel: "provider/custom", ollamaModel: "my-ollama" };
     const groups = modelCatalog({ settings, claudeModel: "custom-claude", isMobile: false, availableCli: [...cli] });
     expect(groups.map(group => group.backend)).toEqual(["auto", "claude", ...cli, "local", "custom", "device"]);

@@ -29,7 +29,7 @@ export type Preflight<P> =
   | { ok: true; provider: P; model: string; caps: { cli: boolean; local: boolean }; reprobed: boolean }
   | { ok: false; notice: string };
 
-const CLI_BACKENDS = ["claude-cli", "codex-cli", "opencode-cli"];
+const CLI_BACKENDS = ["claude-cli", "codex-cli", "opencode-cli", "agy-cli"];
 
 /** Decides whether a send may start: the CLI sign-in gate (re-probing a stale cache once) and the provider credential gate. */
 export async function preflightTurn<P extends ProviderLike>(deps: PreflightDeps<P>): Promise<Preflight<P>> {
@@ -48,7 +48,7 @@ export async function preflightTurn<P extends ProviderLike>(deps: PreflightDeps<
         reprobed = true;
       }
     }
-    if (!caps.cli && !deps.anthropicHasCredentials()) {
+    if (!caps.cli) {
       return { ok: false, notice: signIn?.available() ? `${label} is not signed in — ${signIn.signInHint}, or add an API key in Companion settings.` : `${label} runs on desktop only. Add an API key to chat here.` };
     }
   }

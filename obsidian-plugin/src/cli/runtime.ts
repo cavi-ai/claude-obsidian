@@ -4,7 +4,7 @@ import type { CliChild } from "./session";
 import type { CliBackend } from "./backends/types";
 import { claudeExecutableCandidates } from "../integrations/desktopRuntime";
 import type { DesktopPlatform } from "../integrations/desktop";
-import { listCodexModels, parseOpenCodeModels, type CliModel } from "./modelDiscovery";
+import { listCodexModels, parseAgyModels, parseOpenCodeModels, type CliModel } from "./modelDiscovery";
 
 export interface CliAuthStatus {
   loggedIn: boolean;
@@ -53,17 +53,30 @@ export function parseVersion(stdout: string): string {
   return tokens.find((t) => /^v?\d+\.\d+/.test(t)) ?? tokens[0] ?? "";
 }
 
-/** GUI-launched apps on macOS get only /usr/bin:/bin:/usr/sbin:/sbin, so the login shell's PATH and common install dirs are searched too. */
-export function searchDirs(platform: DesktopPlatform, homeDir: string, shellPath: string[], envPath: string): string[] {
-  if (platform === "win32") return [];
-  const common = ["/opt/homebrew/bin", "/usr/local/bin", `${homeDir}/.local/bin`, `${homeDir}/.bun/bin`, `${homeDir}/.opencode/bin`, `${homeDir}/.npm-global/bin`];
-  return [...new Set([...envPath.split(":"), ...shellPath, ...common].filter(Boolean))];
+export function agyExecutableCandidates(platform: DesktopPlatform, homeDir: string): string[] {
+  if (platform === "win32") return ["agy", `${homeDir}\\AppData\\Local\\agy\\bin\\agy.exe`, `${homeDir}\\.local\\bin\\agy.exe`];
+  return ["agy", `${homeDir}/.local/bin/agy`, "/opt/homebrew/bin/agy", "/usr/local/bin/agy"];
 }
 
-/** Claude keeps its verified install locations first; every backend then tries each search dir. */
+/** GUI-launched apps on macOS get only /usr/bin:/bin:/usr/sbin:/sbin, so the login shell's PATH and common install dirs are searched too. */
+export function searchDirs(platform: DesktopPlatform, homeDir: string, shellPath: string[], envPath: string): string[] {
+  if (platform === "unsupported") return [];
+  const sep = platform === "win32" ? ";" : ":";
+  const common = platform === "win32"
+    ? [`${homeDir}\\AppData\\Local\\agy\\bin`, `${homeDir}\\.local\\bin`, `${homeDir}\\AppData\\Roaming\\npm`, `${homeDir}\\.bun\\bin`, `${homeDir}\\.opencode\\bin`]
+    : ["/opt/homebrew/bin", "/usr/local/bin", `${homeDir}/.local/bin`, `${homeDir}/.bun/bin`, `${homeDir}/.opencode/bin`, `${homeDir}/.npm-global/bin`];
+  return [...new Set([...envPath.split(sep), ...shellPath, ...common].filter(Boolean))];
+}
+
+/** Claude and Antigravity keep their verified install locations first; every backend then tries each search dir. */
 export function executableCandidates(backend: CliBackend, platform: DesktopPlatform, homeDir: string, dirs: string[] = []): string[] {
-  const head = backend.id === "claude-cli" ? claudeExecutableCandidates(platform, homeDir) : [backend.binary];
-  return [...new Set([...head, ...dirs.map((d) => `${d}/${backend.binary}`)])];
+  const head = backend.id === "claude-cli"
+    ? claudeExecutableCandidates(platform, homeDir)
+    : backend.id === "agy-cli"
+      ? agyExecutableCandidates(platform, homeDir)
+      : [backend.binary];
+  const inDirs = dirs.map((d) => (platform === "win32" ? `${d}\\${backend.binary}.exe` : `${d}/${backend.binary}`));
+  return [...new Set([...head, ...inDirs])];
 }
 
 export function createNodeCliRuntime(): CliRuntime {
@@ -113,13 +126,17 @@ export function createNodeCliRuntime(): CliRuntime {
   let dirs: string[] = [];
   const childEnv = (extra?: Record<string, string>): typeof proc.env => {
     const env = { ...proc.env, ...extra };
-    if (dirs.length > 0) env.PATH = dirs.join(":");
+    if (dirs.length > 0) {
+      const joined = dirs.join(platform === "win32" ? ";" : ":");
+      env.PATH = joined;
+      if (platform === "win32" && "Path" in env) env.Path = joined;
+    }
     return env;
   };
 
   return {
     async find(backend) {
-      dirs = searchDirs(platform, os.homedir(), await loginShellPath(), proc.env.PATH ?? "");
+      dirs = searchDirs(platform, os.homedir(), await loginShellPath(), proc.env.PATH ?? proc.env.Path ?? "");
       for (const executable of executableCandidates(backend, platform, os.homedir(), dirs)) {
         try {
           const out = await runVersionCheck(executable, ["--version"]);
@@ -143,6 +160,14 @@ export function createNodeCliRuntime(): CliRuntime {
     },
     async listModels(backend, executable) {
       if (backend.id === "codex-cli") return listCodexModels(() => spawn(executable, ["app-server"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, env: childEnv() }) as unknown as CliChild);
+      if (backend.id === "agy-cli") {
+        const first = await runProbe(executable, ["--output-format", "json", "models"]);
+        const res = first.code !== 0 && /flags provided but not defined|unknown flag/i.test(`${first.stderr}\n${first.stdout}`)
+          ? await runProbe(executable, ["models"])
+          : first;
+        if (res.code !== 0) throw new Error(res.stderr.trim() || res.stdout.trim() || "Antigravity model discovery failed.");
+        return parseAgyModels(res.stdout);
+      }
       if (backend.id !== "opencode-cli") return [];
       const stdout = await new Promise<string>((resolve, reject) => {
         execFile(executable, ["models", "--standalone"], { timeout: 15_000, maxBuffer: 1_000_000, windowsHide: true, env: childEnv() }, (error, output) => {

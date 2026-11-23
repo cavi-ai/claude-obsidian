@@ -5,6 +5,7 @@ import { Platform, type SettingGroupItem } from "obsidian";
 import type ClaudeCompanionPlugin from "../main";
 import { chatBackendForRuntime } from "../providers/runtimeBackend";
 import { needsCredentialSetup } from "../providers/setupState";
+import { agyBackend } from "../cli/backends/agy";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
 import { opencodeBackend } from "../cli/backends/opencode";
@@ -12,7 +13,7 @@ import type { CliBackend } from "../cli/backends/types";
 import { capitalize } from "./codecs";
 
 export interface IntroItemsContext {
-  plugin: Pick<ClaudeCompanionPlugin, "desktopIntegrations" | "router" | "secrets" | "settings">;
+  plugin: Pick<ClaudeCompanionPlugin, "desktopIntegrations" | "onboarding" | "refreshViews" | "router" | "secrets" | "settings">;
   secretStorageWorking(): boolean;
   storageBlurb(): string;
 }
@@ -54,21 +55,33 @@ export function introItems(ctx: IntroItemsContext): SettingGroupItem[] {
           hasClaudeCli: router.claudeCli.hasCredentials(),
           hasCodexCli: router.codexCli.hasCredentials(),
           hasOpencodeCli: router.opencodeCli.hasCredentials(),
+          hasAgyCli: router.agyCli?.hasCredentials() ?? false,
         });
       },
       render: (setting) => {
         const callout = setting.settingEl.createDiv({ cls: "cc-connect-callout" });
         const p = callout.createEl("p");
         const backend = chatBackendForRuntime(plugin.settings.chatBackend, Platform.isMobile);
-        const cliBackends: Record<string, CliBackend> = { "claude-cli": claudeBackend, "codex-cli": codexBackend, "opencode-cli": opencodeBackend };
+        const cliBackends: Record<string, CliBackend> = { "claude-cli": claudeBackend, "codex-cli": codexBackend, "opencode-cli": opencodeBackend, "agy-cli": agyBackend };
         const cli = cliBackends[backend];
         if (cli) {
           p.appendText(`${cli.label} is not signed in on this computer. ${capitalize(cli.signInHint)} in a terminal, or add an Anthropic API key below. `);
+          setting.addButton((btn) =>
+            btn.setButtonText("Re-check").onClick(async () => {
+              const r = plugin.router();
+              const provider = backend === "claude-cli" ? r.claudeCli : backend === "codex-cli" ? r.codexCli : backend === "opencode-cli" ? r.opencodeCli : r.agyCli;
+              await provider?.refresh?.();
+              plugin.refreshViews?.();
+            }),
+          );
         } else {
           p.appendText("Add an Anthropic API key below to start chatting. Create one at ");
           p.createEl("a", { text: "console.anthropic.com", href: "https://console.anthropic.com/settings/keys" });
         }
         p.appendText(` — ${ctx.storageBlurb().replace(/^S/, "s")}`);
+        setting.addButton((btn) =>
+          btn.setButtonText("Guided setup…").setCta().onClick(() => plugin.onboarding?.().openSetupWizard?.()),
+        );
       },
     },
     {

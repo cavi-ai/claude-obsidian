@@ -13,6 +13,7 @@ export interface CliSignInProvider {
   hasCredentials(): boolean;
   available(): boolean;
   refresh(): Promise<unknown>;
+  probe?(): { executable: string; version: string; loggedIn: boolean; method: string } | null;
 }
 
 export interface CliArgvInput {
@@ -45,7 +46,7 @@ export interface CliCompletionArgvInput {
  * truncating to one silently drops tool calls. Every backend returns 0-N events per line.
  */
 export interface CliBackend {
-  readonly id: "claude-cli" | "codex-cli" | "opencode-cli";
+  readonly id: "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
   readonly label: string;
   readonly binary: string;
   /** "persistent": one process per conversation, fed over stdin (claude). "per-turn": one process per run(), prompt as an argv (codex, opencode). */

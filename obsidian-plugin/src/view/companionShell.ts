@@ -11,6 +11,7 @@ import type { OrdersController } from "../orders/controller";
 import { sanitizeEndpointForDisplay } from "../providers/endpointPolicy";
 import type { ProviderRouter } from "../providers/router";
 import { chatBackendOptions } from "../providers/runtimeBackend";
+import { credentialSetupInputs, needsCredentialSetup } from "../providers/setupState";
 import { resolveModelId } from "../claude/models";
 import { RESEARCH_MODELS, researchModelChip, type ResearchModel } from "../research/researchModel";
 import { builtinModelById } from "../semantic/transformers/model";
@@ -38,6 +39,7 @@ export interface CompanionShellDeps {
   standingOrders: () => OrdersController;
   conversations: () => ConversationsController;
   views: () => WorkspaceViews;
+  openSetupWizard?: () => void;
   cancelTidy?: (id: string) => void;
   chatLeafFor: (conversationId: string) => WorkspaceLeaf | null;
 }
@@ -62,6 +64,7 @@ export class CompanionShell {
       run: (action) => this.runQuickOption(action),
       openAllSettings: () => this.openCompanionSettings(),
       openDesktopIntegrations: () => this.deps.desktopIntegrations().open(),
+      ...(this.deps.openSetupWizard ? { openSetupWizard: () => this.deps.openSetupWizard!() } : {}),
       runActivityRecovery: (activityId, actionId) => this.runActivityRecovery(activityId, actionId),
       dismissActivity: (activityId) => this.deps.activity().dismiss(activityId),
     };
@@ -79,10 +82,22 @@ export class CompanionShell {
       : this.settings.utilityBackend === "custom"
         ? sanitizeEndpointForDisplay(this.settings.openaiCompatHost)
         : undefined;
+    const router = this.deps.router();
+    const activeBackend = router.chatBackend;
+    const claudeModel = resolveModelId(this.settings.model, this.settings.customModel);
+    const chatModel = activeBackend === "codex-cli" ? (this.settings.codexModel || "Codex default")
+      : activeBackend === "opencode-cli" ? (this.settings.opencodeModel || "OpenCode default")
+      : activeBackend === "agy-cli" ? (this.settings.agyModel || "Antigravity default")
+      : activeBackend === "local" ? this.settings.ollamaModel
+      : activeBackend === "custom" ? this.settings.openaiCompatModel
+      : activeBackend === "device" ? this.settings.deviceChatModel
+      : claudeModel;
+    const needsConnection = needsCredentialSetup(credentialSetupInputs(router));
     return {
       isMobile: Platform.isMobile,
-      chatBackend: this.deps.router().chatBackend,
-      chatModel: resolveModelId(this.settings.model, this.settings.customModel),
+      ...(needsConnection ? { needsConnection: true } : {}),
+      chatBackend: activeBackend,
+      chatModel,
       agentModeEnabled: this.settings.agentModeEnabled,
       vaultContextEnabled: this.settings.context.searchVault,
       memoryIngestOnSave: this.settings.memoryIngestOnSave,
@@ -109,8 +124,12 @@ export class CompanionShell {
     const value = change.value;
     switch (change.id) {
       case "chat-backend":
-        if (typeof value === "string" && Object.hasOwn(chatBackendOptions(Platform.isMobile), value)) this.settings.chatBackend = value as PluginSettings["chatBackend"];
-        else throw new Error("Choose a valid chat backend.");
+        if (typeof value === "string" && Object.hasOwn(chatBackendOptions(Platform.isMobile), value)) {
+          this.settings.chatBackend = value as PluginSettings["chatBackend"];
+          const r = this.deps.router();
+          const cli = value === "claude-cli" ? r.claudeCli : value === "codex-cli" ? r.codexCli : value === "opencode-cli" ? r.opencodeCli : value === "agy-cli" ? r.agyCli : null;
+          if (cli?.refresh) void cli.refresh();
+        } else throw new Error("Choose a valid chat backend.");
         break;
       case "agent-mode": this.settings.agentModeEnabled = value === true; break;
       case "vault-context": this.settings.context.searchVault = value === true; break;
@@ -168,6 +187,10 @@ export class CompanionShell {
         await this.deps.saveSettings();
         if (!(await this.deps.semantic().canEmbedWithoutDownload())) await this.deps.semantic().downloadBuiltinModelAndIndex();
         else await this.deps.semantic().rebuildSemanticIndex();
+        return;
+      case "connect-companion":
+        if (this.deps.openSetupWizard) this.deps.openSetupWizard();
+        else this.openCompanionSettings();
         return;
       case "all-settings": this.openCompanionSettings(); return;
       default: throw new Error("That quick action is not available yet.");

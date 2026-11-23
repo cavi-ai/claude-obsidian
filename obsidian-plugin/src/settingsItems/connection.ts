@@ -8,6 +8,7 @@ import { chatBackendOptions } from "../providers/runtimeBackend";
 import { DEVICE_MODELS, clearDeviceModel, deviceModelCached } from "../device/models";
 import type { ProviderStatus } from "../providers/types";
 import { readAnthropicEnv, hasAnthropicEnvCredential } from "../providers/env";
+import { agyBackend } from "../cli/backends/agy";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
 import { opencodeBackend } from "../cli/backends/opencode";
@@ -32,15 +33,16 @@ function cliStatusItems(ctx: ConnectionItemsContext, backend: CliBackend, cliOf:
       render: (setting) => {
         const status = setting.settingEl.querySelector<HTMLElement>(".cc-conn-status")
           ?? setting.settingEl.createDiv({ cls: "cc-setting-detail cc-conn-status", attr: { role: "status" } });
-        const cli = cliOf(plugin.router());
-        const probe = cli.probe();
+        const cli = cliOf(plugin.router()) as CliProvider | undefined;
+        const probe = cli?.probe?.() ?? null;
         if (probe) ctx.renderStatus(status, { ok: probe.loggedIn, detail: probe.loggedIn ? `${backend.label} ${probe.version} · signed in via ${probe.method} · ${probe.executable}` : `Not signed in — ${backend.signInHint}.` });
         setting.addButton((btn) =>
           btn
             .setButtonText(`Check ${backend.label}`)
             .onClick(async () => {
               ctx.renderStatus(status, { ok: true, detail: "Checking…" });
-              const result = await cliOf(plugin.router()).test();
+              const target = cliOf(plugin.router()) as CliProvider | undefined;
+              const result = target ? await target.test() : { ok: false, detail: `${backend.label} unavailable.` };
               ctx.renderStatus(status, result);
               plugin.refreshViews();
             }),
@@ -231,6 +233,8 @@ export function connectionItems(ctx: ConnectionItemsContext): SettingGroupItem[]
     cliModelItem(ctx, codexBackend, "codexModel"),
     ...(Platform.isMobile ? [] : cliStatusItems(ctx, opencodeBackend, (r) => r.opencodeCli)),
     cliModelItem(ctx, opencodeBackend, "opencodeModel"),
+    ...(Platform.isMobile ? [] : cliStatusItems(ctx, agyBackend, (r) => r.agyCli)),
+    cliModelItem(ctx, agyBackend, "agyModel"),
     {
       name: "Max response tokens",
       desc: "Upper bound on a single reply (cap 64000). Higher values leave less context-window room.",

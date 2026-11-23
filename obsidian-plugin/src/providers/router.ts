@@ -6,6 +6,7 @@ import { OllamaProvider } from "./ollama";
 import { OpenAICompatProvider } from "./openaiCompat";
 import { DeviceProvider } from "./device";
 import { CliProvider } from "./cliProvider";
+import { agyBackend } from "../cli/backends/agy";
 import { claudeBackend } from "../cli/backends/claude";
 import { codexBackend } from "../cli/backends/codex";
 import { opencodeBackend } from "../cli/backends/opencode";
@@ -72,7 +73,7 @@ export function migrateUtilityBackend(
   return persisted.localUtilityEnabled === true ? "ollama" : undefined;
 }
 
-export type CliBackendId = "claude-cli" | "codex-cli" | "opencode-cli";
+export type CliBackendId = "claude-cli" | "codex-cli" | "opencode-cli" | "agy-cli";
 
 export interface ChatCapabilities {
   /** In-chat vault actions are offered: Act on vault, Plan Mode, implement-from-reply. */
@@ -134,6 +135,7 @@ export class ProviderRouter {
   readonly claudeCli: CliProvider;
   readonly codexCli: CliProvider;
   readonly opencodeCli: CliProvider;
+  readonly agyCli: CliProvider;
   private readonly cliProviders: Record<CliBackendId, CliProvider>;
   private readonly anthropicEnv: AnthropicEnv;
   private readonly utilityConsentIdentity = Object.freeze({});
@@ -141,7 +143,7 @@ export class ProviderRouter {
   constructor(
     private settings: PluginSettings,
     private utilitySelectionResolver?: UtilitySelectionResolver,
-    private options: { isMobile?: boolean; cliRuntime?: CliRuntime | null; cliProvider?: CliProvider; codexProvider?: CliProvider; opencodeProvider?: CliProvider; deviceProvider?: Provider } = {},
+    private options: { isMobile?: boolean; cliRuntime?: CliRuntime | null; cliProvider?: CliProvider; codexProvider?: CliProvider; opencodeProvider?: CliProvider; agyProvider?: CliProvider; deviceProvider?: Provider } = {},
   ) {
     this.anthropicEnv = readAnthropicEnv();
     this.anthropic = new AnthropicProvider({
@@ -158,15 +160,17 @@ export class ProviderRouter {
     this.claudeCli = options.cliProvider ?? new CliProvider(claudeBackend, runtime);
     this.codexCli = options.codexProvider ?? new CliProvider(codexBackend, runtime);
     this.opencodeCli = options.opencodeProvider ?? new CliProvider(opencodeBackend, runtime);
-    this.cliProviders = { "claude-cli": this.claudeCli, "codex-cli": this.codexCli, "opencode-cli": this.opencodeCli };
+    this.agyCli = options.agyProvider ?? new CliProvider(agyBackend, runtime);
+    this.cliProviders = { "claude-cli": this.claudeCli, "codex-cli": this.codexCli, "opencode-cli": this.opencodeCli, "agy-cli": this.agyCli };
   }
 
-  private static readonly cliBackends: Record<CliBackendId, CliBackend> = { "claude-cli": claudeBackend, "codex-cli": codexBackend, "opencode-cli": opencodeBackend };
+  private static readonly cliBackends: Record<CliBackendId, CliBackend> = { "claude-cli": claudeBackend, "codex-cli": codexBackend, "opencode-cli": opencodeBackend, "agy-cli": agyBackend };
 
-  /** The chat-model id configured for a CLI backend (claude uses the shared model picker; codex/opencode have their own fields, "" meaning let the CLI default). */
+  /** The chat-model id configured for a CLI backend (claude uses the shared model picker; codex/opencode/agy have their own fields, "" meaning let the CLI default). */
   private cliModel(id: CliBackendId): string {
     if (id === "claude-cli") return resolveModelId(this.settings.model, this.settings.customModel);
     if (id === "codex-cli") return this.settings.codexModel;
+    if (id === "agy-cli") return this.settings.agyModel;
     return this.settings.opencodeModel;
   }
 
@@ -185,7 +189,7 @@ export class ProviderRouter {
     if (id === "device") return this.device;
     if (id === "ollama") return this.ollama;
     if (id === "openai-compat") return this.openaiCompat;
-    if (id === "claude-cli" || id === "codex-cli" || id === "opencode-cli") return this.cliProviders[id];
+    if (id === "claude-cli" || id === "codex-cli" || id === "opencode-cli" || id === "agy-cli") return this.cliProviders[id];
     return this.anthropic;
   }
 
@@ -209,10 +213,10 @@ export class ProviderRouter {
     // degrades to local on failure — handled in ChatView).
     if (role === "chat") {
       if (this.chatBackend === "device") return { provider: this.device, model: this.settings.deviceChatModel };
-      if (this.chatBackend === "claude-cli" || this.chatBackend === "codex-cli" || this.chatBackend === "opencode-cli") {
+      if (this.chatBackend === "claude-cli" || this.chatBackend === "codex-cli" || this.chatBackend === "opencode-cli" || this.chatBackend === "agy-cli") {
         const id = this.chatBackend;
         const provider = this.cliProviders[id];
-        if (provider.hasCredentials()) return { provider, model: this.cliModel(id) };
+        if (provider.available()) return { provider, model: this.cliModel(id) };
       }
       if (this.chatBackend === "local" && this.ollama.hasCredentials()) {
         return { provider: this.ollama, model: this.settings.ollamaModel };
@@ -364,13 +368,15 @@ export class ProviderRouter {
   }
 
   /**
-   * Whether the current chat backend can run tool-driven agent turns. Claude
-   * always can; local providers must report "tools" for the selected model
-   * (unqueryable → not capable, so the UI never offers a broken agent).
+   * The API supports tools directly. CLI backends need the chat MCP bridge.
+   * Local providers must report tool support for the selected model.
    */
   async chatToolCapable(): Promise<boolean> {
     const { provider, model } = this.chatProvider();
-    if (provider.id === "anthropic" || provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli") return true;
+    if (provider.id === "anthropic") return true;
+    if (provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli" || provider.id === "agy-cli") {
+      return ProviderRouter.cliBackends[provider.id].supportsMcp;
+    }
     if (provider.supportsTools !== true || !provider.capabilities) return provider.supportsTools === true;
     try {
       return (await provider.capabilities(model)).includes("tools");
@@ -383,8 +389,9 @@ export class ProviderRouter {
   chatCapabilities(): ChatCapabilities {
     const { provider } = this.chatProvider();
     if (provider.id === "anthropic") return { agentActions: true, claudeControls: true, metered: !this.anthropic.isOAuth(), local: false, cli: false };
-    if (provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli") {
-      return { agentActions: true, claudeControls: false, metered: false, local: false, cli: true, cliBackend: provider.id };
+    if (provider.id === "claude-cli" || provider.id === "codex-cli" || provider.id === "opencode-cli" || provider.id === "agy-cli") {
+      const signedIn = provider.hasCredentials();
+      return { agentActions: ProviderRouter.cliBackends[provider.id].supportsMcp, claudeControls: false, metered: false, local: false, cli: signedIn, ...(signedIn ? { cliBackend: provider.id } : {}) };
     }
     return { agentActions: false, claudeControls: false, metered: false, local: true, cli: false };
   }

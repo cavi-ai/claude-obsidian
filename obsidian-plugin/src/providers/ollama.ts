@@ -120,7 +120,7 @@ export class OllamaProvider implements Provider {
     return data.message?.content ?? "";
   }
 
-  async test(): Promise<ProviderStatus> {
+  async test(requiredModel?: string): Promise<ProviderStatus> {
     try {
       const res = await requestUrl({ url: `${this.base()}/api/tags`, method: "GET", throw: false });
       if (res.status < 200 || res.status >= 300) {
@@ -128,7 +128,13 @@ export class OllamaProvider implements Provider {
       }
       const data = res.json as { models?: Array<{ name: string }> };
       const names = (data.models ?? []).map((m) => m.name);
-      if (names.length === 0) return { ok: true, detail: `Reachable, but no models pulled. Try: ollama pull ${this.defaultModel}` };
+      if (names.length === 0) return { ok: requiredModel === undefined, detail: `Reachable, but no models pulled. Try: ollama pull ${requiredModel ?? this.defaultModel}` };
+      if (requiredModel !== undefined) {
+        const withTag = (name: string): string => name.lastIndexOf(":") > name.lastIndexOf("/") ? name : `${name}:latest`;
+        if (!names.some((name) => withTag(name) === withTag(requiredModel))) {
+          return { ok: false, detail: `Ollama model "${requiredModel}" is not installed. Pull it or use Detect models.` };
+        }
+      }
       return { ok: true, detail: `Connected — ${names.length} model(s): ${names.slice(0, 6).join(", ")}${names.length > 6 ? "…" : ""}` };
     } catch (err) {
       return { ok: false, detail: `Ollama not reachable at ${this.base()}. Is it running? (${err instanceof Error ? err.message : String(err)})` };

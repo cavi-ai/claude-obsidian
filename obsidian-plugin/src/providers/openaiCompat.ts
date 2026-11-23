@@ -4,6 +4,11 @@ import { type ApiMessage, type CompletionRequest, type Provider, type ProviderSt
 import { systemWithSchema } from "./schemaPrompt";
 import { readStreamBody } from "./streamBody";
 
+function modelIds(json: unknown): string[] {
+  const result = json as { data?: Array<{ id?: string }> } | null;
+  return (result?.data ?? []).map((model) => model.id ?? "").filter(Boolean);
+}
+
 /**
  * Provider for any OpenAI-compatible local endpoint — LM Studio, mlx-lm,
  * vLLM, Jan, Ollama's /v1 mode. This is the path to Apple-silicon-optimized
@@ -116,17 +121,19 @@ export class OpenAICompatProvider implements Provider {
     return data.choices?.[0]?.message?.content ?? "";
   }
 
-  async test(): Promise<ProviderStatus> {
-    const models = await this.listModels();
-    if (models.length > 0) {
-      return { ok: true, detail: `Connected — ${models.length} model(s): ${models.slice(0, 6).join(", ")}${models.length > 6 ? "…" : ""}` };
-    }
+  async test(requiredModel?: string): Promise<ProviderStatus> {
+    if (requiredModel === "") return { ok: false, detail: "Enter the model ID listed by your endpoint." };
     try {
       const res = await requestUrl({ url: `${this.base()}/models`, method: "GET", headers: this.headers(), throw: false });
       if (res.status < 200 || res.status >= 300) {
         return { ok: false, detail: `Endpoint at ${this.base()} answered ${res.status}. Check the host and API key.` };
       }
-      return { ok: true, detail: "Reachable, but the server reports no models." };
+      const models = modelIds(res.json);
+      if (!models.length) return { ok: requiredModel === undefined, detail: "Reachable, but the server reports no models." };
+      if (requiredModel !== undefined && !models.includes(requiredModel)) {
+        return { ok: false, detail: `Model "${requiredModel}" is not listed by the endpoint. Enter an available model ID.` };
+      }
+      return { ok: true, detail: `Connected — ${models.length} model(s): ${models.slice(0, 6).join(", ")}${models.length > 6 ? "…" : ""}` };
     } catch (err) {
       return { ok: false, detail: `Endpoint not reachable at ${this.base()}. (${err instanceof Error ? err.message : String(err)})` };
     }
@@ -137,8 +144,7 @@ export class OpenAICompatProvider implements Provider {
     try {
       const res = await requestUrl({ url: `${this.base()}/models`, method: "GET", headers: this.headers(), throw: false });
       if (res.status < 200 || res.status >= 300) return [];
-      const data = res.json as { data?: Array<{ id?: string }> };
-      return (data.data ?? []).map((m) => m.id ?? "").filter(Boolean);
+      return modelIds(res.json);
     } catch (e) {
       console.debug("Claude Companion: failed to list OpenAI-compat models", e);
       return [];

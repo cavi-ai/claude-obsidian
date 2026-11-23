@@ -33,14 +33,15 @@ export function claudeModelItem(ctx: ConnectionItemsContext): SettingGroupItem {
   };
 }
 
-export function cliModelItem(ctx: ConnectionItemsContext, backend: CliBackend, key: "codexModel" | "opencodeModel"): SettingGroupItem {
+export function cliModelItem(ctx: ConnectionItemsContext, backend: CliBackend, key: "codexModel" | "opencodeModel" | "agyModel"): SettingGroupItem {
   const { plugin } = ctx;
   return {
     name: `${backend.label} model`,
     visible: () => !Platform.isMobile && (plugin.settings.chatBackend === backend.id || plugin.settings.settingsShowAdvanced),
     desc: `Choose a model detected by ${backend.label}, keep its default, or enter a custom model ID.`,
     render: (setting) => {
-      const provider = key === "codexModel" ? plugin.router().codexCli : plugin.router().opencodeCli;
+      const r = plugin.router() as Partial<ReturnType<typeof plugin.router>>;
+      const provider = key === "codexModel" ? r.codexCli : key === "agyModel" ? r.agyCli : r.opencodeCli;
       let models: CliModel[] = [];
       let dropdown: DropdownComponent;
       let custom: TextComponent;
@@ -80,7 +81,7 @@ export function cliModelItem(ctx: ConnectionItemsContext, backend: CliBackend, k
           button.setDisabled(true);
           status.setText("Detecting models…");
           try {
-            models = await provider.listModels(refresh);
+            models = provider ? await provider.listModels(refresh) : [];
             fill();
             status.setText(models.length ? `${models.length} models detected.` : "No models detected. Use the CLI default or a custom model ID.");
           } catch (error) {
